@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.MutableStateMap
 import com.marbleng.app.core.*
 import com.marbleng.app.data.AppStore
 import com.marbleng.app.model.*
@@ -469,6 +470,211 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var serverIntelError by mutableStateOf(""); private set
     private val serverIntelGeneration = AtomicLong(0L)
 
+    // MARBLE_SERVER_LOCATION_V192 — the once-per-server location tests and their live answers.
+    //
+    // Keyed by the canonical endpoint (ServerLocationKey), not by profile id: a subscription
+    // refresh renumbers ids but a node's address is the thing that has a location, so the flag
+    // a row earned survives a refresh that renames it. Seeded with the offline label guess
+    // (ServerCountry) and upgraded in the background by the real test; a learned code is the
+    // authoritative answer and is never re-tested (the cache is durable, in the store).
+    val serverLocations: MutableStateMap<String, ServerCountry> = initialServerLocations()
+    var serverLocationScanning by mutableStateOf(false); private set
+    private val locationInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val locationBudget = java.util.concurrent.atomic.AtomicInteger(LOCATION_SESSION_BUDGET)
+
+    /** The location a server row should show: the learned test, else the label guess. */
+    fun serverLocation(profile: ProxyProfile): ServerCountry =
+        serverLocations[ServerLocationKey.of(profile.host, profile.port)]
+            ?: ServerCountry.of(profile.name, profile.host)
+
+    /** How many of the visible library's endpoints have a location answer at all. */
+    fun serverLocationSummary(): Pair<Int, Int> {
+        val visible = libraryProfiles
+        val known = visible.count { p ->
+            val key = ServerLocationKey.of(p.host, p.port)
+            key.isNotBlank() && serverLocations[key]?.isKnown == true
+        }
+        return known to visible.size
+    }
+
+    private fun initialServerLocations(): MutableStateMap<String, ServerCountry> {
+        val learned = runCatching { store.loadServerLocations() }.getOrDefault(emptyMap())
+        val map = mutableStateMapOf<String, ServerCountry>()
+        for (p in profiles) {
+            val key = ServerLocationKey.of(p.host, p.port)
+            if (key.isBlank()) continue
+            val learnedCode = learned[key]?.first
+            map[key] = if (!learnedCode.isNullOrBlank()) {
+                ServerCountry(learnedCode, ServerCountry.nameFor(learnedCode), ServerCountry.flagFor(learnedCode))
+            } else {
+                ServerCountry.of(p.name, p.host)
+            }
+        }
+        return map
+    }
+
+    // MARBLE_SESSION_USAGE_V192 — data used per connection.
+    //
+    // The tunnel carries the user's traffic through this process, so the app's own uid traffic
+    // counter (android.net.TrafficStats) is, to within the app's housekeeping (a few kilobytes
+    // of subscription refresh and location tests), exactly what the session moved. The counter
+    // is sampled at CONNECTED and re-read every two seconds while the session runs; at teardown
+    // the delta becomes one bounded history row and feeds the running total. The anchor is
+    // durable, so a process kill mid-session cannot swallow the accounting.
+    var sessionBytes by mutableStateOf(0L); private set
+    var lastSessionBytes by mutableStateOf(0L); private set
+    var totalUsageBytes by mutableStateOf(runCatching { store.loadTotalUsageBytes() }.getOrDefault(0L)); private set
+    var usageSessions by mutableStateOf(runCatching { store.loadUsageSessions() }.getOrDefault(emptyList())); private set
+    private var usageSessionStartBytes = -1L
+    private var usageSessionProfileId = ""
+    private var usageSessionProfileName = ""
+    private var usageSessionStartAtMs = 0L
+    private var usageSessionFinalized = true
+    private val usageTickHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val usageTickRunnable = object : Runnable {
+        override fun run() {
+            if (state == "CONNECTED" && !usageSessionFinalized) {
+                val now = currentUidTrafficBytes()
+                if (now >= usageSessionStartBytes) sessionBytes = now - usageSessionStartBytes
+                usageTickHandler.postDelayed(this, USAGE_TICK_MS)
+            }
+        }
+    }
+
+    private fun currentUidTrafficBytes(): Long {
+        val uid = runCatching { context.applicationInfo.uid }.getOrNull() ?: return -1L
+        val rx = runCatching { android.net.TrafficStats.getUidRxBytes(uid) }.getOrDefault(-1L)
+        val tx = runCatching { android.net.TrafficStats.getUidTxBytes(uid) }.getOrDefault(-1L)
+        if (rx < 0 || tx < 0) return -1L
+        return rx + tx
+    }
+
+    private fun beginUsageSession(profile: ProxyProfile) {
+        usageSessionStartBytes = currentUidTrafficBytes().takeIf { it >= 0L } ?: 0L
+        usageSessionProfileId = profile.id
+        usageSessionProfileName = profile.name
+        usageSessionStartAtMs = System.currentTimeMillis()
+        usageSessionFinalized = false
+        sessionBytes = 0L
+        runCatching {
+            store.saveSessionAnchor(
+                JSONObject()
+                    .put("profileId", profile.id)
+                    .put("name", profile.name)
+                    .put("startedAt", usageSessionStartAtMs)
+                    .put("startBytes", usageSessionStartBytes)
+            )
+        }
+        usageTickHandler.removeCallbacks(usageTickRunnable)
+        usageTickHandler.postDelayed(usageTickRunnable, USAGE_TICK_MS)
+    }
+
+    private fun finishUsageSession() {
+        usageTickHandler.removeCallbacks(usageTickRunnable)
+        if (usageSessionFinalized) return
+        usageSessionFinalized = true
+        runCatching { store.clearSessionAnchor() }
+        val used = if (usageSessionStartBytes >= 0L) {
+            (currentUidTrafficBytes().takeIf { it >= 0L } ?: usageSessionStartBytes) - usageSessionStartBytes
+        } else 0L
+        recordFinishedUsageSession(
+            UsageSessionRecord(
+                usageSessionProfileId,
+                usageSessionProfileName,
+                usageSessionStartAtMs,
+                System.currentTimeMillis(),
+                used.coerceAtLeast(0L)
+            )
+        )
+    }
+
+    /** Completes a session the previous process did not get to close (kill / package replace). */
+    private fun finishOrphanedUsageSession() {
+        val anchor = runCatching { store.loadSessionAnchor() }.getOrNull() ?: return
+        runCatching { store.clearSessionAnchor() }
+        val startBytes = anchor.optLong("startBytes", 0L)
+        val now = currentUidTrafficBytes()
+        if (now < startBytes) return
+        recordFinishedUsageSession(
+            UsageSessionRecord(
+                anchor.optString("profileId"),
+                anchor.optString("name"),
+                anchor.optLong("startedAt", 0L),
+                System.currentTimeMillis(),
+                (now - startBytes).coerceAtLeast(0L)
+            )
+        )
+    }
+
+    private fun recordFinishedUsageSession(rec: UsageSessionRecord) {
+        if (rec.bytes <= 0L) {
+            // A session that moved no measurable traffic is not worth a row or a total bump.
+            lastSessionBytes = 0L
+            return
+        }
+        lastSessionBytes = rec.bytes
+        totalUsageBytes += rec.bytes
+        usageSessions = (listOf(rec) + usageSessions).take(60)
+        val snapshot = usageSessions
+        val total = totalUsageBytes
+        io.execute {
+            runCatching { store.saveUsageSessions(snapshot) }
+            runCatching { store.saveTotalUsageBytes(total) }
+        }
+    }
+
+    /**
+     * Kicks the one-shot location sweep: every endpoint without a learned answer gets at most
+     * one bounded public lookup this launch (the budget), on the io pool, never on the frame
+     * clock. Safe to call repeatedly — in-flight dedup and the durable cache make it idempotent.
+     */
+    fun ensureServerLocations() {
+        if (!settings.serverLocationAutoDetect) {
+            serverLocationScanning = false
+            return
+        }
+        io.execute {
+            if (!settings.serverLocationAutoDetect) return@execute
+            val candidates = profiles.filter { p ->
+                val key = ServerLocationKey.of(p.host, p.port)
+                key.isNotBlank() &&
+                    runCatching { store.loadServerLocations() }.getOrDefault(emptyMap())[key] == null
+            }
+            if (candidates.isEmpty()) {
+                serverLocationScanning = false
+                return@execute
+            }
+            serverLocationScanning = true
+            var answered = 0
+            for (p in candidates) {
+                if (!settings.serverLocationAutoDetect) break
+                if (locationBudget.get() <= 0) break
+                val key = ServerLocationKey.of(p.host, p.port)
+                if (!locationInFlight.add(key)) continue
+                try {
+                    val offline = ServerCountry.of(p.name, p.host)
+                    // A label that already names a country is a provider statement; the test
+                    // runs in the background but is not urgent, so unknowns go first.
+                    if (offline.isKnown && answered < candidates.size / 2) continue
+                    if (locationBudget.decrementAndGet() < 0) continue
+                    val code = ServerLocationResolver.resolveCountry(p.host, p.port)
+                    if (code.isBlank()) continue
+                    answered += 1
+                    runCatching { store.saveServerLocation(key, code) }
+                    postToMain {
+                        serverLocations[key] =
+                            ServerCountry(code, ServerCountry.nameFor(code), ServerCountry.flagFor(code))
+                    }
+                } finally {
+                    locationInFlight.remove(key)
+                }
+            }
+            if (locationBudget.get() <= 0) {
+                postToMain { serverLocationScanning = false }
+            }
+        }
+    }
+
     /** Latest stable GitHub Release that is newer than this APK. */
     var availableUpdate by mutableStateOf<AppUpdateInfo?>(null); private set
 
@@ -763,6 +969,12 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         // MARBLE_SINGBOX_LINK_AUTHORITY_V156 — every stored node is checked against the share
         // link it came from, so both engines run a config that is faithful to that link.
         reconcileProfilesWithTheirLinks()
+        // MARBLE_SERVER_LOCATION_V192 — the first location sweep rides the background init:
+        // every server without a learned answer gets its one test while the app settles.
+        ensureServerLocations()
+        // MARBLE_SESSION_USAGE_V192 — a process death mid-session leaves a durable anchor;
+        // finish that accounting once at launch so the counter never loses a session to a kill.
+        finishOrphanedUsageSession()
         RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
         diagnostics.event("APP", "repository-init", "debugMode" to settings.debugModeEnabled)
         notifier.ensureChannels()
@@ -1443,6 +1655,10 @@ fun resetTelemetry() {
         postToMain {
             state = s
             stateDetail = d
+            // MARBLE_SESSION_USAGE_V192 — the teardown is the moment a session's usage becomes a
+            // fact: one bounded history row, one running total, and the live counter frozen at
+            // its final value.
+            if (s == "DISCONNECTED") finishUsageSession()
             if (s != "CONNECTED") {
                 activeProfileId = ""
                 activeProfileSourceId = ""
@@ -2187,6 +2403,8 @@ private fun postToMain(block: () -> Unit) {
                 "source" to sub.id.take(16)
             )
         }
+        // MARBLE_SERVER_LOCATION_V192 — a refresh may bring endpoints no one has tested yet.
+        ensureServerLocations()
         return incoming.size
     }
 
@@ -2353,6 +2571,7 @@ private fun postToMain(block: () -> Unit) {
             "source" to stored.subscriptionId.take(16)
         )
         message = "${stored.scheme.uppercase()} added • ${stored.name}"
+        ensureServerLocations()
         return true
     }
 
@@ -2413,6 +2632,7 @@ private fun postToMain(block: () -> Unit) {
             "source" to target.id.take(16)
         )
         message = "${hops.size}-hop chain saved • $name"
+        ensureServerLocations()
         return true
     }
     /**
@@ -2490,6 +2710,7 @@ private fun postToMain(block: () -> Unit) {
             }
             store.saveProfiles(profilesSnapshot)
             message = "$addedCount profile${if (addedCount == 1) "" else "s"} imported into ${target.name}"
+            ensureServerLocations()
         }
     }
 
@@ -2673,6 +2894,7 @@ private fun postToMain(block: () -> Unit) {
         )
         store.saveProfiles(profiles)
         message = "Manual copy created • $name"
+        ensureServerLocations()
         return true
     }
 
@@ -3116,6 +3338,8 @@ private fun postToMain(block: () -> Unit) {
             // markConnected for an already-running session must not.
             if (previousState != "CONNECTED" || connectedSinceMs <= 0L) {
                 connectedSinceMs = System.currentTimeMillis()
+                // MARBLE_SESSION_USAGE_V192 — the session's byte clock starts with the session.
+                beginUsageSession(p)
                 connectionPingMs = 0
                 connectionPingState = ConnectionPingState.IDLE
                 connectionPingFailure = ""
@@ -4534,5 +4758,16 @@ private fun postToMain(block: () -> Unit) {
          * service can never freeze the connect button in its closing colour.
          */
         const val DISCONNECT_WATCHDOG_MS = 6_000L
+
+        /**
+         * MARBLE_SERVER_LOCATION_V192 — ceiling on the one-shot location tests per launch. A
+         * subscription of any size gets its unknowns verified; the remainder simply waits for
+         * the next launch. One bounded request per endpoint, once per install (the durable
+         * cache), is the whole radio cost.
+         */
+        const val LOCATION_SESSION_BUDGET = 48
+
+        /** MARBLE_SESSION_USAGE_V192 — how often the live session counter re-samples. */
+        const val USAGE_TICK_MS = 2_000L
     }
 }

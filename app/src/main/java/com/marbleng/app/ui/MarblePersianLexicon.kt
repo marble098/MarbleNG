@@ -1282,6 +1282,14 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Down" to "دریافت",
     "Up" to "ارسال",
     "Used" to "مصرف",
+    // MARBLE_SESSION_USAGE_V192 — the per-connection data usage: the Home status card's
+    // live/last-session cells and the connection detail page's usage section.
+    "Data" to "حجم",
+    "Data usage" to "حجم مصرفی",
+    "Total" to "مجموع",
+    "Sessions" to "اتصال‌ها",
+    "Last session" to "آخرین اتصال",
+    "Current session" to "اتصال جاری",
     "Ping this source" to "پینگ این منبع",
     "Rank this source" to "رتبه‌بندی این منبع",
     "Refresh this source" to "به‌روزرسانی این منبع",
@@ -1329,6 +1337,8 @@ private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     Regex("""^SAVE (\d+)-HOP CHAIN$""") to { m -> "ذخیره زنجیره ${m.groupValues[1]} گامه" },
     Regex("""^(\d+) ms$""") to { m -> "${m.groupValues[1]} میلی‌ثانیه" },
     Regex("""^(\d+) sec$""") to { m -> "${m.groupValues[1]} ثانیه" },
+    // MARBLE_SESSION_USAGE_V192 — session durations in the detail page's usage section.
+    Regex("""^(\d+) min$""") to { m -> "${m.groupValues[1]} دقیقه" },
     Regex("""^(\d+)m ago$""") to { m -> "${m.groupValues[1]} دقیقه پیش" },
     Regex("""^(\d+)h ago$""") to { m -> "${m.groupValues[1]} ساعت پیش" },
     Regex("""^(\d+)d ago$""") to { m -> "${m.groupValues[1]} روز پیش" },

@@ -136,6 +136,86 @@ class AppStore(context: Context) {
         saveArray("benchmarks", kept)
     }
 
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    // MARBLE_SERVER_LOCATION_V192 — the once-per-endpoint location tests, across restarts.
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    //
+    // A location test costs a handful of kilobytes of the radio exactly once per server. The
+    // table below is the durable half of that contract: key (host:port, canonical form from
+    // ServerLocationKey) → ISO code + the moment it was learned. A failure is never written —
+    // a lookup that could not be answered today may answer tomorrow, so only positive results
+    // are remembered and the retry happens naturally on the next app launch.
+
+    /** How many learned locations are remembered at most, newest first. */
+    val serverLocationMemoryLimit: Int get() = 1024
+
+    /** Learned locations: endpoint key → (ISO alpha-2 code, learned-at epoch millis). */
+    fun loadServerLocations(): Map<String, Pair<String, Long>> {
+        val out = mutableMapOf<String, Pair<String, Long>>()
+        val root = runCatching { JSONObject(prefs.getString("serverLocations", "{}") ?: "{}") }
+            .getOrNull() ?: return out
+        for (key in root.keys()) {
+            val entry = runCatching { root.getJSONObject(key) }.getOrNull() ?: continue
+            val code = entry.optString("code").uppercase()
+            if (code.length == 2 && code.all { it in 'A'..'Z' }) {
+                out[key] = code to entry.optLong("at")
+            }
+        }
+        return out
+    }
+
+    /** Merges one learned location; the table is bounded and the oldest entries age out. */
+    fun saveServerLocation(key: String, code: String) {
+        if (key.isBlank() || code.length != 2) return
+        val all = loadServerLocations().toMutableMap()
+        all[key] = code.uppercase() to System.currentTimeMillis()
+        val kept = all.entries
+            .sortedByDescending { it.value.second }
+            .take(serverLocationMemoryLimit)
+            .associate { it.key to it.value }
+        val out = JSONObject()
+        kept.forEach { (k, v) -> out.put(k, JSONObject().put("code", v.first).put("at", v.second)) }
+        prefs.edit().putString("serverLocations", out.toString()).apply()
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    // MARBLE_SESSION_USAGE_V192 — data used per connection, across restarts.
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    //
+    // The live counter of a session is a memory fact; these rows are the durable half: what
+    // each past connection carried, plus the running total. The history is bounded the same way
+    // the remembered pings are — a VPN's identity is its routes, and the newest sessions are
+    // the ones the user reads.
+
+    /** How many finished sessions are remembered at most, newest first. */
+    val usageSessionMemoryLimit: Int get() = 60
+
+    fun loadUsageSessions(): List<UsageSessionRecord> =
+        parseArray("usageSessions") { UsageSessionRecord.fromJson(it) }
+            .sortedByDescending { it.endedAtMs }
+            .take(usageSessionMemoryLimit)
+
+    fun saveUsageSessions(v: List<UsageSessionRecord>) =
+        saveArray("usageSessions", v.take(usageSessionMemoryLimit).map { it.toJson() })
+
+    fun loadTotalUsageBytes(): Long = prefs.getLong("totalUsageBytes", 0L).coerceAtLeast(0L)
+
+    fun saveTotalUsageBytes(bytes: Long) =
+        prefs.edit().putLong("totalUsageBytes", bytes.coerceAtLeast(0L)).apply()
+
+    /**
+     * The in-flight session's anchor: the byte counter it started from, and the route it runs
+     * on. Persisted at CONNECTED and cleared at teardown, so a process death mid-session cannot
+     * swallow the session's usage — the next launch finishes the accounting from this row.
+     */
+    fun loadSessionAnchor(): JSONObject? =
+        runCatching { JSONObject(prefs.getString("sessionAnchor", "") ?: "") }.getOrNull()
+
+    fun saveSessionAnchor(anchor: JSONObject) =
+        prefs.edit().putString("sessionAnchor", anchor.toString()).apply()
+
+    fun clearSessionAnchor() = prefs.edit().remove("sessionAnchor").apply()
+
     // MARBLE_EXACT_LAST_PROFILE_V38
     fun lastProfileId(): String = prefs.getString("lastProfileId", "") ?: ""
     fun lastProfileSourceId(): String = prefs.getString("lastProfileSourceId", "") ?: ""
@@ -380,6 +460,9 @@ class AppStore(context: Context) {
         homeSpeedWidgetEnabled = prefs.getBoolean("homeSpeedWidgetEnabled", false),
         autoConnectBestAfterScan = prefs.getBoolean("autoConnectBestAfterScan", false),
         serverIntelEnabled = prefs.getBoolean("serverIntelEnabled", true),
+        // MARBLE_SERVER_LOCATION_V192 / MARBLE_SESSION_USAGE_V192
+        serverLocationAutoDetect = prefs.getBoolean("serverLocationAutoDetect", true),
+        homeShowDataUsage = prefs.getBoolean("homeShowDataUsage", false),
 
         smartNotificationsEnabled = prefs.getBoolean("smartNotificationsEnabled", true),
         notifyConnectionEvents = prefs.getBoolean("notifyConnectionEvents", false),
@@ -623,6 +706,9 @@ class AppStore(context: Context) {
         .putBoolean("homeSpeedWidgetEnabled", s.homeSpeedWidgetEnabled)
         .putBoolean("autoConnectBestAfterScan", s.autoConnectBestAfterScan)
         .putBoolean("serverIntelEnabled", s.serverIntelEnabled)
+        // MARBLE_SERVER_LOCATION_V192 / MARBLE_SESSION_USAGE_V192
+        .putBoolean("serverLocationAutoDetect", s.serverLocationAutoDetect)
+        .putBoolean("homeShowDataUsage", s.homeShowDataUsage)
 
         .putBoolean("smartNotificationsEnabled", s.smartNotificationsEnabled)
         .putBoolean("notifyConnectionEvents", s.notifyConnectionEvents)

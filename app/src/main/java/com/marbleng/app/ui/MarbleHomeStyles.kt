@@ -180,7 +180,15 @@ internal data class HomeEvidence(
     // MARBLE_IRAN_AWARE_PING_UI — Layer 0/2 signals: the capsule's ⚠️ and the sparkline's
     // injection segments consume them.
     val injectedResetSuspected: Boolean = false,
-    val stabilityClass: String = ""
+    val stabilityClass: String = "",
+    // MARBLE_SESSION_USAGE_V192 — the data this connection has moved (live) and the one before
+    // it finished with, plus the display choice that gates both readouts.
+    val sessionBytes: Long = 0L,
+    val lastSessionBytes: Long = 0L,
+    val showDataUsage: Boolean = false,
+    // MARBLE_SERVER_LOCATION_V192 — the ISO code the status card's flag circle should draw:
+    // the live server-intel geo, else the repository's once-tested/label-resolved location.
+    val flagCode: String = ""
 )
 
 internal fun buildHomeEvidence(
@@ -219,8 +227,34 @@ internal fun buildHomeEvidence(
         upBps = if (connected) repo.liveUpBps else 0L,
         showSpeedWidget = repo.settings.homeSpeedWidgetEnabled,
         injectedResetSuspected = repo.homePingInjectedReset,
-        stabilityClass = repo.homePingStabilityClass
+        stabilityClass = repo.homePingStabilityClass,
+        // MARBLE_SESSION_USAGE_V192 — the live counter only means something while the session
+        // runs; the last one stays readable afterwards for the "last session" chip.
+        sessionBytes = if (repo.state == "CONNECTED") repo.sessionBytes else 0L,
+        lastSessionBytes = repo.lastSessionBytes,
+        showDataUsage = repo.settings.homeShowDataUsage,
+        // MARBLE_SERVER_LOCATION_V192 — the flag the status circle draws: the live intel geo
+        // wins, then the once-tested location, then whatever the label itself says.
+        flagCode = info?.countryCode?.takeIf { it.isNotBlank() }
+            ?: (profile?.let { repo.serverLocation(it).code }.orEmpty())
+            .ifBlank { leadingFlagCodeOf(profile?.name.orEmpty()) }
     )
+}
+
+/** The ISO code a leading flag emoji in a node name encodes, or blank when there is none. */
+private fun leadingFlagCodeOf(name: String): String {
+    val points = name.trim().codePoints().toArray()
+    val base = 0x1F1E6
+    for (i in 0 until points.size - 1) {
+        val a = points[i]
+        val b = points[i + 1]
+        if (a !in base..base + 25) continue
+        if (b !in base..base + 25) continue
+        val c1 = ('A' + (a - base)).toChar()
+        val c2 = ('A' + (b - base)).toChar()
+        return c1.toString() + c2.toString()
+    }
+    return ""
 }
 
 /** Actions the evidence block can trigger. Identical in every style. */
@@ -1239,6 +1273,8 @@ internal fun loopFade(t: Float): Float = sin((t.coerceIn(0f, 1f)) * PI.toFloat()
 internal enum class HomeGlyph {
     POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY, PLUS, BOLT, PASTE, QR, INFO,
     DOWNLOAD, UPLOAD,
+    /** MARBLE_SESSION_USAGE_V192 — a storage cylinder: the data a session has moved. */
+    DATA,
 
     /**
      * MARBLE_PING_CANCEL_V156 — a filled rounded square: the universal stop. It is the glyph the
@@ -1410,6 +1446,26 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
                     cornerRadius = CornerRadius(w * .12f, h * .12f)
                 )
             }
+            HomeGlyph.DATA -> {
+                // A storage cylinder: top ellipse + two walls + a lower arc.
+                drawOval(
+                    color = color,
+                    topLeft = Offset(w * .22f, h * .18f),
+                    size = Size(w * .56f, h * .22f),
+                    style = line
+                )
+                drawLine(color, Offset(w * .22f, h * .29f), Offset(w * .22f, h * .71f), stroke, StrokeCap.Round)
+                drawLine(color, Offset(w * .78f, h * .29f), Offset(w * .78f, h * .71f), stroke, StrokeCap.Round)
+                drawArc(
+                    color = color,
+                    startAngle = 0f,
+                    sweepAngle = 180f,
+                    useCenter = false,
+                    topLeft = Offset(w * .22f, h * .59f),
+                    size = Size(w * .56f, h * .22f),
+                    style = line
+                )
+            }
         }
     }
 }
@@ -1545,8 +1601,28 @@ internal fun HomeSessionStats(
                 Text(Tr.now.connectionPing, color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall)
                 HomeStatValueText(ping, pingTone, sizeScale = 1.1f)
             }
+            // MARBLE_SESSION_USAGE_V192 — the data the session moved joins the strip as its own
+            // quiet cell, only when the user opted in: live while connected, the last session's
+            // total afterwards.
+            if (evidence.showDataUsage) {
+                val dataBytes = if (evidence.connected) evidence.sessionBytes else evidence.lastSessionBytes
+                Box(Modifier.width(1.dp).height(24.dp).background(homeCloudDivider()))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(trx("Data"), color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall)
+                    HomeStatValueText(homeCompactBytes(dataBytes), Aether.CyanBright, sizeScale = 1.1f)
+                }
+            }
         }
     }
+}
+
+/** MARBLE_SESSION_USAGE_V192 — a byte total as the quietest human number that still is one. */
+private fun homeCompactBytes(bytes: Long): String = when {
+    bytes <= 0L -> "0 B"
+    bytes >= 1024L * 1024L * 1024L -> String.format(Locale.US, "%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
+    bytes >= 1024L * 1024L -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
+    bytes >= 1024L -> String.format(Locale.US, "%.0f KB", bytes / 1024.0)
+    else -> "${bytes} B"
 }
 
 
@@ -1692,6 +1768,49 @@ internal fun IosStatusWideCard(
                         )
                     }
                 }
+                // MARBLE_SESSION_USAGE_V192 — the twin of the uptime chip for the disconnected
+                // state: what the previous connection moved. The uptime leaves with the session,
+                // the usage stays as the fact that replaces it — same slot, same quiet tone.
+                AnimatedVisibility(
+                    visible = !evidence.connected &&
+                        !evidence.connecting &&
+                        evidence.showDataUsage &&
+                        evidence.lastSessionBytes > 0L,
+                    enter = fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat),
+                    exit = fadeOut(
+                        tween(
+                            durationMillis = MarbleExpressiveMotion.Short4,
+                            easing = MarbleExpressiveMotion.EmphasizedAccelerate
+                        )
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Aether.CyanBright.copy(alpha = .10f))
+                            .border(1.dp, Aether.CyanBright.copy(alpha = .22f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        HomeGlyphIcon(HomeGlyph.DATA, Aether.CyanBright, Modifier.size(12.dp))
+                        Text(
+                            text = homeCompactBytes(evidence.lastSessionBytes),
+                            color = Aether.CyanBright,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            maxLines = 1
+                        )
+                        Text(
+                            text = trx("last session"),
+                            color = Aether.CyanBright.copy(alpha = .72f),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1
+                        )
+                    }
+                }
             }
 
             HorizontalDivider(color = homeCloudDivider().copy(alpha = .72f))
@@ -1711,19 +1830,16 @@ internal fun IosStatusWideCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(homeCloudInsetFill()),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = evidence.flag.ifBlank { "🌐" },
-                            fontSize = 16.sp,
-                            maxLines = 1
-                        )
-                    }
+                    // MARBLE_SERVER_LOCATION_V192 — the status card's location circle is the real
+                    // national flag, drawn to fill it edge to edge. The emoji is only the
+                    // fallback for a location the art library cannot yet name.
+                    CountryFlagCircle(
+                        code = evidence.flagCode.ifBlank { null },
+                        size = 34.dp,
+                        fallbackText = evidence.flag.ifBlank { "🌐" },
+                        fallbackFill = homeCloudInsetFill(),
+                        fallbackTone = Aether.Ink
+                    )
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(1.dp)
@@ -1805,8 +1921,11 @@ internal fun IosStatusWideCard(
                 }
             }
 
+            // MARBLE_SESSION_USAGE_V192 — the grid shows when EITHER display choice is on:
+            // the live rates (speed widget) and/or the session's data total. Both on, three
+            // equal cells; data only, the single cell still earns the row.
             AnimatedVisibility(
-                visible = evidence.connected && evidence.showSpeedWidget,
+                visible = evidence.connected && (evidence.showSpeedWidget || evidence.showDataUsage),
                 enter = expandVertically(
                     animationSpec = tween(
                         durationMillis = MarbleExpressiveMotion.Medium2,
@@ -1832,21 +1951,37 @@ internal fun IosStatusWideCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    HomeConnectionMetric(
-                        glyph = HomeGlyph.DOWNLOAD,
-                        label = t.download,
-                        value = homeCompactRate(evidence.downBps),
-                        tone = Aether.CyanBright,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Box(Modifier.width(1.dp).height(42.dp).background(homeCloudDivider()))
-                    HomeConnectionMetric(
-                        glyph = HomeGlyph.UPLOAD,
-                        label = t.upload,
-                        value = homeCompactRate(evidence.upBps),
-                        tone = Aether.AmethystBright,
-                        modifier = Modifier.weight(1f)
-                    )
+                    if (evidence.showSpeedWidget) {
+                        HomeConnectionMetric(
+                            glyph = HomeGlyph.DOWNLOAD,
+                            label = t.download,
+                            value = homeCompactRate(evidence.downBps),
+                            tone = Aether.CyanBright,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (evidence.showDataUsage) {
+                            Box(Modifier.width(1.dp).height(42.dp).background(homeCloudDivider()))
+                        }
+                        HomeConnectionMetric(
+                            glyph = HomeGlyph.UPLOAD,
+                            label = t.upload,
+                            value = homeCompactRate(evidence.upBps),
+                            tone = Aether.AmethystBright,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (evidence.showDataUsage) {
+                            Box(Modifier.width(1.dp).height(42.dp).background(homeCloudDivider()))
+                        }
+                    }
+                    if (evidence.showDataUsage) {
+                        HomeConnectionMetric(
+                            glyph = HomeGlyph.DATA,
+                            label = trx("Data"),
+                            value = homeCompactBytes(evidence.sessionBytes),
+                            tone = Aether.Emerald,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }
@@ -2455,12 +2590,19 @@ internal fun IosServerListBox(
                                     enabled = entranceArmed() && rowIndex < 8
                                 )
                         ) {
+                            // MARBLE_SERVER_LOCATION_V192 — the row's location is the
+                            // repository's answer for this endpoint: the once-tested geolocation
+                            // when the app has learned it, the label's own country otherwise.
+                            // It recomposes in place the moment a background test lands.
+                            val location = repo.serverLocation(server)
                             IosServerItemRow(
                                 server = server,
                                 result = benchmarks[server.id],
                                 isSelected = isSelected,
                                 isConnected = isConnected,
                                 testing = repo.probeStateOf(server.id) == ProbeState.TESTING,
+                                countryCode = location.code,
+                                countryName = location.name,
                                 onClick = {
                                     if (repo.probeActive || repo.probeCancelling) {
                                         repo.setRuntimeMessage("Wait until ping finishes before changing server")
@@ -2605,6 +2747,8 @@ private fun IosServerItemRow(
     isSelected: Boolean,
     isConnected: Boolean,
     testing: Boolean,
+    countryCode: String = "",
+    countryName: String = "",
     onClick: () -> Unit
 ) {
     val rowShape = RoundedCornerShape(16.dp)
@@ -2663,10 +2807,15 @@ private fun IosServerItemRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // MARBLE_SERVER_LOCATION_V192 — the row opens with the server's location, not its
+        // protocol: the tested country's flag fills the circle, and the protocol keeps its
+        // identity in the small badge under the name. Without a known location the protocol
+        // glyph returns to the circle, so the row never reads empty.
         ProtocolTile(
             scheme = server.scheme,
             size = 38.dp,
             flag = flag,
+            flagCode = countryCode,
             stateTone = when {
                 isConnected -> Aether.Emerald
                 isSelected -> HomeCloud.Accent
@@ -2692,6 +2841,23 @@ private fun IosServerItemRow(
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 ProtocolBadge(scheme = server.scheme)
+                // MARBLE_SERVER_LOCATION_V192 — the tested location reads beside the badge: the
+                // circle shows the flag, the line says the country, and the endpoint follows.
+                if (countryName.isNotBlank() && countryName != "Unknown") {
+                    Text(
+                        text = countryName,
+                        color = Aether.InkMuted.copy(alpha = .85f),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "•",
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1
+                    )
+                }
                 // Tabular figures instead of a monospace face: digits still line up row to row,
                 // but the endpoint no longer spends a full em per dot and colon, so the port
                 // stays visible instead of being ellipsised away on a normal phone.

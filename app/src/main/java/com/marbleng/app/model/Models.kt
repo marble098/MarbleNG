@@ -193,6 +193,38 @@ data class BenchmarkResult(
 
 data class ConnectionRecord(val profileId: String, val name: String, val at: Long, val reason: String)
 
+/**
+ * MARBLE_SESSION_USAGE_V192 — the bytes one connection carried, from its CONNECTED moment to
+ * its teardown. The repository keeps a bounded history of these (newest first) so the Home
+ * status box can answer "this session" and "last session" and the detail page can answer "this
+ * server, all time".
+ */
+data class UsageSessionRecord(
+    val profileId: String,
+    val name: String,
+    val startedAtMs: Long,
+    val endedAtMs: Long,
+    val bytes: Long
+) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("profileId", profileId)
+        put("name", name)
+        put("startedAt", startedAtMs)
+        put("endedAt", endedAtMs)
+        put("bytes", bytes)
+    }
+
+    companion object {
+        fun fromJson(o: JSONObject) = UsageSessionRecord(
+            o.optString("profileId"),
+            o.optString("name"),
+            o.optLong("startedAt"),
+            o.optLong("endedAt"),
+            o.optLong("bytes")
+        )
+    }
+}
+
 enum class BenchMode { RELIABLE, BALANCED, FAST, TURBO, CUSTOM }
 enum class ConnectionMode { FULL_TUN, LOCAL_PROXY }
 enum class RoutingMode { PROXY_ALL, BYPASS_PRIVATE, GEO_DIRECT, CUSTOM }
@@ -1032,6 +1064,23 @@ data class AppSettings(
      * Enabled by default; users can hide it, and only the resolved public server IP is queried.
      */
     val serverIntelEnabled: Boolean = true,
+
+    /**
+     * MARBLE_SERVER_LOCATION_V192 — the app tests each server's location once, automatically
+     * (one bounded public lookup per endpoint, cached for good), and fills the server rows with
+     * the real national flag of the answer instead of a label-guessed emoji. On by default: the
+     * radio cost is at most one tiny request per server per install, and it happens in the
+     * background while the user is reading the list.
+     */
+    val serverLocationAutoDetect: Boolean = true,
+
+    /**
+     * MARBLE_SESSION_USAGE_V192 — show the data used per connection. When on, the Home server
+     * status box carries a live "this session" readout while connected and a "last session"
+     * readout afterwards. Off by default: usage tracking is a display choice, and the counter
+     * still records nothing extra to disk beyond the bounded session history.
+     */
+    val homeShowDataUsage: Boolean = false,
 
     // Optional smart alerts. Foreground-service status is managed separately while connected.
     val smartNotificationsEnabled: Boolean = true,
