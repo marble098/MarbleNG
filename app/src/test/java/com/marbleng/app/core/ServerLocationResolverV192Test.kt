@@ -151,7 +151,10 @@ class ServerLocationResolverV192Test {
         assertEquals("", ServerLocationResolver.resolveCountry("node.example.com", 443, dns, http))
         // A node that only resolves privately is never tested at all.
         val privateDns = LocationDnsSource { listOf("192.168.0.9") }
-        val countingHttp = LocationHttpSource { fail("private address crossed the wire") }
+        val countingHttp = LocationHttpSource {
+            fail("private address crossed the wire")
+            null
+        }
         assertEquals("", ServerLocationResolver.resolveCountry("lan.example.com", 443, privateDns, countingHttp))
     }
 }
