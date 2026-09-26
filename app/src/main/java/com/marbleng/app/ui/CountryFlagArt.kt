@@ -263,9 +263,9 @@ private fun DrawScope.taegeuk(cx: Float, cy: Float, r: Float) {
     drawCircle(Color(F.Crimson), radius = rr, center = c)
     val blue = Color(0xFF0047A0)
     val bluePath = Path().apply {
-        arcTo(Rect(c.x - rr, c.y - rr, c.x + rr, c.y + rr), 0.0, 180.0, forceMoveTo = false)
-        arcTo(Rect(c.x, c.y - small, c.x + small * 2f, c.y + small), 0.0, 180.0, forceMoveTo = false)
-        arcTo(Rect(c.x - small * 2f, c.y - small, c.x, c.y + small), 180.0, -180.0, forceMoveTo = false)
+        arcTo(Rect(c.x - rr, c.y - rr, c.x + rr, c.y + rr), 0f, 180f, forceMoveTo = false)
+        arcTo(Rect(c.x, c.y - small, c.x + small * 2f, c.y + small), 0f, 180f, forceMoveTo = false)
+        arcTo(Rect(c.x - small * 2f, c.y - small, c.x, c.y + small), 180f, -180f, forceMoveTo = false)
         close()
     }
     drawPath(bluePath, blue)
