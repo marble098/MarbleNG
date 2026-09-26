@@ -106,6 +106,7 @@ object ServerLocationResolver {
         if (v4 != null) {
             val a = (v4 shr 24) and 0xFFL
             val b = (v4 shr 16) and 0xFFL
+            val c = (v4 shr 8) and 0xFFL
             return when {
                 // 0.0.0.0/8
                 a == 0L -> false
@@ -121,8 +122,11 @@ object ServerLocationResolver {
                 a == 172L && (b and 0xF0L) == 16L -> false
                 // 192.168.0.0/16
                 a == 192L && b == 168L -> false
-                // 192.0.0.0/24, 192.0.2.0/24 (TEST-NET-1/2)
-                a == 192L && (b == 0L || b == 2L) -> false
+                // 192.0.0.0/24 (This host on this network) and 192.0.2.0/24 (TEST-NET-1),
+                // judged at /24 on the third octet so 192.0.3.0/24 and the real public
+                // space at 192.2.0.0/16 are not swallowed.
+                a == 192L && b == 0L && c == 0L -> false
+                a == 192L && b == 0L && c == 2L -> false
                 else -> true
             }
         }
@@ -132,11 +136,10 @@ object ServerLocationResolver {
             words.all { it == 0L } -> false
             // ::1 — loopback: seven zero words, then one.
             words.dropLast(1).all { it == 0L } && words.last() == 1L -> false
-            // fe80::/10 (link-local) — the masks are built by shifting so the literals stay
-            // inside the signed Long range.
-            (words[0] and (0xFFC0L shl 48)) == (0xFE80L shl 48) -> false
-            // fc00::/7 (unique local, fc00::/8 + fd00::/8)
-            (words[0] and (0xFE00L shl 48)) == (0xFC00L shl 48) -> false
+            // fe80::/10 (link-local): the top ten bits of the first 16-bit word are 1111111010.
+            (words[0] and 0xFFC0L) == 0xFE80L -> false
+            // fc00::/7 (unique local, fc00::/8 + fd00::/8): the top nine bits are 111111100.
+            (words[0] and 0xFE00L) == 0xFC00L -> false
             // ::ffff:a.b.c.d mapped — judge by the mapped IPv4, so a mapped 127.x stays private.
             words[0] == 0L && words[1] == 0L && words[2] == 0L &&
                 words[3] == 0L && words[4] == 0L && words[5] == 0xFFFFL -> {
