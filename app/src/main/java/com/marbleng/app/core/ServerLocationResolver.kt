@@ -80,10 +80,9 @@ object ServerLocationResolver {
     ): String {
         val address = publicAddressOf(host, dns) ?: return ""
         val observations = ENDPOINTS.mapNotNull { builder ->
-            runCatching { http.fetch(builder(address)) }
-                .getOrNull()
-                ?.let { body -> parseLookup(body, address) }
-                .takeIf { it.country.isNotBlank() }
+            val body = runCatching { http.fetch(builder(address)) }.getOrNull()
+            val observation = body?.let { parseLookup(it, address) }
+            if (observation != null && observation.country.isNotBlank()) observation else null
         }
         return voteCountry(observations)
     }
@@ -129,12 +128,15 @@ object ServerLocationResolver {
         }
         val words = toIpv6(literal) ?: return false
         return when {
+            // :: — the unspecified address has no location either.
+            words.all { it == 0L } -> false
             // ::1 — loopback: seven zero words, then one.
             words.dropLast(1).all { it == 0L } && words.last() == 1L -> false
-            // fe80::/10 (link-local)
-            (words[0] and 0xFFC0_0000_0000_0000L) == 0xFE80_0000_0000_0000L -> false
+            // fe80::/10 (link-local) — the masks are built by shifting so the literals stay
+            // inside the signed Long range.
+            (words[0] and (0xFFC0L shl 48)) == (0xFE80L shl 48) -> false
             // fc00::/7 (unique local, fc00::/8 + fd00::/8)
-            (words[0] and 0xFE00_0000_0000_0000L) == 0xFC00_0000_0000_0000L -> false
+            (words[0] and (0xFE00L shl 48)) == (0xFC00L shl 48) -> false
             // ::ffff:a.b.c.d mapped — judge by the mapped IPv4, so a mapped 127.x stays private.
             words[0] == 0L && words[1] == 0L && words[2] == 0L &&
                 words[3] == 0L && words[4] == 0L && words[5] == 0xFFFFL -> {
@@ -223,10 +225,32 @@ object ServerLocationResolver {
             headText = literal
             tailText = ""
         }
-        fun groupWords(text: String): List<Long> =
-            if (text.isEmpty()) emptyList() else text.split(':').mapNotNull { it.toLongOrNull(radix = 16) }
-        val left = groupWords(headText)
-        val right = groupWords(tailText)
+        fun groupWords(text: String): List<Long>? {
+            if (text.isEmpty()) return emptyList()
+            val tokens = text.split(':')
+            val words = ArrayList<Long>(tokens.size)
+            for (token in tokens) {
+                if (token.isEmpty()) return null
+                if (token.contains('.')) {
+                    // The IPv4-mapped tail: a.b.c.d stands for the LAST two 16-bit words, and
+                    // only the last token may take that form.
+                    if (tokens.last() != token) return null
+                    val quad = token.split('.')
+                    if (quad.size != 4) return null
+                    val nums = quad.map { it.toIntOrNull() ?: return null }
+                    if (nums.any { it < 0 || it > 255 }) return null
+                    words.add((nums[0].toLong() shl 8) or nums[1].toLong())
+                    words.add((nums[2].toLong() shl 8) or nums[3].toLong())
+                } else {
+                    val value = token.toLongOrNull(radix = 16) ?: return null
+                    if (value > 0xFFFFL) return null
+                    words.add(value)
+                }
+            }
+            return words
+        }
+        val left = groupWords(headText) ?: return null
+        val right = groupWords(tailText) ?: return null
         // "::" stands for at least one zero group, so the explicit halves hold at most seven
         // words; the uncompressed form needs exactly eight.
         val explicit = left.size + right.size

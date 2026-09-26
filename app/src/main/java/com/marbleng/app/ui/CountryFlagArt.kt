@@ -18,19 +18,26 @@ package com.marbleng.app.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -89,13 +96,13 @@ private fun DrawScope.base(c: Color) {
 }
 
 /** Equal horizontal bands, top to bottom. */
-private fun DrawScope.bandsH(vararg cs: Color) {
+private fun DrawScope.bandsH(cs: List<Color>) {
     val h = size.height / cs.size
     cs.forEachIndexed { i, c -> drawRect(c, Offset(0f, i * h), Size(size.width, h + 0.5f)) }
 }
 
 /** Horizontal bands with custom fractions of the height. */
-private fun DrawScope.bandsH(fracs: List<Float>, vararg cs: Color) {
+private fun DrawScope.bandsH(fracs: List<Float>, cs: List<Color>) {
     require(fracs.size == cs.size)
     var y = 0f
     fracs.forEachIndexed { i, f ->
@@ -105,7 +112,7 @@ private fun DrawScope.bandsH(fracs: List<Float>, vararg cs: Color) {
 }
 
 /** Equal vertical bands, left to right. */
-private fun DrawScope.bandsV(vararg cs: Color) {
+private fun DrawScope.bandsV(cs: List<Color>) {
     val w = size.width / cs.size
     cs.forEachIndexed { i, c -> drawRect(c, Offset(i * w, 0f), Size(w + 0.5f, size.height)) }
 }
@@ -142,7 +149,7 @@ private fun starPath(
     val path = Path()
     for (i in 0 until points * 2) {
         val r = if (i % 2 == 0) outer else inner
-        val a = Math.toRadians(rotationDeg + i * 180f / points).toFloat()
+        val a = Math.toRadians(rotationDeg + i * 180f / points.toDouble()).toFloat()
         val x = cx + r * cos(a)
         val y = cy + r * sin(a)
         if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
@@ -256,9 +263,9 @@ private fun DrawScope.taegeuk(cx: Float, cy: Float, r: Float) {
     drawCircle(Color(F.Crimson), radius = rr, center = c)
     val blue = Color(0xFF0047A0)
     val bluePath = Path().apply {
-        arcTo(Rect(c.x - rr, c.y - rr, c.x + rr, c.y + rr), 0f, 180f, forceMoveTo = false)
-        arcTo(Rect(c.x, c.y - small, c.x + small * 2f, c.y + small), 0f, 180f, forceMoveTo = false)
-        arcTo(Rect(c.x - small * 2f, c.y - small, c.x, c.y + small), 180f, -180f, forceMoveTo = false)
+        arcTo(Rect(c.x - rr, c.y - rr, c.x + rr, c.y + rr), 0.0, 180.0, forceMoveTo = false)
+        arcTo(Rect(c.x, c.y - small, c.x + small * 2f, c.y + small), 0.0, 180.0, forceMoveTo = false)
+        arcTo(Rect(c.x - small * 2f, c.y - small, c.x, c.y + small), 180.0, -180.0, forceMoveTo = false)
         close()
     }
     drawPath(bluePath, blue)
@@ -293,10 +300,10 @@ fun DrawScope.drawCountryFlag(code: String) {
     val b = Color(F.Cobalt)
     when (code.trim().uppercase()) {
         // — Africa —
-        "DZ" -> { bandsV(Color(F.Forest), w); crescent(.48f, .5f, .2f, Color(F.DeepRed), w, .3f); star(.6f, .5f, .065f, 5, .45f, Color(F.DeepRed)) }
+        "DZ" -> { bandsV(listOf(Color(F.Forest), w)); crescent(.48f, .5f, .2f, Color(F.DeepRed), w, .3f); star(.6f, .5f, .065f, 5, .45f, Color(F.DeepRed)) }
         "BD" -> { base(Color(F.Green)); disc(.44f, .5f, .23f, Color(F.Crimson)) }
-        "BJ" -> { bandsV(Color(F.Olive), w, Color(F.Olive)); vBand(0f, .44f, Color(F.Olive)); star(.22f, .5f, .11f, 5, .45f, Color(F.Red)) }
-        "BF" -> { bandsH(Color(F.Crimson), Color(F.Saffron)); disc(.5f, .5f, .13f, g) }
+        "BJ" -> { bandsV(listOf(Color(F.Olive), w, Color(F.Olive))); vBand(0f, .44f, Color(F.Olive)); star(.22f, .5f, .11f, 5, .45f, Color(F.Red)) }
+        "BF" -> { bandsH(listOf(Color(F.Crimson), Color(F.Saffron))); disc(.5f, .5f, .13f, g) }
         "BI" -> {
             base(w)
             drawRect(Color(F.Crimson), Offset(size.width / 2f, 0f), Size(size.width / 2f, size.height))
@@ -305,29 +312,29 @@ fun DrawScope.drawCountryFlag(code: String) {
             drawLine(Color(F.Saffron), Offset(size.width, 0f), Offset(0f, size.height), size.height * .16f)
             disc(.5f, .5f, .17f, Color(F.Saffron))
         }
-        "BW" -> { bandsH(Color(F.Sky), k, w); hBand(.4f, .44f, w); hBand(.56f, .6f, w); hBand(.44f, .56f, k) }
-        "CM" -> { bandsV(g, Color(F.Saffron), Color(F.Crimson)); star(.5f, .5f, .13f, 5, .45f, g) }
-        "CI" -> { bandsV(Color(F.Orange), w, g) }
+        "BW" -> { bandsH(listOf(Color(F.Sky), k, w)); hBand(.4f, .44f, w); hBand(.56f, .6f, w); hBand(.44f, .56f, k) }
+        "CM" -> { bandsV(listOf(g, Color(F.Saffron), Color(F.Crimson))); star(.5f, .5f, .13f, 5, .45f, g) }
+        "CI" -> { bandsV(listOf(Color(F.Orange), w, g)) }
         "CV" -> { base(w); hBand(.22f, .68f, Color(F.Cyan2)); vBand(.66f, 1f, Color(F.Crimson)); hBand(0f, .22f, Color(F.Cyan2)); disc(.33f, .36f, .13f, Color(F.Saffron)); star(.33f, .36f, .09f, 5, .45f, k) }
-        "EG" -> { bandsH(r, w, k); disc(.5f, .5f, .12f, Color(F.Gold)) }
-        "ET" -> { bandsH(g, Color(F.Saffron), Color(F.Crimson)); disc(.5f, .5f, .19f, Color(F.Navy)); disc(.5f, .5f, .08f, Color(F.Gold)) }
-        "GH" -> { bandsH(Color(F.Crimson), Color(F.Saffron), g); star(.5f, .5f, .15f, 5, .45f, k) }
-        "GN" -> { bandsV(Color(F.Saffron), Color(F.Cyan2), Color(F.Crimson)) }
-        "KE" -> { bandsH(k, Color(F.Crimson), g); hBand(.43f, .455f, w); hBand(.545f, .57f, w); disc(.5f, .5f, .15f, w); disc(.5f, .5f, .1f, Color(F.Crimson)) }
-        "LY" -> { bandsH(Color(F.Crimson), k, g); crescent(.42f, .5f, .13f, w, k, .3f); star(.54f, .5f, .065f, 5, .45f, w) }
+        "EG" -> { bandsH(listOf(r, w, k)); disc(.5f, .5f, .12f, Color(F.Gold)) }
+        "ET" -> { bandsH(listOf(g, Color(F.Saffron), Color(F.Crimson))); disc(.5f, .5f, .19f, Color(F.Navy)); disc(.5f, .5f, .08f, Color(F.Gold)) }
+        "GH" -> { bandsH(listOf(Color(F.Crimson), Color(F.Saffron), g)); star(.5f, .5f, .15f, 5, .45f, k) }
+        "GN" -> { bandsV(listOf(Color(F.Saffron), Color(F.Cyan2), Color(F.Crimson))) }
+        "KE" -> { bandsH(listOf(k, Color(F.Crimson), g)); hBand(.43f, .455f, w); hBand(.545f, .57f, w); disc(.5f, .5f, .15f, w); disc(.5f, .5f, .1f, Color(F.Crimson)) }
+        "LY" -> { bandsH(listOf(Color(F.Crimson), k, g)); crescent(.42f, .5f, .13f, w, k, .3f); star(.54f, .5f, .065f, 5, .45f, w) }
         "MA" -> {
             base(Color(F.Crimson))
             // The green pentagram is an interlaced outline star.
             drawPath(starPath(size.width / 2f, size.height / 2f, .3f * size.width, .382f * .3f * size.width, 5, -90f), Color(F.Teal), style = Stroke(size.width * .05f))
         }
         "MG" -> { base(w); vBand(.5f, 1f, Color(F.Crimson)); hBand(.5f, 1f, g) }
-        "MU" -> { bandsH(Color(F.Crimson), Color(F.Saffron), Color(F.Cyan2), g) }
-        "MW" -> { bandsH(k, g, Color(F.Crimson)); disc(.28f, .3f, .11f, Color(F.Saffron)) }
-        "NG" -> { bandsV(g, w, g) }
-        "NE" -> { bandsV(Color(F.Orange), w, g); star(.5f, .5f, .1f, 5, .45f, Color(F.Orange)) }
-        "RW" -> { bandsH(Color(F.Cyan2), Color(F.Saffron), w); disc(.72f, .27f, .11f, Color(F.Saffron)); star(.72f, .27f, .08f, 5, .45f, Color(F.Cyan2)) }
-        "SN" -> { bandsV(g, Color(F.Saffron), Color(F.Crimson)); star(.5f, .5f, .12f, 5, .45f, g) }
-        "SD" -> { bandsH(Color(F.Crimson), w, k); hoistTriangle(g, .5f) }
+        "MU" -> { bandsH(listOf(Color(F.Crimson), Color(F.Saffron), Color(F.Cyan2), g)) }
+        "MW" -> { bandsH(listOf(k, g, Color(F.Crimson))); disc(.28f, .3f, .11f, Color(F.Saffron)) }
+        "NG" -> { bandsV(listOf(g, w, g)) }
+        "NE" -> { bandsV(listOf(Color(F.Orange), w, g)); star(.5f, .5f, .1f, 5, .45f, Color(F.Orange)) }
+        "RW" -> { bandsH(listOf(Color(F.Cyan2), Color(F.Saffron), w)); disc(.72f, .27f, .11f, Color(F.Saffron)); star(.72f, .27f, .08f, 5, .45f, Color(F.Cyan2)) }
+        "SN" -> { bandsV(listOf(g, Color(F.Saffron), Color(F.Crimson))); star(.5f, .5f, .12f, 5, .45f, g) }
+        "SD" -> { bandsH(listOf(Color(F.Crimson), w, k)); hoistTriangle(g, .5f) }
         // MARBLE_SERVER_LOCATION_V192 — red field, white disc, red crescent opening to the
         // fly and the red five-point star in its middle.
         "TN" -> {
@@ -342,7 +349,7 @@ fun DrawScope.drawCountryFlag(code: String) {
             drawLine(Color(F.Saffron), Offset(-size.width * .1f, size.height * 1.1f), Offset(size.width * 1.1f, -size.height * .1f), size.height * .44f)
             drawLine(k, Offset(-size.width * .1f, size.height * 1.1f), Offset(size.width * 1.1f, -size.height * .1f), size.height * .14f)
         }
-        "UG" -> { bandsH(k, Color(F.Saffron), Color(F.Crimson), k, Color(F.Saffron), Color(F.Crimson)); disc(.5f, .5f, .15f, w); disc(.5f, .5f, .1f, Color(F.Charcoal)) }
+        "UG" -> { bandsH(listOf(k, Color(F.Saffron), Color(F.Crimson), k, Color(F.Saffron), Color(F.Crimson))); disc(.5f, .5f, .15f, w); disc(.5f, .5f, .1f, Color(F.Charcoal)) }
         "ZA" -> {
             base(Color(F.Cyan2))
             drawRect(Color(F.Crimson), Offset(0f, 0f), Size(size.width, size.height * .12f))
@@ -357,25 +364,25 @@ fun DrawScope.drawCountryFlag(code: String) {
             drawPath(Path().apply { moveTo(0f, 0f); lineTo(size.width * .2f, size.height / 2f); lineTo(0f, size.height); close() }, k)
         }
         "ZM" -> { base(g); hBand(.64f, .73f, Color(F.Crimson)); hBand(.75f, .84f, w); hBand(.86f, .95f, k) }
-        "ZW" -> { bandsH(g, Color(F.Saffron), w, Color(F.Crimson), w, Color(F.Saffron), g); hoistTriangle(Color(F.Crimson), .5f); star(.17f, .5f, .08f, 5, .45f, w) }
+        "ZW" -> { bandsH(listOf(g, Color(F.Saffron), w, Color(F.Crimson), w, Color(F.Saffron), g)); hoistTriangle(Color(F.Crimson), .5f); star(.17f, .5f, .08f, 5, .45f, w) }
 
         // — Americas —
         "AR" -> {
-            bandsH(Color(F.Powder), w, Color(F.Powder))
+            bandsH(listOf(Color(F.Powder), w, Color(F.Powder)))
             disc(.5f, .5f, .09f, Color(F.Saffron))
             for (i in 0 until 8) {
-                val a = Math.toRadians(i * 45f).toFloat()
+                val a = Math.toRadians(i * 45f.toDouble()).toFloat()
                 drawLine(Color(F.Saffron), Offset(size.width / 2f, size.height / 2f), Offset(size.width / 2f + cos(a) * .16f * size.width, size.height / 2f + sin(a) * .16f * size.height), size.width * .018f)
             }
         }
-        "BO" -> { bandsH(Color(F.Crimson), Color(F.Saffron), g) }
+        "BO" -> { bandsH(listOf(Color(F.Crimson), Color(F.Saffron), g)) }
         "BR" -> {
             base(g)
             drawPath(Path().apply { moveTo(size.width * .07f, size.height / 2f); lineTo(size.width / 2f, size.height * .13f); lineTo(size.width * .93f, size.height / 2f); lineTo(size.width / 2f, size.height * .87f); close() }, Color(F.Saffron))
             disc(.5f, .5f, .19f, Color(F.Navy))
         }
         "CA" -> {
-            bandsV(Color(F.Crimson), w, Color(F.Crimson))
+            bandsV(listOf(Color(F.Crimson), w, Color(F.Crimson)))
             vBand(0f, .333f, Color(F.Crimson))
             vBand(.667f, 1f, Color(F.Crimson))
             // A nine-point maple leaf, simplified.
@@ -410,9 +417,9 @@ fun DrawScope.drawCountryFlag(code: String) {
             drawRect(Color(F.Crimson), Offset(0f, 0f), Size(size.width * .5f, size.height * .5f))
             star(.25f, .25f, .17f, 5, .45f, w)
         }
-        "CO" -> { bandsH(fracs = listOf(.5f, .25f, .25f), Color(F.Saffron), Color(F.Navy), Color(F.Crimson)) }
-        "CR" -> { bandsH(Color(F.Cobalt), w, Color(F.Cobalt)) }
-        "CU" -> { bandsH(Color(F.Crimson), w, Color(F.Crimson), w, Color(F.Crimson)); hoistTriangle(w, .55f); star(.19f, .5f, .1f, 5, .45f, Color(F.Crimson)) }
+        "CO" -> { bandsH(fracs = listOf(.5f, .25f, .25f), listOf(Color(F.Saffron), Color(F.Navy), Color(F.Crimson))) }
+        "CR" -> { bandsH(listOf(Color(F.Cobalt), w, Color(F.Cobalt))) }
+        "CU" -> { bandsH(listOf(Color(F.Crimson), w, Color(F.Crimson), w, Color(F.Crimson))); hoistTriangle(w, .55f); star(.19f, .5f, .1f, 5, .45f, Color(F.Crimson)) }
         "DO" -> {
             base(w)
             plusCross(Color(F.Cobalt), .34f)
@@ -422,11 +429,11 @@ fun DrawScope.drawCountryFlag(code: String) {
             star(.25f, .75f, .07f, 5, .45f, k)
             star(.75f, .75f, .07f, 5, .45f, k)
         }
-        "EC" -> { bandsH(fracs = listOf(.5f, .25f, .25f), Color(F.Saffron), Color(F.Cobalt), Color(F.Crimson)) }
-        "GT" -> { bandsV(Color(F.Powder), w, Color(F.Powder)) }
-        "HN" -> { bandsH(Color(F.Cobalt), w, Color(F.Cobalt)) }
-        "MX" -> { bandsV(g, w, Color(F.Crimson)); disc(.5f, .5f, .1f, Color(F.Brown)) }
-        "NI" -> { bandsH(Color(F.Cobalt), w, Color(F.Cobalt)) }
+        "EC" -> { bandsH(fracs = listOf(.5f, .25f, .25f), listOf(Color(F.Saffron), Color(F.Cobalt), Color(F.Crimson))) }
+        "GT" -> { bandsV(listOf(Color(F.Powder), w, Color(F.Powder))) }
+        "HN" -> { bandsH(listOf(Color(F.Cobalt), w, Color(F.Cobalt))) }
+        "MX" -> { bandsV(listOf(g, w, Color(F.Crimson))); disc(.5f, .5f, .1f, Color(F.Brown)) }
+        "NI" -> { bandsH(listOf(Color(F.Cobalt), w, Color(F.Cobalt))) }
         "PA" -> {
             base(w)
             vBand(.5f, 1f, Color(F.Crimson))
@@ -436,13 +443,13 @@ fun DrawScope.drawCountryFlag(code: String) {
             star(.25f, .25f, .1f, 5, .45f, Color(F.Cobalt))
             star(.75f, .75f, .1f, 5, .45f, Color(F.Crimson))
         }
-        "PE" -> { bandsV(Color(F.Crimson), w, Color(F.Crimson)) }
-        "PY" -> { bandsH(Color(F.Crimson), w, Color(F.Cyan2)) }
+        "PE" -> { bandsV(listOf(Color(F.Crimson), w, Color(F.Crimson))) }
+        "PY" -> { bandsH(listOf(Color(F.Crimson), w, Color(F.Cyan2))) }
         "UY" -> {
-            bandsH(Color(F.Cobalt), w, Color(F.Cobalt), w, Color(F.Cobalt), w, Color(F.Cobalt), w, Color(F.Cobalt))
+            bandsH(listOf(Color(F.Cobalt), w, Color(F.Cobalt), w, Color(F.Cobalt), w, Color(F.Cobalt), w, Color(F.Cobalt)))
             disc(.27f, .27f, .12f, Color(F.Saffron))
             for (i in 0 until 8) {
-                val a = Math.toRadians(i * 45f).toFloat()
+                val a = Math.toRadians(i * 45f.toDouble()).toFloat()
                 drawLine(Color(F.Saffron), Offset(size.width * .27f, size.height * .27f), Offset(size.width * (.27f + cos(a) * .17f), size.height * (.27f + sin(a) * .17f)), size.width * .015f)
             }
         }
@@ -457,17 +464,17 @@ fun DrawScope.drawCountryFlag(code: String) {
             }
         }
         "VE" -> {
-            bandsH(Color(F.Saffron), Color(F.Cobalt), Color(F.Crimson))
+            bandsH(listOf(Color(F.Saffron), Color(F.Cobalt), Color(F.Crimson)))
             for (i in 0 until 8) {
-                val a = Math.toRadians(200f + i * 160f / 7f).toFloat()
+                val a = Math.toRadians(200f + i * 160f / 7f.toDouble()).toFloat()
                 disc(.5f + cos(a) * .17f, .34f + sin(a) * .09f, .016f, w)
             }
         }
 
         // — Asia —
-        "AE" -> { bandsH(g, w, k); vBand(0f, .25f, Color(F.Crimson)) }
-        "AF" -> { bandsV(k, Color(F.Crimson), g) }
-        "AZ" -> { bandsH(Color(F.Cyan2), Color(F.Crimson), g); crescent(.42f, .5f, .11f, w, Color(F.Crimson), .3f); star(.56f, .5f, .07f, 8, .45f, w) }
+        "AE" -> { bandsH(listOf(g, w, k)); vBand(0f, .25f, Color(F.Crimson)) }
+        "AF" -> { bandsV(listOf(k, Color(F.Crimson), g)) }
+        "AZ" -> { bandsH(listOf(Color(F.Cyan2), Color(F.Crimson), g)); crescent(.42f, .5f, .11f, w, Color(F.Crimson), .3f); star(.56f, .5f, .07f, 8, .45f, w) }
         "BH" -> { base(w); serration(Color(F.Crimson), .34f) }
         "BN" -> {
             base(Color(F.Saffron))
@@ -478,7 +485,7 @@ fun DrawScope.drawCountryFlag(code: String) {
             star(.35f, .38f, .12f, 9, .5f, w)
             disc(.62f, .62f, .09f, w)
         }
-        "BT" -> { bandsH(Color(F.Saffron), Color(F.Orange)); disc(.5f, .5f, .13f, Color(F.Grey)) }
+        "BT" -> { bandsH(listOf(Color(F.Saffron), Color(F.Orange))); disc(.5f, .5f, .13f, Color(F.Grey)) }
         "CN" -> {
             base(Color(F.Crimson))
             star(.18f, .2f, .14f, 5, .45f, Color(F.Saffron))
@@ -492,13 +499,13 @@ fun DrawScope.drawCountryFlag(code: String) {
         "HK" -> {
             base(Color(F.Cyan2))
             for (i in 0 until 5) {
-                val a = Math.toRadians(-90f + i * 72f).toFloat()
+                val a = Math.toRadians(-90f + i * 72f.toDouble()).toFloat()
                 val px = size.width / 2f + cos(a) * .14f * size.width
                 val py = size.height / 2f + sin(a) * .14f * size.height
                 drawPath(starPath(px, py, .11f * size.width, .045f * size.width, 5, -90f + i * 72f + 36f), Color(F.Crimson))
             }
         }
-        "ID" -> { bandsH(Color(F.Crimson), w) }
+        "ID" -> { bandsH(listOf(Color(F.Crimson), w)) }
         "IL" -> {
             base(w)
             hBand(.14f, .26f, Color(F.Cobalt))
@@ -507,28 +514,28 @@ fun DrawScope.drawCountryFlag(code: String) {
             drawPath(starPath(size.width / 2f, size.height * .6f, .13f * size.width, .055f * size.width, 3, 180f), Color(F.Cobalt), style = Stroke(size.width * .028f))
         }
         "IN" -> {
-            bandsH(Color(F.Saffron), w, g)
+            bandsH(listOf(Color(F.Saffron), w, g))
             ring(.5f, .5f, .16f, .028f, Color(F.Navy))
             for (i in 0 until 12) {
-                val a = Math.toRadians(i * 30f).toFloat()
+                val a = Math.toRadians(i * 30f.toDouble()).toFloat()
                 drawLine(Color(F.Navy), Offset(size.width / 2f + cos(a) * .1f * size.width, size.height / 2f + sin(a) * .1f * size.height), Offset(size.width / 2f + cos(a) * .16f * size.width, size.height / 2f + sin(a) * .16f * size.height), size.width * .013f)
             }
         }
-        "IQ" -> { bandsH(Color(F.Crimson), w, k); for (i in 0 until 3) drawRect(g, Offset(size.width * (.38f + i * .09f), size.height * .46f), Size(size.width * .05f, size.height * .08f)) }
+        "IQ" -> { bandsH(listOf(Color(F.Crimson), w, k)); for (i in 0 until 3) drawRect(g, Offset(size.width * (.38f + i * .09f), size.height * .46f), Size(size.width * .05f, size.height * .08f)) }
         "IR" -> {
-            bandsH(fracs = listOf(.32f, .36f, .32f), g, w, Color(F.Crimson))
+            bandsH(fracs = listOf(.32f, .36f, .32f), listOf(g, w, Color(F.Crimson)))
             hBand(.32f, .34f, Color(F.Saffron))
             hBand(.66f, .68f, Color(F.Saffron))
             disc(.5f, .5f, .12f, Color(F.Crimson))
         }
-        "JO" -> { bandsH(k, w, g); hoistTriangle(Color(F.Crimson), .55f); star(.19f, .5f, .08f, 7, .5f, w) }
+        "JO" -> { bandsH(listOf(k, w, g)); hoistTriangle(Color(F.Crimson), .55f); star(.19f, .5f, .08f, 7, .5f, w) }
         "JP" -> { base(w); disc(.5f, .5f, .3f, Color(F.Crimson)) }
         "KG" -> {
             base(Color(F.Crimson))
             disc(.5f, .5f, .2f, Color(F.Saffron))
             disc(.5f, .5f, .1f, Color(F.Crimson))
             for (i in 0 until 8) {
-                val a = Math.toRadians(i * 45f).toFloat()
+                val a = Math.toRadians(i * 45f.toDouble()).toFloat()
                 val p1 = Offset(size.width / 2f + cos(a) * .12f * size.width, size.height / 2f + sin(a) * .12f * size.height)
                 val p2 = Offset(size.width / 2f + cos(a - .22f) * .18f * size.width, size.height / 2f + sin(a - .22f) * .18f * size.height)
                 val p3 = Offset(size.width / 2f + cos(a + .22f) * .18f * size.width, size.height / 2f + sin(a + .22f) * .18f * size.height)
@@ -539,13 +546,13 @@ fun DrawScope.drawCountryFlag(code: String) {
             base(Color(F.Cyan2))
             disc(.5f, .45f, .14f, Color(F.Saffron))
             for (i in 0 until 12) {
-                val a = Math.toRadians(i * 30f).toFloat()
+                val a = Math.toRadians(i * 30f.toDouble()).toFloat()
                 drawLine(Color(F.Saffron), Offset(size.width / 2f, size.height * .45f), Offset(size.width / 2f + cos(a) * .2f * size.width, size.height * .45f + sin(a) * .2f * size.height), size.width * .015f)
             }
             vBand(.08f, .12f, Color(F.Saffron))
         }
         "KH" -> {
-            bandsH(fracs = listOf(.25f, .5f, .25f), Color(F.Cyan2), Color(F.Crimson), Color(F.Cyan2))
+            bandsH(fracs = listOf(.25f, .5f, .25f), listOf(Color(F.Cyan2), Color(F.Crimson), Color(F.Cyan2)))
             // Angkor Wat: a row of five towers.
             val baseY = size.height * .62f
             val cx = size.width / 2f
@@ -564,7 +571,7 @@ fun DrawScope.drawCountryFlag(code: String) {
             trigram(.16f, .84f, k, -90f)
             trigram(.84f, .84f, k, 180f)
         }
-        "LA" -> { bandsH(fracs = listOf(.25f, .5f, .25f), Color(F.Crimson), Color(F.Cobalt), Color(F.Crimson)); disc(.5f, .5f, .13f, w) }
+        "LA" -> { bandsH(fracs = listOf(.25f, .5f, .25f), listOf(Color(F.Crimson), Color(F.Cobalt), Color(F.Crimson))); disc(.5f, .5f, .13f, w) }
         "LK" -> {
             base(w)
             vBand(0f, .4f, w)
@@ -573,9 +580,9 @@ fun DrawScope.drawCountryFlag(code: String) {
             drawRect(Color(F.Purple), Offset(size.width * .4f, 0f), Size(size.width * .6f, size.height))
             drawRect(Color(F.Gold), Offset(size.width * .55f, size.height * .28f), Size(size.width * .28f, size.height * .44f))
         }
-        "MM" -> { bandsH(Color(F.Saffron), g, Color(F.Crimson)); star(.5f, .5f, .17f, 5, .45f, w) }
+        "MM" -> { bandsH(listOf(Color(F.Saffron), g, Color(F.Crimson))); star(.5f, .5f, .17f, 5, .45f, w) }
         "MN" -> {
-            bandsV(Color(F.Crimson), Color(F.Cyan2), Color(F.Crimson))
+            bandsV(listOf(Color(F.Crimson), Color(F.Cyan2), Color(F.Crimson)))
             disc(.19f, .34f, .07f, Color(F.Saffron))
             drawRect(Color(F.Saffron), Offset(size.width * .14f, size.height * .47f), Size(size.width * .1f, size.height * .18f))
         }
@@ -593,7 +600,7 @@ fun DrawScope.drawCountryFlag(code: String) {
             crescent(.32f, .2f, .09f, Color(F.Cobalt), w, .25f)
             star(.6f, .7f, .08f, 5, .45f, Color(F.Cobalt))
         }
-        "OM" -> { bandsH(w, Color(F.Crimson), g); vBand(0f, .3f, Color(F.Crimson)); drawRect(w, Offset(size.width * .08f, size.height * .44f), Size(size.width * .14f, size.height * .12f)) }
+        "OM" -> { bandsH(listOf(w, Color(F.Crimson), g)); vBand(0f, .3f, Color(F.Crimson)); drawRect(w, Offset(size.width * .08f, size.height * .44f), Size(size.width * .14f, size.height * .12f)) }
         "PH" -> {
             base(w)
             hBand(0f, .5f, Color(F.Cobalt))
@@ -617,11 +624,11 @@ fun DrawScope.drawCountryFlag(code: String) {
             drawLine(w, Offset(size.width * .58f, size.height * .42f), Offset(size.width * .95f, size.height * .56f), size.height * .05f)
         }
         "SG" -> {
-            bandsH(Color(F.Crimson), w)
+            bandsH(listOf(Color(F.Crimson), w))
             crescent(.22f, .3f, .13f, w, Color(F.Crimson), .32f)
             for (i in 0 until 5) star(.36f + (i % 3) * .045f, .24f + (i / 3) * .06f, .025f, 5, .45f, w)
         }
-        "TH" -> { bandsH(fracs = listOf(.15f, .15f, .4f, .15f, .15f), Color(F.Crimson), w, Color(F.Navy), w, Color(F.Crimson)) }
+        "TH" -> { bandsH(fracs = listOf(.15f, .15f, .4f, .15f, .15f), listOf(Color(F.Crimson), w, Color(F.Navy), w, Color(F.Crimson))) }
         "TR" -> {
             base(Color(F.Crimson))
             crescent(.4f, .5f, .2f, w, Color(F.Crimson), .3f)
@@ -632,39 +639,39 @@ fun DrawScope.drawCountryFlag(code: String) {
             drawRect(Color(F.Navy), Offset(0f, 0f), Size(size.width * .5f, size.height * .5f))
             disc(.25f, .25f, .12f, w)
             for (i in 0 until 12) {
-                val a = Math.toRadians(i * 30f).toFloat()
+                val a = Math.toRadians(i * 30f.toDouble()).toFloat()
                 drawLine(w, Offset(size.width * .25f + cos(a) * .07f * size.width, size.height * .25f + sin(a) * .07f * size.height), Offset(size.width * .25f + cos(a) * .12f * size.width, size.height * .25f + sin(a) * .12f * size.height), size.width * .018f)
             }
         }
         "UZ" -> {
-            bandsH(Color(F.Cyan2), w, g)
+            bandsH(listOf(Color(F.Cyan2), w, g))
             hBand(.31f, .33f, Color(F.Crimson))
             hBand(.67f, .69f, Color(F.Crimson))
             crescent(.15f, .25f, .09f, w, Color(F.Cyan2), .3f)
             for (i in 0 until 3) for (j in 0 until 3) star(.24f + j * .05f, .12f + i * .05f, .015f, 5, .5f, w)
         }
         "VN" -> { base(Color(F.Crimson)); star(.5f, .5f, .22f, 5, .45f, Color(F.Saffron)) }
-        "YE" -> { bandsH(Color(F.Crimson), w, k) }
-        "SY" -> { bandsH(Color(F.Crimson), w, k); star(.44f, .5f, .09f, 5, .45f, g); star(.56f, .5f, .09f, 5, .45f, g) }
+        "YE" -> { bandsH(listOf(Color(F.Crimson), w, k)) }
+        "SY" -> { bandsH(listOf(Color(F.Crimson), w, k)); star(.44f, .5f, .09f, 5, .45f, g); star(.56f, .5f, .09f, 5, .45f, g) }
 
         // — Europe —
-        "AD" -> { bandsV(Color(F.Cobalt), w, Color(F.Crimson)); disc(.5f, .5f, .13f, Color(F.Saffron)) }
+        "AD" -> { bandsV(listOf(Color(F.Cobalt), w, Color(F.Crimson))); disc(.5f, .5f, .13f, Color(F.Saffron)) }
         "AL" -> { base(Color(F.Crimson)); star(.5f, .5f, .3f, 5, .45f, k) }
         "AM" -> {
-            bandsH(Color(F.Cobalt), Color(F.Crimson), Color(F.Saffron))
+            bandsH(listOf(Color(F.Cobalt), Color(F.Crimson), Color(F.Saffron)))
             drawRect(Color(F.Crimson), Offset(size.width * .1f, size.height * .22f), Size(size.width * .24f, size.height * .12f))
             drawRect(Color(F.Crimson), Offset(size.width * .16f, size.height * .22f), Size(size.width * .12f, size.height * .46f))
         }
-        "AT" -> { bandsH(fracs = listOf(.34f, .32f, .34f), Color(F.Crimson), w, Color(F.Crimson)) }
+        "AT" -> { bandsH(fracs = listOf(.34f, .32f, .34f), listOf(Color(F.Crimson), w, Color(F.Crimson))) }
         "BA" -> {
             base(Color(F.Cobalt))
             drawPath(Path().apply { moveTo(0f, 0f); lineTo(0f, size.height); lineTo(size.width, 0f); close() }, Color(F.Saffron))
             for (i in 0 until 7) star(.14f + i * .055f, .14f + i * .055f, .018f, 5, .5f, w)
         }
-        "BE" -> { bandsV(k, Color(F.Saffron), Color(F.Crimson)) }
-        "BG" -> { bandsH(w, g, Color(F.Crimson)) }
+        "BE" -> { bandsV(listOf(k, Color(F.Saffron), Color(F.Crimson))) }
+        "BG" -> { bandsH(listOf(w, g, Color(F.Crimson))) }
         "BY" -> {
-            bandsH(fracs = listOf(.6f, .4f), g, Color(F.Crimson))
+            bandsH(fracs = listOf(.6f, .4f), listOf(g, Color(F.Crimson)))
             vBand(0f, .09f, w)
             for (i in 0 until 6) drawRect(Color(F.Crimson), Offset(size.width * .02f, (i * 2f / 6f + .1f) * size.height), Size(size.width * .05f, size.height * .06f))
         }
@@ -676,13 +683,13 @@ fun DrawScope.drawCountryFlag(code: String) {
             drawRect(Color(F.Maroon), Offset(size.width * .47f, size.height * .28f), Size(size.width * .06f, size.height * .2f))
             drawRect(Color(F.Maroon), Offset(size.width * .42f, size.height * .36f), Size(size.width * .16f, size.height * .05f))
         }
-        "CZ" -> { bandsH(w, Color(F.Cobalt)); hoistTriangle(Color(F.Cobalt), .5f) }
-        "DE" -> { bandsH(k, Color(F.Crimson), Color(F.Saffron)) }
+        "CZ" -> { bandsH(listOf(w, Color(F.Cobalt))); hoistTriangle(Color(F.Cobalt), .5f) }
+        "DE" -> { bandsH(listOf(k, Color(F.Crimson), Color(F.Saffron))) }
         "DK" -> { base(Color(F.Crimson)); nordicCross(w, .18f, .42f) }
-        "EE" -> { bandsH(Color(F.Cobalt), k, w) }
-        "ES" -> { bandsH(fracs = listOf(.25f, .5f, .25f), Color(F.Crimson), Color(F.Saffron), Color(F.Crimson)) }
+        "EE" -> { bandsH(listOf(Color(F.Cobalt), k, w)) }
+        "ES" -> { bandsH(fracs = listOf(.25f, .5f, .25f), listOf(Color(F.Crimson), Color(F.Saffron), Color(F.Crimson))) }
         "FI" -> { base(w); nordicCross(Color(F.Cobalt), .16f) }
-        "FR" -> { bandsV(Color(F.Cobalt), w, Color(F.Crimson)) }
+        "FR" -> { bandsV(listOf(Color(F.Cobalt), w, Color(F.Crimson))) }
         // MARBLE_SERVER_LOCATION_V192 — the Union Jack: the cobalt field carries the white and
         // red saltires plus St George's cross; the same primitive serves the canton of AU/NZ.
         "GB" -> unionJack(Color(F.Cobalt))
@@ -703,48 +710,48 @@ fun DrawScope.drawCountryFlag(code: String) {
             drawRect(w, Offset(cw / 2f, 0f), Size(cw / 4f, ch))
             drawRect(w, Offset(0f, ch / 2f), Size(cw, ch / 4f))
         }
-        "HR" -> { bandsH(Color(F.Crimson), w, Color(F.Cobalt)); disc(.5f, .5f, .09f, Color(F.Saffron)) }
-        "HU" -> { bandsH(Color(F.Crimson), w, g) }
-        "IE" -> { bandsV(g, w, Color(F.Orange)) }
+        "HR" -> { bandsH(listOf(Color(F.Crimson), w, Color(F.Cobalt))); disc(.5f, .5f, .09f, Color(F.Saffron)) }
+        "HU" -> { bandsH(listOf(Color(F.Crimson), w, g)) }
+        "IE" -> { bandsV(listOf(g, w, Color(F.Orange))) }
         "IS" -> { base(Color(F.Cobalt)); nordicCross(w, .16f); nordicCross(Color(F.Crimson), .08f) }
-        "IT" -> { bandsV(g, w, Color(F.Crimson)) }
+        "IT" -> { bandsV(listOf(g, w, Color(F.Crimson))) }
         "LI" -> {
-            bandsH(Color(F.Cobalt), Color(F.Crimson))
+            bandsH(listOf(Color(F.Cobalt), Color(F.Crimson)))
             drawRect(w, Offset(0f, 0f), Size(size.width * .42f, size.height * .5f))
             drawRect(Color(F.Saffron), Offset(size.width * .15f, size.height * .28f), Size(size.width * .12f, size.height * .12f))
         }
-        "LT" -> { bandsH(Color(F.Saffron), g, Color(F.Crimson)) }
-        "LU" -> { bandsH(Color(F.Crimson), w, Color(F.Powder)) }
-        "LV" -> { bandsH(fracs = listOf(.25f, .5f, .25f), Color(F.Maroon), w, Color(F.Maroon)) }
-        "MC" -> { bandsH(w, Color(F.Crimson)) }
-        "MD" -> { bandsV(Color(F.Cobalt), Color(F.Saffron), Color(F.Crimson)) }
+        "LT" -> { bandsH(listOf(Color(F.Saffron), g, Color(F.Crimson))) }
+        "LU" -> { bandsH(listOf(Color(F.Crimson), w, Color(F.Powder))) }
+        "LV" -> { bandsH(fracs = listOf(.25f, .5f, .25f), listOf(Color(F.Maroon), w, Color(F.Maroon))) }
+        "MC" -> { bandsH(listOf(w, Color(F.Crimson))) }
+        "MD" -> { bandsV(listOf(Color(F.Cobalt), Color(F.Saffron), Color(F.Crimson))) }
         "ME" -> { base(Color(F.Crimson)); ring(.5f, .5f, .4f, .08f, Color(F.Saffron)); disc(.5f, .5f, .12f, Color(F.Saffron)) }
         "MK" -> {
             base(Color(F.Saffron))
             disc(.5f, .5f, .16f, Color(F.Crimson))
             for (i in 0 until 8) {
-                val a = Math.toRadians(i * 45f).toFloat()
+                val a = Math.toRadians(i * 45f.toDouble()).toFloat()
                 drawLine(Color(F.Crimson), Offset(size.width / 2f + cos(a) * .2f * size.width, size.height / 2f + sin(a) * .2f * size.height), Offset(size.width / 2f + cos(a) * .42f * size.width, size.height / 2f + sin(a) * .42f * size.height), size.width * .045f)
             }
         }
-        "MT" -> { bandsV(w, Color(F.Crimson)); drawRect(Color(F.Grey), Offset(0f, 0f), Size(size.width * .3f, size.height * .3f)) }
-        "NL" -> { bandsH(Color(F.Crimson), w, Color(F.Cobalt)) }
+        "MT" -> { bandsV(listOf(w, Color(F.Crimson))); drawRect(Color(F.Grey), Offset(0f, 0f), Size(size.width * .3f, size.height * .3f)) }
+        "NL" -> { bandsH(listOf(Color(F.Crimson), w, Color(F.Cobalt))) }
         "NO" -> { base(Color(F.Crimson)); nordicCross(w, .2f, .4f); nordicCross(Color(F.Cobalt), .12f, .4f) }
-        "PL" -> { bandsH(w, Color(F.Crimson)) }
+        "PL" -> { bandsH(listOf(w, Color(F.Crimson))) }
         "PT" -> {
             vBand(0f, .4f, g)
             vBand(.4f, 1f, Color(F.Crimson))
             disc(.4f, .5f, .14f, Color(F.Saffron))
             ring(.4f, .5f, .1f, .03f, w)
         }
-        "RO" -> { bandsV(Color(F.Cobalt), Color(F.Saffron), Color(F.Crimson)) }
-        "RS" -> { bandsH(Color(F.Cobalt), w, Color(F.Crimson)); disc(.5f, .5f, .09f, Color(F.Saffron)) }
-        "RU" -> { bandsH(w, Color(F.Cobalt), Color(F.Crimson)) }
+        "RO" -> { bandsV(listOf(Color(F.Cobalt), Color(F.Saffron), Color(F.Crimson))) }
+        "RS" -> { bandsH(listOf(Color(F.Cobalt), w, Color(F.Crimson))); disc(.5f, .5f, .09f, Color(F.Saffron)) }
+        "RU" -> { bandsH(listOf(w, Color(F.Cobalt), Color(F.Crimson))) }
         "SE" -> { base(Color(F.Cobalt)); nordicCross(Color(F.Saffron), .16f) }
-        "SI" -> { bandsH(w, Color(F.Crimson), Color(F.Cobalt)) }
-        "SK" -> { bandsH(w, Color(F.Cobalt), Color(F.Crimson)); disc(.25f, .5f, .09f, w) }
-        "SM" -> { bandsH(w, Color(F.Saffron)) }
-        "UA" -> { bandsH(Color(F.Cobalt), Color(F.Saffron)) }
+        "SI" -> { bandsH(listOf(w, Color(F.Crimson), Color(F.Cobalt))) }
+        "SK" -> { bandsH(listOf(w, Color(F.Cobalt), Color(F.Crimson))); disc(.25f, .5f, .09f, w) }
+        "SM" -> { bandsH(listOf(w, Color(F.Saffron))) }
+        "UA" -> { bandsH(listOf(Color(F.Cobalt), Color(F.Saffron))) }
 
         // — Oceania —
         "AU" -> {
@@ -765,22 +772,24 @@ fun DrawScope.drawCountryFlag(code: String) {
         "NZ" -> {
             base(Color(F.Cobalt))
             cantonJack()
-            for (triple in listOf(.78f to .2f to .055f, .68f to .45f to .045f, .78f to .7f to .055f, .88f to .45f to .045f)) {
-                val (cx, cy, s) = triple
+            for ((cx, cy, s) in listOf(
+                Triple(.78f, .2f, .055f), Triple(.68f, .45f, .045f),
+                Triple(.78f, .7f, .055f), Triple(.88f, .45f, .045f)
+            )) {
                 star(cx, cy, s + .018f, 5, .45f, w)
                 star(cx, cy, s, 5, .45f, Color(F.Crimson))
             }
         }
 
         // — Middle East / Central Asia / other —
-        "KW" -> { bandsH(k, w, g); hoistTriangle(Color(F.Crimson), .45f) }
+        "KW" -> { bandsH(listOf(k, w, g)); hoistTriangle(Color(F.Crimson), .45f) }
         "LB" -> {
-            bandsH(fracs = listOf(.25f, .5f, .25f), Color(F.Crimson), w, Color(F.Crimson))
+            bandsH(fracs = listOf(.25f, .5f, .25f), listOf(Color(F.Crimson), w, Color(F.Crimson)))
             drawPath(Path().apply { moveTo(size.width * .5f, size.height * .28f); lineTo(size.width * .62f, size.height * .7f); lineTo(size.width * .38f, size.height * .7f); close() }, g)
         }
-        "PS" -> { bandsH(k, w, g); hoistTriangle(Color(F.Crimson), .55f) }
+        "PS" -> { bandsH(listOf(k, w, g)); hoistTriangle(Color(F.Crimson), .55f) }
         "TJ" -> {
-            bandsH(Color(F.Crimson), w, g)
+            bandsH(listOf(Color(F.Crimson), w, g))
             hBand(.42f, .58f, w)
             hBand(.44f, .56f, Color(F.Crimson))
             disc(.5f, .2f, .05f, Color(F.Saffron))

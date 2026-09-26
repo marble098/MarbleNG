@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 /**
@@ -56,7 +57,7 @@ class ServerLocationResolverV192Test {
         assertFalse(ServerLocationResolver.isPublicAddress("fc00::1"))
         assertFalse(ServerLocationResolver.isPublicAddress("fd12:3456::7"))
         // Malformed literals are not public either — they are not addresses at all.
-        assertFalse(ServerLocationResolver.isPublicAddress("300::1"))
+        assertFalse(ServerLocationResolver.isPublicAddress("1:2:3:4:5:6:7:8:9"))
         assertFalse(ServerLocationResolver.isPublicAddress("::"))
     }
 

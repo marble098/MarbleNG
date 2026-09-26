@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshots.MutableStateMap
 import com.marbleng.app.core.*
 import com.marbleng.app.data.AppStore
 import com.marbleng.app.model.*
@@ -477,7 +476,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // a row earned survives a refresh that renames it. Seeded with the offline label guess
     // (ServerCountry) and upgraded in the background by the real test; a learned code is the
     // authoritative answer and is never re-tested (the cache is durable, in the store).
-    val serverLocations: MutableStateMap<String, ServerCountry> = initialServerLocations()
+    val serverLocations: MutableMap<String, ServerCountry> = initialServerLocations()
     var serverLocationScanning by mutableStateOf(false); private set
     private val locationInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val locationBudget = java.util.concurrent.atomic.AtomicInteger(LOCATION_SESSION_BUDGET)
@@ -497,7 +496,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         return known to visible.size
     }
 
-    private fun initialServerLocations(): MutableStateMap<String, ServerCountry> {
+    private fun initialServerLocations(): MutableMap<String, ServerCountry> {
         val learned = runCatching { store.loadServerLocations() }.getOrDefault(emptyMap())
         val map = mutableStateMapOf<String, ServerCountry>()
         for (p in profiles) {
