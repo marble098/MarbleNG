@@ -22,6 +22,9 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.URL
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /** Per-endpoint identity of a location test: the cache key, stable across renames. */
 object ServerLocationKey {
@@ -60,9 +63,9 @@ object ServerLocationResolver {
      * usable code wins; when several answer, a majority must agree (see [voteCountry]).
      */
     private val ENDPOINTS: List<(String) -> String> = listOf(
-        { ip -> "https://ipwho.is/$ip" },
-        { ip -> "https://api.country.is/$ip" },
-        { ip -> "https://ipapi.co/$ip/json/" }
+        { ip -> "https://ipwho.is/${urlHost(ip)}" },
+        { ip -> "https://api.country.is/${urlHost(ip)}" },
+        { ip -> "https://ipapi.co/${urlHost(ip)}/json/" }
     )
 
     const val TIMEOUT_MS = 3_000
@@ -79,12 +82,30 @@ object ServerLocationResolver {
         timeoutMs: Int = TIMEOUT_MS
     ): String {
         val address = publicAddressOf(host, dns) ?: return ""
-        val observations = ENDPOINTS.mapNotNull { builder ->
-            val body = runCatching { http.fetch(builder(address)) }.getOrNull()
-            val observation = body?.let { parseLookup(it, address) }
-            if (observation != null && observation.country.isNotBlank()) observation else null
+        // Query all providers together: three independent answers should be a fast quorum, not
+        // three serial three-second waits. invokeAll also cancels unfinished requests when the
+        // caller's budget expires, so a refresh can never strand location workers.
+        val pool = Executors.newFixedThreadPool(ENDPOINTS.size)
+        return try {
+            val jobs = ENDPOINTS.map { builder ->
+                Callable {
+                    runCatching { http.fetch(builder(address)) }
+                        .getOrNull()
+                        ?.let { parseLookup(it, address) }
+                        ?.takeIf { it.country.isNotBlank() }
+                }
+            }
+            val observations = pool.invokeAll(
+                jobs,
+                timeoutMs.coerceIn(250, TIMEOUT_MS * ENDPOINTS.size).toLong(),
+                TimeUnit.MILLISECONDS
+            ).mapNotNull { future -> runCatching { future.get() }.getOrNull() }
+            voteCountry(observations)
+        } catch (_: Throwable) {
+            ""
+        } finally {
+            pool.shutdownNow()
         }
-        return voteCountry(observations)
     }
 
     /**
@@ -181,18 +202,25 @@ object ServerLocationResolver {
     }
 
     /**
-     * Majority over independent observations. Two agreeing codes win; a single usable
-     * observation is accepted (the test is one-shot, and one honest answer is still far better
-     * than no flag); contradictory answers resolve to blank rather than a coin flip.
+     * Majority over independent observations. At least two agreeing providers are required before
+     * a code becomes visible; contradictory or one-off answers resolve to blank rather than a
+     * misleading flag.
      */
     fun voteCountry(observations: List<GeoObservation>): String {
-        val usable = observations.map { it.country.uppercase() }.filter { it.length == 2 }
+        val usable = observations.map { it.country.trim().uppercase() }
+            .filter { it.length == 2 && it.all { c -> c in 'A'..'Z' } }
         if (usable.isEmpty()) return ""
         val votes = usable.groupingBy { it }.eachCount()
         val top = votes.entries.maxByOrNull { it.value } ?: return ""
         val rivals = votes.filterValues { it == top.value }.size
-        return if (top.value >= 2 || rivals == 1) top.key else ""
+        // A single provider is not evidence strong enough for a visible national flag. Require
+        // two independent services to agree; ties and one-off answers stay explicitly unknown.
+        return if (top.value >= 2 && rivals == 1) top.key else ""
     }
+
+    /** IPv6 literals must be bracketed when inserted into a URL path/authority. */
+    private fun urlHost(ip: String): String =
+        if (ip.contains(':') && !ip.startsWith('[')) "[$ip]" else ip
 
     /** Spelled-out country names the lookups use ("Turkey") mapped back to alpha-2. */
     private fun nameToCode(name: String): String? {

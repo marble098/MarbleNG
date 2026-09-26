@@ -18,8 +18,8 @@ package com.marbleng.app.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -852,7 +852,6 @@ fun CountryFlagCircle(
     description: String = ""
 ) {
     val supported = code != null && CountryFlagSupported(code)
-    val flagHeight = (size.value * 2f / 3f).dp
     Box(
         modifier = modifier
             .size(size)
@@ -861,9 +860,11 @@ fun CountryFlagCircle(
         contentAlignment = Alignment.Center
     ) {
         if (supported) {
-            // The Canvas is exactly the 3:2 flag rectangle, centred in the circle: the table's
-            // fractions are true flag geometry, and the circular clip does the cover-crop.
-            Canvas(Modifier.fillMaxWidth().height(flagHeight)) {
+            // Keep the table's real 3:2 geometry, but make the rectangle wider than the
+            // viewport.  A centred 3:2 rectangle at 2:3 height would leave transparent caps at
+            // the top and bottom of the circle (the old "contain" bug).  This is a true cover:
+            // the circle is painted edge-to-edge and only the flag's left/right edges are cropped.
+            Canvas(Modifier.requiredWidth(size * 1.5f).height(size)) {
                 drawCountryFlag(code!!)
             }
         } else {

@@ -481,10 +481,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private val locationInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val locationBudget = java.util.concurrent.atomic.AtomicInteger(LOCATION_SESSION_BUDGET)
 
-    /** The location a server row should show: the learned test, else the label guess. */
+    /**
+     * The location a server row should show. Only a persisted multi-provider result is
+     * authoritative; subscription labels and host TLDs are hints, not proof, and must never be
+     * painted as a national flag before the quick location quorum completes.
+     */
     fun serverLocation(profile: ProxyProfile): ServerCountry =
-        serverLocations[ServerLocationKey.of(profile.host, profile.port)]
-            ?: ServerCountry.of(profile.name, profile.host)
+        serverLocations[ServerLocationKey.of(profile.host, profile.port)] ?: ServerCountry.UNKNOWN
 
     /** How many of the visible library's endpoints have a location answer at all. */
     fun serverLocationSummary(): Pair<Int, Int> {
@@ -503,11 +506,16 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             val key = ServerLocationKey.of(p.host, p.port)
             if (key.isBlank()) continue
             val learnedCode = learned[key]?.first
-            map[key] = if (!learnedCode.isNullOrBlank()) {
-                ServerCountry(learnedCode, ServerCountry.nameFor(learnedCode), ServerCountry.flagFor(learnedCode))
-            } else {
-                ServerCountry.of(p.name, p.host)
+            if (!learnedCode.isNullOrBlank()) {
+                map[key] = ServerCountry(
+                    learnedCode,
+                    ServerCountry.nameFor(learnedCode),
+                    ServerCountry.flagFor(learnedCode)
+                )
             }
+            // Do not seed this map from the node name/TLD. Those are useful hints for the
+            // resolver's queue, but presenting them as flags is exactly how a UK endpoint can
+            // end up with a German flag before verification.
         }
         return map
     }
