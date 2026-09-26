@@ -207,7 +207,7 @@ object ServerLocationResolver {
      */
     fun voteCountry(observations: List<GeoObservation>): String {
         val usable = observations.map { it.country.trim().uppercase() }
-            .filter { it.length == 2 && it.all(Char::isLetter) }
+            .filter { it.length == 2 && it.all { c -> c in 'A'..'Z' } }
         if (usable.isEmpty()) return ""
         val votes = usable.groupingBy { it }.eachCount()
         val top = votes.entries.maxByOrNull { it.value } ?: return ""
