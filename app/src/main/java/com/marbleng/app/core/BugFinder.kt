@@ -748,6 +748,11 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         }
 
         val active = profiles.firstOrNull { it.id == activeProfileId }
+        // MARBLE_REALITY_MLKEM_HANDSHAKE_V194 — a REALITY rejection is a handshake-shape fault
+        // (missing hybrid key share, incapable fingerprint, or genuinely wrong keys), never a
+        // dead server or a broken route. Without this check the evidence sat unnamed in the
+        // retained tails while every probe and every reconnect burned another attempt on it.
+        RealityHandshakePolicy.check(RealityHandshakePolicy.scan(coreEvidence), active)?.let { checks += it }
         sections += BugSection("SYSTEM / BUILD", systemSection(settings, diagnosticStatus))
         sections += BugSection(
             "CURRENT CONNECTION",

@@ -279,6 +279,18 @@ object SingBoxConfigBuilder {
         return params.first(*keys.toTypedArray()).isNotBlank()
     }
 
+    /**
+     * MARBLE_REALITY_MLKEM_HANDSHAKE_V194 — true when the share link selects REALITY, explicitly
+     * or by carrying its public key. The spelling mirrors [ProxyParser]'s own inference exactly
+     * (`security`/`sec`, then `pbk`/`publicKey`/`realityPublicKey`), so the candidate set and the
+     * importer can never disagree about which links these are.
+     */
+    internal fun linkCarriesReality(link: String): Boolean {
+        val params = ShareLinkParams.ofRawLink(link)
+        if (params.first("security", "sec").equals("reality", ignoreCase = true)) return true
+        return params.first("pbk", "publicKey", "realityPublicKey").isNotBlank()
+    }
+
     private fun candidateSet(profile: ProxyProfile, settings: AppSettings, forTest: Boolean = false): CandidateSet {
         val root = profile.configJson.takeIf { it.isNotBlank() }
             ?.let { runCatching { JSONObject(it) }.getOrNull() }
@@ -304,16 +316,27 @@ object SingBoxConfigBuilder {
                 .lowercase() in setOf("xhttp", "splithttp")
         } == true
 
-        // The fork parser is excluded for pins (it ignores pcs/vcn) and XHTTP (it loses extra
-        // settings). Both cases can pass schema validation but fail on the actual wire; prefer a
+        // MARBLE_REALITY_MLKEM_HANDSHAKE_V194 — the pinned fork's link parser (`parser/link/*`
+        // at the pinned commit) builds its REALITY options with only enabled/public_key/short_id:
+        // `support_x25519mlkem768` stays false, so the core strips the hybrid share from the
+        // ClientHello and every Xray >= v26.9.8 REALITY server answers with a decoy fallback that
+        // surfaces as `reality verification failed`. Marble's own translation emits the flag (see
+        // [SingBoxTransportTranslator]), so REALITY links skip the parser the same way XHTTP links
+        // already do: a reader that cannot complete the handshake is not a fallback.
+        val realityLink = link?.let { linkCarriesReality(it) } == true
+
+        // The fork parser is excluded for pins (it ignores pcs/vcn), XHTTP (it loses extra
+        // settings) and REALITY (it never emits the hybrid key share current servers require).
+        // All three cases can pass schema validation but fail on the actual wire; prefer a
         // translation of the current link over a cached, potentially stale translation.
-        val parser = if (isPinned || xhttpLink) null else link?.let {
+        val parser = if (isPinned || xhttpLink || realityLink) null else link?.let {
             Candidate(STRATEGY_LINK, listOf(parserOutbound(it, settings)), emptyList())
         }
 
         // Reader 2 — Marble reads the link itself and translates what it read.
         val linkNotes = mutableListOf<String>()
         if (xhttpLink) linkNotes += "XHTTP link uses Marble's lossless extra reader (the pinned core's link parser drops XHTTP options)."
+        if (realityLink) linkNotes += "REALITY link skips the pinned core's link parser (it never emits the X25519MLKEM768 key share Xray >= v26.9.8 servers require); Marble's translation does."
         val fromLink = link
             ?.let { linkJson(it) }
             ?.let { json -> translatedCandidate(STRATEGY_LINK_TRANSLATED, json, settings, linkNotes, forTest) }
