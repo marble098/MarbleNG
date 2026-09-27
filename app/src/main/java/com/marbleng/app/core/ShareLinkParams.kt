@@ -79,13 +79,14 @@ class ShareLinkParams private constructor(private val values: Map<String, String
          * runs when it is empty, so no link can be read two different ways.
          */
         fun ofRawLink(raw: String): ShareLinkParams {
-            val hash = raw.indexOf('#')
-            val queryMark = raw.indexOf('?')
+            val link = ShareLinkNormalizer.normalize(raw)
+            val hash = link.indexOf('#')
+            val queryMark = link.indexOf('?')
             if (queryMark < 0) return EMPTY
             val from = queryMark + 1
-            val end = if (hash > queryMark) hash else raw.length
+            val end = if (hash > queryMark) hash else link.length
             if (from >= end) return EMPTY
-            return of(raw.substring(from, end))
+            return of(link.substring(from, end))
         }
 
         /**

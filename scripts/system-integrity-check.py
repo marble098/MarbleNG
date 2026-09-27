@@ -158,6 +158,11 @@ files = {
     "configSuperset": read("app/src/main/java/com/marbleng/app/core/CoreConfigSuperset.kt"),
     "configRepairs": read("app/src/main/java/com/marbleng/app/core/XrayConfigRepairs.kt"),
     "linkParams": read("app/src/main/java/com/marbleng/app/core/ShareLinkParams.kt"),
+    "linkNormalizer": read("app/src/main/java/com/marbleng/app/core/ShareLinkNormalizer.kt"),
+    "xhttpExtra": read("app/src/main/java/com/marbleng/app/core/XhttpExtra.kt"),
+    "linkWireParity": read("app/src/main/java/com/marbleng/app/core/LinkWireParity.kt"),
+    "vlessIpv6Test": read("app/src/test/java/com/marbleng/app/core/VlessXhttpRealityIpv6Test.kt"),
+    "vlessIpv6Doc": read("docs/VLESS_XHTTP_REALITY_IPV6.md"),
     "blockGuard": read("app/src/main/java/com/marbleng/app/core/ConfigBlockGuard.kt"),
     "preflight": read("app/src/main/java/com/marbleng/app/core/ProfilePreflightValidator.kt"),
     "auditor": read("app/src/main/java/com/marbleng/app/core/ProfileSecurityAuditor.kt"),
@@ -1931,7 +1936,7 @@ check(
     "fun pinnedPeerRefusal(profile: ProxyProfile): String?" in files["singBoxBuilder"]
     and "internal fun linkCarriesPin(link: String): Boolean" in files["singBoxBuilder"]
     and "MARBLE_SINGBOX_PINNED_COMPAT_V164" in files["singBoxBuilder"]
-    and "if (isPinned) null" in files["singBoxBuilder"]
+    and "if (isPinned || xhttpLink) null" in files["singBoxBuilder"]
     and "tls-pinning" in files["singBoxTransport"]
     and "if (engine == CoreEngine.SINGBOX) return SingBoxConfigBuilder.pinnedPeerRefusal(profile)" in files["vpn"]
     and "MARBLE_SINGBOX_PINNED_PEER_V163" in files["pinnedPeerDoc"]
@@ -2081,6 +2086,24 @@ check(
     and "XHTTP_LINK_FIELDS" in files["parser"]
     and '"serviceName", "service"' in files["parser"]
     and "mlkem768x25519plus" in files["parser"],
+)
+
+check(
+    "rendered IPv6 XHTTP REALITY links keep their wire fields on both engines and both ping paths",
+    "ShareLinkNormalizer.normalize(match.value)" in files["parser"]
+    and "ShareLinkNormalizer.normalize(raw)" in files["singBoxBuilder"]
+    and "ShareLinkNormalizer.normalize(raw)" in files["linkParams"]
+    and "XhttpExtra.parse(it)" in files["parser"]
+    and "XhttpExtra.parse(raw)" in files["singBoxTransport"]
+    and "if (isPinned || xhttpLink) null" in files["singBoxBuilder"]
+    and "xhttpLink -> listOfNotNull(fromLink, stored)" in files["singBoxBuilder"]
+    and "LinkWireParity.matches(profile, derived)" in files["repo"]
+    and "AddressFamilyPolicy.excludedIpv6Endpoint(profile.host, settings)" in files["vpn"]
+    and 'failureReason = "ipv6-disabled"' in files["probe"]
+    and "!AddressFamilyPolicy.isLiteralIp(host)" in files["probe"]
+    and "class VlessXhttpRealityIpv6Test" in files["vlessIpv6Test"]
+    and "base64ExtraAndTopLevelTuningArePreservedNotSilentlyOverwritten" in files["vlessIpv6Test"]
+    and "IPv6-only endpoint" in files["vlessIpv6Doc"],
 )
 
 check(

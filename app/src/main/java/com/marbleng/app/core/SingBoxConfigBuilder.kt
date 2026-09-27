@@ -274,15 +274,9 @@ object SingBoxConfigBuilder {
 
     /** True when the share-link query carries any `pcs` / `vcn` style verification key. */
     internal fun linkCarriesPin(link: String): Boolean {
-        val query = link.substringAfter('?', "").substringBefore('#')
-        if (query.isBlank()) return false
-        val keys = (TlsPinningPolicy.PINNED_SHA256_KEYS + TlsPinningPolicy.VERIFY_BY_NAME_KEYS)
-            .map { it.lowercase() }.toSet()
-        return query.split('&').any { pair ->
-            val key = pair.substringBefore('=').trim().lowercase()
-            val value = pair.substringAfter('=', "").trim()
-            key in keys && value.isNotBlank()
-        }
+        val params = ShareLinkParams.ofRawLink(link)
+        val keys = TlsPinningPolicy.PINNED_SHA256_KEYS + TlsPinningPolicy.VERIFY_BY_NAME_KEYS
+        return params.first(*keys.toTypedArray()).isNotBlank()
     }
 
     private fun candidateSet(profile: ProxyProfile, settings: AppSettings, forTest: Boolean = false): CandidateSet {
@@ -301,17 +295,25 @@ object SingBoxConfigBuilder {
         val link = shareLink(profile)
         val isPinned = link?.let { linkCarriesPin(it) } == true ||
             (profile.configJson.isNotBlank() && TlsPinningPolicy.configIsPinned(profile.configJson))
+        // The pinned fork's URI parser only decodes base64url XHTTP `extra` and maps a subset of
+        // its fields. Without a decoded xPaddingBytes it rejects its own outbound at check time;
+        // with one it can silently discard session/obfuscation options. The translated readers
+        // understand both extra formats and keep the complete wire configuration.
+        val xhttpLink = link?.let {
+            ShareLinkParams.ofRawLink(it).first("type", "network", "net")
+                .lowercase() in setOf("xhttp", "splithttp")
+        } == true
 
-        // MARBLE_SINGBOX_PINNED_PEER_V163 / MARBLE_SINGBOX_PINNED_COMPAT_V164 — the parser
-        // candidate is excluded for pinned configs: sing-box's parser silently ignores pcs/vcn,
-        // so the TLS handshake fails with no Internet. The translated path handles pins with
-        // `tls.insecure: true` instead.
-        val parser = if (isPinned) null else link?.let {
+        // The fork parser is excluded for pins (it ignores pcs/vcn) and XHTTP (it loses extra
+        // settings). Both cases can pass schema validation but fail on the actual wire; prefer a
+        // translation of the current link over a cached, potentially stale translation.
+        val parser = if (isPinned || xhttpLink) null else link?.let {
             Candidate(STRATEGY_LINK, listOf(parserOutbound(it, settings)), emptyList())
         }
 
         // Reader 2 — Marble reads the link itself and translates what it read.
         val linkNotes = mutableListOf<String>()
+        if (xhttpLink) linkNotes += "XHTTP link uses Marble's lossless extra reader (the pinned core's link parser drops XHTTP options)."
         val fromLink = link
             ?.let { linkJson(it) }
             ?.let { json -> translatedCandidate(STRATEGY_LINK_TRANSLATED, json, settings, linkNotes, forTest) }
@@ -322,10 +324,10 @@ object SingBoxConfigBuilder {
         val storedResult = root?.let { translatedCandidate(STRATEGY_TRANSLATED, it, settings, storedNotes, forTest) }
         val stored = storedResult?.getOrNull()
 
-        val ordered = if (settings.singBoxPreferParser) {
-            listOfNotNull(parser, fromLink, stored)
-        } else {
-            listOfNotNull(stored, fromLink, parser)
+        val ordered = when {
+            xhttpLink -> listOfNotNull(fromLink, stored) // link extra outranks a stale cached translation
+            settings.singBoxPreferParser -> listOfNotNull(parser, fromLink, stored)
+            else -> listOfNotNull(stored, fromLink, parser)
         }.distinctBy { candidate -> candidate.outbounds.joinToString("|") { it.toString() } }
 
         val refusal = when {
@@ -701,10 +703,11 @@ private fun removeKeys(
      */
     fun shareLink(profile: ProxyProfile): String? {
         val raw = profile.raw.trim()
-        if (raw.isEmpty() || raw.length > 4096 || raw.contains('\n')) return null
+        if (raw.isEmpty() || raw.length > 4096 || raw.contains('\n') || raw.contains('\r')) return null
         val scheme = raw.substringBefore("://", "").lowercase()
         if (scheme !in LINK_SCHEMES) return null
-        return raw
+        // Also fixes links already stored by older versions, not only newly imported links.
+        return ShareLinkNormalizer.normalize(raw)
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

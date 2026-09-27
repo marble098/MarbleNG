@@ -378,12 +378,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         val link = SingBoxConfigBuilder.shareLink(profile) ?: return null
         val derived = ProxyParser.parseInput(link).singleOrNull() ?: return null
         val derivedJson = derived.configJson.takeIf { it.isNotBlank() } ?: return null
-        val agrees = profile.configJson.isNotBlank() &&
-            profile.scheme.equals(derived.scheme, ignoreCase = true) &&
-            profile.host == derived.host &&
-            profile.port == derived.port &&
-            storedEndpoint(profile.configJson) == "${derived.host}:${derived.port}"
-        if (agrees) return null
+        // Host:port alone cannot identify a working node. Older imports of HTML-escaped links
+        // kept the endpoint but lost security=REALITY, SNI and XHTTP extra, so they never got
+        // repaired on startup. The link's full wire shape is the cache's authority.
+        if (LinkWireParity.matches(profile, derived)) return null
         return profile.copy(
             scheme = derived.scheme,
             configJson = derivedJson,
@@ -393,24 +391,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             security = derived.security
         )
     }
-
-    /** The `address:port` a stored Xray JSON dials, or "" when it has no readable proxy outbound. */
-    private fun storedEndpoint(configJson: String): String = runCatching {
-        val outbounds = JSONObject(configJson).optJSONArray("outbounds") ?: return@runCatching ""
-        for (i in 0 until outbounds.length()) {
-            val outbound = outbounds.optJSONObject(i) ?: continue
-            val protocol = outbound.optString("protocol").lowercase()
-            if (protocol in setOf("freedom", "direct", "blackhole", "block", "dns", "loopback")) continue
-            val settings = outbound.optJSONObject("settings") ?: continue
-            val server = settings.optJSONArray("vnext")?.optJSONObject(0)
-                ?: settings.optJSONArray("servers")?.optJSONObject(0)
-                ?: settings
-            val address = server.optString("address").ifBlank { server.optString("server") }
-            val port = server.optInt("port", 0).takeIf { it > 0 } ?: server.optInt("server_port", 0)
-            if (address.isNotBlank() && port > 0) return@runCatching "$address:$port"
-        }
-        ""
-    }.getOrDefault("")
 
     var networkSnapshot by mutableStateOf(intelligence.currentSnapshot()); private set
     var intelligenceStatus by mutableStateOf(IntelligenceStatus()); private set

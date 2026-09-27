@@ -385,6 +385,17 @@ object AddressFamilyPolicy {
         }
     }
 
+    /** A literal IPv6 endpoint cannot fall back to IPv4 if the user selected IPv4-only mode. */
+    const val IPV6_LITERAL_DISABLED =
+        "This server has only an IPv6 address. Enable IPv6 in Settings → DNS and use an IPv6-capable network."
+
+    fun excludedIpv6Endpoint(host: String, settings: AppSettings): Boolean {
+        if (settings.ipv6Enabled && !settings.dnsQueryStrategy.equals("UseIPv4", true)) return false
+        val clean = host.trim().removeSurrounding("[", "]")
+        if (!clean.contains(':')) return false
+        return runCatching { InetAddress.getByName(clean) is Inet6Address }.getOrDefault(false)
+    }
+
     /**
      * Resolve a node hostname into the addresses a prober should try, in the order the tunnel itself
      * will use. Literal addresses never touch a resolver, so a ping can never be blamed on DNS, and
