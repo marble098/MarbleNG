@@ -849,6 +849,7 @@ build_xray() {
                 GOARCH="$goarch" \
                 GOARM="$goarm" \
                 CGO_ENABLED=1 \
+                CGO_LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384" \
                 CC="$cc" \
                 go build \
                     -buildmode=pie \
@@ -870,6 +871,7 @@ build_xray() {
                 GOOS=android \
                 GOARCH="$goarch" \
                 CGO_ENABLED=1 \
+                CGO_LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384" \
                 CC="$cc" \
                 go build \
                     -buildmode=pie \
@@ -2045,6 +2047,7 @@ build_singbox() {
                 GOARCH="$goarch" \
                 GOARM="$goarm" \
                 CGO_ENABLED=1 \
+                CGO_LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384" \
                 CC="$cc" \
                 CXX="$cc" \
                 go build \
@@ -2067,6 +2070,7 @@ build_singbox() {
                 GOOS=android \
                 GOARCH="$goarch" \
                 CGO_ENABLED=1 \
+                CGO_LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384" \
                 CC="$cc" \
                 CXX="$cc" \
                 go build \
@@ -2160,6 +2164,44 @@ ok "sing-box extended built and installed for every ABI"
 # Final native verification
 # ==============================================================================
 
+# MARBLE_APK_INSTALL_CONTRACT_V195
+#
+# Android 15+ devices with 16 KB memory pages refuse to map native libraries
+# whose ELF PT_LOAD segments are 4 KB aligned.  The package installer validates
+# the same property before writing anything to disk, so a misaligned .so does
+# not merely crash at runtime -- it aborts the install itself with
+# "App not installed" (INSTALL_FAILED_INVALID_APK: Failed to extract native
+# libraries, res=-2).  Every library staged into jniLibs must therefore expose
+# PT_LOAD alignment of at least 16384 bytes.  The NDK modules get this from
+# APP_SUPPORT_FLEXIBLE_PAGE_SIZES and -Wl,-z,max-page-size=16384; the Go cores
+# get it from CGO_LDFLAGS passed to every go build above.
+
+assert_elf_page_alignment() {
+    local abi="$1"
+    local lib="$2"
+    local name
+    name="$(basename "$lib")"
+
+    local aligns
+    aligns="$(
+        "$LLVM_READELF" -lW "$lib" 2>/dev/null |
+        awk '$1 == "LOAD" { print $NF }'
+    )"
+
+    if [[ -z "$aligns" ]]; then
+        die "$abi / $name: unable to read ELF PT_LOAD alignment with llvm-readelf"
+    fi
+
+    local align
+    while IFS= read -r align; do
+        [[ -n "$align" ]] || continue
+        local dec=$(( align ))
+        if (( dec < 16384 )); then
+            die "$abi / $name: PT_LOAD alignment $align is below the 16 KB page size required by Android 15+ (16 KB page-size devices reject the APK at install)"
+        fi
+    done <<< "$aligns"
+}
+
 log "Running final native-core verification"
 
 FAILED=0
@@ -2180,6 +2222,26 @@ do
     HEV_FILE="$JNILIBS/$abi/libhev-socks5-tunnel.so"
     BRIDGE_FILE="$JNILIBS/$abi/libmarbleng.so"
     SINGBOX_FILE="$JNILIBS/$abi/libsingbox.so"
+
+
+    # --------------------------------------------------------------------------
+    # 16 KB page alignment (MARBLE_APK_INSTALL_CONTRACT_V195) -- every staged
+    # library, before anything else.  A single 4 KB aligned PT_LOAD segment
+    # makes the release uninstallable on 16 KB page-size devices.
+    # --------------------------------------------------------------------------
+
+    for staged_lib in \
+        "$XRAY_FILE" \
+        "$HEV_FILE" \
+        "$BRIDGE_FILE" \
+        "$SINGBOX_FILE"
+    do
+        if [[ -s "$staged_lib" ]]; then
+            assert_elf_page_alignment "$abi" "$staged_lib"
+        fi
+    done
+
+    echo "[OK] $abi / 16 KB PT_LOAD alignment verified for all staged libraries"
 
 
     # --------------------------------------------------------------------------

@@ -780,6 +780,23 @@ do not rotate the certificate between builds. The workflow verifies the resultin
 with `apksigner` before publishing it. Play Protect reputation still belongs to Google Play and
 cannot be bypassed by app code.
 
+### Installable native payload (16 KB pages + installer extraction)
+
+An APK can be perfectly signed and still be rejected the instant **Install** is
+tapped ("App not installed"). Two properties decide that outcome, and both are
+now pinned and fail-loud:
+
+- every shipped `lib/**/*.so` is ELF `PT_LOAD` aligned to 16 KB (the Go cores
+  are linked with `-Wl,-z,max-page-size=16384` and every staged library is
+  verified before Gradle runs) — Android 15+ 16 KB-page devices reject
+  misaligned libraries at install time;
+- the installer extracts the compressed native entries
+  (`useLegacyPackaging = true`, with the merged manifest normalized so
+  `android:extractNativeLibs` can never flip to `false`) — the Xray and
+  sing-box cores are executables launched from `nativeLibraryDir`.
+
+Details and the full root-cause write-up: `docs/APK_INSTALL_CONTRACT_V195.md`.
+
 ## Local build
 
 The GitHub Actions workflow is the reference build environment.

@@ -203,12 +203,28 @@ android {
     packaging {
 
         jniLibs {
+            // MARBLE_APK_INSTALL_CONTRACT_V195 -- this flag is the installer
+            // extraction contract, not a style choice.  The Xray and sing-box
+            // cores are executables launched from applicationInfo.nativeLibraryDir,
+            // so the installer must extract lib/**/*.so at install time.  This
+            // flag keeps the native entries DEFLATED and instructs AGP to inject
+            // android:extractNativeLibs="true" into the merged manifest.  AGP
+            // 8.3+/9.x defaults extractNativeLibs to "false" for minSdk >= 23,
+            // and with compressed native entries that combination is rejected by
+            // the package installer before the progress UI even appears
+            // ("App not installed"; INSTALL_FAILED_INVALID_APK: Failed to extract
+            // native libraries, res=-2).  The merged manifest is normalized below
+            // as a second line of defense because AGP 9 forbids pinning the
+            // attribute in the source AndroidManifest.xml.
             useLegacyPackaging = true
 
             keepDebugSymbols += setOf(
                 "**/libmarbleng.so",
                 "**/libhev-socks5-tunnel.so",
-                "**/libsingbox.so"
+                "**/libsingbox.so",
+                // libxray.so is a Go executable executed via ProcessBuilder;
+                // AGP stripping must never touch the cores.
+                "**/libxray.so"
             )
         }
 
@@ -239,6 +255,55 @@ tasks.configureEach {
                 "Release signing is not configured. Build the signed artifact in GitHub Actions " +
                     "or provide signing.properties; unsigned APKs are not installable release deliverables."
             )
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// MARBLE_APK_INSTALL_CONTRACT_V195 -- installer extraction contract
+//
+// libxray.so / libsingbox.so are Go executables that the app launches from
+// applicationInfo.nativeLibraryDir, so every release APK must ship with
+// extractNativeLibs="true" (or the attribute absent, which is the same thing).
+// The source manifest cannot carry the attribute (AGP 9 rejects it) and AGP
+// defaults it to "false" for minSdk >= 23, so the merged manifest under
+// build/intermediates is normalized after every manifest-processing task and
+// again before packaging: a silent "false" flip turns an otherwise healthy
+// release into an uninstallable APK ("App not installed";
+// INSTALL_FAILED_INVALID_APK: Failed to extract native libraries, res=-2).
+// -----------------------------------------------------------------------------
+
+tasks.configureEach {
+    val marbleIntermediatesDir = file("build/intermediates")
+    val marbleNormalizeExtractNativeLibs: (java.io.File) -> Unit = { root ->
+        if (root.isDirectory) {
+            var marbleNormalizedCount = 0
+            for (candidate in root.walkTopDown()) {
+                if (candidate.isFile && candidate.name == "AndroidManifest.xml") {
+                    var text = candidate.readText()
+                    if (text.contains("android:extractNativeLibs=\"false\"")) {
+                        text = text.replace(
+                            "android:extractNativeLibs=\"false\"",
+                            "android:extractNativeLibs=\"true\""
+                        )
+                        candidate.writeText(text)
+                        marbleNormalizedCount = marbleNormalizedCount + 1
+                    }
+                }
+            }
+            if (marbleNormalizedCount > 0) {
+                println("::warning::MARBLE-INSTALL-CONTRACT-V195 normalized extractNativeLibs in " + marbleNormalizedCount + " merged manifest(s)")
+            }
+        }
+    }
+    if (name.startsWith("process") && name.contains("Manifest")) {
+        doLast {
+            marbleNormalizeExtractNativeLibs(marbleIntermediatesDir)
+        }
+    }
+    if (name.startsWith("package")) {
+        doFirst {
+            marbleNormalizeExtractNativeLibs(marbleIntermediatesDir)
         }
     }
 }
