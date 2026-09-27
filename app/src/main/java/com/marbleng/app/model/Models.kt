@@ -924,8 +924,19 @@ object RoutingDefaults {
 }
 
 /** How Iran Mode decides whether the anti-filtering engine should run. */
-/** How Iran Mode decides whether the anti-filtering engine should run. */
 enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
+
+/**
+ * User-facing address-family contract. Unlike the legacy pair of booleans this cannot represent
+ * contradictory states, and distinguishes a preference (safe fallback) from a force (fail closed).
+ */
+enum class AddressFamilyMode {
+    SMART,
+    PREFER_IPV4,
+    PREFER_IPV6,
+    FORCE_IPV4,
+    FORCE_IPV6
+}
 
 // MARBLE_SMART_DEFAULTS_V14
 // MARBLE_ULTIMATE_DEBUG_SETTING_V15
@@ -1129,6 +1140,9 @@ data class AppSettings(
     // IPv6 history on this network must be healthy, and an explicit user demand still wins over
     // both. Turning the master switch off is an IPv4-only TUN (no ::/0 capture) so Happy
     // Eyeballs cannot stall on a blackhole; the cores still reject leftover v6 as defence.
+    /** Single source of truth for smart/preferred/forced IPv4 and IPv6 selection. */
+    val addressFamilyMode: AddressFamilyMode = AddressFamilyMode.SMART,
+    /** Compatibility projections retained for tunnel/routing code while it migrates to the mode. */
     val ipv6Enabled: Boolean = true,
     val preferIpv6: Boolean = true,
 

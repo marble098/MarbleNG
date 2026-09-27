@@ -99,6 +99,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -125,6 +126,7 @@ import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.ServerIntelInfo
+import com.marbleng.app.core.AddressFamilyPolicy
 import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.model.BenchmarkResult
@@ -161,6 +163,8 @@ internal data class HomeEvidence(
     val flag: String,
     val countryCode: String,
     val location: String,
+    /** Address family selected for the active server path (never the device's unrelated public IP). */
+    val ipFamily: String,
     val ipLoading: Boolean,
     val ipError: Boolean,
     val connected: Boolean,
@@ -210,6 +214,20 @@ internal fun buildHomeEvidence(
         flag = info?.flag?.takeIf { it.isNotBlank() } ?: fallbackFlag.orEmpty(),
         countryCode = info?.countryCode.orEmpty(),
         location = info?.locationLabel.orEmpty(),
+        ipFamily = if (connected) {
+            info?.ipType?.takeIf { it.equals("IPv4", true) || it.equals("IPv6", true) }
+                ?: profile?.host?.trim()?.removeSurrounding("[", "]")?.let { host ->
+                    when {
+                        host.contains(':') -> "IPv6"
+                        host.matches(Regex("(?:\\d{1,3}\\.){3}\\d{1,3}")) -> "IPv4"
+                        else -> null
+                    }
+                }
+                ?: AddressFamilyPolicy.plan(
+                    settings = repo.settings,
+                    underlayHasIpv6 = repo.networkSnapshot.hasIpv6
+                ).let { if (it.prioritizeIpv6) "IPv6" else "IPv4" }
+        } else "",
         ipLoading = repo.serverIntelLoading,
         ipError = repo.serverIntelError.isNotBlank() && info == null,
         connected = connected,
@@ -1740,6 +1758,29 @@ internal fun IosStatusWideCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                AnimatedVisibility(
+                    visible = evidence.connected && evidence.ipFamily.isNotBlank(),
+                    enter = fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat),
+                    exit = fadeOut(tween(MarbleExpressiveMotion.Short4))
+                ) {
+                    Text(
+                        text = evidence.ipFamily.uppercase(),
+                        color = if (evidence.ipFamily.equals("IPv6", true)) Aether.CyanBright else Aether.AmethystBright,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = .7.sp
+                        ),
+                        modifier = Modifier
+                            .padding(start = 7.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(
+                                (if (evidence.ipFamily.equals("IPv6", true)) Aether.CyanBright else Aether.AmethystBright)
+                                    .copy(alpha = .10f)
+                            )
+                            .padding(horizontal = 5.dp, vertical = 2.dp),
+                        maxLines = 1
+                    )
+                }
                 Spacer(Modifier.weight(1f))
                 // MARBLE_HOME_STATUS_V190 — the uptime exists only while a session does. A clock
                 // beside a bare dash said nothing while disconnected and read as a broken widget;
@@ -1792,18 +1833,19 @@ internal fun IosStatusWideCard(
                 ) {
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Aether.CyanBright.copy(alpha = .10f))
-                            .border(1.dp, Aether.CyanBright.copy(alpha = .22f), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Aether.CyanBright.copy(alpha = .08f))
+                            .border(1.dp, Aether.CyanBright.copy(alpha = .18f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        HomeGlyphIcon(HomeGlyph.DATA, Aether.CyanBright, Modifier.size(12.dp))
+                        HomeGlyphIcon(HomeGlyph.DATA, Aether.CyanBright, Modifier.size(10.dp))
                         Text(
                             text = homeCompactBytes(evidence.lastSessionBytes),
                             color = Aether.CyanBright,
                             style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFeatureSettings = "tnum"
                             ),
@@ -1812,7 +1854,7 @@ internal fun IosStatusWideCard(
                         Text(
                             text = trx("last session"),
                             color = Aether.CyanBright.copy(alpha = .72f),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
                             maxLines = 1
                         )
                     }
@@ -2069,20 +2111,30 @@ private fun compactHomePingValue(evidence: HomeEvidence): String {
  */
 @Composable
 internal fun MarbleWordmark(modifier: Modifier = Modifier) {
-    // The palette tokens are theme-aware composable reads, so they are resolved here and the
-    // brush is only re-created when one of them actually changes.
+    // A slow reversible colour tide keeps the signature dynamic without turning it into another
+    // connection-status readout. Only this tiny text node observes the clock; layout never moves.
+    val transition = rememberInfiniteTransition(label = "marble-wordmark-prism")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(5_600, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "marble-wordmark-prism-phase"
+    )
     val ice = Aether.CyanBright
     val cyan = Aether.Cyan
     val amethyst = Aether.AmethystBright
     val emerald = Aether.Emerald
-    val ramp = remember(ice, cyan, amethyst, emerald) {
-        Brush.linearGradient(
-            0.00f to ice,
-            0.42f to cyan,
-            0.72f to amethyst,
-            1.00f to emerald
-        )
-    }
+    val liveA = lerp(cyan, emerald, phase)
+    val liveB = lerp(amethyst, ice, phase)
+    val ramp = Brush.linearGradient(
+        0.00f to ice,
+        0.36f to liveA,
+        0.70f to liveB,
+        1.00f to emerald
+    )
     // MARBLE_HOME_TOPBAR_CLEAN_V155 — the wordmark grew a step (titleLarge → headlineSmall) so
     // the logo reads as the header's primary element now that the plate behind it is gone.
     Text(

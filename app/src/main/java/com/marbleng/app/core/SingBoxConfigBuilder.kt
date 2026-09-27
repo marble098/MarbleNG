@@ -996,6 +996,38 @@ private fun removeKeys(
                     hySettings?.optString("down")?.toIntOrNull()?.takeIf { it > 0 }
                 ).firstOrNull { it != null }
                 if (down != null) result.put("down_mbps", down)
+
+                // Hysteria's remaining transport controls are not decoration: dropping receive
+                // windows, MTU discovery or port-hopping can make an otherwise valid node fail on
+                // mobile networks. Translate both link-parser spellings and canonical JSON fields.
+                fun firstValue(vararg keys: String): Any? = keys.firstNotNullOfOrNull { key ->
+                    sequenceOf(hySettings, server, xraySettings)
+                        .filterNotNull()
+                        .firstOrNull { it.has(key) }
+                        ?.opt(key)
+                }
+                firstValue("recv_window_conn", "recvWindowConn")?.let { result.put("recv_window_conn", it) }
+                firstValue("recv_window", "recvWindow")?.let { result.put("recv_window", it) }
+                firstValue("disable_mtu_discovery", "disableMtuDiscovery")
+                    ?.let { result.put("disable_mtu_discovery", it) }
+                firstValue("fast_open", "fastOpen")?.let { result.put("fast_open", it) }
+                firstValue("network")?.toString()?.takeIf(String::isNotBlank)?.let { result.put("network", it) }
+                firstValue("ports")?.toString()?.takeIf(String::isNotBlank)?.let { ports ->
+                    val values = JSONArray()
+                    ports.split(',').map(String::trim).filter(String::isNotBlank).forEach { token ->
+                        val number = token.toIntOrNull()
+                        if (number != null) values.put(number)
+                        else values.put(token.replace(Regex("^(\\d+)-(\\d+)$"), "$1:$2"))
+                    }
+                    if (values.length() > 0) result.put("server_ports", values)
+                }
+                firstValue("hop_interval", "hopInterval")?.toString()?.takeIf(String::isNotBlank)
+                    ?.let { value -> result.put("hop_interval", if (value.all(Char::isDigit)) "${value}s" else value) }
+                firstValue("udp_timeout", "udpIdleTimeout")?.toString()?.toIntOrNull()?.takeIf { it > 0 }
+                    ?.let { result.put("udp_timeout", "${it}s") }
+
+                val inlineObfs = hySettings?.optString("obfs").orEmpty()
+                if (version == 1 && inlineObfs.isNotBlank()) result.put("obfs", inlineObfs)
                 server?.optJSONObject("obfs")?.let { obfs ->
                     val obfsPassword = obfs.optString("password").ifBlank { obfs.optString("obfs") }
                     if (obfsPassword.isNotBlank()) {

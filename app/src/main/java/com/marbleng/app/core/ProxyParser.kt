@@ -172,7 +172,13 @@ object ProxyParser {
         val meta = endpointMeta(outbound)
         val scheme = when (protocol) {
             "shadowsocks" -> "ss"
-            "hysteria" -> "hysteria2"
+            // The extended Xray core uses one outbound name for both wire versions. Preserve the
+            // declared version instead of relabelling every pasted Hysteria v1 document as v2.
+            "hysteria" -> if (
+                settings.optInt("version", 0) == 1 ||
+                outbound.optJSONObject("streamSettings")
+                    ?.optJSONObject("hysteriaSettings")?.optInt("version", 0) == 1
+            ) "hysteria" else "hysteria2"
             else -> protocol
         }
         val name = sequenceOf(
@@ -648,8 +654,22 @@ object ProxyParser {
         if (up.isNotBlank()) hySettings.put("up", up)
         val down = qa(u, "down", "down_mbps", "download_mbps", "downmbps")
         if (down.isNotBlank()) hySettings.put("down", down)
-        val idleTimeout = qa(u, "udpIdleTimeout", "udp_idle_timeout").toIntOrNull() ?: 60
+        val idleTimeout = qa(u, "udpIdleTimeout", "udp_idle_timeout", "udpTimeout").toIntOrNull() ?: 60
         hySettings.put("udpIdleTimeout", idleTimeout)
+        // Panels use both camelCase and sing-box snake_case spellings. Keep every wire-relevant
+        // Hysteria2 dial option in the canonical document so translating cores never loses it.
+        qa(u, "mport", "ports", "portHopping", "port_hopping").takeIf(String::isNotBlank)
+            ?.let { hySettings.put("ports", it) }
+        qa(u, "hopInterval", "hop_interval").takeIf(String::isNotBlank)
+            ?.let { hySettings.put("hopInterval", it) }
+        qa(u, "network").takeIf { it in setOf("tcp", "udp") }
+            ?.let { hySettings.put("network", it) }
+        qa(u, "recvWindowConn", "recv_window_conn").toIntOrNull()?.takeIf { it > 0 }
+            ?.let { hySettings.put("recvWindowConn", it) }
+        qa(u, "recvWindow", "recv_window").toIntOrNull()?.takeIf { it > 0 }
+            ?.let { hySettings.put("recvWindow", it) }
+        qa(u, "disableMtuDiscovery", "disable_mtu_discovery").takeIf(String::isNotBlank)
+            ?.let { hySettings.put("disableMtuDiscovery", TlsPinningPolicy.isTruthy(it)) }
 
         val st = JSONObject().put("method", "hysteria").put("security", "tls").put("tlsSettings", tls)
             .put("hysteriaSettings", hySettings)
@@ -696,6 +716,16 @@ object ProxyParser {
                 qa(u, "down", "down_mbps", "download_mbps", "downmbps").toIntOrNull()
                     ?.takeIf { it > 0 }?.let { put("down_mbps", it) }
                 if (obfs.isNotBlank()) put("obfs", obfs)
+                qa(u, "protocol").takeIf { it in setOf("udp", "wechat-video", "faketcp") }
+                    ?.let { put("protocol", it) }
+                qa(u, "recvWindowConn", "recv_window_conn").toIntOrNull()?.takeIf { it > 0 }
+                    ?.let { put("recv_window_conn", it) }
+                qa(u, "recvWindow", "recv_window").toIntOrNull()?.takeIf { it > 0 }
+                    ?.let { put("recv_window", it) }
+                qa(u, "disableMtuDiscovery", "disable_mtu_discovery").takeIf(String::isNotBlank)
+                    ?.let { put("disable_mtu_discovery", TlsPinningPolicy.isTruthy(it)) }
+                qa(u, "fastOpen", "fast_open").takeIf(String::isNotBlank)
+                    ?.let { put("fast_open", TlsPinningPolicy.isTruthy(it)) }
             }
         val st = JSONObject()
             .put("method", "hysteria")

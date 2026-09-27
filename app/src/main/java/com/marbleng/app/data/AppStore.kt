@@ -369,6 +369,7 @@ class AppStore(context: Context) {
             // AddressFamilyPolicy make IPv6-on safe on every link now, so both switches turn on
             // exactly once; a user who turns them off afterwards keeps that choice.
             prefs.edit()
+                .putString("addressFamilyMode", AddressFamilyMode.SMART.name)
                 .putBoolean("ipv6Enabled", true)
                 .putBoolean("preferIpv6", true)
                 .apply()
@@ -396,6 +397,17 @@ class AppStore(context: Context) {
     fun settings(): AppSettings {
         migrateRoutingDefaultsIfNeeded()
         migratePerformanceDefaultsIfNeeded()
+        val familyMode = if (prefs.contains("addressFamilyMode")) {
+            enumValue("addressFamilyMode", AddressFamilyMode.SMART)
+        } else {
+            // Lossless one-time interpretation of installations created before the five-state
+            // selector. A disabled v6 switch was an IPv4 demand; otherwise preserve its ordering.
+            when {
+                !prefs.getBoolean("ipv6Enabled", true) -> AddressFamilyMode.FORCE_IPV4
+                prefs.getBoolean("preferIpv6", true) -> AddressFamilyMode.PREFER_IPV6
+                else -> AddressFamilyMode.PREFER_IPV4
+            }
+        }
         return AppSettings(
         socksPort = prefs.getInt("socksPort", 10808),
         localProxyPort = prefs.getInt("localProxyPort", 10101),
@@ -502,10 +514,12 @@ class AppStore(context: Context) {
         dnsPrimaryDoH = prefs.getString("dnsPrimaryDoH", "https://1.1.1.1/dns-query") ?: "https://1.1.1.1/dns-query",
         dnsSecondaryDoH = prefs.getString("dnsSecondaryDoH", "https://8.8.8.8/dns-query") ?: "https://8.8.8.8/dns-query",
         dnsQueryStrategy = prefs.getString("dnsQueryStrategy", "UseIP") ?: "UseIP",
-        // MARBLE_SMART_FAMILY_V136 — both family switches default ON; AddressFamilyPolicy decides
-        // which family each connection actually uses (underlay gate + per-node measurement).
-        ipv6Enabled = prefs.getBoolean("ipv6Enabled", true),
-        preferIpv6 = prefs.getBoolean("preferIpv6", true),
+        // Five explicit modes replace the ambiguous pair of family switches. The compatibility
+        // booleans are projected from that mode so every existing TUN/routing consumer agrees.
+        addressFamilyMode = familyMode,
+        ipv6Enabled = familyMode != AddressFamilyMode.FORCE_IPV4,
+        preferIpv6 = familyMode == AddressFamilyMode.PREFER_IPV6 ||
+            familyMode == AddressFamilyMode.FORCE_IPV6 || familyMode == AddressFamilyMode.SMART,
         // MARBLE_REALTIME_ENGINE_V70
         adaptiveHappyEyeballsEnabled = prefs.getBoolean("adaptiveHappyEyeballsEnabled", true),
         happyEyeballsTryDelayMs = prefs.getInt("happyEyeballsTryDelayMs", 60).coerceIn(0, 500),
@@ -745,6 +759,7 @@ class AppStore(context: Context) {
         .putString("dnsPrimaryDoH", s.dnsPrimaryDoH)
         .putString("dnsSecondaryDoH", s.dnsSecondaryDoH)
         .putString("dnsQueryStrategy", s.dnsQueryStrategy)
+        .putString("addressFamilyMode", s.addressFamilyMode.name)
         .putBoolean("ipv6Enabled", s.ipv6Enabled)
         .putBoolean("preferIpv6", s.preferIpv6)
         .putBoolean("adaptiveHappyEyeballsEnabled", s.adaptiveHappyEyeballsEnabled)

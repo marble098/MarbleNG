@@ -1,5 +1,6 @@
 package com.marbleng.app.core
 
+import com.marbleng.app.model.AddressFamilyMode
 import com.marbleng.app.model.AppSettings
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -41,8 +42,11 @@ enum class IpFamilyPreference {
     /** The user turned IPv6 off: no v6 may be resolved, dialled or routed. */
     IPV4_ONLY,
 
-    /** Both families are usable; order them by measurement and race when racing is possible. */
+    /** Both families are usable; the smart algorithm chooses from live evidence. */
     DUAL,
+
+    /** IPv4 opens first while IPv6 remains an explicit fallback. */
+    IPV4_FIRST,
 
     /** IPv6 is the intended path, IPv4 stays the safety net. */
     IPV6_FIRST,
@@ -163,23 +167,43 @@ object AddressFamilyPolicy {
         importedStrategy: String = "",
         measuredV6Healthy: Boolean? = null
     ): IpFamilyPreference {
-        if (!settings.ipv6Enabled || settings.dnsQueryStrategy.equals("UseIPv4", true)) {
-            return IpFamilyPreference.IPV4_ONLY
+        // A forced global mode is a contract: it wins over imported hints and intentionally fails
+        // closed when that family is unavailable. Preferences retain the other family as fallback.
+        // The two legacy projections are still interpreted for source-compatible callers/tests
+        // constructing AppSettings directly; persisted settings are always normalized by AppStore.
+        val mode = when {
+            settings.addressFamilyMode == AddressFamilyMode.SMART && !settings.ipv6Enabled ->
+                AddressFamilyMode.FORCE_IPV4
+            settings.addressFamilyMode == AddressFamilyMode.SMART && !settings.preferIpv6 ->
+                AddressFamilyMode.PREFER_IPV4
+            else -> settings.addressFamilyMode
         }
+        when (mode) {
+            AddressFamilyMode.FORCE_IPV4 -> return IpFamilyPreference.IPV4_ONLY
+            AddressFamilyMode.FORCE_IPV6 -> return IpFamilyPreference.IPV6_ONLY
+            AddressFamilyMode.PREFER_IPV4 -> return IpFamilyPreference.IPV4_FIRST
+            AddressFamilyMode.PREFER_IPV6 -> return if (underlayHasIpv6) {
+                IpFamilyPreference.IPV6_FIRST
+            } else {
+                IpFamilyPreference.IPV4_FIRST
+            }
+            AddressFamilyMode.SMART -> Unit
+        }
+
+        if (settings.dnsQueryStrategy.equals("UseIPv6", true)) {
+            return if (underlayHasIpv6) IpFamilyPreference.IPV6_ONLY else IpFamilyPreference.DUAL
+        }
+        if (settings.dnsQueryStrategy.equals("UseIPv4", true)) return IpFamilyPreference.IPV4_ONLY
 
         val imported = importedStrategy.trim()
         if (
             imported.equals("ForceIPv4", true) || imported.equals("UseIPv4", true) ||
             imported.equals("ForceIP4", true) || imported.equals("UseIP4", true)
-        ) {
-            return IpFamilyPreference.IPV4_ONLY
-        }
+        ) return IpFamilyPreference.IPV4_ONLY
 
         val importsV6 = imported.equals("ForceIPv6", true) || imported.equals("UseIPv6", true)
-        if (settings.dnsQueryStrategy.equals("UseIPv6", true) || importsV6) {
-            // Demanding v6-only on a network that cannot carry it would fail closed and read as a
-            // dead node, so the strict mode is honoured only on top of a real v6 underlay.
-            return if (underlayHasIpv6) IpFamilyPreference.IPV6_ONLY else IpFamilyPreference.DUAL
+        if (importsV6) {
+            return if (underlayHasIpv6) IpFamilyPreference.IPV6_ONLY else IpFamilyPreference.IPV4_FIRST
         }
 
         // Turning IPv6 on with a v6-capable underlay means "use it": the explicit Prefer IPv6 switch
@@ -207,7 +231,7 @@ object AddressFamilyPolicy {
         // race fallback. A preference is an ordering, never a demand that ignores evidence.
         val measuredUnhealthy = measuredV6Healthy == false || settings.measuredIpv6Unhealthy
         if (measuredUnhealthy) return IpFamilyPreference.DUAL
-        return if (settings.preferIpv6) IpFamilyPreference.IPV6_FIRST else IpFamilyPreference.DUAL
+        return IpFamilyPreference.IPV6_FIRST
     }
 
     fun prioritizeIpv6(
@@ -215,10 +239,8 @@ object AddressFamilyPolicy {
         underlayHasIpv6: Boolean,
         measuredV6Healthy: Boolean? = null
     ): Boolean = when (preference) {
-        IpFamilyPreference.IPV4_ONLY -> false
-        // MARBLE_SMART_FAMILY_V136 — ordering v6 first is only meaningful when the underlay can
-        // actually carry the family; everywhere else IPv4 opens the connection and v6, when it
-        // even resolves, stays the race fallback.
+        IpFamilyPreference.IPV4_ONLY, IpFamilyPreference.IPV4_FIRST -> false
+        // Ordering v6 first is only meaningful when the underlay can actually carry the family.
         IpFamilyPreference.IPV6_ONLY, IpFamilyPreference.IPV6_FIRST -> underlayHasIpv6
         IpFamilyPreference.DUAL -> underlayHasIpv6 && measuredV6Healthy != false
     }
@@ -238,6 +260,7 @@ object AddressFamilyPolicy {
         // dialer-wrapped path is decided inside Xray's own dialer and never reaches the race.
         if (
             preference != IpFamilyPreference.DUAL &&
+            preference != IpFamilyPreference.IPV4_FIRST &&
             preference != IpFamilyPreference.IPV6_FIRST
         ) {
             return false
@@ -261,6 +284,7 @@ object AddressFamilyPolicy {
     ): String = when (preference) {
         IpFamilyPreference.IPV4_ONLY -> "ForceIPv4"
         IpFamilyPreference.IPV6_ONLY -> "ForceIPv6"
+        IpFamilyPreference.IPV4_FIRST -> if (raceEnabled) "ForceIP" else "ForceIPv4v6"
         IpFamilyPreference.IPV6_FIRST -> if (raceEnabled) "ForceIP" else "ForceIPv6v4"
         IpFamilyPreference.DUAL -> when {
             raceEnabled -> "ForceIP"
@@ -281,6 +305,7 @@ object AddressFamilyPolicy {
         IpFamilyPreference.IPV4_ONLY -> "UseIPv4"
         IpFamilyPreference.IPV6_ONLY -> "UseIPv6"
         // v6-first still needs A records: the fallback is part of the promise.
+        IpFamilyPreference.IPV4_FIRST,
         IpFamilyPreference.IPV6_FIRST,
         IpFamilyPreference.DUAL -> "UseIP"
     }
@@ -329,10 +354,11 @@ object AddressFamilyPolicy {
                 .coerceIn(MIN_CONCURRENT_TRY, MAX_CONCURRENT_TRY),
             // Only the user's own switch may drop IPv6 app traffic: a node that pins itself to IPv4,
             // or a measured plan that prefers A records, must not black-hole the rest of the tunnel.
-            blockIpv6Traffic = !settings.ipv6Enabled,
+            blockIpv6Traffic = preference == IpFamilyPreference.IPV4_ONLY,
             reason = when (preference) {
                 IpFamilyPreference.IPV4_ONLY -> "ipv4-only"
                 IpFamilyPreference.IPV6_ONLY -> "ipv6-only"
+                IpFamilyPreference.IPV4_FIRST -> if (delay > 0) "v4-first+race" else "v4-first"
                 IpFamilyPreference.IPV6_FIRST -> if (delay > 0) "v6-first+race" else "v6-first"
                 IpFamilyPreference.DUAL -> when {
                     delay > 0 -> "dual+race"
@@ -363,6 +389,7 @@ object AddressFamilyPolicy {
         return when (preference) {
             IpFamilyPreference.IPV4_ONLY -> v4
             IpFamilyPreference.IPV6_ONLY -> v6
+            IpFamilyPreference.IPV4_FIRST,
             IpFamilyPreference.IPV6_FIRST,
             IpFamilyPreference.DUAL -> if (prioritizeIpv6) v6 + v4 else v4 + v6
         }
@@ -495,6 +522,11 @@ object AddressFamilyPolicy {
     fun describe(plan: IpFamilyPlan): String = when (plan.preference) {
         IpFamilyPreference.IPV4_ONLY -> "IPv4 only — IPv6 traffic is blocked"
         IpFamilyPreference.IPV6_ONLY -> "IPv6 only — no IPv4 fallback"
+        IpFamilyPreference.IPV4_FIRST -> if (plan.raceEnabled) {
+            "IPv4 preferred, IPv6 raced after ${plan.tryDelayMs} ms"
+        } else {
+            "IPv4 preferred, sequential IPv6 fallback"
+        }
         IpFamilyPreference.IPV6_FIRST -> if (plan.raceEnabled) {
             "IPv6 preferred, IPv4 raced after ${plan.tryDelayMs} ms"
         } else {

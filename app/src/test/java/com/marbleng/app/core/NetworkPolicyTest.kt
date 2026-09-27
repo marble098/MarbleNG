@@ -6,6 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.marbleng.app.model.AddressFamilyMode
 import com.marbleng.app.model.AppSettings
 import java.net.InetAddress
 
@@ -233,6 +234,26 @@ class NetworkPolicyTest {
         // order, and v4 opens the connection.
         assertFalse(preferWithoutRace.raceEnabled)
         assertEquals("ForceIPv4", preferWithoutRace.endpointStrategy)
+    }
+
+    @Test
+    fun explicitFamilyModesDistinguishPreferenceFromForce() {
+        val prefer4 = AddressFamilyPolicy.plan(
+            AppSettings(addressFamilyMode = AddressFamilyMode.PREFER_IPV4),
+            underlayHasIpv6 = true
+        )
+        assertEquals(IpFamilyPreference.IPV4_FIRST, prefer4.preference)
+        assertEquals("UseIP", prefer4.dnsQueryStrategy)
+        assertTrue("preferred IPv4 keeps IPv6 as a raced fallback", prefer4.raceEnabled)
+
+        val force6 = AddressFamilyPolicy.plan(
+            AppSettings(addressFamilyMode = AddressFamilyMode.FORCE_IPV6),
+            underlayHasIpv6 = false
+        )
+        assertEquals(IpFamilyPreference.IPV6_ONLY, force6.preference)
+        assertEquals("ForceIPv6", force6.endpointStrategy)
+        assertEquals("UseIPv6", force6.dnsQueryStrategy)
+        assertFalse("forced IPv6 must fail closed rather than silently use IPv4", force6.raceEnabled)
     }
 
     @Test
