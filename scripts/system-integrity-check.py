@@ -649,6 +649,14 @@ check(
 
 # DNS, routing and identity.
 check(
+    "full TUN refuses a disabled DNS hijack rather than forwarding plaintext port 53",
+    "if (mode != MODE_PROXY && !app.repo.settings.dnsHijackEnabled)" in files["vpn"]
+    and 'failBeforeTunnel("Full VPN requires DNS hijacking' in files["vpn"]
+    and "val enableDnsHijack = mode == ConnectionMode.FULL_TUN && !settings.dnsHijackEnabled"
+        in files["repo"]
+    and "Required to start Full TUN without plaintext DNS" in files["ui"],
+)
+check(
     "endpoint bootstrap is encrypted local DoH and fails closed without a family-compatible peer",
     "https+local://${dnsHostLiteral(ip)}/dns-query" in files["hardener"]
     and "configuredBootstrapIps.filter { resolverFamilyAllowed(it) }" in files["hardener"]

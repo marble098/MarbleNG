@@ -443,6 +443,14 @@ class MarbleVpnService : VpnService() {
         }
 
         val app = application as MarbleApplication
+        // The Android DNS sinks are inside the TUN. With hijacking disabled, a classic DNS
+        // packet aimed at a public resolver could leave through a direct route or the proxy exit
+        // as plaintext. Never call that a protected full VPN: keep the previous TUN as a
+        // blackhole during a live setting change and refuse a fresh insecure connection.
+        if (mode != MODE_PROXY && !app.repo.settings.dnsHijackEnabled) {
+            failBeforeTunnel("Full VPN requires DNS hijacking to prevent plaintext DNS; enable DNS hijack in settings")
+            return
+        }
         val profile = app.repo.profile(id, sourceId) ?: run {
             diag.event("VPN", "profile-missing", "profileId" to id.take(12))
             failBeforeTunnel("Profile no longer exists")

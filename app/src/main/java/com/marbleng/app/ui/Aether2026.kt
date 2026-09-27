@@ -13283,16 +13283,20 @@ private fun DnsSettings(repo: AppRepository) {
         }
     }
 
-    if (repo.settings.connectionMode == ConnectionMode.FULL_TUN) {
+    if (repo.settings.connectionMode == ConnectionMode.FULL_TUN && repo.settings.dnsHijackEnabled) {
         Text(
             trx("Full TUN always intercepts IPv4 and IPv6 DNS on port 53; there is no plaintext fallback."),
             color = Aether.InkMuted,
             style = MaterialTheme.typography.bodySmall
         )
     } else {
+        // Older stored Full TUN settings might still have interception off. Show the switch so
+        // the user can recover from a fail-closed startup rather than hiding the only remedy.
         SettingSwitch(
             title = "Intercept traditional DNS",
-            subtitle = "Only traffic sent through the local proxy is protected",
+            subtitle = if (repo.settings.connectionMode == ConnectionMode.FULL_TUN)
+                "Required to start Full TUN without plaintext DNS"
+                else "Only traffic sent through the local proxy is protected",
             checked = repo.settings.dnsHijackEnabled
         ) { repo.updateSettings(repo.settings.copy(dnsHijackEnabled = it)) }
     }

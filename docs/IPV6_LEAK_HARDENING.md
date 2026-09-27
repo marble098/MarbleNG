@@ -23,8 +23,9 @@ A hostname's **physical node socket**, the proxy's **exit DNS/traffic**, and the
 ## Current invariants
 
 1. **Full TUN:** require IPv4 + IPv6 addresses, default routes and *internal* DNS sinks on every
-   device, regardless of physical IPv6. Intercept classic port 53 in both engines; if core/HEV
-   fails, retain the TUN as a blackhole. Do not establish a partial VPN. On replacement, retain
+   device, regardless of physical IPv6. Intercept classic port 53 in both engines; if DNS hijacking
+   is turned off, refuse Full TUN rather than allow a plaintext DNS path. If core/HEV fails, retain
+   the TUN as a blackhole. Do not establish a partial VPN. On replacement, retain
    the previous TUN until the new one is established. Android's always-on VPN **Block connections
    without VPN** option is required for OS-level coverage *before* the first TUN is installed or
    after Android revokes/terminates the service. An app cannot promise that coverage by itself.
@@ -51,8 +52,9 @@ A hostname's **physical node socket**, the proxy's **exit DNS/traffic**, and the
 
 ## How to verify on a real Android device
 
-1. Enable Android's **always-on VPN** and **Block connections without VPN** for MarbleNG. Select
-   **Full TUN**, no split-app exclusions, and **Proxy all** for a strict international egress test.
+1. Enable Android's **always-on VPN** and **Block connections without VPN** for MarbleNG. Enable
+   **DNS hijack**, select **Full TUN**, no split-app exclusions, and **Proxy all** for a strict
+   international egress test.
    Confirm the notification says connected; don't mistake Local Proxy for a device-wide VPN.
 2. With a node **that has an IPv6-capable exit**, select **Prefer IPv6** and run Privacy audit.
    Check the independent `IPv6 PROXY EXIT` line and an IPv6-only test page in a VPN-covered app.

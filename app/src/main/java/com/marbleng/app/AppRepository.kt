@@ -2018,9 +2018,16 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun setConnectionMode(mode: ConnectionMode) {
-        if (settings.connectionMode == mode) return
+        // A user can turn port-53 interception off in Local Proxy. Switching back to Full TUN
+        // must restore it before the service is allowed to install a device-wide route.
+        val enableDnsHijack = mode == ConnectionMode.FULL_TUN && !settings.dnsHijackEnabled
+        if (settings.connectionMode == mode) {
+            if (enableDnsHijack) updateSettings(settings.copy(dnsHijackEnabled = true))
+            return
+        }
         if (state == "CONNECTED" || state == "CONNECTING" || state == "BLOCKED") stopVpn()
-        updateSettings(settings.copy(connectionMode = mode))
+        updateSettings(settings.copy(connectionMode = mode,
+            dnsHijackEnabled = settings.dnsHijackEnabled || enableDnsHijack))
         message = when (mode) {
             ConnectionMode.FULL_TUN -> "Full-device TUN selected"
             ConnectionMode.LOCAL_PROXY -> "Local SOCKS5 proxy selected • 127.0.0.1:${settings.localProxyPort}"
