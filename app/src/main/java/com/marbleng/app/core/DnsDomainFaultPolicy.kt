@@ -60,8 +60,15 @@ object DnsDomainFaultPolicy {
         val failures: Int = 0,
         val lastAtMs: Long = 0L
     ) {
+        /**
+         * Resolvers that could actually be named. Failures the parser could not attribute share
+         * one bucket and are deliberately excluded: independence is the whole claim being made,
+         * and two anonymous failures may well be the same resolver twice.
+         */
+        val namedEndpoints: Int get() = endpoints.count { it != UNATTRIBUTED }
+
         /** True when enough independent resolvers failed this name to blame the name. */
-        val decisive: Boolean get() = endpoints.size >= DISTINCT_ENDPOINTS_FOR_FAULT
+        val decisive: Boolean get() = namedEndpoints >= DISTINCT_ENDPOINTS_FOR_FAULT
 
         fun fresh(nowMs: Long): Boolean = lastAtMs > 0L && nowMs - lastAtMs <= WINDOW_MS
 
@@ -95,6 +102,18 @@ object DnsDomainFaultPolicy {
     private val DOMAIN_FIELD = Regex("""domain[:=]\s*([A-Za-z0-9._-]+)""", RegexOption.IGNORE_CASE)
 
     /**
+     * Xray names the resolver that failed with its own client token — `DOH//1.0.0.1`,
+     * `DOHL//9.9.9.9`, `UDP//8.8.8.8:53` — not with the configured URL. [ResolverEvidencePolicy]
+     * only recognises the URL form, which is exactly why the reported session could not tell
+     * `1.0.0.1` and `149.112.112.112` apart on those two `noveo.ir` lines: both were unattributed,
+     * so "two independent resolvers failed one name" was invisible and the pool took the blame.
+     */
+    private val CORE_CLIENT_TOKEN = Regex(
+        """\b(dohl?|dotl?|udpl?|tcpl?|quicl?|h3l?)//([^\s,;>\"']{1,120})""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
      * The queried name inside one core log line, or null when the line names none.
      *
      * Both cores are covered: Xray writes `failed to lookup ip for domain <name> at <server>`,
@@ -125,6 +144,28 @@ object DnsDomainFaultPolicy {
     }
 
     /**
+     * Which resolver a line blames, in whatever form the core happened to print it.
+     *
+     * Both shapes are understood — the configured URL (`https://1.0.0.1/dns-query`) and the
+     * core's own client token (`DOH//1.0.0.1`) — because "how many *distinct* resolvers failed
+     * this name" is the entire rule, and a resolver the parser cannot name is a resolver the rule
+     * cannot count. A line that names none is still counted, under a single shared bucket: an
+     * unattributable failure must never masquerade as independent corroboration.
+     */
+    fun endpointOf(line: String): String {
+        ResolverEvidencePolicy.endpointOf(line)
+            ?.let { return ResolverEvidencePolicy.normalize(it) }
+        val token = CORE_CLIENT_TOKEN.find(line) ?: return UNATTRIBUTED
+        val scheme = token.groupValues.getOrNull(1).orEmpty().lowercase()
+        val host = token.groupValues.getOrNull(2).orEmpty().trim().trim('.', ',', ';')
+        if (host.isBlank()) return UNATTRIBUTED
+        return "$scheme//${host.lowercase()}"
+    }
+
+    /** The one bucket every unattributable failure shares. */
+    const val UNATTRIBUTED: String = "unattributed"
+
+    /**
      * Fold raw core-log lines into the per-name table.
      *
      * Only decisive failures are counted, using the same classifier the endpoint evidence uses, so
@@ -141,10 +182,7 @@ object DnsDomainFaultPolicy {
             val kind = ResolverFailureClassifier.classify(line) ?: return@forEach
             if (kind.isShutdownSafe) return@forEach
             val domain = domainOf(line) ?: return@forEach
-            val endpoint = ResolverEvidencePolicy.endpointOf(line)
-                ?.let { ResolverEvidencePolicy.normalize(it) }
-                ?.takeIf { it.isNotBlank() }
-                ?: "unattributed"
+            val endpoint = endpointOf(line)
             val current = byDomain[domain] ?: DomainFault(domain = domain)
             byDomain[domain] = current.copy(
                 endpoints = current.endpoints + endpoint,
@@ -185,7 +223,7 @@ object DnsDomainFaultPolicy {
         val decisive = faulted(faults, nowMs)
         if (decisive.isEmpty()) return ""
         return decisive.take(4).joinToString(" • ") { fault ->
-            "${fault.domain} (${fault.endpoints.size} resolvers, ${fault.failures} failures)"
+            "${fault.domain} (${fault.namedEndpoints} resolvers, ${fault.failures} failures)"
         }
     }
 

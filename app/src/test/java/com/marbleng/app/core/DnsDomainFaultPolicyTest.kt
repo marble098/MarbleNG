@@ -134,6 +134,51 @@ class DnsDomainFaultPolicyTest {
         )
     }
 
+    @Test fun theCoreClientTokenIsTheResolverIdentityThatMatters() {
+        // Xray does not print the configured URL when a lookup fails; it prints its own client
+        // token. A resolver the parser cannot name is a resolver the rule cannot count, which is
+        // precisely how two failing providers looked like zero in the reported session.
+        assertEquals("doh//1.0.0.1", DnsDomainFaultPolicy.endpointOf(cloudflare))
+        assertEquals("doh//149.112.112.112", DnsDomainFaultPolicy.endpointOf(quad9))
+        assertEquals(
+            "dohl//9.9.9.9",
+            DnsDomainFaultPolicy.endpointOf(
+                "app/dns: failed to lookup ip for domain noveo.ir at DOHL//9.9.9.9 > context deadline exceeded"
+            )
+        )
+        assertEquals(
+            "udp//8.8.8.8:53",
+            DnsDomainFaultPolicy.endpointOf(
+                "app/dns: failed to lookup ip for domain noveo.ir at UDP//8.8.8.8:53 > i/o timeout"
+            )
+        )
+        // The URL form the hardener writes is still understood, via the shared resolver parser.
+        assertEquals(
+            "https://1.0.0.1/dns-query",
+            DnsDomainFaultPolicy.endpointOf(
+                """dns: lookup for domain noveo.ir via "https://1.0.0.1/dns-query" failed: context deadline exceeded"""
+            )
+        )
+        assertEquals(
+            DnsDomainFaultPolicy.UNATTRIBUTED,
+            DnsDomainFaultPolicy.endpointOf(
+                "app/dns: failed to lookup ip for domain noveo.ir > context deadline exceeded"
+            )
+        )
+    }
+
+    @Test fun anonymousFailuresNeverCorroborateEachOther() {
+        // Two failures nobody can attribute may be the same resolver twice; independence is the
+        // whole claim, so the name stays innocent until two resolvers can actually be named.
+        val anonymous = "app/dns: failed to lookup ip for domain noveo.ir > context deadline exceeded"
+        val faults = DnsDomainFaultPolicy.observe(sequenceOf(anonymous, anonymous, anonymous), emptyList(), 1_000L)
+        val fault = faults.single()
+        assertEquals(3, fault.failures)
+        assertEquals(0, fault.namedEndpoints)
+        assertFalse(fault.decisive)
+        assertFalse(DnsDomainFaultPolicy.isFaulted("noveo.ir", faults, 1_000L))
+    }
+
     // ─────────────────────────────────────────────────────────── reporting & storage
 
     @Test fun theSummaryNamesTheSiteNotThePool() {

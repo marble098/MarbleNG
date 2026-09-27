@@ -120,8 +120,9 @@ class Ipv6FallbackLadderTest {
         assertEquals(Ipv6FallbackLadder.STRICT_NODE_REFUSAL, resolved.refusal)
         assertTrue(resolved.blocked)
         // A refusal that does not tell the user what to do instead is a dead end.
-        assertTrue(resolved.refusal!!.contains("strict"))
-        assertTrue(resolved.refusal!!.contains("IPv4"))
+        val refusal = resolved.refusal.orEmpty()
+        assertTrue(refusal.contains("strict"))
+        assertTrue(refusal.contains("IPv4"))
     }
 
     @Test fun anIpv6LiteralWithoutAnIpv6NetworkIsTheOneGenuineDeadEnd() {
