@@ -3187,8 +3187,10 @@ private fun HomeRouteRibbon(repo: AppRepository) {
                     // omits the v6 TUN address/route so Happy Eyeballs cannot stall on a blackhole.
                     repo.updateSettings(
                         repo.settings.copy(
+                            addressFamilyMode = if (enabled) AddressFamilyMode.SMART else AddressFamilyMode.FORCE_IPV4,
                             ipv6Enabled = enabled,
-                            preferIpv6 = if (enabled) repo.settings.preferIpv6 else false
+                            preferIpv6 = enabled,
+                            dnsQueryStrategy = if (enabled) "UseIP" else "UseIPv4"
                         )
                     )
                 }
@@ -4471,7 +4473,11 @@ private fun CyberLibrary(
                 }
             }
 
-            item(key = "group-${group.key}-gap") { Spacer(Modifier.height(10.dp)) }
+            // Space belongs between groups, never after the final server. The trailing spacer used
+            // to show as a small grey tail above the floating dock on the last row.
+            if (groupIndex < groups.lastIndex) {
+                item(key = "group-${group.key}-gap") { Spacer(Modifier.height(10.dp)) }
+            }
         }
     }
 
@@ -13203,39 +13209,68 @@ private fun DnsSettings(repo: AppRepository) {
             compact = true
         )
         HoloBadge(
-            if (repo.settings.preferIpv6 && underlay.hasIpv6) "IPv6 PREFERRED"
-            else if (repo.settings.preferIpv6) "IPv6 PREFERENCE WAITING"
-            else "IPv4 / AUTO",
-            if (repo.settings.preferIpv6 && underlay.hasIpv6) Aether.Cyan else Aether.Amethyst,
+            when (repo.settings.addressFamilyMode) {
+                AddressFamilyMode.SMART -> "SMART FAMILY"
+                AddressFamilyMode.PREFER_IPV4 -> "IPv4 FIRST"
+                AddressFamilyMode.PREFER_IPV6 -> "IPv6 FIRST"
+                AddressFamilyMode.FORCE_IPV4 -> "IPv4 FORCED"
+                AddressFamilyMode.FORCE_IPV6 -> "IPv6 FORCED"
+            },
+            when (repo.settings.addressFamilyMode) {
+                AddressFamilyMode.FORCE_IPV4, AddressFamilyMode.FORCE_IPV6 -> Aether.Amber
+                AddressFamilyMode.PREFER_IPV6 -> Aether.Cyan
+                else -> Aether.Amethyst
+            },
             compact = true
         )
         HoloBadge(underlay.label, Aether.InkMuted, compact = true)
     }
 
-    SettingSwitch(
-        title = "Enable IPv6",
-        subtitle = "IPv6 in the tunnel; off is IPv4-only TUN",
-        checked = repo.settings.ipv6Enabled
+    Text(trx("IP version"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    Text(
+        trx("Smart measures both paths. Prefer modes keep a fallback; Force modes fail closed."),
+        color = Aether.InkMuted,
+        style = MaterialTheme.typography.bodySmall
+    )
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        repo.updateSettings(
-            repo.settings.copy(
-                ipv6Enabled = it,
-                preferIpv6 = if (it) repo.settings.preferIpv6 else false
-            )
-        )
-    }
-
-    SettingSwitch(
-        title = "Prefer IPv6",
-        subtitle = "IPv6 first; auto-paused on IPv4 nets",
-        checked = repo.settings.ipv6Enabled && repo.settings.preferIpv6
-    ) {
-        repo.updateSettings(
-            repo.settings.copy(
-                ipv6Enabled = if (it) true else repo.settings.ipv6Enabled,
-                preferIpv6 = it
-            )
-        )
+        listOf(
+            AddressFamilyMode.SMART to "SMART",
+            AddressFamilyMode.PREFER_IPV4 to "IPv4 FIRST",
+            AddressFamilyMode.PREFER_IPV6 to "IPv6 FIRST",
+            AddressFamilyMode.FORCE_IPV4 to "FORCE IPv4",
+            AddressFamilyMode.FORCE_IPV6 to "FORCE IPv6"
+        ).forEach { (mode, label) ->
+            CyberChoiceChip(
+                text = label,
+                selected = repo.settings.addressFamilyMode == mode,
+                color = when (mode) {
+                    AddressFamilyMode.FORCE_IPV4, AddressFamilyMode.FORCE_IPV6 -> Aether.Amber
+                    AddressFamilyMode.PREFER_IPV6 -> Aether.Cyan
+                    else -> Aether.Amethyst
+                }
+            ) {
+                repo.updateSettings(
+                    repo.settings.copy(
+                        addressFamilyMode = mode,
+                        ipv6Enabled = mode != AddressFamilyMode.FORCE_IPV4,
+                        preferIpv6 = mode in setOf(
+                            AddressFamilyMode.SMART,
+                            AddressFamilyMode.PREFER_IPV6,
+                            AddressFamilyMode.FORCE_IPV6
+                        ),
+                        dnsQueryStrategy = when (mode) {
+                            AddressFamilyMode.FORCE_IPV4 -> "UseIPv4"
+                            AddressFamilyMode.FORCE_IPV6 -> "UseIPv6"
+                            else -> "UseIP"
+                        }
+                    )
+                )
+            }
+        }
     }
 
     SettingSwitch(
@@ -13312,38 +13347,8 @@ private fun DnsSettings(repo: AppRepository) {
         repo.updateSettings(repo.settings.copy(dnsSecondaryDoH = it))
     }
 
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
-    ) {
-        // "UseSystem" used to be offered here. It tells Xray to ask the Android resolver, which both
-        // leaks the query outside the encrypted path and hides the AAAA records an IPv6 node needs,
-        // so the list is now exactly the three record strategies the engine honours inside the tunnel.
-        // Show what the engine will really do rather than the raw stored string: a legacy
-        // "UseSystem" value resolves to A + AAAA, and turning IPv6 off forces IPv4 records — either
-        // way an unlabelled mismatch would make the switch look broken.
-        val storedStrategy = repo.settings.dnsQueryStrategy
-        val effectiveStrategy = when {
-            !repo.settings.ipv6Enabled -> "UseIPv4"
-            storedStrategy == "UseIPv4" || storedStrategy == "UseIPv6" -> storedStrategy
-            else -> "UseIP"
-        }
-        mapOf(
-            "UseIP" to "A + AAAA",
-            "UseIPv4" to "IPv4 ONLY",
-            "UseIPv6" to "IPv6 ONLY"
-        ).forEach { (strategy, label) ->
-            CyberChoiceChip(
-                text = label,
-                selected = effectiveStrategy == strategy,
-                enabled = strategy != "UseIPv6" || repo.settings.ipv6Enabled,
-                color = Aether.Cyan
-            ) {
-                repo.updateSettings(repo.settings.copy(dnsQueryStrategy = strategy))
-            }
-        }
-    }
+    // DNS record-family controls are intentionally not duplicated here: the five-state selector
+    // above owns endpoint resolution, DNS answers and TUN capture as one atomic policy.
 }
 
 @Composable
