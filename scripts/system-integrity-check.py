@@ -1770,6 +1770,37 @@ check(
     and action_uses_minimum(workflow_sources, "android-actions/setup-android", 4),
 )
 
+# MARBLE_APK_INSTALL_CONTRACT_V195 — "App not installed" the instant Install is tapped is the
+# package installer rejecting the native payload, not a slow failure.  Two properties decide it:
+# every staged library must be 16 KB ELF aligned (Android 15+ 16 KB-page devices refuse to map,
+# and the installer aborts on, 4 KB aligned PT_LOAD segments), and the installer must extract the
+# compressed native entries (extractNativeLibs).  The Go cores are not NDK-built, so their
+# alignment only exists if CGO_LDFLAGS pins it at every go build; the extraction contract only
+# holds if useLegacyPackaging stays true and the merged manifest is normalized, because AGP 9
+# forbids android:extractNativeLibs in the source manifest and defaults it to "false" for
+# minSdk >= 23.  The cores are also executed from nativeLibraryDir, so a "false" flip is fatal
+# both at install time and at runtime.
+check(
+    "native payload is 16 KB page aligned end to end",
+    files["native"].count("max-page-size=16384") >= 5  # 4 go builds + the assertion copy
+    and "assert_elf_page_alignment" in files["native"]
+    and "APP_SUPPORT_FLEXIBLE_PAGE_SIZES := true" in read("app/src/main/jni/Application.mk")
+    and "max-page-size=16384" in read("app/src/main/jni/Android.mk"),
+)
+check(
+    "installer extraction contract is pinned and normalized",
+    "useLegacyPackaging = true" in files["gradle"]
+    and "marbleNormalizeExtractNativeLibs" in files["gradle"]
+    and "android:extractNativeLibs=" in files["gradle"]
+    and "MARBLE_APK_INSTALL_CONTRACT_V195" in files["gradle"],
+)
+check(
+    "core binaries ship without AGP stripping",
+    '"**/libxray.so"' in files["gradle"]
+    and '"**/libmarbleng.so"' in files["gradle"]
+    and '"**/libsingbox.so"' in files["gradle"],
+)
+
 build_release = files["build"]
 
 check(

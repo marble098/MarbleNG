@@ -203,12 +203,28 @@ android {
     packaging {
 
         jniLibs {
+            // MARBLE_APK_INSTALL_CONTRACT_V195 -- this flag is the installer
+            // extraction contract, not a style choice.  The Xray and sing-box
+            // cores are executables launched from applicationInfo.nativeLibraryDir,
+            // so the installer must extract lib/**/*.so at install time.  This
+            // flag keeps the native entries DEFLATED and instructs AGP to inject
+            // android:extractNativeLibs="true" into the merged manifest.  AGP
+            // 8.3+/9.x defaults extractNativeLibs to "false" for minSdk >= 23,
+            // and with compressed native entries that combination is rejected by
+            // the package installer before the progress UI even appears
+            // ("App not installed"; INSTALL_FAILED_INVALID_APK: Failed to extract
+            // native libraries, res=-2).  The merged manifest is normalized below
+            // as a second line of defense because AGP 9 forbids pinning the
+            // attribute in the source AndroidManifest.xml.
             useLegacyPackaging = true
 
             keepDebugSymbols += setOf(
                 "**/libmarbleng.so",
                 "**/libhev-socks5-tunnel.so",
-                "**/libsingbox.so"
+                "**/libsingbox.so",
+                // libxray.so is a Go executable executed via ProcessBuilder;
+                // AGP stripping must never touch the cores.
+                "**/libxray.so"
             )
         }
 
@@ -239,6 +255,74 @@ tasks.configureEach {
                 "Release signing is not configured. Build the signed artifact in GitHub Actions " +
                     "or provide signing.properties; unsigned APKs are not installable release deliverables."
             )
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// MARBLE_APK_INSTALL_CONTRACT_V195 -- installer extraction contract
+//
+// libxray.so / libsingbox.so are Go executables that the app launches from
+// applicationInfo.nativeLibraryDir, so every release APK must ship with
+// android:extractNativeLibs="true".  The source manifest cannot carry the
+// attribute (AGP 9 rejects it) and AGP defaults it to "false" for minSdk >= 23,
+// so the contract is enforced where it is actually decided: the merged manifest
+// under build/intermediates, after every manifest-processing task and again
+// before packaging.  A silent "false" flip turns an otherwise healthy release
+// into an uninstallable APK ("App not installed"; INSTALL_FAILED_INVALID_APK:
+// Failed to extract native libraries, res=-2), so the normalization is
+// mandatory and fail-loud.
+// -----------------------------------------------------------------------------
+
+fun marbleNormalizeExtractNativeLibs(buildDir: java.io.File) {
+    val intermediates = buildDir.resolve("intermediates")
+    if (!intermediates.isDirectory) return
+
+    val manifests = intermediates
+        .walkTopDown()
+        .filter { it.isFile && it.name == "AndroidManifest.xml" }
+        .toList()
+
+    for (manifest in manifests) {
+        val text = manifest.readText(Charsets.UTF_8)
+        val updated = when {
+            "android:extractNativeLibs=\"false\"" in text ->
+                text.replace(
+                    "android:extractNativeLibs=\"false\"",
+                    "android:extractNativeLibs=\"true\""
+                )
+
+            "android:extractNativeLibs=\"true\"" in text -> text
+
+            else -> {
+                val applicationTag = Regex("""<application\b""").find(text)
+                if (applicationTag == null) {
+                    text
+                } else {
+                    text.replaceFirst(
+                        "<application",
+                        "<application android:extractNativeLibs=\"true\""
+                    )
+                }
+            }
+        }
+        if (updated != text) {
+            manifest.writeText(updated, Charsets.UTF_8)
+        }
+    }
+}
+
+val marbleBuildDirPath: String = layout.buildDirectory.get().asFile.absolutePath
+
+tasks.configureEach {
+    if (name.startsWith("process") && name.contains("Manifest")) {
+        doLast {
+            marbleNormalizeExtractNativeLibs(java.io.File(marbleBuildDirPath))
+        }
+    }
+    if (name.startsWith("package")) {
+        doFirst {
+            marbleNormalizeExtractNativeLibs(java.io.File(marbleBuildDirPath))
         }
     }
 }
