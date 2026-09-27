@@ -106,7 +106,7 @@ class SingBoxNativeIntegrationTest {
         // Require both URL-safe symbols: an ordinary random key can miss one and hide a
         // regression to the standard Base64 alphabet. No production credentials are used.
         val generator = KeyPairGenerator.getInstance("X25519")
-        val keys = generateSequence { generator.generateKeyPair() }.first {
+        val keys = generateSequence { generator.generateKeyPair() }.take(1024).first {
             val key = encode.encodeToString(it.public.encoded.takeLast(32).toByteArray())
             '-' in key && '_' in key
         }
