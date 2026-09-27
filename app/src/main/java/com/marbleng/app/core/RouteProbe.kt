@@ -1146,7 +1146,9 @@ object RouteProbe {
         // Phase 1b: DNS gate — but only for domain hosts. Resolving a literal IP always
         // "succeeds" instantly without touching the network, so counting it would fake
         // reachability for dead IP endpoints and fake latency for live ones.
-        val hostNeedsDns = host.any { it.isLetter() }
+        // Hex digits a-f in an IPv6 literal are NOT a hostname requiring DNS. A successful
+        // resolver lookup of the literal is no evidence the remote endpoint answered.
+        val hostNeedsDns = !AddressFamilyPolicy.isLiteralIp(host)
         val dnsMs = if (!tcpOk && hostNeedsDns) {
             dnsPing(host, gateTimeoutMs)
         } else {
@@ -1367,10 +1369,21 @@ object RouteProbe {
         samples: Int = 3,
         timeoutMs: Int = 5000,
         settings: AppSettings = AppSettings()
-    ): ProbeResult = when (method) {
-        ProbeMethod.REAL_DELAY -> realDelay(profile, tunnelPort, timeoutMs, samples, settings)
-        ProbeMethod.TCP_PING -> tcpPing(profile, timeoutMs, samples, settings)
-        ProbeMethod.URL_TEST -> urlTest(profile, timeoutMs, settings)
+    ): ProbeResult {
+        if (AddressFamilyPolicy.excludedIpv6Endpoint(profile.host, settings)) {
+            val label = when (method) {
+                ProbeMethod.REAL_DELAY -> METHOD_REAL_DELAY
+                ProbeMethod.TCP_PING -> METHOD_TCP_PING
+                ProbeMethod.URL_TEST -> METHOD_URL_TEST
+            }
+            return ProbeResult(label, UNREACHABLE, 0, PingBudget.samples(samples),
+                lossPercent = 100.0, failureReason = "ipv6-disabled")
+        }
+        return when (method) {
+            ProbeMethod.REAL_DELAY -> realDelay(profile, tunnelPort, timeoutMs, samples, settings)
+            ProbeMethod.TCP_PING -> tcpPing(profile, timeoutMs, samples, settings)
+            ProbeMethod.URL_TEST -> urlTest(profile, timeoutMs, settings)
+        }
     }
 
     /**

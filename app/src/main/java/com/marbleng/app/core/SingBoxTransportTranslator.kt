@@ -105,17 +105,15 @@ object SingBoxTransportTranslator {
         val extra = when (val raw = merged.remove("extra")) {
             null, JSONObject.NULL -> null
             is JSONObject -> raw
-            is String -> runCatching { JSONObject(raw) }.getOrElse { unsupported("xhttpSettings.extra", "expected a JSON object") }
+            is String -> runCatching { XhttpExtra.parse(raw) }
+                .getOrElse { unsupported("xhttpSettings.extra", "expected JSON or base64url JSON") }
             else -> unsupported("xhttpSettings.extra", "expected a JSON object")
         }
-        if (extra != null) {
-            val main = JSONObject(source.toString())
-            merged.keys().asSequence().toList().forEach { merged.remove(it) }
-            extra.keys().forEach { key -> merged.put(key, extra.get(key)) }
-            listOf("host", "path", "mode").forEach { key ->
-                merged.remove(key)
-                if (main.has(key)) merged.put(key, main.get(key))
-            }
+        // An XHTTP `extra` supplies defaults, not permission to erase the same settings when
+        // also written at the top level. The old merge dropped every top-level field except
+        // host/path/mode, including padding and HTTP headers, and changed the on-wire protocol.
+        extra?.let { options ->
+            options.keys().forEach { key -> if (!merged.has(key)) merged.put(key, options.get(key)) }
         }
         val result = map(merged, xhttpFields, "xhttpSettings", setOf("mode", "xmux", "downloadSettings"))
             .put("mode", merged.optString("mode").ifBlank { "auto" })

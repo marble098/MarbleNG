@@ -84,7 +84,7 @@ object ProxyParser {
             val value = line.trim()
             if (value.isBlank() || value.startsWith("#")) emptyList()
             else shareFinder.findAll(value).mapNotNull { match ->
-                runCatching { parseUri(match.value, subId, subName) }.getOrNull()
+                runCatching { parseUri(ShareLinkNormalizer.normalize(match.value), subId, subName) }.getOrNull()
             }.toList()
         }.distinctBy { it.id }
     }
@@ -314,8 +314,10 @@ object ProxyParser {
     private fun qa(uri: Uri, vararg keys: String, default: String = ""): String =
         params(uri).first(*keys, default = default)
 
-    private fun stream(uri: Uri, host: String): JSONObject {
-        val p = params(uri)
+    private fun stream(uri: Uri, host: String): JSONObject = stream(params(uri), host)
+
+    /** The VLESS reader can also be exercised on a JVM without Android's stub `Uri`. */
+    private fun stream(p: ShareLinkParams, host: String): JSONObject {
         val requested = p.first("type", "network", "net", default = "tcp").lowercase()
         val method = when (requested) {
             "tcp", "raw" -> "raw"
@@ -343,9 +345,10 @@ object ProxyParser {
                     if (headerHost.isNotBlank()) put("host", headerHost)
                     p.get("mode").takeIf { it.isNotBlank() }?.let { put("mode", it) }
                     headerMapOf(headerMap)?.let { put("headers", it) }
-                    p.get("extra").takeIf { it.trimStart().startsWith("{") }?.let { extra ->
-                        runCatching { put("extra", JSONObject(extra)) }
-                    }
+                    // Both raw JSON and base64url JSON are used for XHTTP `extra`. A malformed
+                    // value must NOT be silently dropped: it may contain the server's required
+                    // padding/camouflage. Reject this link rather than dial a different protocol.
+                    p.get("extra").takeIf { it.isNotBlank() }?.let { put("extra", XhttpExtra.parse(it)) }
                     writeXhttpTuning(p, this)
                 })
                 "websocket" -> stream.put("wsSettings", JSONObject().put("path", path).apply {
@@ -422,10 +425,10 @@ object ProxyParser {
                 // feature in this core and is translated here, never emitted.
                 TlsPinningPolicy.sanitizeTlsSettings(
                     tls = this,
-                    verifyPeerCertByName = qa(uri, *TlsPinningPolicy.VERIFY_BY_NAME_KEYS.toTypedArray()),
-                    pinnedPeerCertSha256 = qa(uri, *TlsPinningPolicy.PINNED_SHA256_KEYS.toTypedArray()),
+                    verifyPeerCertByName = p.first(*TlsPinningPolicy.VERIFY_BY_NAME_KEYS.toTypedArray()),
+                    pinnedPeerCertSha256 = p.first(*TlsPinningPolicy.PINNED_SHA256_KEYS.toTypedArray()),
                     allowInsecureRequested = TlsPinningPolicy.isTruthy(
-                        qa(uri, *TlsPinningPolicy.ALLOW_INSECURE_KEYS.toTypedArray())
+                        p.first(*TlsPinningPolicy.ALLOW_INSECURE_KEYS.toTypedArray())
                     ),
                     insecureFallbackName = host
                 )
@@ -495,17 +498,28 @@ object ProxyParser {
         .put("outbounds", JSONArray().put(outbound).put(JSONObject().put("tag", "block").put("protocol", "blackhole")))
 
     private fun parseVless(raw: String, sid: String, sname: String): ProxyProfile {
-        val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: error("port")
-        val p = params(u)
-        val stream = stream(u, host)
+        val u = Uri.parse(raw)
+        return vlessFromParts(raw, u.host ?: error("host"), u.port, dec(u.userInfo), u.fragment, sid, sname)
+    }
+
+    /** The actual VLESS link → Xray document, testable on the JVM without Android's Uri stub. */
+    internal fun vlessFromParts(
+        raw: String, uriHost: String, port: Int, userId: String, fragment: String?,
+        sid: String = "manual", sname: String = "Manual"
+    ): ProxyProfile {
+        val link = ShareLinkNormalizer.normalize(raw)
+        // Android versions differ on whether Uri.host includes the brackets of an IPv6 literal.
+        // The core and the profile metadata both require the bare address.
+        val host = uriHost.removeSurrounding("[", "]")
+        require(host.isNotBlank() && port in 1..65535 && userId.isNotBlank()) { "Invalid VLESS authority" }
+        val p = ShareLinkParams.ofRawLink(link)
+        val stream = stream(p, host)
         val out = JSONObject().put("tag", "proxy").put("protocol", "vless").put("settings", JSONObject()
-            .put("address", host).put("port", port).put("id", dec(u.userInfo)).put("encryption", vlessEncryption(p))
+            .put("address", host).put("port", port).put("id", userId).put("encryption", vlessEncryption(p))
             .apply { p.first("flow").takeIf { it.isNotBlank() }?.let { put("flow", it) } }).put("streamSettings", stream)
-        // `security` is taken from the document that was just emitted, never re-read from the link,
-        // so the profile's label and the core's config can no longer disagree about what protects
-        // this node — the disagreement that made a REALITY node look like plaintext.
+        // The security label is taken from the document, never re-read from the unnormalised link.
         return prof(
-            raw, u.fragment ?: "VLESS $host", "vless", host, port,
+            link, fragment?.substringBefore('?') ?: "VLESS $host", "vless", host, port,
             p.first("type", "network", "net", default = "tcp"),
             stream.optString("security", "none"), base(out), sid, sname
         )

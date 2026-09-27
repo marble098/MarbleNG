@@ -3582,6 +3582,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         // cleartext public node to *any* core — including sing-box extended, whose parser would
         // otherwise accept it. A user's "no plaintext" cannot be engine-dependent.
         val settings = activeSettings ?: (application as MarbleApplication).repo.settings
+        if (AddressFamilyPolicy.excludedIpv6Endpoint(profile.host, settings)) {
+            return AddressFamilyPolicy.IPV6_LITERAL_DISABLED
+        }
         if (!CoreConfigSuperset.dialsPlaintextPublicNodes(settings) &&
             CoreConfigSuperset.wire(profile) == CoreConfigSuperset.Wire.PLAINTEXT_PUBLIC
         ) {

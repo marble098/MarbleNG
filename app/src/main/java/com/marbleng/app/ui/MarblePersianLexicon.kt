@@ -11,6 +11,7 @@ package com.marbleng.app.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import com.marbleng.app.core.AddressFamilyPolicy
 import com.marbleng.app.core.CoreConfigSuperset
 
 /** Translate an arbitrary UI literal when Persian is the active product language. */
@@ -646,6 +647,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     // IPv6 / DNS
     "IPv6" to "IPv6",
     "Enable IPv6" to "فعال‌سازی IPv6",
+    AddressFamilyPolicy.IPV6_LITERAL_DISABLED to
+        "این سرور فقط آدرس IPv6 دارد. IPv6 را در تنظیمات ← DNS فعال کنید و از شبکهٔ دارای IPv6 استفاده کنید.",
     "IPv6 in the tunnel; off blocks ::/0" to "IPv6 در تونل؛ خاموش یعنی مسدودسازی ::/0",
     "Prefer IPv6" to "اولویت IPv6",
     "IPv6 first; auto-paused on IPv4 nets" to "اول IPv6؛ در شبکه‌های IPv4 خودکار متوقف می‌شود",
