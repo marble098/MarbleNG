@@ -76,7 +76,7 @@ class Ipv6LeakHardeningTest {
         assertTrue(peers.length() > 0)
         for (i in 0 until peers.length()) {
             val peer = servers.single { it.getString("tag") == peers.getString(i) }
-            assertEquals("marble-direct", peer.getString("detour"))
+            assertEquals(SingBoxConfigBuilder.DIRECT_TAG, peer.getString("detour"))
             assertTrue("Force IPv6 must have no IPv4 bootstrap peer", peer.getString("server").contains(':'))
         }
         val route = sb.getJSONObject("route")

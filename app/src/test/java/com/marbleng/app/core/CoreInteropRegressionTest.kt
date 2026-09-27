@@ -145,7 +145,7 @@ class CoreInteropRegressionTest {
         for (i in 0 until peers.length()) {
             val peer = servers.single { it.getString("tag") == peers.getString(i) }
             assertTrue(AddressFamilyPolicy.isLiteralIp(peer.getString("server")))
-            assertEquals("marble-direct", peer.getString("detour"))
+            assertEquals(SingBoxConfigBuilder.DIRECT_TAG, peer.getString("detour"))
         }
     }
 
