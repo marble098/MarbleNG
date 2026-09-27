@@ -276,7 +276,7 @@ class FakeIpV184Test {
         assertTrue("the fakeip server must exist", fake != null)
         assertEquals("fakeip", fake!!.optString("type"))
         assertEquals(SingBoxConfigBuilder.FAKE_IP_POOL, fake.optString("inet4_range"))
-        assertEquals(SingBoxConfigBuilder.FAKE_IP6_POOL, fake.optString("inet6_range"))
+        assertEquals(FakeIpPolicy.IPV6_POOL, fake.optString("inet6_range"))
         assertFalse("fakeip owns a range, not an upstream server", fake.has("server"))
 
         // The app can retain a fake answer across a core restart, so the reverse mapping must
