@@ -12,30 +12,6 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# ---------------------------------------------------------------------------
-# TEMPORARY SESSION ANALYSIS — removed before the pull request.
-#
-# The development sandbox cannot build the app (no JDK, no Android SDK, no Maven/Google route)
-# and cannot read CI logs, so the "Source verification" job — the only workflow this branch can
-# actually trigger, through a pull request — rebuilds the candidate release commits and returns
-# the retraced stack trace as workflow annotations. Every other workflow and every other branch
-# is untouched.
-# ---------------------------------------------------------------------------
-def _marble_retrace_analysis() -> None:
-    import os
-    import subprocess
-    import sys
-
-    if os.environ.get("GITHUB_WORKFLOW") != "Source verification":
-        return
-    harness = ROOT / "scripts" / "retrace-build.py"
-    if not harness.is_file():
-        return
-    subprocess.run([sys.executable, str(harness)], check=False)
-
-
-_marble_retrace_analysis()
-
 def read(path: str) -> str:
     file = ROOT / path
     if not file.is_file():
@@ -194,6 +170,21 @@ files = {
     "ssh": read("app/src/main/java/com/marbleng/app/core/SshTransportManager.kt"),
     "socks": read("app/src/main/java/com/marbleng/app/core/SocksHttpClient.kt"),
     "resolverPolicy": read("app/src/main/java/com/marbleng/app/core/ResolverEvidencePolicy.kt"),
+    # MARBLE_IP_FAMILY_SCAN_V196 — the measured address family of a server, the ladder that
+    # keeps a forced family from becoming an outage, and the name-vs-resolver classifier that
+    # stopped one failing domain from looking like a resolver storm.
+    "familyScanner": read("app/src/main/java/com/marbleng/app/core/IpFamilyScanner.kt"),
+    "familyLadder": read("app/src/main/java/com/marbleng/app/core/Ipv6FallbackLadder.kt"),
+    "domainFault": read("app/src/main/java/com/marbleng/app/core/DnsDomainFaultPolicy.kt"),
+    "stormGuard": read("app/src/main/java/com/marbleng/app/core/DnsStormGuard.kt"),
+    "familyScannerTest": read("app/src/test/java/com/marbleng/app/core/IpFamilyScannerTest.kt"),
+    "familyLadderTest": read("app/src/test/java/com/marbleng/app/core/Ipv6FallbackLadderTest.kt"),
+    "domainFaultTest": read("app/src/test/java/com/marbleng/app/core/DnsDomainFaultPolicyTest.kt"),
+    "stormGuardTest": read("app/src/test/java/com/marbleng/app/core/DnsStormGuardV196Test.kt"),
+    "familyScanDoc": read("docs/IP_FAMILY_SCAN_V196.md"),
+    "ipv6Test": read("app/src/test/java/com/marbleng/app/core/Ipv6LeakHardeningTest.kt"),
+    "readme": read("README.md"),
+    "addressFamily": read("app/src/main/java/com/marbleng/app/core/AddressFamilyPolicy.kt"),
     "deadlinePolicy": read("app/src/main/java/com/marbleng/app/core/LinkDeadlinePolicy.kt"),
     "backoffPolicy": read("app/src/main/java/com/marbleng/app/core/TurboBackoffPolicy.kt"),
     "dpiFetch": read("app/src/main/java/com/marbleng/app/core/DpiAwareFetcher.kt"),
@@ -2607,6 +2598,111 @@ check(
     "V190 the page backdrop runs edge to edge",
     "MARBLE_EDGE_TO_EDGE_BACKDROP_V190" in files["ui"]
     and "containerColor = Color.Transparent" in files["ui"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_IP_FAMILY_SCAN_V196 / MARBLE_IPV6_FALLBACK_LADDER_V196 / MARBLE_DNS_DOMAIN_FAULT_V196
+#
+# The reported outage was not a broken network: Force IPv6 refused every IPv4-only server in the
+# library before the tunnel existed, and the kill switch held the old TUN each time. These
+# invariants pin the shape of the fix — one decision point, one measured fact behind it, and no
+# reader left holding the raw preference.
+# ---------------------------------------------------------------------------
+check(
+    "V196 a forced address family degrades along a ladder instead of refusing",
+    # The ladder owns all four rungs and the two honest refusals...
+    "enum class FamilyRung" in files["familyLadder"]
+    and "IPV6_STRICT" in files["familyLadder"]
+    and "IPV6_FIRST" in files["familyLadder"]
+    and "IPV4_FIRST" in files["familyLadder"]
+    and "REFUSED" in files["familyLadder"]
+    and "fun resolve(" in files["familyLadder"]
+    and "fun apply(" in files["familyLadder"]
+    # ...and the strict opt-in is the only thing that can still turn one into a refusal.
+    and "strict: Boolean = false" in files["familyLadder"]
+    and "val strictAddressFamily: Boolean = false" in files["models"]
+    and 'prefs.getBoolean("strictAddressFamily", false)' in files["store"]
+    and 'putBoolean("strictAddressFamily", s.strictAddressFamily)' in files["store"],
+)
+check(
+    "V196 the family rung is decided once, where every reader already looks",
+    # MarbleIntelligence.effectiveSettings is the single funnel of the connect path, the delay
+    # test, the ranking pool and every prober. Deciding anywhere else is how one reader ends up
+    # honouring a policy six others do not.
+    "val familyResolution = familyResolution(profile, base, n)" in files["intel"]
+    and "Ipv6FallbackLadder.apply(" in files["intel"]
+    and "fun familyResolution(" in files["intel"]
+    and "var ipFamilyEvidence:" in files["intel"]
+    and "Ipv6FallbackLadder.apply(settings, resolution)" in files["repo"]
+    and "fun familyResolutionFor(" in files["repo"]
+    # The preflight that produced `Kill switch active` now asks the ladder first.
+    and "repo.familyResolutionFor(profile)" in files["vpn"]
+    and "resolution?.refusal?.let" in files["vpn"]
+    # ...and the shared predicate no longer excludes anything unless strict was asked for.
+    and "if (!settings.strictAddressFamily) return false" in files["addressFamily"],
+)
+check(
+    "V196 a server's address family is measured, not guessed",
+    "fun scan(" in files["familyScanner"]
+    and "enum class IpFamilyVerdict" in files["familyScanner"]
+    # Records and reachability stay separate facts: an AAAA nobody dialled is not IPv6 support.
+    and "IPV6_UNPROVEN" in files["familyScanner"]
+    and "IPV4_ONLY" in files["familyScanner"]
+    and "fun classify(" in files["familyScanner"]
+    # Encrypted DoH only — a scan must never leak a node name to the local resolver.
+    and "AddressFamilyPolicy.resolveWithBudget" in files["familyScanner"]
+    # A verdict belongs to one physical network and expires.
+    and "fun usableOn(" in files["familyScanner"]
+    and "const val TTL_MS" in files["familyScanner"]
+    # Durable, bounded, and reachable from the repository the UI reads.
+    and "fun loadIpFamilyScans(" in files["store"]
+    and "fun saveIpFamilyScan(" in files["store"]
+    and "fun scanIpFamily(" in files["repo"]
+    and "fun scanIpFamilyForProfiles(" in files["repo"],
+)
+check(
+    "V196 the Servers page can scan one server or a whole group and reports the verdict",
+    "ServersGroupAction.SCAN_FAMILY" in files["ui"]
+    and '"Scan IPv4 / IPv6"' in files["ui"]
+    and "repo.scanIpFamily(profile)" in files["ui"]
+    and "repo.scanIpFamilyForProfiles(group.profiles, group.title)" in files["ui"]
+    # The measurement is shown where it was asked for, not only in a transient message.
+    and "IpFamilyScanDialog(" in files["ui"]
+    and "IpFamilyGroupDialog(" in files["ui"]
+    and "repo.ipFamilyScan(profile)?.let" in files["ui"],
+)
+check(
+    "V196 one failing name is not a failing resolver pool",
+    "object DnsDomainFaultPolicy" in files["domainFault"]
+    and "DISTINCT_ENDPOINTS_FOR_FAULT" in files["domainFault"]
+    and "fun isDomainFaultLine(" in files["domainFault"]
+    # Domain-faulted lines are filtered out BEFORE endpoint attribution and the storm detector.
+    and "DnsDomainFaultPolicy.observe(" in files["intel"]
+    and "DnsDomainFaultPolicy.isDomainFaultLine(it, faults, nowMs)" in files["intel"]
+    and "ResolverEvidencePolicy.observe(attributable.asSequence(), before, nowMs)" in files["intel"]
+    # The storm guard can now be stood down by evidence of recovery, not only by the clock.
+    and "fun recordProvenAnswer(" in files["stormGuard"]
+    and "stormGuard.recordProvenAnswer(nowMs)" in files["intel"]
+    # And the report names the site instead of blaming the pool.
+    and "DNS name faults" in files["bugFinder"]
+    and "dnsDomainFaultSummary()" in files["bugFinder"],
+)
+check(
+    "V196 the family ladder, the scan and the name classifier are pinned by tests and a chapter",
+    "class Ipv6FallbackLadderTest" in files["familyLadderTest"]
+    and "forceIpv6OnAnIpv4OnlyNodeDialsIpv4InsteadOfRefusing" in files["familyLadderTest"]
+    and "strictEnforcementStillRefusesAndNamesTheAlternative" in files["familyLadderTest"]
+    and "class IpFamilyScannerTest" in files["familyScannerTest"]
+    and "anAdvertisedIpv6ThatNeverAnswersIsUnprovenNotAbsent" in files["familyScannerTest"]
+    and "class DnsDomainFaultPolicyTest" in files["domainFaultTest"]
+    and "twoIndependentEndpointsFailingTheSameNameIsADomainFault" in files["domainFaultTest"]
+    and "oneEndpointFailingManyNamesStaysEndpointEvidence" in files["domainFaultTest"]
+    and "class DnsStormGuardV196Test" in files["stormGuardTest"]
+    # The strict contract keeps its own regression file, opting in explicitly.
+    and "strictAddressFamily = true" in files["ipv6Test"]
+    and "forceIpv6WithoutStrictDegradesInsteadOfRefusing" in files["ipv6Test"]
+    and "MARBLE_IP_FAMILY_SCAN_V196" in files["familyScanDoc"]
+    and "IP_FAMILY_SCAN_V196.md" in files["readme"],
 )
 
 production = "\n".join(

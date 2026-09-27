@@ -301,6 +301,20 @@ TUN now always captures both IP families (then rejects a disabled family inside 
 uncaptured `::/0` cannot bypass the VPN. The current family/DNS security contract and device
 verification steps are in [IPv6 and leak hardening](docs/IPV6_LEAK_HARDENING.md).
 
+`docs/IP_FAMILY_SCAN_V196.md` is the newest chapter, and the one that made Marble IPv6-first in
+practice rather than in intent. Force IPv6 used to be a gate: on a Wi-Fi with no IPv6 route and a
+library of mostly IPv4-only servers, every connect attempt was refused before the tunnel started
+and the kill switch held the old TUN, so the screen read `BLOCKED • Kill switch active` on server
+after server. A transport preference that produces an outage is a defect, so it now walks a
+ladder — **IPv6 strict → IPv6 first → IPv4 dial with IPv6 kept for destinations → an honest
+refusal that names the alternative** — decided once, inside the one function the tunnel, the delay
+test, the ranking pool and every prober share. Servers → ⋯ → **Scan IPv4 / IPv6** (per server, or
+per group from the header) measures the fact the ladder needs: encrypted DoH for A/AAAA, then a
+real bounded TCP connect per family, cached per endpoint *and* per physical network. The same
+chapter covers `DnsDomainFaultPolicy`: two independent healthy resolvers timing out on one name is
+a fact about that name, not a resolver storm, and it no longer demotes providers or arms parallel
+racing.
+
 ## Main navigation
 
 MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.
