@@ -194,8 +194,23 @@ object SingBoxTransportTranslator {
             }
             val key = password.ifBlank { publicKey }
             if (key.isBlank()) unsupported("realitySettings.password", "REALITY requires its public key (password/publicKey)")
+            // MARBLE_REALITY_MLKEM_HANDSHAKE_V194 — the hybrid key share Xray >= v26.9.8 servers
+            // require. `github.com/xtls/reality@8cdf7bf9` rejects any ClientHello without
+            // `X25519MLKEM768 before optional X25519` and silently falls back to the decoy site,
+            // so the client fails with `reality verification failed` — deterministically, for
+            // every destination, with perfectly correct keys. The pinned fork *strips* that
+            // share from every uTLS handshake unless `support_x25519mlkem768` is set (its own
+            // `common/tls/reality_client.go`; the option is `OutboundRealityOptions` in its
+            // `option/tls.go`), which is why a node that connects in v2rayNG failed 55/55 here
+            // while the public key, short ID and SNI were all innocent. The flag is
+            // unconditionally safe: older servers scan for plain X25519 first and merely tolerate
+            // the extra share (the parent commit's parse loop), while new servers require it.
+            // Only fingerprints whose uTLS preset carries the share (chrome in metacubex/utls
+            // v1.8.7) can satisfy a new server; anything else still fails and is diagnosed by
+            // [RealityHandshakePolicy] instead of being retried blindly.
             result.put("reality", JSONObject().put("enabled", true).put("public_key", key)
-                .put("short_id", source.optString("shortId")))
+                .put("short_id", source.optString("shortId"))
+                .put("support_x25519mlkem768", true))
             // REALITY requires uTLS; Xray also defaults the fingerprint to chrome.
             if (!result.has("utls")) result.put("utls", JSONObject().put("enabled", true).put("fingerprint", "chrome"))
             if (source.optString("spiderX").isNotBlank()) notes += "REALITY spiderX camouflage crawling is Xray-only; authentication/key/short ID are preserved."

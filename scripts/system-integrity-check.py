@@ -163,6 +163,13 @@ files = {
     "linkWireParity": read("app/src/main/java/com/marbleng/app/core/LinkWireParity.kt"),
     "vlessIpv6Test": read("app/src/test/java/com/marbleng/app/core/VlessXhttpRealityIpv6Test.kt"),
     "vlessIpv6Doc": read("docs/VLESS_XHTTP_REALITY_IPV6.md"),
+    # MARBLE_REALITY_MLKEM_HANDSHAKE_V194 — the REALITY handshake-shape fault (missing hybrid
+    # key share) and its diagnostic half: the policy that names residual rejections, the test
+    # that pins the verbatim keys plus the emitted flag, and the Bug Finder that reports them.
+    "realityPolicy": read("app/src/main/java/com/marbleng/app/core/RealityHandshakePolicy.kt"),
+    "realityMlkemTest": read("app/src/test/java/com/marbleng/app/core/RealityMlkemHandshakeTest.kt"),
+    "realityMlkemDoc": read("docs/REALITY_MLKEM_HANDSHAKE_V194.md"),
+    "bugFinder": read("app/src/main/java/com/marbleng/app/core/BugFinder.kt"),
     "blockGuard": read("app/src/main/java/com/marbleng/app/core/ConfigBlockGuard.kt"),
     "preflight": read("app/src/main/java/com/marbleng/app/core/ProfilePreflightValidator.kt"),
     "auditor": read("app/src/main/java/com/marbleng/app/core/ProfileSecurityAuditor.kt"),
@@ -1936,7 +1943,7 @@ check(
     "fun pinnedPeerRefusal(profile: ProxyProfile): String?" in files["singBoxBuilder"]
     and "internal fun linkCarriesPin(link: String): Boolean" in files["singBoxBuilder"]
     and "MARBLE_SINGBOX_PINNED_COMPAT_V164" in files["singBoxBuilder"]
-    and "if (isPinned || xhttpLink) null" in files["singBoxBuilder"]
+    and "if (isPinned || xhttpLink || realityLink) null" in files["singBoxBuilder"]
     and "tls-pinning" in files["singBoxTransport"]
     and "if (engine == CoreEngine.SINGBOX) return SingBoxConfigBuilder.pinnedPeerRefusal(profile)" in files["vpn"]
     and "MARBLE_SINGBOX_PINNED_PEER_V163" in files["pinnedPeerDoc"]
@@ -2095,7 +2102,7 @@ check(
     and "ShareLinkNormalizer.normalize(raw)" in files["linkParams"]
     and "XhttpExtra.parse(it)" in files["parser"]
     and "XhttpExtra.parse(raw)" in files["singBoxTransport"]
-    and "if (isPinned || xhttpLink) null" in files["singBoxBuilder"]
+    and "if (isPinned || xhttpLink || realityLink) null" in files["singBoxBuilder"]
     and "xhttpLink -> listOfNotNull(fromLink, stored)" in files["singBoxBuilder"]
     and "LinkWireParity.matches(profile, derived)" in files["repo"]
     and "AddressFamilyPolicy.excludedIpv6Endpoint(profile.host, settings)" in files["vpn"]
@@ -2104,6 +2111,30 @@ check(
     and "class VlessXhttpRealityIpv6Test" in files["vlessIpv6Test"]
     and "base64ExtraAndTopLevelTuningArePreservedNotSilentlyOverwritten" in files["vlessIpv6Test"]
     and "IPv6-only endpoint" in files["vlessIpv6Doc"],
+)
+
+# MARBLE_REALITY_MLKEM_HANDSHAKE_V194 — a VLESS/REALITY node that connects in v2rayNG failed
+# 55/55 here with `reality verification failed`, deterministically, on every destination. The
+# keys were innocent (they travel verbatim; no base64 decode of `pbk` exists on that path): the
+# fault is the handshake shape. Xray >= v26.9.8 REALITY servers require the X25519MLKEM768 key
+# share, which the pinned sing-box core strips unless its reality block sets
+# `support_x25519mlkem768` — and neither its link parser nor MarbleNG's translator used to set
+# it. The translator now emits the flag (safe for older servers, which scan X25519 first and
+# tolerate the extra share), REALITY links skip the core parser that cannot emit it, and the
+# residual rejections are classified with the actual remedy instead of being retried blindly.
+check(
+    "translated REALITY carries the hybrid key share current servers require, and REALITY links skip the core parser that cannot emit it",
+    '.put("support_x25519mlkem768", true)' in files["singBoxTransport"]
+    and "internal fun linkCarriesReality(link: String): Boolean" in files["singBoxBuilder"]
+    and "if (isPinned || xhttpLink || realityLink) null" in files["singBoxBuilder"]
+    and "object RealityHandshakePolicy" in files["realityPolicy"]
+    and 'const val SINGBOX_MARKER = "reality verification failed"' in files["realityPolicy"]
+    and "RealityHandshakePolicy.check(RealityHandshakePolicy.scan(coreEvidence), active)" in files["bugFinder"]
+    and "class RealityMlkemHandshakeTest" in files["realityMlkemTest"]
+    and "urlSafeKeyAlphabetSurvivesImportByteIdentical" in files["realityMlkemTest"]
+    and "singboxTranslationEmitsMlkemFlagWithVerbatimKeys" in files["realityMlkemTest"]
+    and "realityLinksSkipTheCoreParserOnBothTransports" in files["realityMlkemTest"]
+    and "X25519MLKEM768" in files["realityMlkemDoc"],
 )
 
 check(
