@@ -169,6 +169,7 @@ object ProxyParser {
         // is translated instead of being handed to a core that refuses to load it.
         TlsPinningPolicy.sanitizeConfigDocument(root)
         val protocol = outbound.optString("protocol", "json").lowercase()
+        val settings = outbound.optJSONObject("settings") ?: JSONObject()
         val meta = endpointMeta(outbound)
         val scheme = when (protocol) {
             "shadowsocks" -> "ss"
