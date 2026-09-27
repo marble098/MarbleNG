@@ -436,7 +436,10 @@ object ProxyParser {
 
         if (security == "reality") stream.put("realitySettings", JSONObject()
             .put("serverName", serverName).put("fingerprint", fingerprint)
-            .put("password", p.first("pbk", "publicKey", "password"))
+            // Keep the base64url text intact: the cores decode it (RawURLEncoding in
+            // sing-box). Decoding to text or re-encoding with standard Base64 corrupts it.
+            // Use the same public-key aliases as REALITY security inference above.
+            .put("password", p.first("pbk", "publicKey", "realityPublicKey", "password"))
             .put("shortId", p.first("sid", "shortId")).apply {
                 p.first("spx", "spiderX").takeIf { it.isNotBlank() }?.let { put("spiderX", it) }
                 p.first("pqv", "mldsa65Verify").takeIf { it.isNotBlank() }?.let { put("mldsa65Verify", it) }

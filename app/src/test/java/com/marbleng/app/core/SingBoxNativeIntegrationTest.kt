@@ -102,8 +102,14 @@ class SingBoxNativeIntegrationTest {
     @Test fun reportedXhttpRealityPasswordShapeActuallyCarriesUrlTestAndRealDelayThroughXray() {
         val tls = origin()
         val decoy = decoy(tls.context)
-        val keys = KeyPairGenerator.getInstance("X25519").generateKeyPair()
         val encode = Base64.getUrlEncoder().withoutPadding()
+        // Require both URL-safe symbols: an ordinary random key can miss one and hide a
+        // regression to the standard Base64 alphabet. No production credentials are used.
+        val generator = KeyPairGenerator.getInstance("X25519")
+        val keys = generateSequence { generator.generateKeyPair() }.first {
+            val key = encode.encodeToString(it.public.encoded.takeLast(32).toByteArray())
+            '-' in key && '_' in key
+        }
         val privateKey = encode.encodeToString(keys.private.encoded.takeLast(32).toByteArray())
         val publicKey = encode.encodeToString(keys.public.encoded.takeLast(32).toByteArray())
         val port = freePort()
@@ -111,17 +117,23 @@ class SingBoxNativeIntegrationTest {
             .put("mode", "auto").put("xPaddingBytes", "100-1000").put("xPaddingObfsMode", true))
         val stream = JSONObject().put("network", "xhttp").put("security", "reality").put("xhttpSettings", transport)
             .put("realitySettings", JSONObject().put("target", "127.0.0.1:$decoy").put("serverNames", JSONArray().put("localhost"))
-                .put("privateKey", privateKey).put("shortIds", JSONArray().put("1234")))
+                .put("privateKey", privateKey).put("shortIds", JSONArray().put("0123456789abcdef")))
         val inbound = JSONObject().put("listen", "127.0.0.1").put("port", port).put("protocol", "vless")
             .put("settings", JSONObject().put("decryption", "none").put("clients", JSONArray().put(JSONObject().put("id", uuid))))
             .put("streamSettings", stream)
         val serverLog = startXray(inbound, port)
-        val client = JSONObject().put("protocol", "vless").put("tag", "proxy")
-            .put("settings", JSONObject().put("address", "127.0.0.1").put("port", port).put("id", uuid).put("encryption", "none"))
-            .put("streamSettings", JSONObject().put("method", "xhttp").put("security", "reality").put("xhttpSettings", transport)
-                .put("realitySettings", JSONObject().put("serverName", "localhost").put("fingerprint", "chrome")
-                    .put("password", publicKey).put("shortId", "1234").put("spiderX", "/")))
+        val link = "vless://$uuid@127.0.0.1:$port?mode=auto&amp;path=%2F" +
+            "&amp;security=reality&amp;encryption=none&amp;type=xhttp" +
+            "&amp;extra=%7B%22mode%22%3A%22auto%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D" +
+            "&amp;pbk=$publicKey&amp;fp=chrome&amp;sni=localhost&amp;sid=0123456789abcdef&amp;spx=%2Fdecoy"
+        val imported = ProxyParser.vlessFromParts(link, "127.0.0.1", port, uuid, "Loopback REALITY")
+        val client = JSONObject(imported.configJson).getJSONArray("outbounds").getJSONObject(0)
+        // Run the JSON emitted by the actual share-link importer, not a hand-written equivalent.
         val configured = config(profile(client), certificate = tls.certificate)
+        val reality = configured.getJSONArray("outbounds").getJSONObject(0)
+            .getJSONObject("tls").getJSONObject("reality")
+        assertEquals(publicKey, reality.getString("public_key"))
+        assertEquals("0123456789abcdef", reality.getString("short_id"))
         start(configured).use { active ->
             val tested = active.delay(tls.url, 6000)
             assertTrue("$tested\nCLIENT: ${SingBoxProcessSession.tail(active.logFile)}\nSERVER: ${SingBoxProcessSession.tail(serverLog)}", tested.ok)
@@ -132,6 +144,13 @@ class SingBoxNativeIntegrationTest {
             assertTrue(real.samplesMs.single() > 0)
             assertTrue(tls.paths.contains("/generate_204?token=retained"))
             assertFalse("http must not be silently replaced with gstatic", active.delay("http://127.0.0.1/", 1000).ok)
+        }
+        // A valid but different public key must fail authentication, never bypass verification.
+        val wrongKey = encode.encodeToString(generator.generateKeyPair().public.encoded.takeLast(32).toByteArray())
+        val wrongKeyClient = JSONObject(client.toString())
+        wrongKeyClient.getJSONObject("streamSettings").getJSONObject("realitySettings").put("password", wrongKey)
+        start(config(profile(wrongKeyClient), certificate = tls.certificate)).use { active ->
+            assertFalse("Wrong REALITY key must not carry traffic", active.delay(tls.url, 2000).ok)
         }
         // Control: a listening core with the WRONG account must not report success.
         client.getJSONObject("settings").put("id", "22222222-2222-3333-4444-555555555555")

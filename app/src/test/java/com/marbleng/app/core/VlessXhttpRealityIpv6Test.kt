@@ -11,26 +11,55 @@ import java.util.Base64
  * No production endpoint, account, short ID or public key is included in this fixture. */
 class VlessXhttpRealityIpv6Test {
     private val id = "11111111-2222-3333-4444-555555555555"
-    private val key = "A".repeat(43)
+    // Synthetic 32-byte key exercises BOTH URL-safe characters and omitted padding.
+    private val keyBytes = ByteArray(32) { if (it % 2 == 0) 0xfb.toByte() else 0xff.toByte() }
+    private val key = Base64.getUrlEncoder().withoutPadding().encodeToString(keyBytes)
     private val extra = "%7B%22mode%22%3A%22auto%22%2C%22xPaddingBytes%22%3A%22100-1000%22%7D"
     private val copied = "vless://$id@[2001:db8::7]:18443?mode=auto&amp;path=%2F&amp;security=reality" +
         "&amp;encryption=none&amp;extra=$extra&amp;pbk=$key&amp;fp=chrome&amp;spx=%2Fdecoy" +
-        "&amp;type=xhttp&amp;sni=[example.org](http://example.org)&amp;sid=abcd" +
+        "&amp;type=xhttp&amp;sni=[example.org](http://example.org)&amp;sid=0123456789abcdef" +
         "#%F0%9F%87%A9%F0%9F%87%AA%20Germany%203"
 
     private fun imported() = ProxyParser.vlessFromParts(copied, "[2001:db8::7]", 18443, id, "🇩🇪 Germany 3")
     private fun proxy(config: String): JSONObject = JSONObject(config).getJSONArray("outbounds").getJSONObject(0)
 
+    @Test fun urlSafeKeyIsNotDecodedToTextOrReencodedAsStandardBase64() {
+        assertEquals(43, key.length)
+        assertTrue(key.contains('-'))
+        assertTrue(key.contains('_'))
+        assertFalse(key.contains('='))
+        assertArrayEquals(keyBytes, Base64.getUrlDecoder().decode(key))
+        assertThrows(IllegalArgumentException::class.java) { Base64.getDecoder().decode(key) }
+        // Percent escapes are decoded once; base64url itself is not a URI escape.
+        val escaped = copied.replace(key, key.replace("-", "%2D").replace("_", "%5F"))
+        assertEquals(key, ShareLinkParams.ofRawLink(escaped).get("pbk"))
+        val wire = proxy(ProxyParser.vlessFromParts(escaped, "[2001:db8::7]", 18443, id, null).configJson)
+            .getJSONObject("streamSettings").getJSONObject("realitySettings")
+        assertArrayEquals(keyBytes, Base64.getUrlDecoder().decode(wire.getString("password")))
+    }
+
+    @Test fun everyRealityPublicKeyAliasBothInfersSecurityAndSuppliesTheKey() {
+        listOf("pbk", "publicKey", "realityPublicKey").forEach { alias ->
+            val link = copied.replace("pbk=", "$alias=").replace("security=reality", "security=")
+            val stream = proxy(ProxyParser.vlessFromParts(link, "[2001:db8::7]", 18443, id, null).configJson)
+                .getJSONObject("streamSettings")
+            assertEquals(alias, "reality", stream.getString("security"))
+            assertEquals(alias, key, stream.getJSONObject("realitySettings").getString("password"))
+            val tls = SingBoxTransportTranslator.tls(stream, AppSettings(), mutableListOf())!!
+            assertEquals(alias, key, tls.getJSONObject("reality").getString("public_key"))
+        }
+    }
+
     @Test fun renderedTextIsNormalisedOnlyAtQueryBoundaries() {
         val clean = ShareLinkNormalizer.normalize(copied)
         assertTrue(clean.contains("?mode=auto&path=%2F&security=reality"))
         assertTrue(clean.contains("extra=$extra"))
-        assertTrue(clean.contains("&sni=example.org&sid=abcd#"))
+        assertTrue(clean.contains("&sni=example.org&sid=0123456789abcdef#"))
         assertFalse(clean.contains("&amp;"))
         assertEquals(clean, ShareLinkNormalizer.normalize(clean))
         assertEquals("reality", ShareLinkParams.ofRawLink(copied).get("security"))
         assertEquals("example.org", ShareLinkParams.ofRawLink(copied).get("sni"))
-        assertEquals("abcd", ShareLinkParams.ofRawLink(copied).get("sid"))
+        assertEquals("0123456789abcdef", ShareLinkParams.ofRawLink(copied).get("sid"))
         assertEquals(key, ShareLinkParams.ofRawLink(copied).get("pbk"))
     }
 
@@ -69,7 +98,7 @@ class VlessXhttpRealityIpv6Test {
         assertEquals("example.org", reality.getString("serverName"))
         assertEquals("chrome", reality.getString("fingerprint"))
         assertEquals(key, reality.getString("password"))
-        assertEquals("abcd", reality.getString("shortId"))
+        assertEquals("0123456789abcdef", reality.getString("shortId"))
         assertEquals("/decoy", reality.getString("spiderX"))
         assertEquals(CoreConfigSuperset.Wire.ENCRYPTED, CoreConfigSuperset.wire(profile))
         assertTrue(ProfilePreflightValidator.validate(profile).detail, ProfilePreflightValidator.validate(profile).valid)
@@ -93,7 +122,7 @@ class VlessXhttpRealityIpv6Test {
                 assertEquals("vless", outbound.getString("type"))
                 assertEquals("example.org", outbound.getJSONObject("tls").getString("server_name"))
                 assertEquals(key, outbound.getJSONObject("tls").getJSONObject("reality").getString("public_key"))
-                assertEquals("abcd", outbound.getJSONObject("tls").getJSONObject("reality").getString("short_id"))
+                assertEquals("0123456789abcdef", outbound.getJSONObject("tls").getJSONObject("reality").getString("short_id"))
                 assertEquals("100-1000", outbound.getJSONObject("transport").getString("x_padding_bytes"))
                 assertEquals("/", outbound.getJSONObject("transport").getString("path"))
             }
