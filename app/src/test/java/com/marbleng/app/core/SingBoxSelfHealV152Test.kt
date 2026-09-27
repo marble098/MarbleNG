@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -14,12 +15,13 @@ import org.junit.Test
  * with `outbounds[3]: dns outbound is deprecated in sing-box 1.11.0 and removed in sing-box
  * 1.13.0, use rule actions instead`. The doctor is Marble Intelligence's automatic repair: the
  * known removals are migrated in place and the core re-checks the healed config. These tests
- * replay the exact fault from the log and the 1.12 DNS key rename, and pin the fault
- * classifier the VPN service uses to stop a futile 17-node failover and switch engines.
+ * replay the fault from the log and the 1.12 DNS key rename in a config with a safe encrypted
+ * bootstrap. A legacy config without one is refused, never "repaired" with plaintext DNS. The
+ * fault classifier stops futile 17-node failover and identifies the broken engine.
  */
 class SingBoxSelfHealV152Test {
 
-    /** The config shape that shipped in 8.0.6: a proxy hop, direct, block and the removed dns hop. */
+    /** Legacy outbound/schema faults, with a secure direct DoH bootstrap already available. */
     private fun legacyConfig(): String = JSONObject()
         .put(
             "log",
@@ -55,6 +57,11 @@ class SingBoxSelfHealV152Test {
                                 .put("address", "https://1.1.1.1/dns-query")
                         )
                         .put(JSONObject().put("type", "hosts").put("tag", "dns-hosts"))
+                        .put(JSONObject().put("type", "https").put("tag", "dns-bootstrap-0")
+                            .put("server", "1.1.1.1").put("path", "/dns-query").put("detour", "direct"))
+                        .put(JSONObject().put("type", "fallback").put("tag", "dns-bootstrap")
+                            .put("servers", JSONArray().put("dns-bootstrap-0"))
+                            .put("strategy", "sequential"))
                 )
                 .put("final", "dns-remote")
         )
@@ -121,6 +128,23 @@ class SingBoxSelfHealV152Test {
             remote.getString("server")
         )
         assertFalse("the legacy `address` key must not survive", remote.has("address"))
+    }
+
+    @Test
+    fun aLegacyConfigWithoutEncryptedBootstrapIsNotRepairedIntoAPlaintextDnsLeak() {
+        val unsafe = JSONObject(legacyConfig())
+        val dns = unsafe.getJSONObject("dns")
+        val original = dns.getJSONArray("servers")
+        val retained = JSONArray()
+        for (index in 0 until original.length()) {
+            val server = original.getJSONObject(index)
+            if (!server.optString("tag").startsWith("dns-bootstrap")) retained.put(server)
+        }
+        dns.put("servers", retained)
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            SingBoxConfigDoctor.repair(unsafe.toString())
+        }
+        assertTrue(error.message.orEmpty().contains("encrypted IP-literal direct DNS bootstrap"))
     }
 
     @Test

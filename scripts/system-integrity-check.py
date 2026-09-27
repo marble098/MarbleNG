@@ -649,9 +649,19 @@ check(
 
 # DNS, routing and identity.
 check(
-    "endpoint bootstrap is encrypted local DoH",
+    "full TUN refuses a disabled DNS hijack rather than forwarding plaintext port 53",
+    "if (mode != MODE_PROXY && !app.repo.settings.dnsHijackEnabled)" in files["vpn"]
+    and 'failBeforeTunnel("Full VPN requires DNS hijacking' in files["vpn"]
+    and "val enableDnsHijack = mode == ConnectionMode.FULL_TUN && !settings.dnsHijackEnabled"
+        in files["repo"]
+    and "Required to start Full TUN without plaintext DNS" in files["ui"],
+)
+check(
+    "endpoint bootstrap is encrypted local DoH and fails closed without a family-compatible peer",
     "https+local://${dnsHostLiteral(ip)}/dns-query" in files["hardener"]
-    and "https+local://${dnsHostLiteral(resolver)}/dns-query" in files["hardener"],
+    and "configuredBootstrapIps.filter { resolverFamilyAllowed(it) }" in files["hardener"]
+    and "require(bootstrapIps.isNotEmpty())" in files["hardener"]
+    and "dnsPlan.preference != IpFamilyPreference.IPV6_ONLY" in files["hardener"],
 )
 check("ordinary Xray DNS has no plaintext tcp53 fallback", '"tcp://$ip:53"' not in files["hardener"])
 # MARBLE_RESOLVER_EVIDENCE_V134 — serial failover is the default, not an absolute. Racing every
@@ -1841,7 +1851,11 @@ check(
 )
 check(
     "the hardener repairs stored profiles before the core sees them",
-    files["hardener"].count("TlsPinningPolicy.sanitizeConfigDocument") >= 2,
+    "TlsPinningPolicy.sanitizeConfigDocument(src)" in files["hardener"]
+    and "fun hardenForDelayTest(" in files["hardener"]
+    and "String = harden(source, socksPort, settings, link, underlayHasIpv6)" in files["hardener"]
+    and "JSONObject(harden(source, 19091, settings, underlayHasIpv6 = underlayHasIpv6))"
+        in files["hardener"],
 )
 check(
     "the pinning editor is reachable from the UI",
@@ -2069,7 +2083,10 @@ check(
     'internal const val REMOVED_CHAIN_FIELD = "proxySettings"' in files["configRepairs"]
     and "fun apply(source: String): Report" in files["configRepairs"]
     and "return Report(source, emptyList())" in files["configRepairs"]
-    and files["hardener"].count("XrayConfigRepairs.apply(") >= 3
+    and files["hardener"].count("XrayConfigRepairs.apply(") >= 2
+    and "val root = JSONObject(harden(source, 19091, settings, underlayHasIpv6 = underlayHasIpv6))"
+        in files["hardener"]
+    and "String = harden(source, socksPort, settings, link, underlayHasIpv6)" in files["hardener"]
     and "sockopt.put(\"dialerProxy\", segments[index - 1].primaryTag)" in files["hardener"]
     and '.put(\n                "proxySettings",\n' not in files["hardener"]
     and "transportLayer\", true)" not in files["hardener"]

@@ -288,8 +288,11 @@ object CensorshipAwareDnsResolver {
             initializeForSession(networkKey, settings)
         }
 
+        // A Force IPv4 answer must never become the cached response for Force IPv6 (or vice
+        // versa) after a live settings change on the same physical network.
+        val cacheKey = "$hostname|${settings.addressFamilyMode}|${settings.ipv6Enabled}|${settings.dnsQueryStrategy}|${AddressFamilyPolicy.underlayHasIpv6()}"
         // Stage 1: Check cache
-        val cached = sessionCache[hostname]
+        val cached = sessionCache[cacheKey]
         if (cached != null && !cached.isExpired) {
             cacheHits.incrementAndGet()
             return ResolutionResult(
@@ -339,73 +342,82 @@ object CensorshipAwareDnsResolver {
             healthy
         }
 
-        val wire = DnsWireCodec.buildQuery(hostname)
+        // Only IP-literal HTTPS endpoints belong on this pre-tunnel DIRECT path. A DoH
+        // provider named by DNS would itself trigger an Android/system lookup before the
+        // encrypted query even begins.
         val providers = ordered
             .filter { it.stage == DnsStage.DOH || it.stage == DnsStage.FALLBACK_DOH }
+            .filter { resolver ->
+                val host = runCatching { java.net.URI(resolver.endpoint).host }.getOrNull()
+                    ?.removeSurrounding("[", "]").orEmpty()
+                AddressFamilyPolicy.isLiteralIp(host)
+            }
             .take(MAX_PARALLEL_DOH)
             .map { DohResolverPool.Provider(it.id, it.endpoint, internal = it.stage == DnsStage.FALLBACK_DOH) }
 
-        val outcome = pool().raceResolve(
-            wire = wire,
-            providers = providers,
-            perResolverTimeoutMs = (deadline - System.currentTimeMillis())
-                .coerceIn(PER_RESOLVER_DEADLINE_MS, deadlineMs)
-        )
-
-        if (outcome.success) {
-            val winner = ordered.firstOrNull { it.id == outcome.providerId }
-            val addresses = DnsWireCodec.parseAnswers(outcome.body)
-            if (addresses.isEmpty()) {
-                // The resolver answered, but with no usable A/AAAA record.
-                winner?.let { recordFailureKind(it, ResolverFailureKind.EOF) }
-                return null
-            }
-            val poisoned = addresses.any { addr ->
-                val host = addr.hostAddress ?: return@any false
-                KNOWN_BLOCK_PAGE_PREFIXES.any { prefix -> host.startsWith(prefix) }
-            }
-            if (poisoned) {
-                poisonedDetections.incrementAndGet()
-                poisonedCategoryCount.incrementAndGet()
-                winner?.let { r ->
-                    endpointQuarantine.record(ResolverFailureKind.POISON, r.endpoint)
-                    r.recordFailure(BLACKLIST_DURATION_MS * 2)
-                }
-                return ResolutionResult(
-                    addresses = addresses,
-                    resolverId = outcome.providerId ?: "doh",
-                    stage = winner?.stage ?: DnsStage.DOH,
-                    latencyMs = outcome.latencyMs,
-                    fromCache = false,
-                    poisoned = true,
-                    valid = false
-                )
-            }
-            winner?.let { r ->
-                r.recordSuccess(outcome.latencyMs)
-                endpointQuarantine.recordSuccess(r.endpoint)
-            }
-            stickyResolverId.set(outcome.providerId ?: "")
-            val result = ResolutionResult(
-                addresses = addresses,
-                resolverId = outcome.providerId ?: "doh",
-                stage = winner?.stage ?: DnsStage.DOH,
-                latencyMs = outcome.latencyMs,
-                fromCache = false,
-                poisoned = false,
-                valid = true
-            )
-            cacheResult(hostname, result)
-            return result
+        val hasUnderlayIpv6 = AddressFamilyPolicy.underlayHasIpv6()
+        val types = when (AddressFamilyPolicy.preference(settings, underlayHasIpv6 = hasUnderlayIpv6)) {
+            IpFamilyPreference.IPV4_ONLY -> listOf(1)
+            IpFamilyPreference.IPV6_ONLY -> listOf(28)
+            IpFamilyPreference.IPV6_FIRST -> listOf(28, 1)
+            else -> listOf(1, 28)
         }
-
-        // Every provider failed: record each failure. Cancellations and closed-pipe events remain
-        // shutdown-safe (recorded but never quarantined), matching the shared failure classifier.
-        outcome.failures.forEach { (provider, failure) ->
+        val found = linkedSetOf<InetAddress>()
+        var winning: DohResolverPool.RaceOutcome? = null
+        val failures = mutableListOf<Pair<DohResolverPool.Provider, DohTransportResult>>()
+        for (type in types) {
+            val remaining = deadline - System.currentTimeMillis()
+            if (remaining <= 0) break
+            val outcome = pool().raceResolve(
+                wire = DnsWireCodec.buildQuery(hostname, type),
+                providers = providers,
+                perResolverTimeoutMs = remaining.coerceIn(500L, PER_RESOLVER_DEADLINE_MS)
+            )
+            if (outcome.success) {
+                val answers = DnsWireCodec.parseAnswers(outcome.body).filter { address ->
+                    if (type == 28) address is java.net.Inet6Address else address is java.net.Inet4Address
+                }
+                if (answers.isNotEmpty()) {
+                    found.addAll(answers)
+                    if (winning == null) winning = outcome
+                }
+                // A valid NOERROR/NODATA for one family is not a transport failure. Keep asking
+                // the other family; an IPv6-only node has no A answer by design.
+            } else failures.addAll(outcome.failures)
+        }
+        failures.forEach { (provider, failure) ->
             val resolver = sessionResolvers.firstOrNull { it.id == provider.id } ?: return@forEach
             recordFailureKind(resolver, failure.failureKind ?: ResolverFailureKind.OTHER)
         }
-        return null
+        val outcome = winning ?: return null
+        val winner = ordered.firstOrNull { it.id == outcome.providerId }
+        val addresses = AddressFamilyPolicy.orderAddresses(
+            found.toList(), AddressFamilyPolicy.plan(settings = settings, underlayHasIpv6 = hasUnderlayIpv6)
+        )
+        if (addresses.isEmpty()) return null
+        val poisoned = addresses.any { addr ->
+            val host = addr.hostAddress ?: return@any false
+            KNOWN_BLOCK_PAGE_PREFIXES.any { prefix -> host.startsWith(prefix) }
+        }
+        if (poisoned) {
+            poisonedDetections.incrementAndGet()
+            poisonedCategoryCount.incrementAndGet()
+            winner?.let { r ->
+                endpointQuarantine.record(ResolverFailureKind.POISON, r.endpoint)
+                r.recordFailure(BLACKLIST_DURATION_MS * 2)
+            }
+            return ResolutionResult(addresses, outcome.providerId ?: "doh",
+                winner?.stage ?: DnsStage.DOH, outcome.latencyMs, false, poisoned = true, valid = false)
+        }
+        winner?.let { r ->
+            r.recordSuccess(outcome.latencyMs)
+            endpointQuarantine.recordSuccess(r.endpoint)
+        }
+        stickyResolverId.set(outcome.providerId ?: "")
+        val result = ResolutionResult(addresses, outcome.providerId ?: "doh",
+            winner?.stage ?: DnsStage.DOH, outcome.latencyMs, false)
+        cacheResult(cacheKey, result)
+        return result
     }
 
     /**

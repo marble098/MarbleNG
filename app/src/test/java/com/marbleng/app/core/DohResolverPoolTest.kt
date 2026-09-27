@@ -79,6 +79,36 @@ class DohResolverPoolTest {
     }
 
     @Test
+    fun blockedFirstProviderCannotHideFastAaaaAnswerFromSecond() {
+        val transport = object : DohTransport {
+            override fun query(endpoint: String, wire: ByteArray, timeoutMs: Long): DohTransportResult {
+                if (endpoint == "https://blocked") {
+                    try { Thread.sleep(2_000) } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        return DohTransportResult(success = false, failureKind = ResolverFailureKind.CANCELLED)
+                    }
+                    return DohTransportResult(success = false, failureKind = ResolverFailureKind.DEADLINE)
+                }
+                return DohTransportResult(body = okBody(), success = true, latencyMs = 5)
+            }
+        }
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val pool = DohResolverPool(transport, executor, overallDeadlineMs = 900)
+            val start = System.currentTimeMillis()
+            val result = pool.raceResolve(ByteArray(17), listOf(
+                DohResolverPool.Provider("blocked", "https://blocked"),
+                DohResolverPool.Provider("working", "https://working")
+            ))
+            assertTrue("a later DoH completion must not be trapped behind a dead first provider", result.success)
+            assertEquals("working", result.providerId)
+            assertTrue(System.currentTimeMillis() - start < 900)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
     fun allFailuresAreReportedPerProvider() {
         val transport = FakeTransport(
             mapOf(

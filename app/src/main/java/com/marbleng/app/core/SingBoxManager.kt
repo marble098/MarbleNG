@@ -11,7 +11,7 @@ import java.util.UUID
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 
-/** Both connect and measurements use the same translator, Android DNS bridge, config check and
+/** Both connect and measurements use the same translator, encrypted DNS bootstrap, config check and
  * process runner. Temporary tests are isolated and limited to a small native-child pool even when
  * the user requests hundreds of TCP workers. A measurement cannot overwrite or stop the live
  * session.
@@ -22,8 +22,6 @@ import java.util.concurrent.TimeUnit
  * kill a node, and [lastStartStrategy] records which reader is actually carrying the session. */
 class SingBoxManager(private val context: Context) {
     @Volatile private var session: SingBoxProcessSession? = null
-    private var liveDns: AndroidDnsBridge.Lease? = null
-    private val bootstrap = AndroidDnsBridge(context)
     private val rules = SingBoxRuleSetStore(context)
     @Volatile var lastStartError: String = ""
         private set
@@ -92,7 +90,6 @@ class SingBoxManager(private val context: Context) {
         lastStartStrategy = ""
         lastStartReadiness = null
         lastStartPhase = "config"
-        var dns: AndroidDnsBridge.Lease? = null
         try {
             check(isInstalled) { "core-install: sing-box extended is missing from this APK" }
             // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — whether this binary can start is not a
@@ -120,11 +117,10 @@ class SingBoxManager(private val context: Context) {
                 }
             }
             if (!reclaim.available) error(reclaim.evidence)
-            dns = bootstrap.acquire()
             val controller = freePort(excluding = port)
             val secret = UUID.randomUUID().toString()
             // Not `candidates`: a local val of that name would shadow the reader function.
-            val builds = candidates(profile, settings, port, controller, secret, dns.port, false)
+            val builds = candidates(profile, settings, port, controller, secret, false)
             lastStartPhase = "check-and-start"
             // A live session gets the strictest *document* start: every candidate is validated
             // with `sing-box check`, and the child has to survive the V157 settle window.
@@ -162,12 +158,10 @@ class SingBoxManager(private val context: Context) {
                 emptyList<String>()
             }
             session = started.first
-            liveDns = dns
             apiPort = controller
             lastStartPhase = "ready"
             return true
         } catch (error: Exception) {
-            dns?.close()
             if (error is InterruptedException) Thread.currentThread().interrupt()
             var message = error.message ?: error.javaClass.simpleName
             // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — the TOCTOU safety net. The reclaim above
@@ -192,8 +186,6 @@ class SingBoxManager(private val context: Context) {
         apiPort = 0
         previous?.close()
         lastStopEvidence = previous?.stopEvidence.orEmpty()
-        liveDns?.close()
-        liveDns = null
         lastStartStrategy = ""
         lastStartPhase = "stopped"
     }
@@ -204,7 +196,7 @@ class SingBoxManager(private val context: Context) {
      * through here and nowhere else, so the two can no longer drift apart.
      */
     private fun candidates(profile: ProxyProfile, settings: AppSettings, port: Int, controller: Int,
-                           secret: String, dnsPort: Int, forTest: Boolean): List<SingBoxConfigBuilder.Build> {
+                           secret: String, forTest: Boolean): List<SingBoxConfigBuilder.Build> {
         val runtimeSettings = if (forTest) measurementSettings(settings) else settings
         val paths = if (forTest) emptyMap() else try { rules.prepare() } catch (error: Exception) {
             throw IllegalStateException("core-assets: bundled sing-box rule sets are missing/corrupt; rebuild the APK", error)
@@ -212,7 +204,9 @@ class SingBoxManager(private val context: Context) {
         return SingBoxConfigBuilder.candidateBuilds(profile, runtimeSettings, port, controller, secret,
             "", File(context.filesDir, "singbox-cache.db").absolutePath,
             resolverPool = intelligence?.singBoxResolverPool(settings).orEmpty(),
-            ruleSetPaths = paths, bootstrapDnsPort = dnsPort, forTest = forTest)
+            ruleSetPaths = paths, forTest = forTest,
+            underlayHasIpv6 = intelligence?.currentSnapshot()
+                ?.takeIf { it.transport != "unknown" }?.hasIpv6 ?: AddressFamilyPolicy.underlayHasIpv6())
             .map { built ->
                 val hardened = SingBoxConfigDoctor.hardenForAndroid(built.json)
                 built.copy(json = hardened.json, notes = (built.notes + hardened.notes).distinct())
@@ -294,16 +288,14 @@ class SingBoxManager(private val context: Context) {
         // Interruptible queue admission. A cancelled batch must not later start another child.
         check(testSlots.tryAcquire(30, TimeUnit.SECONDS)) { "core-busy: measurement capacity is occupied" }
         var directory: File? = null
-        var dns: AndroidDnsBridge.Lease? = null
         try {
             SingBoxProcessSession.checkInterrupted()
             directory = File(context.cacheDir, "singbox-test-${UUID.randomUUID()}").apply { check(mkdirs()) }
-            dns = bootstrap.acquire()
             val socks = freePort()
             val controller = freePort(excluding = socks)
             val secret = UUID.randomUUID().toString()
             val started = openFirst(
-                candidates = candidates(profile, settings, socks, controller, secret, dns.port, true),
+                candidates = candidates(profile, settings, socks, controller, secret, true),
                 configFile = File(directory, "config.json"),
                 logFile = File(directory, "core.log"),
                 tempDir = directory,
@@ -320,7 +312,6 @@ class SingBoxManager(private val context: Context) {
                 return block(child, socks)
             }
         } finally {
-            dns?.close()
             directory?.let { workspace ->
                 // Bug Finder retains bounded evidence, never a test's credentials/config/cache.
                 val tail = SingBoxProcessSession.tail(File(workspace, "core.log"), 32 * 1024)

@@ -47,6 +47,15 @@ data class DohTransportResult(
 class HttpUrlConnectionDohTransport : DohTransport {
 
     override fun query(endpoint: String, wire: ByteArray, timeoutMs: Long): DohTransportResult {
+        // A DoH provider with a hostname (or a redirect to one) would bootstrap through netd
+        // before encryption starts. No direct JVM DoH call may reveal a queried node name to
+        // Android DNS; providers must be HTTPS IP literals or this lookup fails closed.
+        val endpointUrl = runCatching { java.net.URL(endpoint) }.getOrNull()
+        if (endpointUrl == null || endpointUrl.protocol != "https" ||
+            !AddressFamilyPolicy.isLiteralIp(endpointUrl.host)) {
+            return DohTransportResult(success = false, failureKind = ResolverFailureKind.OTHER,
+                detail = "unsafe-doh-bootstrap")
+        }
         val attempts = 2
         var lastResult: DohTransportResult? = null
         for (attempt in 0 until attempts) {
@@ -73,6 +82,8 @@ class HttpUrlConnectionDohTransport : DohTransport {
         var conn: javax.net.ssl.HttpsURLConnection? = null
         return try {
             conn = (url.openConnection() as javax.net.ssl.HttpsURLConnection)
+            conn.instanceFollowRedirects = false
+            conn.useCaches = false
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/dns-message")
             conn.setRequestProperty("Accept", "application/dns-message")
@@ -178,12 +189,11 @@ class DohResolverPool(
     )
 
     companion object {
-        /** Cloudflare, Google, Quad9, AdGuard, fallback + internal/proxied DoH. */
+        /** Four IP-literal public providers + an internal/proxied IP-literal DoH fallback. */
         val DEFAULT_PROVIDERS = listOf(
             Provider("cloudflare-doh", "https://1.1.1.1/dns-query"),
             Provider("google-doh", "https://8.8.8.8/dns-query"),
             Provider("quad9-doh", "https://9.9.9.9/dns-query"),
-            Provider("adguard-doh", "https://dns.adguard-dns.com/dns-query"),
             Provider("cloudflare-fallback", "https://1.0.0.1/dns-query"),
             Provider("internal-doh", "https://149.112.112.112/dns-query", internal = true)
         )
@@ -207,74 +217,62 @@ class DohResolverPool(
         val deadline = System.currentTimeMillis() + overallDeadlineMs
         val ordered = providers.sortedBy { it.internal } // public providers race first
 
-        val futures = mutableListOf<Pair<Provider, Future<DohTransportResult>>>()
-        for (provider in ordered) {
-            val task = Callable { transport.query(provider.endpoint, wire, perResolverTimeoutMs) }
-            val future = try {
-                executor.submit(task)
-            } catch (_: java.util.concurrent.RejectedExecutionException) {
-                // Executor shut down (teardown): classify as cancellation, never a resolver outage.
-                val cancelled = DohTransportResult(
-                    body = ByteArray(0), success = false,
-                    failureKind = ResolverFailureKind.CANCELLED, detail = "executor-shutdown"
-                )
-                return RaceOutcome(
-                    success = false,
-                    failures = listOf(provider to cancelled)
-                )
-            }
-            futures += provider to future
-        }
-
+        // Poll COMPLETIONS, not futures in provider order. Waiting on the first provider's
+        // Future.get(deadline) hid an answer from a healthy second provider until the deadline:
+        // a blocked Cloudflare IPv6 endpoint could make all IPv6 node probes fail even though
+        // Google (or an IPv4-reachable DoH peer) had already returned AAAA in milliseconds.
+        val completion = java.util.concurrent.ExecutorCompletionService<Pair<Provider, DohTransportResult>>(executor)
+        val pending = linkedMapOf<Future<Pair<Provider, DohTransportResult>>, Provider>()
         val failures = mutableListOf<Pair<Provider, DohTransportResult>>()
-        var remaining: List<Pair<Provider, Future<DohTransportResult>>> = futures
-        while (remaining.isNotEmpty()) {
-            val nowMs = System.currentTimeMillis()
-            if (nowMs >= deadline) break
-            val budgetMs = (deadline - nowMs).coerceAtLeast(1L)
-
-            val stillPending = mutableListOf<Pair<Provider, Future<DohTransportResult>>>()
-            var progressed = false
-            for ((provider, future) in remaining) {
-                try {
-                    val result = future.get(budgetMs, TimeUnit.MILLISECONDS)
-                    progressed = true
-                    if (result.success && result.body.size >= 12) {
-                        // First valid answer wins; cancel the stragglers.
-                        remaining.forEach { (_, other) ->
-                            if (other !== future) runCatching { other.cancel(true) }
-                        }
-                        return RaceOutcome(
-                            success = true,
-                            body = result.body,
-                            providerId = provider.id,
-                            latencyMs = result.latencyMs,
-                            failures = failures
-                        )
-                    }
-                    failures += provider to result
-                } catch (_: java.util.concurrent.TimeoutException) {
-                    stillPending += provider to future
-                } catch (_: java.util.concurrent.CancellationException) {
-                    failures += provider to DohTransportResult(
-                        body = ByteArray(0), success = false,
-                        failureKind = ResolverFailureKind.CANCELLED, detail = "cancelled"
-                    )
-                } catch (_: java.util.concurrent.ExecutionException) {
-                    failures += provider to DohTransportResult(
-                        body = ByteArray(0), success = false,
-                        failureKind = ResolverFailureKind.OTHER, detail = "transport-error"
-                    )
+        try {
+            for (provider in ordered) {
+                val future = try {
+                    completion.submit(Callable { provider to transport.query(provider.endpoint, wire, perResolverTimeoutMs) })
+                } catch (_: java.util.concurrent.RejectedExecutionException) {
+                    failures += provider to DohTransportResult(success = false,
+                        failureKind = ResolverFailureKind.CANCELLED, detail = "executor-shutdown")
+                    continue
                 }
+                pending[future] = provider
             }
-            if (!progressed && stillPending.size == remaining.size) {
-                // Nothing completed within this budget slice; break out rather than spin.
-                break
+            while (pending.isNotEmpty()) {
+                val budgetMs = deadline - System.currentTimeMillis()
+                if (budgetMs <= 0) break
+                val finished = try {
+                    completion.poll(budgetMs, TimeUnit.MILLISECONDS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    failures += Provider("race-cancelled", "") to DohTransportResult(success = false,
+                        failureKind = ResolverFailureKind.CANCELLED, detail = "interrupted")
+                    break
+                } ?: break
+                val provider = pending.remove(finished) ?: continue
+                val result = try {
+                    finished.get().second
+                } catch (_: java.util.concurrent.ExecutionException) {
+                    DohTransportResult(success = false, failureKind = ResolverFailureKind.OTHER,
+                        detail = "transport-error")
+                } catch (_: java.util.concurrent.CancellationException) {
+                    DohTransportResult(success = false, failureKind = ResolverFailureKind.CANCELLED,
+                        detail = "cancelled")
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    DohTransportResult(success = false, failureKind = ResolverFailureKind.CANCELLED,
+                        detail = "interrupted")
+                }
+                if (result.success && result.body.size >= 12) {
+                    return RaceOutcome(success = true, body = result.body,
+                        providerId = provider.id, latencyMs = result.latencyMs, failures = failures)
+                }
+                failures += provider to result
+                if (Thread.currentThread().isInterrupted) break
             }
-            remaining = stillPending
+        } finally {
+            // The winner never waits for stragglers, and cancelled / superseded lookups cannot
+            // keep a worker occupied beyond the transport's own socket timeout.
+            pending.keys.forEach { runCatching { it.cancel(true) } }
         }
 
-        remaining.forEach { (_, future) -> runCatching { future.cancel(true) } }
         if (failures.isEmpty()) {
             failures += Provider("race-deadline", "") to DohTransportResult(
                 body = ByteArray(0), success = false,

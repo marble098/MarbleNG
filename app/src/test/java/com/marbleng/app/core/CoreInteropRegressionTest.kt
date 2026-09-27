@@ -136,8 +136,17 @@ class CoreInteropRegressionTest {
         assertEquals(8443, servers.single { it.getString("tag") == "dns-remote-1" }.getInt("server_port"))
         assertEquals("dns-bootstrap", servers.single { it.getString("tag") == "dns-remote-1" }.getString("domain_resolver"))
         assertEquals("marble-proxy", servers.single { it.getString("tag") == "dns-remote-0" }.getString("detour"))
-        assertEquals("udp", servers.single { it.getString("tag") == "dns-local" }.getString("type"))
-        assertEquals(53530, servers.single { it.getString("tag") == "dns-local" }.getInt("server_port"))
+        assertFalse("no plaintext Android DNS bridge or local fallback is permitted",
+            servers.any { it.optString("tag") == "dns-local" || it.optString("type") == "local" })
+        val bootstrap = servers.single { it.optString("tag") == "dns-bootstrap" }
+        assertEquals("fallback", bootstrap.getString("type"))
+        val peers = bootstrap.getJSONArray("servers")
+        assertTrue(peers.length() > 0)
+        for (i in 0 until peers.length()) {
+            val peer = servers.single { it.getString("tag") == peers.getString(i) }
+            assertTrue(AddressFamilyPolicy.isLiteralIp(peer.getString("server")))
+            assertEquals(SingBoxConfigBuilder.DIRECT_TAG, peer.getString("detour"))
+        }
     }
 
     @Test fun offlineRoutingHasNoStartupDownloadOrLegacyAddressFilter() {

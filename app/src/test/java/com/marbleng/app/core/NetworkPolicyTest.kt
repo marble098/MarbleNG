@@ -120,22 +120,20 @@ class NetworkPolicyTest {
         assertFalse("there is nothing to race on a single-family plan", plan.raceEnabled)
     }
 
-    /**
-     * Capturing `::/0` while IPv6 is off is the Full TUN hang: Chrome's Happy Eyeballs races an
-     * instant-fail AAAA into the blackhole and never recovers onto IPv4. The TUN must omit the
-     * v6 address/route whenever the user turned IPv6 off, even if the underlay can carry it.
-     */
+    /** The VPN must capture both families even when one is disabled or unavailable on the
+     * physical link. Otherwise IPv6 Happy Eyeballs traffic bypasses the tunnel to Android's
+     * underlying network; core-level rules, not absent TUN routes, fail closed. */
     @Test
-    fun tunDoesNotCaptureIpv6WhenTheUserTurnedItOff() {
-        assertFalse(
-            AddressFamilyPolicy.shouldCaptureIpv6(ipv6Enabled = false, underlayCanCarryIpv6 = true)
+    fun tunAlwaysCapturesIpv6WithoutDependingOnUnderlayOrPreference() {
+        assertTrue(AddressFamilyPolicy.shouldCaptureIpv6())
+        val off = AddressFamilyPolicy.plan(AppSettings(ipv6Enabled = false), underlayHasIpv6 = true)
+        assertTrue(off.blockIpv6Traffic)
+        val strict = AddressFamilyPolicy.plan(
+            AppSettings(addressFamilyMode = AddressFamilyMode.FORCE_IPV6), underlayHasIpv6 = false
         )
-        assertFalse(
-            AddressFamilyPolicy.shouldCaptureIpv6(ipv6Enabled = true, underlayCanCarryIpv6 = false)
-        )
-        assertTrue(
-            AddressFamilyPolicy.shouldCaptureIpv6(ipv6Enabled = true, underlayCanCarryIpv6 = true)
-        )
+        assertTrue(strict.blockIpv4Traffic)
+        assertEquals("ForceIPv6", strict.endpointStrategy)
+        assertEquals("UseIPv6", strict.dnsQueryStrategy)
     }
 
     @Test
@@ -254,6 +252,17 @@ class NetworkPolicyTest {
         assertEquals("ForceIPv6", force6.endpointStrategy)
         assertEquals("UseIPv6", force6.dnsQueryStrategy)
         assertFalse("forced IPv6 must fail closed rather than silently use IPv4", force6.raceEnabled)
+    }
+
+    @Test
+    fun staleResolvedIpv4ProbeCacheCannotOverrideForceIpv6() {
+        val outcome = MultiVectorReachability.probe(
+            host = "edge.example.invalid", port = 443, timeoutMs = 500,
+            settings = AppSettings(addressFamilyMode = AddressFamilyMode.FORCE_IPV6),
+            resolved = listOf(InetAddress.getByName("192.0.2.1"))
+        )
+        assertEquals(MultiVectorReachability.Verdict.INVALID, outcome.verdict)
+        assertEquals("dns-failed", outcome.failureReason)
     }
 
     @Test

@@ -12,7 +12,6 @@ import com.marbleng.app.quicktile.MarbleQuickTileService
 import com.marbleng.app.net.*
 import com.marbleng.app.vpn.MarbleVpnService
 import java.net.HttpURLConnection
-import java.net.InetAddress
 import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
@@ -146,6 +145,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         // engine would keep emitting the two configured literals forever while the evidence
         // loop was reordering a pool it never saw.
         singBox.intelligence = it
+        xray.intelligence = it
     }
     private val notifier = SmartNotifier(context)
     private val iranDetector = IranModeDetector(context, intelligence)
@@ -1198,16 +1198,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 val addresses = AddressFamilyPolicy.resolveCandidates(
                     host = endpoint,
                     plan = familyPlan,
-                    resolver = { name ->
-                        InetAddress.getAllByName(name)
-                            .filterNot {
-                                it.isAnyLocalAddress ||
-                                    it.isLoopbackAddress ||
-                                    it.isLinkLocalAddress
-                            }
-                            .toTypedArray()
-                    }
-                )
+                    timeoutMs = 3_000
+                ).filterNot {
+                    it.isAnyLocalAddress || it.isLoopbackAddress || it.isLinkLocalAddress
+                }
 
                 if (addresses.isEmpty()) {
                     throw IllegalStateException("Server endpoint did not resolve to a usable IP")
@@ -1670,8 +1664,19 @@ fun resetTelemetry() {
     }
 
     fun updateSettings(v: AppSettings) {
-        val debugChanged = settings.debugModeEnabled != v.debugModeEnabled
-        val updateChecksWereEnabled = settings.appUpdateCheckEnabled
+        val previous = settings
+        val debugChanged = previous.debugModeEnabled != v.debugModeEnabled
+        val familyChanged = previous.addressFamilyMode != v.addressFamilyMode ||
+            previous.ipv6Enabled != v.ipv6Enabled ||
+            previous.dnsQueryStrategy != v.dnsQueryStrategy ||
+            previous.dnsFakeIpEnabled != v.dnsFakeIpEnabled ||
+            previous.dnsHijackEnabled != v.dnsHijackEnabled
+        val activeProfile = if (familyChanged && state in setOf("CONNECTED", "CONNECTING")) {
+            if (state == "CONNECTED") profile(activeProfileId, activeProfileSourceId)
+            else profile(selectedProfileId, selectedProfileSourceId)
+        } else null
+        val activeMode = previous.connectionMode
+        val updateChecksWereEnabled = previous.appUpdateCheckEnabled
         // MARBLE_URLTEST_SINGBOX_ONLY_V156 — the URL test is the sing-box extended core's own
         // delay controller, so switching the engine away from it must not leave a stored choice
         // that can only ever fail. This is the single decision point: every writer of
@@ -1701,6 +1706,22 @@ fun resetTelemetry() {
         if (debugChanged) {
             RuntimeDiagnostics.setDebugEnabled(context, v.debugModeEnabled)
             diagnostics.event("DEBUG", "mode-changed", "enabled" to v.debugModeEnabled)
+        }
+        if (activeProfile != null) {
+            // Persisting a setting alone does not retune a running core. Re-establish it now;
+            // the service holds the OLD full TUN as a blackhole until the new dual-stack one
+            // is installed, including if preflight or bootstrap fails.
+            diagnostics.event("VPN", "family-change-reconnect",
+                "mode" to v.addressFamilyMode.name, "profile" to activeProfile.id.take(12))
+            setRuntimeState("CONNECTING", "Applying ${v.addressFamilyMode.name.replace('_', ' ')}")
+            val intent = Intent(context, MarbleVpnService::class.java)
+                .setAction(MarbleVpnService.ACTION_START)
+                .putExtra(MarbleVpnService.EXTRA_PROFILE, activeProfile.id)
+                .putExtra(MarbleVpnService.EXTRA_PROFILE_SOURCE, activeProfile.subscriptionId)
+                .putExtra(MarbleVpnService.EXTRA_MODE,
+                    if (activeMode == ConnectionMode.FULL_TUN) MarbleVpnService.MODE_TUN
+                    else MarbleVpnService.MODE_PROXY)
+            launchConnectionService(intent, activeProfile.name)
         }
         notifier.ensureChannels()
         if (!v.smartNotificationsEnabled) notifier.cancelOptional()
@@ -1997,9 +2018,16 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun setConnectionMode(mode: ConnectionMode) {
-        if (settings.connectionMode == mode) return
+        // A user can turn port-53 interception off in Local Proxy. Switching back to Full TUN
+        // must restore it before the service is allowed to install a device-wide route.
+        val enableDnsHijack = mode == ConnectionMode.FULL_TUN && !settings.dnsHijackEnabled
+        if (settings.connectionMode == mode) {
+            if (enableDnsHijack) updateSettings(settings.copy(dnsHijackEnabled = true))
+            return
+        }
         if (state == "CONNECTED" || state == "CONNECTING" || state == "BLOCKED") stopVpn()
-        updateSettings(settings.copy(connectionMode = mode))
+        updateSettings(settings.copy(connectionMode = mode,
+            dnsHijackEnabled = settings.dnsHijackEnabled || enableDnsHijack))
         message = when (mode) {
             ConnectionMode.FULL_TUN -> "Full-device TUN selected"
             ConnectionMode.LOCAL_PROXY -> "Local SOCKS5 proxy selected • 127.0.0.1:${settings.localProxyPort}"
@@ -4132,16 +4160,19 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun audit() {
-        if (state != "CONNECTED" || !xray.isAlive) {
+        val coreAlive = if (activeCoreEngine == CoreEngine.SINGBOX) singBox.isAlive else xray.isAlive
+        if (state != "CONNECTED" || !coreAlive) {
             privacy = null
-            message = "Privacy audit needs an active healthy Xray connection"
+            message = "Privacy audit needs an active healthy connection"
             return
         }
         privacy = null
-        task("Privacy audit • comparing proxy/physical egress and tunnel DNS") {
+        task("Privacy audit • comparing both IP families and tunnel DNS") {
             privacy = PrivacyAuditor.audit(
                 activeProxyPort(),
-                intelligence.currentUnderlyingNetwork()
+                intelligence.currentUnderlyingNetwork(),
+                requireIpv6 = settings.ipv6Enabled,
+                underlayHasIpv6 = intelligence.currentSnapshot().hasIpv6
             )
             val report = privacy
             if (report != null) {

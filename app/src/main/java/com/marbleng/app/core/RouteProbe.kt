@@ -142,17 +142,15 @@ object RouteProbe {
         host: String,
         port: Int,
         timeoutMs: Int,
-        plan: IpFamilyPlan,
+        settings: AppSettings,
         resolved: List<InetAddress>? = null
     ): Double {
-        // `plan` is no longer consulted here: the Layer-0 engine derives its own
-        // [AddressFamilyPolicy.plan] from [settings]. The parameter is kept on the call path
-        // so resolveOnce callers continue to share one resolution per run.
+        // Layer-0 must measure the *selected* family, not the default AppSettings().
         val signal = MultiVectorReachability.probe(
             host = host,
             port = port,
             timeoutMs = timeoutMs,
-            settings = AppSettings(),
+            settings = settings,
             referenceRttMs = 0.0,
             resolved = resolved
         )
@@ -180,9 +178,8 @@ object RouteProbe {
     ): Double {
         if (host.isBlank() || port !in 1..65535) return UNREACHABLE
 
-        val plan = AddressFamilyPolicy.plan(settings = settings)
         val firstStarted = System.nanoTime()
-        val first = tcpOnce(host, port, timeoutMs, plan, resolved)
+        val first = tcpOnce(host, port, timeoutMs, settings, resolved)
         if (first < UNREACHABLE) return first
 
         val firstFailureElapsedMs =
@@ -198,7 +195,7 @@ object RouteProbe {
             return UNREACHABLE
         }
 
-        return tcpOnce(host, port, timeoutMs, plan, resolved)
+        return tcpOnce(host, port, timeoutMs, settings, resolved)
     }
 
     // ─── Raw TCP Connect (TCP_CONNECT) ─────────────────────────────────────────
@@ -224,9 +221,11 @@ object RouteProbe {
     ): Double {
         if (host.isBlank() || port !in 1..65535) return UNREACHABLE
         val budgetMs = timeoutMs.coerceIn(250, 30_000)
-        val candidates = resolved
-            ?: resolveOnce(host, budgetMs, settings)
-            ?: return UNREACHABLE
+        val candidates = AddressFamilyPolicy.orderAddresses(
+            resolved ?: resolveOnce(host, budgetMs, settings) ?: return UNREACHABLE,
+            AddressFamilyPolicy.plan(settings = settings)
+        )
+        if (candidates.isEmpty()) return UNREACHABLE
         val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMs.toLong())
         candidates.forEach { address ->
             val leftMs = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime())
@@ -522,7 +521,7 @@ object RouteProbe {
             .firstOrNull()
             ?.hostAddress
             ?.takeIf { it.isNotBlank() }
-            ?: host
+            ?: return UNREACHABLE
         return runCatching {
             val process = ProcessBuilder(
                 buildList {
@@ -590,7 +589,7 @@ object RouteProbe {
             .firstOrNull()
             ?.hostAddress
             ?.takeIf { it.isNotBlank() }
-            ?: host
+            ?: return ProbeResult("ICMP", UNREACHABLE, 0, packets, failureReason = "dns-failed")
 
         return runCatching {
             // MARBLE_PING_TRUTH_V149 — `-q` is REMOVED, and this is the whole ICMP bug.
@@ -998,33 +997,14 @@ object RouteProbe {
 
     // ─── DNS Ping ──────────────────────────────────────────────────────────────
 
-    /**
-     * DNS resolution time measurement.
-     *
-     * Resolves a well-known domain and measures how long the system resolver takes.
-     * This is useful as a quick liveness check when ICMP is blocked and TCP connect
-     * times are unreliable (carrier-grade NAT, transparent proxies). Inspired by
-     * Incy's DNS-based reachability detection.
-     *
-     * Not a proxy test — only proves the local network's DNS path works.
-     *
-     * MARBLE_DNS_BUDGET_V144 — critique of the old body, which is why [timeoutMs] was a lie:
-     * `InetAddress.getAllByName` is a blocking syscall with NO timeout parameter, and the old
-     * code called it inline with the parameter sitting unused next to it. On a dead link one
-     * DNS "ping" blocked its worker for the full OS resolver timeout (10–20 s); `dnsPingExtended`
-     * repeated that up to 8× SEQUENTIALLY, so a single domain-hosted node could pin a benchmark
-     * worker for over a minute while every budget on the settings screen claimed seconds.
-     *
-     * The rewrite measures the same thing (system-resolver round trip) through
-     * [AddressFamilyPolicy.resolveWithBudget]: numeric literals resolve locally with no
-     * syscalls, domain names resolve on the shared daemon pool, and the wait never exceeds
-     * [timeoutMs] — expiry reports unreachable instead of hanging the batch. [resolver] is an
-     * injection seam for unit tests only; production always passes the system resolver.
-     */
+    /** Encrypted DNS liveness measurement. Test resolvers can be injected, but the production
+     * default NEVER asks Android/system DNS for a domain when the tunnel is coming up. Unlike a
+     * plaintext network-DNS ping, this tests that the physical underlay can reach IP-literal DoH
+     * bootstrap providers and obtain a valid answer for either address family. */
     fun dnsPing(
         host: String = "",
         timeoutMs: Int = 3000,
-        resolver: (String) -> Array<InetAddress> = InetAddress::getAllByName
+        resolver: (String) -> Array<InetAddress> = EncryptedEndpointResolver::resolve
     ): Double {
         val target = host.ifBlank { nextDnsTarget() }
         if (target.isBlank()) return UNREACHABLE

@@ -5,11 +5,7 @@ import android.net.Network
 import android.telephony.TelephonyManager
 import com.marbleng.app.model.IranModePolicy
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
-import java.net.DatagramPacket
-import java.net.DatagramSocket
 import java.net.HttpURLConnection
-import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
@@ -251,7 +247,10 @@ class IranModeDetector(
         }
 
         // ---- Signal 4: national block-page DNS injection ----
-        val poisoned = if (remoteAllowed) probeDnsPoisoning(underlay) else emptyList()
+        // Never send fixed test domains through netd's plaintext DNS on the underlay. A
+        // censored resolver may refuse encrypted DoH; that is inconclusive, not consent to
+        // perform a cleartext system-DNS probe while a VPN is active.
+        val poisoned = if (remoteAllowed) probeDnsPoisoning() else emptyList()
         if (poisoned.isNotEmpty()) {
             score += 75
             hardEvidence = true
@@ -482,13 +481,13 @@ class IranModeDetector(
         return 0
     }
 
-    /** Returns the domains whose answers came back as national block-page addresses. */
-    private fun probeDnsPoisoning(network: Network?): List<String> {
+    /** Returns test domains whose IP-literal encrypted DoH answers were block-page addresses.
+     * The previous OS-DNS poisoning probe emitted plaintext A questions outside the VPN. */
+    private fun probeDnsPoisoning(): List<String> {
         val hits = mutableListOf<String>()
         for (domain in IranNetworkRegistry.FILTERED_PROBE_DOMAINS) {
-            val addresses = runCatching {
-                network?.getAllByName(domain) ?: InetAddress.getAllByName(domain)
-            }.getOrNull() ?: continue
+            val addresses = EncryptedEndpointResolver.resolve(domain)
+            if (addresses.isEmpty()) continue
             val injected = addresses.any {
                 IranNetworkRegistry.isBlockPageAddress(it.hostAddress.orEmpty())
             }
@@ -548,7 +547,8 @@ class IranModeDetector(
                 !tcpReachable(network, "8.8.8.8", 853, 2_500)
             if (altPortsBlocked) found += CensorTechnique.PROTOCOL_ALLOWLIST
 
-            if (!udpDnsReachable(network, "8.8.8.8")) found += CensorTechnique.UDP_BLOCKED
+            // An active UDP/53 DNS probe would send a plaintext domain outside the VPN.
+            // No probe means no UDP verdict; never label UDP blocked from absent evidence.
         } else {
             val foreignTcp = tcpReachable(network, "1.1.1.1", 443, 2_500) ||
                 tcpReachable(network, "8.8.8.8", 443, 2_500)
@@ -561,9 +561,7 @@ class IranModeDetector(
         var plain: Socket? = null
         var tls: SSLSocket? = null
         return try {
-            val addresses = runCatching {
-                network?.getAllByName(host) ?: InetAddress.getAllByName(host)
-            }.getOrNull() ?: return TlsOutcome.ERROR
+            val addresses = EncryptedEndpointResolver.resolve(host)
             if (addresses.isEmpty()) return TlsOutcome.ERROR
             // A resolver poisoned in one family only is invisible to a single-answer probe, so every
             // record is inspected before the first usable one is dialled.
@@ -603,9 +601,7 @@ class IranModeDetector(
     private fun tcpReachable(network: Network?, host: String, port: Int, timeoutMs: Int): Boolean {
         var socket: Socket? = null
         return try {
-            val addresses = runCatching {
-                (network?.getAllByName(host) ?: InetAddress.getAllByName(host)).toList()
-            }.getOrDefault(emptyList())
+            val addresses = EncryptedEndpointResolver.resolve(host).toList()
             if (addresses.isEmpty()) return false
             // Dial every record instead of trusting the first answer: a network that black-holes only
             // IPv4 (or only IPv6) does not have an unreachable host, and an IPv6-only check is exactly
@@ -623,56 +619,4 @@ class IranModeDetector(
         }
     }
 
-    /**
-     * Foreign UDP reachability. UDP/53 is the one datagram service Iranian networks keep open even
-     * during clampdowns, so losing it means every UDP-based transport (QUIC, WireGuard, Hysteria)
-     * is unusable on this link.
-     */
-    private fun udpDnsReachable(network: Network?, resolver: String): Boolean {
-        var socket: DatagramSocket? = null
-        return try {
-            val target = InetAddress.getByName(resolver)
-            val datagram = DatagramSocket()
-            socket = datagram
-            if (network != null) {
-                // Binding failure must fail closed; never silently probe through the VPN/default route.
-                network.bindSocket(datagram)
-            }
-            datagram.soTimeout = 2_500
-
-            val query = dnsQuery("example.com")
-            datagram.send(DatagramPacket(query, query.size, target, 53))
-
-            val buffer = ByteArray(512)
-            val response = DatagramPacket(buffer, buffer.size)
-            datagram.receive(response)
-
-            response.length >= 12 &&
-                response.address.hostAddress == target.hostAddress &&
-                (buffer[0].toInt() and 0xff) == 0x4D &&
-                (buffer[1].toInt() and 0xff) == 0x42 &&
-                (buffer[2].toInt() and 0x80) != 0
-        } catch (error: Throwable) {
-            false
-        } finally {
-            runCatching { socket?.close() }
-        }
-    }
-
-    /** Minimal DNS A query packet. */
-    private fun dnsQuery(domain: String): ByteArray {
-        val out = ByteArrayOutputStream()
-        // Header: id, standard query with recursion desired, one question, no records.
-        val header = intArrayOf(0x4D, 0x42, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-        header.forEach { out.write(it) }
-        domain.split('.').forEach { label ->
-            val bytes = label.toByteArray(Charsets.US_ASCII)
-            out.write(bytes.size)
-            out.write(bytes)
-        }
-        out.write(0x00)
-        // QTYPE = A, QCLASS = IN
-        intArrayOf(0x00, 0x01, 0x00, 0x01).forEach { out.write(it) }
-        return out.toByteArray()
-    }
 }

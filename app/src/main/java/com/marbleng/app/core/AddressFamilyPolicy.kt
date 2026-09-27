@@ -31,8 +31,8 @@ import java.util.concurrent.TimeoutException
  *    rule, and no v6 literal is ever handed to a SOCKS/UDP prober;
  *  - "IPv6 on" actually uses it: addresses are ordered v6-first whenever the underlay has a global
  *    IPv6 address, and the choice is never left to chance;
- *  - every preference has an explicit fallback (`...v4`), so a blackholed v6 path degrades into a
- *    slightly slower connect instead of a dead tunnel.
+ *  - Prefer modes retain a family fallback; Force modes fail closed when the selected family
+ *    cannot reach the node or carry a captured destination, never silently cross families.
  *
  * The emitted strings are exactly the ones Xray's `infra/conf` accepts (`forceipv4`, `forceipv6`,
  * `forceipv6v4`, `forceip` for `sockopt.domainStrategy`; `useipv4`, `useipv6`, `useip` for
@@ -74,8 +74,10 @@ data class IpFamilyPlan(
     val raceEnabled: Boolean,
     val tryDelayMs: Int,
     val maxConcurrentTry: Int,
-    /** True when `::/0` must be routed to `block` so the OS cannot bypass the tunnel over v6. */
+    /** The captured IPv6 family must be rejected at the core when IPv4 was forced. */
     val blockIpv6Traffic: Boolean,
+    /** The captured IPv4 family must be rejected at the core when IPv6 was forced. */
+    val blockIpv4Traffic: Boolean,
     /** Short, stable diagnostic string: `ipv4-only`, `v6-first+race`, ... */
     val reason: String
 )
@@ -355,6 +357,7 @@ object AddressFamilyPolicy {
             // Only the user's own switch may drop IPv6 app traffic: a node that pins itself to IPv4,
             // or a measured plan that prefers A records, must not black-hole the rest of the tunnel.
             blockIpv6Traffic = preference == IpFamilyPreference.IPV4_ONLY,
+            blockIpv4Traffic = preference == IpFamilyPreference.IPV6_ONLY,
             reason = when (preference) {
                 IpFamilyPreference.IPV4_ONLY -> "ipv4-only"
                 IpFamilyPreference.IPV6_ONLY -> "ipv6-only"
@@ -367,6 +370,32 @@ object AddressFamilyPolicy {
                 }
             }
         )
+    }
+
+    /**
+     * The sing-box dialer's address-family policy for the PHYSICAL node socket. Unlike browsing
+     * DNS, this must respect the physical underlay: IPv6 egress through an IPv4-connected server
+     * is possible, but an IPv6 node address cannot be dialled over an IPv4-only underlay.
+     */
+    fun singBoxEndpointStrategy(plan: IpFamilyPlan): String = when (plan.endpointStrategy) {
+        "ForceIPv4" -> "ipv4_only"
+        "ForceIPv6" -> "ipv6_only"
+        else -> if (plan.prioritizeIpv6) "prefer_ipv6" else "prefer_ipv4"
+    }
+
+    /**
+     * Browsing resolution happens behind the proxy. Never infer the exit's address family from
+     * the phone's underlay: an IPv4 connection to the node can carry IPv6 traffic at the exit.
+     * Explicit modes, not a stale legacy `preferIpv6` projection, decide the DNS strategy.
+     */
+    fun singBoxDestinationStrategy(settings: AppSettings): String = when (
+        preference(settings, underlayHasIpv6 = true)
+    ) {
+        IpFamilyPreference.IPV4_ONLY -> "ipv4_only"
+        IpFamilyPreference.IPV6_ONLY -> "ipv6_only"
+        IpFamilyPreference.IPV4_FIRST -> "prefer_ipv4"
+        IpFamilyPreference.IPV6_FIRST -> "prefer_ipv6"
+        IpFamilyPreference.DUAL -> if (settings.measuredIpv6Unhealthy) "prefer_ipv4" else "prefer_ipv6"
     }
 
     /**
@@ -417,29 +446,45 @@ object AddressFamilyPolicy {
         "This server has only an IPv6 address. Enable IPv6 in Settings → DNS and use an IPv6-capable network."
 
     fun excludedIpv6Endpoint(host: String, settings: AppSettings): Boolean {
-        if (settings.ipv6Enabled && !settings.dnsQueryStrategy.equals("UseIPv4", true)) return false
+        if (preference(settings, underlayHasIpv6 = true) != IpFamilyPreference.IPV4_ONLY) return false
         val clean = host.trim().removeSurrounding("[", "]")
         if (!clean.contains(':')) return false
         return runCatching { InetAddress.getByName(clean) is Inet6Address }.getOrDefault(false)
     }
 
+    /** An IPv4-only node cannot satisfy strict Force IPv6; never dial it as a fallback. */
+    const val IPV4_LITERAL_DISABLED =
+        "This server has only an IPv4 address. Force IPv6 cannot dial it; select a server with an IPv6 address or choose Prefer IPv6."
+
+    fun excludedIpv4Endpoint(host: String, settings: AppSettings): Boolean {
+        if (preference(settings, underlayHasIpv6 = true) != IpFamilyPreference.IPV6_ONLY) return false
+        val clean = host.trim().removeSurrounding("[", "]")
+        if (!isLiteralIp(clean)) return false
+        // The JVM normalizes ::ffff:192.0.2.1 and ::ffff:c000:201 to Inet4Address.
+        // Checking only for a ':' would let those IPv4-mapped literals bypass Force IPv6.
+        // getByName on a verified numeric literal cannot ask system DNS.
+        val address = runCatching { InetAddress.getByName(clean) }.getOrNull()
+        // Loopback is an in-process bridge, not a physical IPv4 node connection (e.g. SSH).
+        return address is Inet4Address && !address.isLoopbackAddress
+    }
+
     /**
      * Resolve a node hostname into the addresses a prober should try, in the order the tunnel itself
      * will use. Literal addresses never touch a resolver, so a ping can never be blamed on DNS, and
-     * `getAllByName` order (which is what `Socket.connect(host, port)` uses) is deliberately not
-     * trusted: on Android it returns whatever the system resolver happened to answer first.
+     * The answer order (which is what `Socket.connect(host, port)` would trust) is deliberately
+     * ignored: only encrypted IP-literal DoH can resolve a hostname outside the core.
      *
      * @param timeoutMs when positive, the resolver call itself is bounded: domain resolution for
      *   a dead network used to block the calling probe thread for the whole OS resolver timeout
      *   (ten seconds or more), which made every "budget" the callers believed they enforced a
-     *   fiction. Zero keeps the legacy unbounded call for the few paths that resolve off any
-     *   stopwatch (tunnel bring-up, diagnostics).
+     *   fiction. The default resolver now uses encrypted IP-literal DoH and never retries OS DNS.
+     *   Zero keeps the unbounded call for offline diagnostics without a caller stopwatch.
      */
     fun resolveCandidates(
         host: String,
         plan: IpFamilyPlan,
         timeoutMs: Int = 0,
-        resolver: (String) -> Array<InetAddress> = InetAddress::getAllByName
+        resolver: (String) -> Array<InetAddress> = EncryptedEndpointResolver::resolve
     ): List<InetAddress> {
         val clean = host.trim().removePrefix("[").removeSuffix("]")
         if (clean.isBlank()) return emptyList()
@@ -465,7 +510,8 @@ object AddressFamilyPolicy {
      * The fix, in one place so no future prober can regress it:
      * - numeric literals bypass the pool entirely (parsed locally, zero syscalls, never queued
      *   behind a stalled lookup);
-     * - domain names resolve on a small shared daemon pool and the caller waits at most
+     * - domain names resolve over IP-literal encrypted DoH on a small shared daemon pool; no
+     *   Android/system-DNS fallback exists, and the caller waits at most
      *   [timeoutMs]: on expiry the wait is abandoned (empty list — the probe reports
      *   unreachable instead of hanging) and the stray lookup is cancelled.
      *
@@ -476,7 +522,7 @@ object AddressFamilyPolicy {
     fun resolveWithBudget(
         host: String,
         timeoutMs: Int,
-        resolver: (String) -> Array<InetAddress> = InetAddress::getAllByName
+        resolver: (String) -> Array<InetAddress> = EncryptedEndpointResolver::resolve
     ): List<InetAddress> {
         val clean = host.trim().removePrefix("[").removeSuffix("]")
         if (clean.isBlank()) return emptyList()
@@ -502,16 +548,12 @@ object AddressFamilyPolicy {
     }
 
     /**
-     * Whether Full TUN should capture `::/0`.
-     *
-     * Capturing IPv6 and then black-holing it (the old "IPv6 off" path) is what hung Chrome's
-     * Happy Eyeballs: AAAA answers arrived, the SYN went into the TUN, and the IPv4 fallback
-     * never won. Exclave's contract is the one that actually opens sites: when the user turns
-     * IPv6 off, do not add a v6 address or route to the TUN. DNS already returns IPv4-only
-     * (`UseIPv4` / `ipv4_only`), so apps have nothing to dial on the physical v6 path.
+     * Full TUN must capture BOTH families regardless of the phone's physical connectivity or
+     * selected exit policy. A captured family the core does not support is rejected inside the
+     * VPN, never left for Android to send over the underlay. The service fails establishment if
+     * adding this address/route fails, rather than silently creating an IPv4-only VPN.
      */
-    fun shouldCaptureIpv6(ipv6Enabled: Boolean, underlayCanCarryIpv6: Boolean): Boolean =
-        ipv6Enabled && underlayCanCarryIpv6
+    fun shouldCaptureIpv6(): Boolean = true
 
     /** Convenience for the JVM probers: the first usable address under the plan. */
     fun selectAddress(

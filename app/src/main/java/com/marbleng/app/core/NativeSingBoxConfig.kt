@@ -86,17 +86,10 @@ object NativeSingBoxConfig {
                 target.put(key, copy)
             }
         }
-        // A native per-dial resolver may name a native DNS transport. Keep these transports and
-        // their detours, but never overwrite the application's bootstrap/final resolver graph.
-        document.optJSONObject("dns")?.optJSONArray("servers")?.let { servers ->
-            val destination = target.getJSONObject("dns").getJSONArray("servers")
-            val reserved = objects(destination).map { it.optString("tag") }.toSet()
-            objects(JSONArray(servers.toString())).forEach { server ->
-                require(server.optString("tag") !in reserved) { "config-unsupported: dns.servers.tag: reserved Marble DNS tag" }
-                rewriteReferences(server, names)
-                destination.put(server)
-            }
-        }
+        // Native DNS servers are intentionally NOT copied. An imported per-dial `domain_resolver`
+        // may point at plaintext UDP or `local` and override Marble's secure route default. The
+        // builder replaces every physical dialer's resolver with its encrypted, IP-literal
+        // bootstrap; unknown native DNS references then fail core validation rather than leak.
         document.optJSONArray("http_clients")?.let { clients ->
             val destination = target.getJSONArray("http_clients")
             objects(JSONArray(clients.toString())).forEach { client ->

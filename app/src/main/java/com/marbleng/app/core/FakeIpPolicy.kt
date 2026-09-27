@@ -5,13 +5,14 @@ import com.marbleng.app.model.AppSettings
 /**
  * Shared address-space contract for the fake-DNS implementations in both native cores.
  *
- * Marble's HEV TUN interface is `198.18.0.1/32`. The IANA special-purpose benchmarking block is
- * `198.18.0.0/15`, so using its other /16 (`198.19.0.0/16`) keeps fake answers non-routable on the
- * public Internet without overlapping the local interface address. Keeping this in one place also
- * prevents Xray and sing-box from handing out addresses from different pools.
+ * Marble's HEV TUN addresses are `198.18.0.1/32` and `fc00::1/128`. The IANA benchmarking
+ * block's other /16 (`198.19.0.0/16`) and the separate ULA /64 (`fc00:198:19::/64`) cannot
+ * collide with those interface addresses. Both cores must answer A AND AAAA with mapped fake
+ * addresses so domains cannot escape Fake DNS via an unhandled IPv6 query.
  */
 internal object FakeIpPolicy {
     const val IPV4_POOL = "198.19.0.0/16"
+    const val IPV6_POOL = "fc00:198:19::/64"
 
     /**
      * Xray rejects an LRU whose base-2 logarithm is greater than or equal to the subnet's host-bit

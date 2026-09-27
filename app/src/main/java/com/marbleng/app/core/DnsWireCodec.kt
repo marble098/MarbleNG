@@ -15,10 +15,14 @@ import java.net.InetAddress
  */
 object DnsWireCodec {
 
-    /** Build a minimal RFC 8484 DNS query (A + AAAA in one message) for a hostname. */
-    fun buildQuery(hostname: String): ByteArray {
-        val labels = hostname.trimEnd('.').split('.')
+    /** One question per RFC 8484 message; call separately for A (1) and AAAA (28). */
+    fun buildQuery(hostname: String, type: Int = 1): ByteArray {
+        require(type == 1 || type == 28) { "Only A and AAAA queries are supported" }
+        val labels = java.net.IDN.toASCII(hostname.trimEnd('.')).split('.')
             .filter { it.isNotBlank() }
+        require(labels.isNotEmpty() && labels.all { it.length in 1..63 } && hostname.length <= 253) {
+            "Invalid DNS hostname"
+        }
         return java.io.ByteArrayOutputStream().use { out ->
             out.write(byteArrayOf(0x00, 0x01)) // transaction id
             out.write(byteArrayOf(0x01, 0x00)) // flags: RD
@@ -32,7 +36,7 @@ object DnsWireCodec {
                 out.write(bytes)
             }
             out.write(0)
-            out.write(byteArrayOf(0x00, 0x01)) // QTYPE A
+            out.write(byteArrayOf(0x00, type.toByte())) // QTYPE A or AAAA
             out.write(byteArrayOf(0x00, 0x01)) // QCLASS IN
             out.toByteArray()
         }

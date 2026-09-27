@@ -437,9 +437,20 @@ class MarbleVpnService : VpnService() {
 
     @Synchronized
     private fun startConnection(id: String, sourceId: String?, mode: String) {
-        if (running.get() || tun != null || hevActive || coreAlive) cleanupRuntime(setDisconnected = false)
+        val replacingFullTun = tun != null && mode != MODE_PROXY
+        if (running.get() || tun != null || hevActive || coreAlive) {
+            cleanupRuntime(setDisconnected = false, preserveTun = replacingFullTun)
+        }
 
         val app = application as MarbleApplication
+        // The Android DNS sinks are inside the TUN. With hijacking disabled, a classic DNS
+        // packet aimed at a public resolver could leave through a direct route or the proxy exit
+        // as plaintext. Never call that a protected full VPN: keep the previous TUN as a
+        // blackhole during a live setting change and refuse a fresh insecure connection.
+        if (mode != MODE_PROXY && !app.repo.settings.dnsHijackEnabled) {
+            failBeforeTunnel("Full VPN requires DNS hijacking to prevent plaintext DNS; enable DNS hijack in settings")
+            return
+        }
         val profile = app.repo.profile(id, sourceId) ?: run {
             diag.event("VPN", "profile-missing", "profileId" to id.take(12))
             failBeforeTunnel("Profile no longer exists")
@@ -491,7 +502,7 @@ class MarbleVpnService : VpnService() {
         // automatic-recovery ladder starts empty so a manual retry is never punished for an
         // earlier automated storm.
         recoveryBackoff = RecoveryBackoffPolicy.reset()
-        ipv6RouteCaptured = false
+        ipv6RouteCaptured = tun != null
         pinnedExitV4 = ""
         pinnedExitV6 = ""
         routeGeneration.incrementAndGet()
@@ -578,7 +589,11 @@ class MarbleVpnService : VpnService() {
                 // settings (intelligence SQLite reads included) and the SOCKS port off the main
                 // thread. `activeSettings` is published here so every later phase reads the same
                 // object the tunnel was established with.
-                val settings = app.repo.effectiveSettingsFor(profile)
+                val resolved = app.repo.effectiveSettingsFor(profile)
+                // Full TUN has no safe plaintext DNS fallback. A saved proxy-only setting that
+                // disables interception cannot be allowed to reopen Android's system resolver.
+                val settings = if (normalizedMode == MODE_TUN) resolved.copy(dnsHijackEnabled = true)
+                    else resolved
                 if (!isCurrent(session)) return@runCatching
                 activeSettings = settings
                 val port = if (normalizedMode == MODE_PROXY) {
@@ -840,122 +855,25 @@ class MarbleVpnService : VpnService() {
             }
         }
 
-        // This resolver list is what apps use whenever the encrypted DNS hijack is not answering,
-        // and it is also the only way an IPv6-only underlay can look anything up: handing a v6-only
-        // network two IPv4 resolvers makes every AAAA query — and therefore every IPv6 node —
-        // unreachable before the engine even starts.
-        val underlay = app.repo.intelligence.currentSnapshot()
-        val dnsServers = linkedSetOf<String>()
-        listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .forEach { candidate ->
-                // MARBLE_IPV6_DNS_PURGE_V135 — a resolver whose family the underlay cannot carry is
-                // not a fallback, it is a guaranteed timeout: these TUN DNS servers are reached over
-                // the physical network, not through the tunnel. The old rule admitted v6 resolvers on
-                // ANY network, which is exactly how an IPv4-only Wi-Fi ended up with unreachable
-                // `[2606:4700:4700::1111]`-class resolvers in its resolver graph.
-                val isV6 = candidate.contains(':')
-                if ((isV6 && underlay.hasIpv6) || (!isV6 && underlay.hasIpv4)) dnsServers += candidate
-            }
-        if (settings.ipv6Enabled && underlay.hasIpv6 && dnsServers.none { it.contains(':') }) {
-            // Bootstrap v6 resolvers so the underlay can resolve a node's AAAA records even when the
-            // user configured IPv4 DNS only. Both are literals, so no lookup is needed to reach them.
-            // MARBLE_IPV6_DNS_PURGE_V135 — only on a v6-capable underlay: handing them to an
-            // IPv4-only network used to plant two resolvers that could never answer.
-            dnsServers += "2606:4700:4700::1111"
-            dnsServers += "2001:4860:4860::8888"
-        }
+        // The VPN is a dual-stack security boundary, not a reflection of the phone's physical
+        // route. An IPv4 node can carry IPv6 web traffic through its exit, and Force IPv4 must
+        // still capture (then reject) IPv6 instead of letting Android send it outside the VPN.
+        // If the device refuses either address/route, NEVER establish a partial VPN.
+        val ipv6Ok = AddressFamilyPolicy.shouldCaptureIpv6() && runCatching {
+            builder.addAddress("fc00::1", 128).addRoute("::", 0)
+        }.onFailure { diag.error("TUN", "ipv6-capture-required", it, "session" to session) }.isSuccess
+        if (!ipv6Ok) return false
 
-        // MARBLE_TUN_DNS_NEVER_EMPTY_V132 — a VPN's DNS server list is a FALLBACK here: Xray
-        // hijacks port 53 itself, so these addresses only answer when the encrypted path is not
-        // in use. The old filter dropped every IPv4 resolver whenever
-        // `NetworkSnapshot.hasIpv4` was false and then REFUSED TO ESTABLISH THE TUN, so a
-        // connect fired before the intelligence callback had published link properties (or on
-        // a network whose link properties never arrive, or with both DNS fields blanked in
-        // Settings) died as a bare "VPN establish failed" before the server was ever dialled.
-        if (dnsServers.isEmpty()) {
-            // MARBLE_IPV6_DNS_NEVER_WRONG_FAMILY_V135 — the never-empty fallback must match the
-            // family the underlay can actually carry; a v6-only underlay used to receive two IPv4
-            // literals it could never dial.
-            if (underlay.hasIpv6 && !underlay.hasIpv4) {
-                dnsServers += "2606:4700:4700::1111"
-                dnsServers += "2001:4860:4860::8888"
-            } else {
-                dnsServers += "8.8.8.8"
-                dnsServers += "1.1.1.1"
-            }
-            diag.event(
-                "TUN", "dns-fallback-literals",
-                "session" to session,
-                "underlayIpv4" to underlay.hasIpv4,
-                "underlayIpv6" to underlay.hasIpv6
-            )
-        }
-
-        var dnsCount = 0
-        dnsServers.forEach { dns ->
-            runCatching {
-                builder.addDnsServer(dns)
-                dnsCount++
-            }.onFailure {
-                diag.error("TUN", "dns-builder-failed", it, "dns" to dns, "session" to session)
-            }
-        }
-        if (dnsCount == 0) {
-            diag.event("TUN", "dns-policy-empty", "session" to session)
+        // Only local, non-routable DNS sink addresses go into Android's resolver list. Every app
+        // query for either family enters ::/0 or 0/0 and is hijacked by the encrypted core;
+        // when the core is down the held TUN blackholes it. Putting a public resolver here is a
+        // plaintext fallback the OS could select before the core comes up.
+        val dnsCount = 2
+        if (runCatching {
+            builder.addDnsServer("198.18.0.2")
+            builder.addDnsServer("fc00::2")
+        }.onFailure { diag.error("TUN", "dns-capture-required", it, "session" to session) }.isFailure) {
             return false
-        }
-
-        // MARBLE_IPV6_CAPTURE_GATE_V135 / MARBLE_IPV6_USER_OFF_V163 — capture `::/0` only when
-        // the user asked for IPv6 AND the underlay can carry it.
-        //
-        // Runtime evidence: `Builder.addRoute("::", 0)` succeeds on almost every device, so a
-        // Wi-Fi network with NO global IPv6 still received `::/0` into the TUN. Every AAAA
-        // attempt was then swallowed. Worse: with IPv6 / Prefer IPv6 OFF the old path still
-        // captured `::/0` whenever the underlay had v6, and the cores rejected it. Chrome's
-        // Happy Eyeballs raced an instant-fail AAAA into that blackhole and never recovered
-        // onto IPv4 — Full TUN would not open sites. Exclave's contract is the one that works:
-        // omit the v6 address and route when the user turned IPv6 off. DNS is already IPv4-only
-        // on that plan.
-        //
-        // The two intelligence sources are UNIONED so the gate fails towards capturing when the
-        // user wants IPv6: the snapshot's link properties OR the direct interface probe.
-        val canCarryIpv6 = underlay.hasIpv6 || AddressFamilyPolicy.underlayHasIpv6()
-        val wantIpv6 = AddressFamilyPolicy.shouldCaptureIpv6(settings.ipv6Enabled, canCarryIpv6)
-        var ipv6Ok = false
-        if (wantIpv6) {
-            runCatching {
-                builder.addAddress("fc00::1", 128).addRoute("::", 0)
-            }.onSuccess {
-                ipv6Ok = true
-                diag.event("TUN", "ipv6-enabled", "session" to session)
-            }.onFailure {
-                diag.error("TUN", "ipv6-builder-failed", it, "session" to session)
-            }
-        } else {
-            diag.event(
-                "TUN", "ipv6-capture-skipped",
-                "session" to session,
-                "reason" to if (!settings.ipv6Enabled) "ipv6-disabled-by-user" else "underlay-cannot-carry-ipv6",
-                "ipv6Enabled" to settings.ipv6Enabled,
-                "snapshotIpv6" to underlay.hasIpv6
-            )
-        }
-        // MARBLE_IDENTITY_IPV6_SCOPE_V132 — Identity Guard is about EXIT stability, not about
-        // capturing IPv6. Fail closed only when the user asked for IPv6, the underlay can carry
-        // it, and the TUN still could not capture `::/0` — that is the leak. A user who turned
-        // IPv6 off is an intentional IPv4-only TUN and must not fail-close.
-        if (settings.identityGuardEnabled && settings.ipv6Enabled && !ipv6Ok && underlay.hasIpv6) {
-            diag.event("TUN", "identity-ipv6-fail-closed", "session" to session)
-            return false
-        }
-        if (settings.identityGuardEnabled && !ipv6Ok) {
-            diag.event(
-                "TUN", "identity-ipv6-unavailable",
-                "session" to session,
-                "underlayIpv6" to underlay.hasIpv6
-            )
         }
 
         val packages = settings.splitTunnelPackages
@@ -1005,8 +923,12 @@ class MarbleVpnService : VpnService() {
             runCatching { established.close() }
             return false
         }
+        val previousTun = tun
         tun = established
         ipv6RouteCaptured = ipv6Ok
+        // The old dual-stack TUN stays open as a blackhole until Android installs the new one.
+        // Closing it at startConnection() used to expose the physical route during reconnect.
+        runCatching { previousTun?.close() }
         diag.event(
             "TUN", "established",
             "session" to session,
@@ -3585,6 +3507,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (AddressFamilyPolicy.excludedIpv6Endpoint(profile.host, settings)) {
             return AddressFamilyPolicy.IPV6_LITERAL_DISABLED
         }
+        if (AddressFamilyPolicy.excludedIpv4Endpoint(profile.host, settings)) {
+            return AddressFamilyPolicy.IPV4_LITERAL_DISABLED
+        }
+        val underlay = (application as MarbleApplication).repo.intelligence.currentSnapshot()
+        if (settings.addressFamilyMode == com.marbleng.app.model.AddressFamilyMode.FORCE_IPV6 &&
+            underlay.transport != "unknown" && !underlay.hasIpv6
+        ) return "Force IPv6 needs an IPv6 default route to dial the server; an IPv4 underlay cannot carry a strict IPv6 node connection. Prefer IPv6 can use an IPv4 underlay."
         if (!CoreConfigSuperset.dialsPlaintextPublicNodes(settings) &&
             CoreConfigSuperset.wire(profile) == CoreConfigSuperset.Wire.PLAINTEXT_PUBLIC
         ) {
@@ -3627,6 +3556,17 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         running.set(false)
         val concise = conciseFailure(reason)
         val repo = (application as MarbleApplication).repo
+        if (tun != null && activeMode == MODE_TUN) {
+            // A reconfigure can fail before establishing its replacement. Stopping this service
+            // would revoke the old VPN and leak onto the physical network. Keep the old TUN with
+            // HEV/core stopped, so all captured IPv4/IPv6/DNS traffic is blackholed.
+            updateSentinel(killSwitch = true)
+            repo.setRuntimeState("BLOCKED", "Kill switch active • $concise")
+            if (loud) repo.setRuntimeMessage(concise)
+            promoteForeground("BLOCKED • Kill switch holding traffic", ongoing = true)
+            diag.event("VPN", "preflight-failed-tun-held", "reason" to concise)
+            return
+        }
         if (loud) {
             repo.setRuntimeState("DISCONNECTED", concise)
             repo.setRuntimeMessage(concise)
@@ -3640,7 +3580,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     @Synchronized
-    private fun cleanupRuntime(setDisconnected: Boolean) {
+    private fun cleanupRuntime(setDisconnected: Boolean, preserveTun: Boolean = false) {
         val oldSession = activeSession
         running.set(false)
         activeSession = ""
@@ -3655,7 +3595,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         hevActive = false
         coreStop()
         closeHevFd()
-        closeTun()
+        if (!preserveTun) closeTun()
 
         val repo = (application as MarbleApplication).repo
         repo.resetTelemetry()
@@ -3664,7 +3604,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         activeProfileSourceId = ""
         pinnedExitV4 = ""
         pinnedExitV6 = ""
-        ipv6RouteCaptured = false
+        ipv6RouteCaptured = preserveTun && tun != null
         if (setDisconnected) {
             repo.setRuntimeState("DISCONNECTED", "User disconnected")
             // MARBLE_CORE_CONFIG_SUPERSET_V165 — a folded config refusal must never outlive the act
@@ -3673,19 +3613,26 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             // quiet window exists to silence an automatic retry loop, not a user.
             configBlockGuard.reset()
         }
-        repo.updateSentinel(
-            repo.sentinel.copy(
-                coverage = "OFFLINE",
-                tunnelRoutes = false,
-                ipv4Captured = false,
-                ipv6Captured = false,
-                killSwitchArmed = false,
-                xrayAlive = false,
-                hevAlive = false,
-                updatedAt = System.currentTimeMillis()
+        if (preserveTun && tun != null) {
+            // Keep the existing interface installed as a dual-stack blackhole until the new
+            // interface is established. Never publish OFFLINE while the kill switch is holding.
+            updateSentinel(killSwitch = true)
+        } else {
+            repo.updateSentinel(
+                repo.sentinel.copy(
+                    coverage = "OFFLINE",
+                    tunnelRoutes = false,
+                    ipv4Captured = false,
+                    ipv6Captured = false,
+                    killSwitchArmed = false,
+                    xrayAlive = false,
+                    hevAlive = false,
+                    updatedAt = System.currentTimeMillis()
+                )
             )
-        )
-        diag.event("VPN", "runtime-clean", "session" to oldSession, "setDisconnected" to setDisconnected)
+        }
+        diag.event("VPN", "runtime-clean", "session" to oldSession,
+            "setDisconnected" to setDisconnected, "tunHeld" to (tun != null))
     }
 
     private fun closeHevFd() {

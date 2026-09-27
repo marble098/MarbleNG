@@ -28,6 +28,10 @@ data class RoutingAssetStatus(
 class XrayManager(private val context: Context) {
     /** Installed by the repository. Shared measurement contract, not a silent core fallback. */
     @Volatile var singBox: SingBoxManager? = null
+    @Volatile var intelligence: MarbleIntelligence? = null
+
+    private fun underlayHasIpv6(): Boolean = intelligence?.currentSnapshot()
+        ?.takeIf { it.transport != "unknown" }?.hasIpv6 ?: AddressFamilyPolicy.underlayHasIpv6()
     // MARBLE_FAST_START_V12
     // MARBLE_LOG_RESCUE_V13
     // MARBLE_DIAG_PROCESS_PID_V15
@@ -789,7 +793,9 @@ class XrayManager(private val context: Context) {
         verifyLog.delete()
 
         return try {
-            config.writeText(XrayConfigHardener.harden(sourceConfig, 19091, gated))
+            config.writeText(XrayConfigHardener.harden(
+                sourceConfig, 19091, gated, underlayHasIpv6 = underlayHasIpv6()
+            ))
             val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(verifyLog))
                 .start()
@@ -915,7 +921,10 @@ class XrayManager(private val context: Context) {
             }
             writeRuntimeConfig(
                 config,
-                XrayConfigHardener.harden(sourceConfig, port, effectiveSettings, link)
+                XrayConfigHardener.harden(
+                    sourceConfig, port, effectiveSettings, link,
+                    underlayHasIpv6 = underlayHasIpv6()
+                )
             )
 
             if (!startStillCurrent(ticket.generation)) return@runCatching false
@@ -1139,9 +1148,15 @@ class XrayManager(private val context: Context) {
                 try {
                     val primaryConfig =
                         if (delayTest) {
-                            XrayConfigHardener.hardenForDelayTest(sourceConfig, actualPort)
+                            XrayConfigHardener.hardenForDelayTest(
+                                sourceConfig, actualPort, benchmarkSettings,
+                                underlayHasIpv6 = underlayHasIpv6(), link = link
+                            )
                         } else {
-                            XrayConfigHardener.harden(sourceConfig, actualPort, benchmarkSettings, link)
+                            XrayConfigHardener.harden(
+                                sourceConfig, actualPort, benchmarkSettings, link,
+                                underlayHasIpv6 = underlayHasIpv6()
+                            )
                         }
 
                     val primaryStarted = runTemporaryConfig(primaryConfig)
@@ -1159,7 +1174,8 @@ class XrayManager(private val context: Context) {
                                 sourceConfig,
                                 actualPort,
                                 benchmarkSettings,
-                                link
+                                link,
+                                underlayHasIpv6 = underlayHasIpv6()
                             )
                         )
                     } else {

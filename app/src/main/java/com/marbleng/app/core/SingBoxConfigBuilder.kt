@@ -61,11 +61,7 @@ object SingBoxConfigBuilder {
      */
     const val FAKE_IP_POOL = FakeIpPolicy.IPV4_POOL
 
-    /**
-     * Encrypted DoH over DIRECT (IP-literal endpoints), with the system resolver as last resort.
-     * This is the sing-box equivalent of Xray `https+local://`: the node hostname is resolved
-     * without asking the Iranian system resolver, which answers `10.10.34.35/36`.
-     */
+    /** IP-literal DoH/DoT over DIRECT; never fall back to Android, local or plaintext DNS. */
     const val DNS_BOOTSTRAP_TAG = "dns-bootstrap"
 
     /**
@@ -182,12 +178,17 @@ object SingBoxConfigBuilder {
         resolverPool: List<String> = emptyList(),
         ruleSetPaths: Map<String, String> = emptyMap(),
         bootstrapDnsPort: Int = 0,
-        forTest: Boolean = false
+        forTest: Boolean = false,
+        underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
     ): List<Build> {
+        require(!AddressFamilyPolicy.excludedIpv4Endpoint(profile.host, settings)) {
+            AddressFamilyPolicy.IPV4_LITERAL_DISABLED
+        }
         val set = candidateSet(profile, settings, forTest)
         require(set.candidates.isNotEmpty()) {
             set.refusal.ifBlank { "sing-box cannot run this profile" }
         }
+        val errors = mutableListOf<String>()
         val builds = set.candidates.mapNotNull { candidate ->
             runCatching {
                 assemble(
@@ -202,11 +203,14 @@ object SingBoxConfigBuilder {
                     resolverPool = resolverPool,
                     ruleSetPaths = ruleSetPaths,
                     bootstrapDnsPort = bootstrapDnsPort,
-                    forTest = forTest
+                    forTest = forTest,
+                    underlayHasIpv6 = underlayHasIpv6
                 )
-            }.getOrNull()
+            }.onFailure { errors += it.message.orEmpty() }.getOrNull()
         }.distinctBy { it.json }
-        require(builds.isNotEmpty()) { set.refusal.ifBlank { "sing-box cannot run this profile" } }
+        require(builds.isNotEmpty()) {
+            errors.firstOrNull { it.isNotBlank() } ?: set.refusal.ifBlank { "sing-box cannot run this profile" }
+        }
         return builds
     }
 
@@ -440,9 +444,10 @@ object SingBoxConfigBuilder {
         resolverPool: List<String> = emptyList(),
         /** Local, verified bundled rule sets. No download is allowed on the startup path. */
         ruleSetPaths: Map<String, String> = emptyMap(),
-        /** Android resolver bridge; type:local in the CLI reads /etc/resolv.conf, not netd. */
+        /** Kept for source compatibility; plaintext Android DNS bootstrap is no longer used. */
         bootstrapDnsPort: Int = 0,
-        forTest: Boolean = false
+        forTest: Boolean = false,
+        underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
     ): Build = candidateBuilds(
         profile = profile,
         settings = settings,
@@ -454,7 +459,8 @@ object SingBoxConfigBuilder {
         resolverPool = resolverPool,
         ruleSetPaths = ruleSetPaths,
         bootstrapDnsPort = bootstrapDnsPort,
-        forTest = forTest
+        forTest = forTest,
+        underlayHasIpv6 = underlayHasIpv6
     ).first()
 
     /**
@@ -475,7 +481,8 @@ object SingBoxConfigBuilder {
         resolverPool: List<String>,
         ruleSetPaths: Map<String, String>,
         bootstrapDnsPort: Int,
-        forTest: Boolean
+        forTest: Boolean,
+        underlayHasIpv6: Boolean
     ): Build {
         val notes = candidate.notes.toMutableList()
         val outbounds = JSONArray()
@@ -505,7 +512,7 @@ object SingBoxConfigBuilder {
                     .put("output", logPath)
                     .put("timestamp", true)
             )
-            .put("dns", dnsConfig(settings, profile, resolverPool, bootstrapDnsPort))
+            .put("dns", dnsConfig(settings, profile, resolverPool, underlayHasIpv6))
             .put("inbounds", inboundConfig(settings, socksPort))
             .put("outbounds", outbounds)
             .put(
@@ -518,7 +525,7 @@ object SingBoxConfigBuilder {
                         .put("detour", DIRECT_TAG)
                 )
             )
-            .put("route", routeConfig(settings, notes, ruleSetPaths))
+            .put("route", routeConfig(settings, notes, ruleSetPaths, underlayHasIpv6))
             .put(
                 "experimental",
                 JSONObject()
@@ -569,6 +576,8 @@ object SingBoxConfigBuilder {
 // <<< ANDROID_FINAL_SANITIZATION_START >>>
 sanitizeAndroidCliConfig(root, notes)
 // <<< ANDROID_FINAL_SANITIZATION_END >>>
+// Native resource imports may override dial-time DNS. Restore the physical-family policy LAST.
+enforcePhysicalDialPolicy(root, settings, underlayHasIpv6)
 
 return Build(root.toString(), candidate.strategy, notes.distinct())
     }
@@ -1154,7 +1163,7 @@ private fun removeKeys(
         settings: AppSettings,
         profile: ProxyProfile,
         resolverPool: List<String>,
-        bootstrapDnsPort: Int
+        underlayHasIpv6: Boolean
     ): JSONObject {
         val servers = JSONArray()
         val timeout = "${settings.singBoxConnectTimeoutSec.coerceIn(3, 20)}s"
@@ -1179,36 +1188,22 @@ private fun removeKeys(
             listOf("https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "tls://9.9.9.9").filter(::allowed)
         }.take(3)
         require(pool.isNotEmpty()) { "No encrypted DNS resolver configured" }
-        // type:local in the Android CLI does NOT call Android's resolver. The production
-        // manager supplies a loopback bridge backed by ConnectivityManager / DnsResolver.
-        servers.put(if (bootstrapDnsPort > 0) JSONObject().put("type", "udp").put("tag", DNS_LOCAL_TAG)
-            .put("server", "127.0.0.1").put("server_port", bootstrapDnsPort)
-            else JSONObject().put("type", "local").put("tag", DNS_LOCAL_TAG))
         servers.put(JSONObject().put("type", "hosts").put("tag", DNS_HOSTS_TAG))
-        // MARBLE_FAKE_IP_V184 — the in-process fake address server. `inet4_range` is mandatory
-        // on the pinned core (NewTransport errors without a valid v4/v6 range) and only the v4
-        // range is armed: an AAAA question answered from a v4-only fakeip server returns an
-        // empty success (dns/transport/fakeip/fakeip.go), so IPv6-preferred apps fall back to
-        // the A record instead of waiting on the tunnel.
+        // The pinned fakeip transport answers A and AAAA independently. With no inet6_range
+        // the AAAA answer is empty and IPv6 can never be established from a fake address.
         if (FakeIpPolicy.isDnsPathArmed(settings)) {
-            servers.put(
-                JSONObject()
-                    .put("type", "fakeip")
-                    .put("tag", DNS_FAKEIP_TAG)
-                    .put("inet4_range", FAKE_IP_POOL)
-            )
+            servers.put(JSONObject().put("type", "fakeip").put("tag", DNS_FAKEIP_TAG)
+                .put("inet4_range", FAKE_IP_POOL).put("inet6_range", FakeIpPolicy.IPV6_POOL))
         }
-        // Encrypted bootstrap over DIRECT using IP-literal DoH — Xray's `https+local://` equivalent.
-        // The Iranian system resolver answers 10.10.34.35/36 for node hostnames; asking it first is
-        // why VLESS dials timed out against the injector. Local stays last-resort so a total DoH
-        // outage still bootstraps, the way the previous system-only rule did.
+        // Bootstrap the node hostname with IP-literal encrypted DIRECT resolvers ONLY. If they
+        // are unavailable, fail closed: a local/Android DNS fallback would reveal the node name.
         val bootstrapPeers = JSONArray()
-        bootstrapDoH(settings).forEachIndexed { index, url ->
+        bootstrapDoH(settings, underlayHasIpv6).forEachIndexed { index, url ->
             val tag = "dns-bootstrap-$index"
             servers.put(encryptedDnsServer(tag, url, DIRECT_TAG))
             bootstrapPeers.put(tag)
         }
-        bootstrapPeers.put(DNS_LOCAL_TAG)
+        require(bootstrapPeers.length() > 0) { "No encrypted DNS bootstrap on this address family" }
         servers.put(JSONObject().put("type", "fallback").put("tag", DNS_BOOTSTRAP_TAG)
             .put("servers", bootstrapPeers).put("strategy", "sequential").put("timeout", timeout))
         val remoteTags = JSONArray()
@@ -1217,8 +1212,10 @@ private fun removeKeys(
             servers.put(encryptedDnsServer(tag, url, PROXY_TAG))
             remoteTags.put(tag)
         }
+        // Even split/direct DNS goes through encrypted, IP-literal bootstrap; never OS DNS.
         servers.put(JSONObject().put("type", "fallback").put("tag", DNS_DIRECT_TAG)
-            .put("servers", JSONArray().put(DNS_LOCAL_TAG)).put("strategy", "sequential").put("timeout", timeout))
+            .put("servers", JSONArray().put(DNS_BOOTSTRAP_TAG))
+            .put("strategy", "sequential").put("timeout", timeout))
         // Bounded sequential fallback divides the overall timeout among at most three peers.
         // General browsing DNS can NEVER fall through to the direct/system resolver.
         // MARBLE_RESOLVER_SINKHOLE_V163 — when this network has measured a decisively failing
@@ -1292,23 +1289,36 @@ private fun removeKeys(
             }
     }
 
-    /**
-     * IP-literal encrypted resolvers that can be dialled on the underlay without asking DNS.
-     * User-configured DoH wins when it is already a literal; otherwise Cloudflare / Google / Quad9.
-     */
-    private fun bootstrapDoH(settings: AppSettings): List<String> {
-        val fromUser = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
-            .map { it.trim() }
-            .filter { url ->
-                val host = runCatching { URI(url).host }.getOrNull()
-                    ?.removePrefix("[")?.removeSuffix("]").orEmpty()
-                host.isNotBlank() && isLiteralAddress(host) &&
-                    // MARBLE_RESOLVER_SINKHOLE_V163 — the node hostname is never asked of a
-                    // domestic resolver: that is the injector answer the bootstrap exists to avoid.
-                    !ResolverEvidencePolicy.isDomesticResolver(url)
-            }
-        val stock = listOf("https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "tls://9.9.9.9")
-        return (fromUser + stock).distinct().take(3)
+    /** Physical bootstrap is distinct from exit DNS. Never attempt an unavailable underlay
+     * family or plaintext/system fallback; include at least one IPv6 peer on a dual-stack link. */
+    internal fun bootstrapDoH(settings: AppSettings, underlayHasIpv6: Boolean): List<String> {
+        val plan = AddressFamilyPolicy.plan(settings, underlayHasIpv6)
+        val v6Allowed = underlayHasIpv6 && !plan.blockIpv6Traffic
+        val v4Allowed = !plan.blockIpv4Traffic
+        fun isV6(url: String): Boolean? {
+            val host = runCatching { URI(url).host }.getOrNull()
+                ?.removePrefix("[")?.removeSuffix("]").orEmpty()
+            return if (host.isNotBlank() && isLiteralAddress(host) &&
+                !ResolverEvidencePolicy.isDomesticResolver(url)) host.contains(':') else null
+        }
+        val user = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH).map(String::trim)
+            .filter { url -> isV6(url)?.let { if (it) v6Allowed else v4Allowed } == true }
+        val stockV4 = if (v4Allowed) listOf(
+            "https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "tls://9.9.9.9"
+        ) else emptyList()
+        val stockV6 = if (v6Allowed) listOf(
+            "https://[2606:4700:4700::1111]/dns-query",
+            "https://[2001:4860:4860::8888]/dns-query"
+        ) else emptyList()
+        val userV6 = user.filter { isV6(it) == true }
+        val userV4 = user.filter { isV6(it) == false }
+        val ordered = when {
+            !v6Allowed -> userV4 + stockV4
+            !v4Allowed -> userV6 + stockV6
+            plan.prioritizeIpv6 -> userV6 + stockV6.take(1) + userV4 + stockV4 + stockV6
+            else -> userV4 + stockV4.take(1) + userV6 + stockV6 + stockV4
+        }
+        return ordered.distinct().take(3)
     }
 
     private fun singBoxLogLevel(settings: AppSettings): String {
@@ -1341,17 +1351,46 @@ private fun removeKeys(
         return inbounds
     }
 
-    private fun dnsStrategy(settings: AppSettings): String = when {
-        !settings.ipv6Enabled -> "ipv4_only"
-        settings.preferIpv6 -> "prefer_ipv6"
-        else -> "prefer_ipv4"
+    private fun dnsStrategy(settings: AppSettings): String =
+        AddressFamilyPolicy.singBoxDestinationStrategy(settings)
+
+    /** The core reads this for real node sockets, never for browsing through the proxy exit. */
+    private fun physicalDomainResolver(settings: AppSettings, underlayHasIpv6: Boolean): JSONObject =
+        JSONObject().put("server", DNS_BOOTSTRAP_TAG).put("strategy",
+            AddressFamilyPolicy.singBoxEndpointStrategy(
+                AddressFamilyPolicy.plan(settings, underlayHasIpv6)))
+
+    private fun enforcePhysicalDialPolicy(root: JSONObject, settings: AppSettings, underlayHasIpv6: Boolean) {
+        listOf("outbounds", "endpoints").forEach { section ->
+            val entries = root.optJSONArray(section) ?: return@forEach
+            for (index in 0 until entries.length()) {
+                val outbound = entries.optJSONObject(index) ?: continue
+                val type = outbound.optString("type")
+                val host = outbound.optString("server").ifBlank { outbound.optString("address") }
+                require(!AddressFamilyPolicy.excludedIpv4Endpoint(host, settings)) {
+                    AddressFamilyPolicy.IPV4_LITERAL_DISABLED
+                }
+                if (type in setOf("block", "selector", "urltest")) continue
+                // Native imports can carry their own local/plaintext per-dial DNS resolver.
+                // Overwrite it on EVERY physical dialer, including a parser link, a native
+                // endpoint and a direct hop; route.default_domain_resolver alone is not enough.
+                if (host.isNotBlank() || type in setOf("parser", "direct") || outbound.has("domain_resolver")) {
+                    outbound.put("domain_resolver", physicalDomainResolver(settings, underlayHasIpv6))
+                }
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Routing
     // ─────────────────────────────────────────────────────────────────────────────
 
-    private fun routeConfig(settings: AppSettings, notes: MutableList<String>, ruleSetPaths: Map<String, String>): JSONObject {
+    private fun routeConfig(
+        settings: AppSettings,
+        notes: MutableList<String>,
+        ruleSetPaths: Map<String, String>,
+        underlayHasIpv6: Boolean
+    ): JSONObject {
         val rules = JSONArray()
         if (settings.singBoxSniffEnabled) rules.put(JSONObject().put("action", "sniff"))
         // MARBLE_FAKE_IP_V184 — fakeip makes `resolve` mandatory, not an Exclave option: a
@@ -1366,7 +1405,21 @@ private fun removeKeys(
         if (settings.dnsHijackEnabled) {
             rules.put(JSONObject().put("port", 53).put("action", "hijack-dns"))
         }
-        if (!settings.ipv6Enabled) rules.put(JSONObject().put("ip_cidr", JSONArray().put("::/0")).put("action", "reject"))
+        val destinationStrategy = dnsStrategy(settings)
+        if (destinationStrategy == "ipv4_only") {
+            rules.put(JSONObject().put("ip_cidr", JSONArray().put("::/0")).put("action", "reject"))
+        }
+        if (destinationStrategy == "ipv6_only") {
+            rules.put(JSONObject().put("ip_cidr", JSONArray().put("0.0.0.0/0")).put("action", "reject"))
+        }
+        // Fake IPs are private tokens and must NEVER match bypass-private/direct rules (the
+        // IPv6 ULA pool is especially vulnerable to ip_is_private). Excluded families are
+        // rejected above before fake IPs can be routed to the selected proxy.
+        if (FakeIpPolicy.isDnsPathArmed(settings)) {
+            rules.put(JSONObject().put("ip_cidr", JSONArray()
+                .put(FakeIpPolicy.IPV4_POOL).put(FakeIpPolicy.IPV6_POOL))
+                .put("action", "route").put("outbound", PROXY_TAG))
+        }
         if (settings.iranModePolicy != IranModePolicy.OFF && settings.iranModeCountermeasures) {
             rules.put(JSONObject().put("ip_cidr", JSONArray(IRAN_POISON_BLOCK_IPS)).put("action", "reject"))
         }
@@ -1471,7 +1524,8 @@ private fun removeKeys(
                 .put("path", ruleSetPaths[tag] ?: "singbox-rules/$tag.srs"))
         }
         return JSONObject().put("rules", rules).put("rule_set", ruleSets).put("final", PROXY_TAG)
-            .put("default_domain_resolver", DNS_BOOTSTRAP_TAG).put("default_http_client", HTTP_CLIENT_DIRECT_TAG)
+            .put("default_domain_resolver", physicalDomainResolver(settings, underlayHasIpv6))
+            .put("default_http_client", HTTP_CLIENT_DIRECT_TAG)
     }
 
     /**

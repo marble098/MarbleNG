@@ -4,7 +4,8 @@ import java.io.File
 
 /** Android app-UID CLI contract. HEV/VpnService owns TUN, so sing-box must not enforce a
  * Linux interface monitor. The pinned core tolerates unavailable netlink with auto-detection
- * off (route/network.go). DNS is supplied separately by AndroidDnsBridge, NOT type:local.
+ * off (route/network.go). Dial-time DNS uses IP-literal encrypted bootstrap transports over
+ * DIRECT; it must never fall back to Android's system resolver or a plaintext loopback bridge.
  *
  * Generated configs must pass the pinned core WITHOUT deprecation escape hatches. Suppressing
  * migration failures made schema regressions look like network outages in previous builds.

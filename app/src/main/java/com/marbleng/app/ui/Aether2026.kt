@@ -851,9 +851,9 @@ fun Aether2026App(
                                 val report = repo.privacy
                                 when {
                                     repo.state != "CONNECTED" ->
-                                        "Connect first. Privacy audit uses the active Xray path."
+                                        "Connect first. Privacy audit uses the active proxy path."
                                     repo.busy && report == null ->
-                                        "Running privacy audit through the active Xray route…"
+                                        "Running IPv4/IPv6 privacy audit through the active proxy route…"
                                     report == null ->
                                         "No privacy report yet. Tap Privacy after the tunnel is healthy."
                                     else -> buildString {
@@ -867,12 +867,23 @@ fun Aether2026App(
                                         append(report.proxyIp.ifBlank { "unverified" })
                                         append("\n\nPHYSICAL IP (USER-TRIGGERED COMPARISON)\n")
                                         append(report.underlayIp.ifBlank { "unavailable" })
+                                        append("\n\nIPv6 PROXY EXIT\n")
+                                        append(report.proxyIpv6.ifBlank {
+                                            if (repo.settings.ipv6Enabled) "unverified / exit may lack IPv6"
+                                            else "not requested (IPv6 disabled)"
+                                        })
+                                        append("\n\nIPv6 PHYSICAL (MANUAL COMPARISON)\n")
+                                        append(report.underlayIpv6.ifBlank { "unavailable" })
                                         append("\n\nLOCATION\n")
                                         append(report.cloudflareLocation.ifBlank { "unknown" })
                                         append("\n\nDNS OBSERVATION\n")
                                         append(report.dnsServers.ifBlank { "inconclusive" })
                                         append("\n\nSENTINEL\n")
-                                        append(if (repo.sentinel.healthy) "HEALTHY" else repo.sentinel.coverage)
+                                        append(when {
+                                            !report.healthy -> "AUDIT NEEDS ATTENTION • ${repo.sentinel.coverage}"
+                                            repo.sentinel.healthy -> "HEALTHY"
+                                            else -> repo.sentinel.coverage
+                                        })
                                         append("\n\n")
                                         append(report.note)
                                     }
@@ -3175,16 +3186,15 @@ private fun HomeRouteRibbon(repo: AppRepository) {
                     icon=HomeIcon.NETWORK,
                     title="IPv6",
                     subtitle=when {
-                        !repo.settings.ipv6Enabled -> "IPv4-only TUN"
-                        repo.networkSnapshot.hasIpv6 -> "Preferred on this network"
-                        else -> "Ready • no v6 route here"
+                        !repo.settings.ipv6Enabled -> "IPv6 captured and blocked inside VPN"
+                        repo.networkSnapshot.hasIpv6 -> "IPv6 endpoint available on this network"
+                        else -> "IPv6 sites may work through an IPv4 proxy exit"
                     },
                     checked=repo.settings.ipv6Enabled,
                     enabled=!repo.busy
                 ) { enabled ->
-                    // One switch, one promise: IPv6 stays inside the tunnel and the family policy
-                    // dials nodes over IPv6 whenever the network can carry it. Turning it off
-                    // omits the v6 TUN address/route so Happy Eyeballs cannot stall on a blackhole.
+                    // IPv6 remains CAPTURED by full TUN even when the core is set to IPv4-only:
+                    // a blocked family must not escape over the physical default route.
                     repo.updateSettings(
                         repo.settings.copy(
                             addressFamilyMode = if (enabled) AddressFamilyMode.SMART else AddressFamilyMode.FORCE_IPV4,
@@ -13228,7 +13238,7 @@ private fun DnsSettings(repo: AppRepository) {
 
     Text(trx("IP version"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     Text(
-        trx("Smart measures both paths. Prefer modes keep a fallback; Force modes fail closed."),
+        trx("IPv6 sites can use an IPv4-reachable proxy if its exit supports IPv6. Force IPv6 also requires an IPv6-reachable server and network. Changing modes reconnects; Full TUN stays blocked during the switch."),
         color = Aether.InkMuted,
         style = MaterialTheme.typography.bodySmall
     )
@@ -13273,11 +13283,23 @@ private fun DnsSettings(repo: AppRepository) {
         }
     }
 
-    SettingSwitch(
-        title = "Intercept traditional DNS",
-        subtitle = "Port 53 → encrypted DNS",
-        checked = repo.settings.dnsHijackEnabled
-    ) { repo.updateSettings(repo.settings.copy(dnsHijackEnabled = it)) }
+    if (repo.settings.connectionMode == ConnectionMode.FULL_TUN && repo.settings.dnsHijackEnabled) {
+        Text(
+            trx("Full TUN always intercepts IPv4 and IPv6 DNS on port 53; there is no plaintext fallback."),
+            color = Aether.InkMuted,
+            style = MaterialTheme.typography.bodySmall
+        )
+    } else {
+        // Older stored Full TUN settings might still have interception off. Show the switch so
+        // the user can recover from a fail-closed startup rather than hiding the only remedy.
+        SettingSwitch(
+            title = "Intercept traditional DNS",
+            subtitle = if (repo.settings.connectionMode == ConnectionMode.FULL_TUN)
+                "Required to start Full TUN without plaintext DNS"
+                else "Only traffic sent through the local proxy is protected",
+            checked = repo.settings.dnsHijackEnabled
+        ) { repo.updateSettings(repo.settings.copy(dnsHijackEnabled = it)) }
+    }
     // MARBLE_FAKE_IP_V184 — the cold-DNS fix, visible. On by default: without it the app's
     // first ~15 domain lookups ride the encrypted resolvers through the tunnel one after
     // another before any flow can start; with it the core answers locally in the same tick

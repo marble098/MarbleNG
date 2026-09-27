@@ -145,12 +145,13 @@ object MultiVectorReachability {
         }
         val budgetMs = timeoutMs.coerceIn(250, 30_000)
         val plan = AddressFamilyPolicy.plan(settings = settings)
-        val candidates = resolved
-            ?: AddressFamilyPolicy.resolveCandidates(
+        val candidates = AddressFamilyPolicy.orderAddresses(
+            resolved ?: AddressFamilyPolicy.resolveCandidates(
                 host,
                 plan,
                 (budgetMs / 2).coerceIn(500, 2_500)
-            )
+            ), plan
+        )
         if (candidates.isEmpty()) {
             return ReachabilitySignal(
                 probeTargetUsed = host,
