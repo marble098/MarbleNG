@@ -22,12 +22,13 @@ class IpFamilyScannerTest {
     private val v6 = InetAddress.getByName("2001:db8::10")
     private val v6b = InetAddress.getByName("2001:db8::11")
 
+    // `connects` is last so every case can read as `scan(answers) { address -> latency }`.
     private fun scan(
         answers: List<InetAddress>,
-        connects: (InetAddress) -> Int,
         host: String = "edge.example.net",
         port: Int = 443,
-        underlayHasIpv6: Boolean = true
+        underlayHasIpv6: Boolean = true,
+        connects: (InetAddress) -> Int
     ): IpFamilyScan = IpFamilyScanner.scan(
         host = host,
         port = port,

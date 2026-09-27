@@ -83,7 +83,7 @@ class DnsDomainFaultPolicyTest {
         val faults = DnsDomainFaultPolicy.observe(lines, emptyList(), 1_000L)
         assertEquals(3, faults.size)
         assertTrue("a single failing resolver must still be demotable", faults.none { it.decisive })
-        assertTrue(faults.none { DnsDomainFaultPolicy.isDomainFaultLine(sameEndpointOtherName, faults, 1_000L) })
+        assertFalse(DnsDomainFaultPolicy.isDomainFaultLine(sameEndpointOtherName, faults, 1_000L))
     }
 
     @Test fun theSameEndpointTwiceIsStillOneEndpoint() {
