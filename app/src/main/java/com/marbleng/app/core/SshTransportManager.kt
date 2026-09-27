@@ -194,12 +194,15 @@ class SshTransportManager : Closeable {
         val dialTarget = AddressFamilyPolicy
             .resolveCandidates(
                 endpoint.host,
-                AddressFamilyPolicy.plan(settings = settings)
+                AddressFamilyPolicy.plan(settings = settings),
+                timeoutMs = 3_000
             )
             .firstOrNull()
             ?.hostAddress
             ?.takeIf { it.isNotBlank() }
-            ?: endpoint.host
+            ?: throw IllegalStateException(
+                "Encrypted DNS could not resolve the SSH endpoint; refusing system DNS fallback"
+            )
         val nextSession = jsch.getSession(endpoint.username, dialTarget, endpoint.port)
         nextSession.setPassword(endpoint.password.toByteArray(Charsets.UTF_8))
         nextSession.setConfig("PreferredAuthentications", "password")

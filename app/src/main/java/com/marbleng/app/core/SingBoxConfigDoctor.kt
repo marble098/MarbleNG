@@ -472,62 +472,64 @@ object SingBoxConfigDoctor {
     }
 
     /**
-     * sing-box 1.12 introduced `route.default_domain_resolver`; 1.14 schedules the *absence* of
-     * it for removal, which on the pinned core means `deprecated.Report` takes the impending
-     * branch and calls `os.Exit(1)`:
-     *
-     * ```
-     * missing `route.default_domain_resolver` or `domain_resolver` in dial fields is deprecated
-     * in sing-box 1.12.0 and will be removed in sing-box 1.14.0
-     * to continuing using this feature, set environment variable
-     * ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER=true
-     * ```
-     *
-     * The report fires whenever a dialer has to resolve a domain and more than one DNS transport
-     * is configured — which is every MarbleNG config, because the resolver pool is plural by
-     * design. The fix is to name the resolver explicitly, and the only correct answer for a
-     * *dial* is a resolver that does not need the tunnel: the system one.
+     * A dialer resolver may resolve the NODE hostname. Local/system/plaintext DNS is never an
+     * acceptable substitute when encrypted bootstrap fails: leaving the resolver missing is
+     * preferable to leaking that name, and on this path we give the user an explicit refusal.
      */
     private fun ensureDefaultDomainResolver(root: JSONObject, notes: MutableList<String>) {
         val servers = root.optJSONObject("dns")?.optJSONArray("servers") ?: return
-        if (servers.length() < 2) return
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
-        val existing = route.opt("default_domain_resolver")
-        val tags = (0 until servers.length()).mapNotNull { index ->
-            servers.optJSONObject(index)?.optString("tag")?.takeIf { it.isNotBlank() }
+        val byTag = (0 until servers.length()).mapNotNull { servers.optJSONObject(it) }
+            .associateBy { it.optString("tag") }
+        fun encryptedDirect(tag: String, seen: Set<String> = emptySet()): Boolean {
+            if (tag.isBlank() || tag in seen) return false
+            val server = byTag[tag] ?: return false
+            return when (server.optString("type").lowercase()) {
+                "fallback" -> {
+                    val peers = server.optJSONArray("servers") ?: return false
+                    peers.length() > 0 && (0 until peers.length()).all {
+                        encryptedDirect(peers.optString(it), seen + tag)
+                    }
+                }
+                "https", "tls", "h3", "quic" ->
+                    server.optString("detour") == SingBoxConfigBuilder.DIRECT_TAG &&
+                        AddressFamilyPolicy.isLiteralIp(server.optString("server"))
+                else -> false
+            }
         }
+        val existing = route.opt("default_domain_resolver")
         val currentTag = when (existing) {
             is String -> existing
             is JSONObject -> existing.optString("server")
             else -> ""
         }
-        if (currentTag.isNotBlank() && currentTag in tags) return
-
-        // Preference order mirrors the bootstrap order of the config itself: the system resolver
-        // first (it can never depend on the tunnel it is helping to build), then the direct
-        // resolver. A config with neither gets a `local` transport appended rather than being
-        // pointed at a resolver that lives behind the proxy — that would be a bootstrap loop,
-        // which is a subtler and much worse failure than the deprecation this fixes.
-        fun tagOfType(type: String): String? = (0 until servers.length()).firstNotNullOfOrNull { i ->
-            servers.optJSONObject(i)
-                ?.takeIf { it.optString("type").equals(type, ignoreCase = true) }
-                ?.optString("tag")
-                ?.takeIf { it.isNotBlank() }
+        val chosen = currentTag.takeIf(::encryptedDirect)
+            ?: listOf(SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG, SingBoxConfigBuilder.DNS_DIRECT_TAG)
+                .firstOrNull { encryptedDirect(it) }
+            ?: byTag.keys.firstOrNull { encryptedDirect(it) }
+            ?: throw IllegalArgumentException("No encrypted IP-literal direct DNS bootstrap; refusing system DNS fallback")
+        fun families(tag: String): List<Boolean> {
+            val server = byTag.getValue(tag)
+            if (server.optString("type") != "fallback") return listOf(server.getString("server").contains(':'))
+            val peers = server.getJSONArray("servers")
+            return (0 until peers.length()).flatMap { families(peers.getString(it)) }
         }
-        val chosen = tags.firstOrNull { it == SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG }
-            ?: tagOfType("local")
-            ?: tags.firstOrNull { it == SingBoxConfigBuilder.DNS_DIRECT_TAG }
-            ?: SingBoxConfigBuilder.DNS_LOCAL_TAG.also { tag ->
-                servers.put(JSONObject().put("type", "local").put("tag", tag))
-                notes += "added a system-resolver DNS transport (`$tag`) for dial-time lookups"
-            }
-        route.put("default_domain_resolver", chosen)
-
-        notes += if (currentTag.isBlank()) {
-            "set `route.default_domain_resolver` to `$chosen` (its absence is fatal on sing-box 1.14)"
-        } else {
-            "repointed `route.default_domain_resolver` from the unknown `$currentTag` to `$chosen`"
+        val options = families(chosen)
+        val preferred = options.firstOrNull() == true
+        val desiredStrategy = when {
+            options.all { it } && root.optJSONObject("dns")?.optString("strategy") == "ipv6_only" -> "ipv6_only"
+            options.none { it } && root.optJSONObject("dns")?.optString("strategy") == "ipv4_only" -> "ipv4_only"
+            preferred -> "prefer_ipv6"
+            else -> "prefer_ipv4"
         }
+        if (existing is JSONObject && currentTag == chosen &&
+            existing.optString("strategy") == desiredStrategy) return
+        // Never carry forward a stale/hostile IPv4-only strategy in an otherwise IPv6-only
+        // bootstrap. Both the route default and every physical dialer must follow the same
+        // encrypted family policy, including when the doctor is repairing a foreign config.
+        route.put("default_domain_resolver", JSONObject()
+            .put("server", chosen).put("strategy", desiredStrategy))
+        notes += "set encrypted `route.default_domain_resolver` to `$chosen` ($desiredStrategy)"
     }
 
     /** True for a JSON value that actually asks for the feature, rather than a written-out zero. */

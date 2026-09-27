@@ -228,15 +228,15 @@ class SingBoxAndroidRuntimeV155Test {
     fun theDefaultDomainResolverIsNamedAndResolvable() {
         val config = build()
         val route = config.getJSONObject("route")
-        val resolver = route.getString("default_domain_resolver")
+        val resolver = route.getJSONObject("default_domain_resolver")
         assertEquals(
             "a dial-time lookup must use encrypted-direct bootstrap (never the proxy it is building)",
             SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG,
-            resolver
+            resolver.getString("server")
         )
         assertTrue(
             "`default domain resolver not found` is a startup error; the tag must exist",
-            resolver in dnsServerTags(config)
+            resolver.getString("server") in dnsServerTags(config)
         )
     }
 
@@ -248,8 +248,9 @@ class SingBoxAndroidRuntimeV155Test {
         val healed = SingBoxConfigDoctor.hardenForAndroid(legacy.toString())
         assertTrue(healed.repaired)
         val config = JSONObject(healed.json)
-        val resolver = config.getJSONObject("route").getString("default_domain_resolver")
-        assertTrue(resolver in dnsServerTags(config))
+        val resolver = config.getJSONObject("route").getJSONObject("default_domain_resolver")
+        assertEquals(SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG, resolver.getString("server"))
+        assertTrue(resolver.getString("server") in dnsServerTags(config))
     }
 
     @Test
@@ -261,8 +262,8 @@ class SingBoxAndroidRuntimeV155Test {
         assertTrue(healed.repaired)
         val config = JSONObject(healed.json)
         assertTrue(
-            config.getJSONObject("route").getString("default_domain_resolver")
-                in dnsServerTags(config)
+            config.getJSONObject("route").getJSONObject("default_domain_resolver")
+                .getString("server") in dnsServerTags(config)
         )
     }
 

@@ -210,12 +210,8 @@ class SingBoxCoreV151Test {
         assertTrue("the hijack-dns rule action must intercept DNS", hijackPresent)
     }
 
-    /**
-     * MARBLE_SINGBOX_BOOTSTRAP_DOH_V163 — the node's own hostname must not ask the Iranian
-     * system resolver, which answers 10.10.34.35/36. Encrypted DoH over DIRECT (IP-literal
-     * endpoints, Xray's `https+local://` equivalent) is the first hop; `dns-local` stays as
-     * last-resort so a total DoH outage still bootstraps. A literal-IP endpoint needs neither.
-     */
+    /** The node's hostname must not ask Android DNS. IP-literal encrypted DIRECT DoH is
+     * the ONLY bootstrap path, and its outage fails closed; a literal endpoint needs no rule. */
     @Test
     fun theProxyHostnameBootstrapsThroughEncryptedDirectDns() {
         val literalConfig = JSONObject(build(linkProfile(VLESS_LINK)).json)
@@ -223,21 +219,26 @@ class SingBoxCoreV151Test {
         val hostnameConfig = JSONObject(build(hostnameProfile).json)
 
         val servers = hostnameConfig.getJSONObject("dns").getJSONArray("servers")
-        var localPresent = false
         var bootstrapPresent = false
         for (i in 0 until servers.length()) {
             val server = servers.getJSONObject(i)
-            if (SingBoxConfigBuilder.DNS_LOCAL_TAG == server.optString("tag")) localPresent = true
+            assertFalse("system DNS must not be in the resolver graph",
+                SingBoxConfigBuilder.DNS_LOCAL_TAG == server.optString("tag") ||
+                    "local" == server.optString("type"))
             if (SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG == server.optString("tag")) {
                 bootstrapPresent = true
                 assertEquals("fallback", server.getString("type"))
                 val peers = server.getJSONArray("servers")
-                val peerTags = (0 until peers.length()).map { peers.getString(it) }
-                assertTrue("bootstrap must keep dns-local as last resort: $peerTags", SingBoxConfigBuilder.DNS_LOCAL_TAG in peerTags)
-                assertTrue("bootstrap must try an encrypted peer first: $peerTags", peerTags.first() != SingBoxConfigBuilder.DNS_LOCAL_TAG)
+                assertTrue(peers.length() > 0)
+                for (index in 0 until peers.length()) {
+                    val peerTag = peers.getString(index)
+                    val peer = (0 until servers.length()).map(servers::getJSONObject)
+                        .single { it.optString("tag") == peerTag }
+                    assertTrue(AddressFamilyPolicy.isLiteralIp(peer.getString("server")))
+                    assertEquals(SingBoxConfigBuilder.DIRECT_TAG, peer.getString("detour"))
+                }
             }
         }
-        assertTrue("a system-resolver DNS server must still exist as last resort", localPresent)
         assertTrue("an encrypted-direct bootstrap resolver must exist", bootstrapPresent)
 
         fun bootstrapRuleServer(config: JSONObject, host: String): String? {
@@ -262,7 +263,8 @@ class SingBoxCoreV151Test {
         )
         assertEquals(
             SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG,
-            hostnameConfig.getJSONObject("route").getString("default_domain_resolver")
+            hostnameConfig.getJSONObject("route").getJSONObject("default_domain_resolver")
+                .getString("server")
         )
     }
 
@@ -330,7 +332,7 @@ class SingBoxCoreV151Test {
         }
         val direct = dnsServer(config, SingBoxConfigBuilder.DNS_DIRECT_TAG)
         assertEquals("fallback", direct.getString("type"))
-        assertEquals(SingBoxConfigBuilder.DNS_LOCAL_TAG, direct.getJSONArray("servers").getString(0))
+        assertEquals(SingBoxConfigBuilder.DNS_BOOTSTRAP_TAG, direct.getJSONArray("servers").getString(0))
     }
 
     @Test

@@ -194,9 +194,10 @@ Identity Guard is a guarantee about **exit stability**: the session must stay on
 exit IP. It is not a guarantee about capturing IPv6. The case that actually leaks is *IPv6
 exists on the underlay but the TUN could not capture it*.
 
-**Fix.** Fail closed only when `underlay.hasIpv6` is true and the TUN still could not capture
-IPv6. When there is no IPv6 on the underlay there is nothing to leak, so the session continues
-and the condition is recorded as `identity-ipv6-unavailable` for diagnostics.
+**Historical V132 fix.** At the time, capture failed closed only with a detected IPv6
+underlay. This was later superseded: Full TUN now requires both `0.0.0.0/0` and `::/0`
+regardless of the underlay to prevent a family bypass during reconnect. See
+[IPv6 and leak hardening](IPV6_LEAK_HARDENING.md).
 
 ---
 

@@ -151,13 +151,13 @@ class LeakGuard {
     fun processReport(report: PrivacyReport, nowMs: Long = System.currentTimeMillis()): LeakAssessment {
         verificationCount.incrementAndGet()
 
-        if (report.proxyIp.isNotBlank()) {
+        if (report.proxyIp.isNotBlank() || report.proxyIpv6.isNotBlank()) {
             lastIpVerification.set(nowMs)
             setKnownProxyIp(report.proxyIp)
+            setKnownProxyIp(report.proxyIpv6)
         }
-        if (report.underlayIp.isNotBlank()) {
-            setKnownUnderlayIp(report.underlayIp)
-        }
+        if (report.underlayIp.isNotBlank()) setKnownUnderlayIp(report.underlayIp)
+        if (report.underlayIpv6.isNotBlank()) setKnownUnderlayIp(report.underlayIpv6)
 
         val newFindings = mutableListOf<LeakFinding>()
 
@@ -171,6 +171,21 @@ class LeakGuard {
                     "All traffic is likely leaking outside the tunnel.",
                 proxyIp = report.proxyIp,
                 underlayIp = report.underlayIp
+            )
+            leakDetectedCount.incrementAndGet()
+        }
+
+        // A single dual-stack trace can choose IPv4 on both sides and miss an IPv6 bypass.
+        // Compare the independent IPv6-only observations; a missing exit response is
+        // INCONCLUSIVE (the proxy may simply lack IPv6), never a clean bill of health.
+        if (report.proxyIpv6.isNotBlank() && report.underlayIpv6.isNotBlank() &&
+            report.proxyIpv6 == report.underlayIpv6) {
+            newFindings += LeakFinding(
+                type = LeakType.IPV6_LEAK,
+                severity = LeakSeverity.CRITICAL,
+                detail = "IPv6-only proxy egress matches the physical IPv6 egress; possible VPN bypass.",
+                proxyIp = report.proxyIpv6,
+                underlayIp = report.underlayIpv6
             )
             leakDetectedCount.incrementAndGet()
         }
@@ -215,7 +230,7 @@ class LeakGuard {
         }
 
         // Check 4: Proxy IP is blank (tunnel may not be routing)
-        if (report.proxyIp.isBlank() && tunnelActive.get()) {
+        if (report.proxyIp.isBlank() && report.proxyIpv6.isBlank() && tunnelActive.get()) {
             newFindings += LeakFinding(
                 type = LeakType.IP_UNDERLAY_MATCH,
                 severity = LeakSeverity.WARNING,

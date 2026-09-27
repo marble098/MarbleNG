@@ -95,6 +95,9 @@ object ProfilePreflightValidator {
         if (AddressFamilyPolicy.excludedIpv6Endpoint(profile.host, settings)) {
             return PreflightVerdict(Verdict.INVALID, "ipv6-disabled", AddressFamilyPolicy.IPV6_LITERAL_DISABLED)
         }
+        if (AddressFamilyPolicy.excludedIpv4Endpoint(profile.host, settings)) {
+            return PreflightVerdict(Verdict.INVALID, "ipv4-disabled", AddressFamilyPolicy.IPV4_LITERAL_DISABLED)
+        }
         // SS/SSR hostname-only profiles may carry no emitted JSON yet; allow them through so the
         // engine (XrayManager) is the judge, but flag them for re-check.
         if (profile.configJson.isBlank()) {

@@ -1,5 +1,9 @@
 # The IPv6/memory/socket triangle: a connected core delivering nothing (V135)
 
+> Historical incident analysis. The V135 choice to omit the IPv6 TUN route on an IPv4-only
+> underlay is **superseded**: see [IPv6 and leak hardening](IPV6_LEAK_HARDENING.md) for the
+> current always-dual-stack capture and encrypted DNS/family policy.
+
 Runtime evidence analysed: a session that reconnected six times in under two minutes
 (20:57, 20:58:56, 20:59:04, 20:59:07, 20:59:15, 20:59:21), in which `home-connection-ping`
 reported `measured=4/5 ms` beside first-byte readings of 242–347 ms, DNS lookups died with

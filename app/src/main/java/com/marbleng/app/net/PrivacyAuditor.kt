@@ -19,6 +19,9 @@ data class PrivacyReport(
     val overallScore: Int,
     val healthy: Boolean,
     val note: String,
+    /** Independent IPv6-only egress observations, empty means unverified (NOT proof of no leak). */
+    val proxyIpv6: String = "",
+    val underlayIpv6: String = "",
     /** MARBLE_LEAK_GUARD_V80: additional leak assessment from continuous monitoring */
     val leakAssessment: LeakGuard.LeakAssessment? = null
 )
@@ -28,13 +31,19 @@ object PrivacyAuditor {
 
     /**
      * User-triggered audit with two intentionally independent views:
-     *  - proxy view travels through Xray SOCKS;
+     *  - proxy view travels through the active core's local SOCKS inbound;
      *  - underlay view is explicitly bound to Android's physical Network.
      *
      * The direct view is never scheduled in the background and is used only to prove that an
      * international destination sees a different address through the selected proxy.
      */
-    fun audit(port: Int, underlay: Network?, leakGuard: LeakGuard? = null): PrivacyReport {
+    fun audit(
+        port: Int,
+        underlay: Network?,
+        leakGuard: LeakGuard? = null,
+        requireIpv6: Boolean = false,
+        underlayHasIpv6: Boolean = false
+    ): PrivacyReport {
         val proxyTrace = runCatching {
             val response = SocksHttpClient.get(port, "www.cloudflare.com", "/cdn-cgi/trace", 6_000, 8_192)
             if (response.status in 200..399) String(response.body) else ""
@@ -44,6 +53,16 @@ object PrivacyAuditor {
 
         val underlayTrace = underlay?.let(::readUnderlayTrace).orEmpty()
         val underlayIp = traceValue(underlayTrace, "ip")
+        // A dual-stack Cloudflare trace may choose IPv4 on BOTH paths and miss an IPv6 bypass.
+        // Use an IPv6-only diagnostic origin via SOCKS domain ATYP, so the proxy's exit must
+        // actually carry AAAA traffic. The physical comparison is opt-in with this manual audit.
+        val proxyIpv6 = if (requireIpv6) runCatching {
+            val response = SocksHttpClient.get(port, "ipv6.icanhazip.com", "/", 6_000, 256)
+            if (response.status in 200..299) ipv6Literal(String(response.body)) else ""
+        }.getOrDefault("") else ""
+        val underlayIpv6 = if (requireIpv6 && underlayHasIpv6 && underlay != null) runCatching {
+            readUnderlayIpv6(underlay)
+        }.getOrDefault("") else ""
 
         val id = runCatching {
             String(SocksHttpClient.get(port, "bash.ws", "/id", 6_000, 4_096).body)
@@ -68,12 +87,20 @@ object PrivacyAuditor {
         val dnsObservation = if (dnsRows.isEmpty()) "inconclusive" else dnsRows.joinToString(" • ")
         val knownEncryptedProvider = dnsRows.any(::isKnownEncryptedResolver)
 
-        val ipScore = when {
+        val baseIpScore = when {
             proxyIp.isBlank() -> 0
             underlayIp.isBlank() -> 85
             proxyIp == underlayIp -> 0
             else -> 100
         }
+        val ipv6Score = when {
+            !requireIpv6 -> 100
+            proxyIpv6.isBlank() -> 40 // unverified IPv6 exit is NOT a passing audit
+            underlayIpv6.isBlank() -> 85
+            proxyIpv6 == underlayIpv6 -> 0
+            else -> 100
+        }
+        val ipScore = minOf(baseIpScore, ipv6Score)
         val dnsScore = when {
             proxyIp.isBlank() -> 0
             dnsRows.isEmpty() -> 60
@@ -85,7 +112,7 @@ object PrivacyAuditor {
 
         val note = buildString {
             append("IP score is based on a proxy-vs-physical egress comparison. ")
-            append("DNS triggers used SOCKS domain addressing and the Xray encrypted resolver graph. ")
+            append("DNS triggers used SOCKS domain addressing and the active core's encrypted resolver graph. ")
             when {
                 proxyIp.isBlank() -> append("Proxy egress could not be verified.")
                 underlayIp.isBlank() -> append("Physical comparison was unavailable; proxy egress alone was verified.")
@@ -93,6 +120,12 @@ object PrivacyAuditor {
                 dnsRows.isEmpty() -> append("Egress separation passed, but the external DNS observation was inconclusive.")
                 else -> append("Proxy egress separation and external DNS observation both completed.")
             }
+            if (requireIpv6) append(when {
+                proxyIpv6.isBlank() -> " IPv6 proxy egress could not be verified; the proxy exit may lack IPv6. This is not proof of a leak."
+                underlayIpv6.isBlank() -> " IPv6 proxy egress worked, but the physical IPv6 comparison was unavailable."
+                proxyIpv6 == underlayIpv6 -> " IPv6 proxy and physical egress matched: possible IPv6 bypass."
+                else -> " IPv6 proxy egress differs from the physical IPv6 egress."
+            })
         }
 
         // MARBLE_LEAK_GUARD_V80: Feed the report into the continuous LeakGuard
@@ -106,7 +139,9 @@ object PrivacyAuditor {
                 dnsLeakScore = dnsScore,
                 overallScore = overall,
                 healthy = healthy,
-                note = note
+                note = note,
+                proxyIpv6 = proxyIpv6,
+                underlayIpv6 = underlayIpv6
             )
             guard.setKnownProxyIp(proxyIp)
             guard.setKnownUnderlayIp(underlayIp)
@@ -123,9 +158,35 @@ object PrivacyAuditor {
             overallScore = overall,
             healthy = healthy,
             note = note,
+            proxyIpv6 = proxyIpv6,
+            underlayIpv6 = underlayIpv6,
             leakAssessment = leakAssessment
         )
     }
+
+    private fun ipv6Literal(raw: String): String {
+        val candidate = raw.lineSequence().firstOrNull().orEmpty().trim()
+        if (!candidate.contains(':') || candidate.length > 64) return ""
+        return runCatching { java.net.InetAddress.getByName(candidate) }
+            .getOrNull()?.takeIf { it is java.net.Inet6Address }?.hostAddress.orEmpty()
+    }
+
+    private fun readUnderlayIpv6(network: Network): String = runCatching {
+        val connection = network.openConnection(URL("https://ipv6.icanhazip.com/")) as HttpsURLConnection
+        try {
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 5_000
+            connection.instanceFollowRedirects = false
+            connection.useCaches = false
+            if (connection.responseCode !in 200..299) return@runCatching ""
+            connection.inputStream.use { input ->
+                val bytes = ByteArray(256)
+                ipv6Literal(String(bytes, 0, input.read(bytes).coerceAtLeast(0), Charsets.UTF_8))
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrDefault("")
 
     private fun readUnderlayTrace(network: Network): String = runCatching {
         val connection = network.openConnection(URL(TRACE_URL)) as HttpsURLConnection

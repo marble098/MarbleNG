@@ -20,7 +20,6 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.Inet4Address
 import java.net.Inet6Address
-import java.net.InetAddress
 import java.net.URL
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
@@ -318,8 +317,9 @@ object ServerLocationResolver {
     }
 
     private val defaultDns = LocationDnsSource { host ->
-        runCatching { InetAddress.getAllByName(host) }
-            .getOrDefault(emptyArray<InetAddress>())
+        // Auto-location runs on imported server names before VPN bring-up. Never reveal those
+        // endpoint names through the phone's plaintext system resolver.
+        EncryptedEndpointResolver.resolve(host)
             .filter { it is Inet4Address || it is Inet6Address }
             .map { it.hostAddress.orEmpty() }
             .filter { it.isNotBlank() }

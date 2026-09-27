@@ -120,11 +120,14 @@ class FakeIpV184Test {
     fun xrayArmsFakednsPoolNameserverAndSniffingOverride() {
         val hardened = JSONObject(XrayConfigHardener.harden(vlessSource(), 21080, AppSettings()))
 
-        // The v26.9.9 JSON schema (`infra/conf/fakedns.go`): ipPool + poolSize. The core rejects
-        // an LRU of 65,536 in a /16, so the largest valid value is deliberately one lower.
-        val fakedns = hardened.getJSONObject("fakedns")
-        assertEquals(FakeIpPolicy.IPV4_POOL, fakedns.getString("ipPool"))
-        assertEquals(FakeIpPolicy.XRAY_LRU_SIZE, fakedns.getInt("poolSize"))
+        // Explicit FakeDNS pools replace the core's dual-family defaults. Both A and AAAA
+        // must receive reversible fake addresses; an IPv4-only object discards every AAAA.
+        val pools = hardened.getJSONArray("fakedns")
+        assertEquals(2, pools.length())
+        assertEquals(FakeIpPolicy.IPV4_POOL, pools.getJSONObject(0).getString("ipPool"))
+        assertEquals(FakeIpPolicy.IPV6_POOL, pools.getJSONObject(1).getString("ipPool"))
+        assertEquals(FakeIpPolicy.XRAY_LRU_SIZE, pools.getJSONObject(0).getInt("poolSize"))
+        assertEquals(FakeIpPolicy.XRAY_LRU_SIZE, pools.getJSONObject(1).getInt("poolSize"))
 
         // The fakedns nameserver exists, carries the list-wide queryStrategy verify() demands,
         // and sits BEFORE the first encrypted DoH server: in serial mode it answers every
@@ -273,6 +276,7 @@ class FakeIpV184Test {
         assertTrue("the fakeip server must exist", fake != null)
         assertEquals("fakeip", fake!!.optString("type"))
         assertEquals(SingBoxConfigBuilder.FAKE_IP_POOL, fake.optString("inet4_range"))
+        assertEquals(SingBoxConfigBuilder.FAKE_IP6_POOL, fake.optString("inet6_range"))
         assertFalse("fakeip owns a range, not an upstream server", fake.has("server"))
 
         // The app can retain a fake answer across a core restart, so the reverse mapping must

@@ -23,6 +23,15 @@ class DnsWireCodecTest {
     }
 
     @Test
+    fun buildQueryCanRequestAaaaWithoutAskingForAnARecord() {
+        val question = DnsWireCodec.buildQuery("edge.example.com", type = 28)
+        assertEquals(0, question[question.size - 4].toInt())
+        assertEquals(28, question[question.size - 3].toInt())
+        assertEquals(0, question[question.size - 2].toInt())
+        assertEquals(1, question[question.size - 1].toInt())
+    }
+
+    @Test
     fun parseAnswersReturnsIPv4Address() {
         val response = aRecordResponse(rcode = 0)
         val addresses = DnsWireCodec.parseAnswers(response)

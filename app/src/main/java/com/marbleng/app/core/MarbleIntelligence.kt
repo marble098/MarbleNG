@@ -19,6 +19,8 @@ import com.marbleng.app.model.SplitTunnelMode
 import com.marbleng.app.model.WorkloadProfile
 import org.json.JSONObject
 import java.io.Closeable
+import java.net.Inet4Address
+import java.net.Inet6Address
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -1183,6 +1185,11 @@ class MarbleIntelligence(private val context: Context) {
             } else {
                 val transports = transportsOf(caps)
                 val addresses = lp.linkAddresses.map { it.address }
+                // An address without a same-family default route (e.g. a link-local IPv6 or
+                // disconnected RA) is not a dial-capable underlay. The TUN's own addresses must
+                // never enter this physical-network snapshot.
+                val v4Route = lp.routes.any { it.isDefaultRoute && it.destination.address is Inet4Address }
+                val v6Route = lp.routes.any { it.isDefaultRoute && it.destination.address is Inet6Address }
 
                 NetworkSnapshot(
                     transport =
@@ -1202,13 +1209,11 @@ class MarbleIntelligence(private val context: Context) {
                         !caps.hasCapability(
                             NetworkCapabilities.NET_CAPABILITY_NOT_METERED
                         ),
-                    hasIpv4 =
-                        addresses.any { it.address.size == 4 },
-                    hasIpv6 =
-                        addresses.any {
-                            it.address.size == 16 &&
-                                !it.isLinkLocalAddress
-                        },
+                    hasIpv4 = v4Route && addresses.any { it is Inet4Address && !it.isLoopbackAddress },
+                    hasIpv6 = v6Route && addresses.any {
+                        it is Inet6Address && !it.isLinkLocalAddress && !it.isLoopbackAddress &&
+                            !it.isSiteLocalAddress && (it.address[0].toInt() and 0xfe) != 0xfc
+                    },
                     mtu = lp.mtu,
                     downstreamKbps =
                         caps.linkDownstreamBandwidthKbps.coerceAtLeast(0),
@@ -1731,52 +1736,13 @@ class MarbleIntelligence(private val context: Context) {
             health,
             base.copy(preferIpv6 = effectivePreferIpv6)
         )
-        val raceUnstable = ipRace.reason == "unstable-race"
-
-        /*
-         * MARBLE_INTELLIGENCE_V141 — the 60 ms penalty is eliminated by evidence, not by guess.
-         *
-         * The broken log showed "IPv6 preferred, IPv4 raced after 60 ms" on a link whose IPv6 path
-         * was never proven: every connection paid the race delay and a dead-family socket. The
-         * family plan now collapses to IPv4-first whenever any of the following holds:
-         *
-         *  - the race itself was unstable (SmartIpRacePolicy measured failure streak, low success
-         *    EWMA or high jitter on this node) — and the verdict is persisted for 24 h;
-         *  - this physical network carries a stored unhealthy verdict from an earlier session;
-         *  - the link is measured noisy and IPv6 has no *positive* proof (the green reference was
-         *    IPv4-only end to end, and an unproven family is the first thing a noisy link breaks);
-         *  - a DNS storm is active — AAAA lookups double the failure surface exactly when the
-         *    resolver pool is already missing its budgets.
-         *
-         * Only strict user demands (IPv6 off, or an explicit v6-only strategy) outrank evidence;
-         * everything else keeps the automatic behaviour when IPv6 is actually proven healthy.
-         */
-        if (raceUnstable) rememberIpv6Unhealthy()
-        val storedV6Unhealthy = storedIpv6Unhealthy()
-        val measuredV6Healthy = when {
-            raceUnstable -> false
-            storedV6Unhealthy -> false
-            else -> null
-        }
-        val familyLockReason = when {
-            !base.ipv6Enabled -> null
-            raceUnstable -> "unstable-race"
-            storedV6Unhealthy -> "stored-verdict"
-            noisy && measuredV6Healthy != true -> "noisy-link"
-            storm && measuredV6Healthy != true -> "dns-storm"
-            else -> null
-        }
-        val forceIpv4First = familyLockReason != null
-
-        val queryStrategy = when {
-            !base.ipv6Enabled -> "UseIPv4"
-            base.dnsQueryStrategy.equals("UseIPv6", true) && n.hasIpv6 && !forceIpv4First -> "UseIPv6"
-            !base.adaptiveDualStackEnabled -> base.dnsQueryStrategy
-            forceIpv4First -> "UseIPv4"
-            n.hasIpv4 && !n.hasIpv6 -> "UseIPv4"
-            n.hasIpv6 && !n.hasIpv4 -> "UseIPv6"
-            else -> "UseIP"
-        }
+        // Generic node failures (timeouts, jitter, packet loss, DNS storms) say nothing about
+        // WHICH address family failed. A node reached over IPv4 can be unstable while its exit
+        // still supports IPv6. Never persist a family verdict or switch DNS to UseIPv4 without
+        // family-labelled evidence; the endpoint dialer's underlay policy is handled separately.
+        val measuredV6Healthy: Boolean? = null
+        val forceIpv4First = false
+        val queryStrategy = base.dnsQueryStrategy
 
         val dnsOrdered = preferredDnsOrder(base)
 
@@ -2789,7 +2755,6 @@ class MarbleIntelligence(private val context: Context) {
         val n =
             currentSnapshot()
         val storm = dnsStormActive()
-        val familyLocked = storedIpv6Unhealthy()
 
         return IntelligenceStatus(
             networkLabel = n.label,
@@ -2826,7 +2791,7 @@ class MarbleIntelligence(private val context: Context) {
             acceleratedRoutes =
                 if (settings.connectTuningEnabled) accelerationCount() else 0,
             dnsStormActive = storm,
-            familyLock = if (familyLocked) "IPv4 (stored verdict)" else "",
+            familyLock = "",
             lastDecision =
                 lastDecision
         )

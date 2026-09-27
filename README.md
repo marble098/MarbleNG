@@ -294,10 +294,12 @@ the current physical network, and arm parallel query only on that evidence.
 `docs/ROOT_CAUSE_V135.md` covers the IPv6/memory/socket triangle: a Wi-Fi network with no global
 IPv6 still received an unreachable IPv6 resolver graph and a captured `::/0` route, paid 8 s per
 dead resolver on the fragment chain, and re-dialled six times in two minutes with zero pacing
-until the OS revoked the VPN permission. The fixes purge resolver families the underlay cannot
-dial, gate the IPv6 route capture on real underlay capability, size fragment-chain DNS budgets
-from the measured link, and pace every automatic recovery behind an exponential ladder with a
-rolling circuit breaker.
+until the OS revoked the VPN permission. The historical fixes purged resolver families the
+underlay could not dial, gated IPv6 route capture, sized fragment-chain DNS budgets from the
+measured link, and paced automatic recovery. **The route-capture policy was superseded:** Full
+TUN now always captures both IP families (then rejects a disabled family inside the core), so an
+uncaptured `::/0` cannot bypass the VPN. The current family/DNS security contract and device
+verification steps are in [IPv6 and leak hardening](docs/IPV6_LEAK_HARDENING.md).
 
 ## Main navigation
 

@@ -933,7 +933,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 .filterIsInstance<Inet6Address>()
                 .firstOrNull()
             when {
-                candidate == null -> "server publishes no AAAA record • IPv4 is the only honest path"
+                candidate == null -> "no usable AAAA answer from encrypted endpoint DNS • IPv6 path unverified (Force IPv6 never falls back to IPv4)"
                 Socket().use { socket ->
                     runCatching {
                         socket.connect(InetSocketAddress(candidate, profile.port), 900)

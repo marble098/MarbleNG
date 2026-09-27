@@ -2,7 +2,7 @@
 
 **Why `URL test (sing-box extended)` returned `reachable=0` forever, and the principled fix.**
 
-Pinned core: `shtorm-7/sing-box-extended v1.14.0-extended-2.7.1` (`core-lock.json`).
+Historical pin at the time: `shtorm-7/sing-box-extended v1.14.0-extended-2.7.1`. Check `core-lock.json` for the current pin. **IPv6/DNS update:** the original `dns-local` fallback described below has since been removed; the live design is in [IPv6 and leak hardening](IPV6_LEAK_HARDENING.md).
 
 ---
 
@@ -133,7 +133,7 @@ The single place that states the contract for running the CLI from an app UID:
 
 | Before | After | Why |
 |---|---|---|
-| *(no `route.default_domain_resolver`)* | `"default_domain_resolver": "dns-local"` | fatal on 1.14; the system resolver is the only correct dial-time answer — it can never depend on the tunnel it is helping to build |
+| *(no `route.default_domain_resolver`)* | `"default_domain_resolver": {"server":"dns-bootstrap","strategy":"ipv6_only"}` for Force IPv6 (family-dependent otherwise) | a missing resolver is fatal; an Android/system resolver or plaintext fallback exposes the node hostname, so the current builder uses IP-literal encrypted DIRECT bootstrap and fails closed when unavailable |
 | `cache_file.store_rdrc: true` | `cache_file.store_dns: true` | `store_rdrc` deprecated in 1.14, removal 1.16 |
 | `rule_set[].download_detour: "direct"` | `rule_set[].http_client: { detour: "direct" }` + `http_clients` + `route.default_http_client` | `download_detour` deprecated in 1.14; the core rejects both spellings together. The promise is unchanged: rule sets are fetched *outside* the tunnel, because a fresh install has none |
 
@@ -147,10 +147,11 @@ from the JSON. `hardenForAndroid()` is the new **preflight**: unconditional, ide
 the connect config *and* the throwaway URL-test config, so the measurement path and the connect
 path can no longer drift.
 
-It strips every forbidden route/dial/inbound/DNS option, migrates `store_rdrc` → `store_dns` and
-`download_detour` → `http_client`, and guarantees a resolvable `route.default_domain_resolver`
-(appending a `local` transport when a foreign config has no non-tunnel resolver at all — pointing
-at a proxied resolver would be a bootstrap loop, a subtler failure than the one being fixed).
+It strips forbidden route/dial/inbound/DNS options, migrates `store_rdrc` → `store_dns` and
+`download_detour` → `http_client`, and requires a resolvable, encrypted, IP-literal DIRECT
+`route.default_domain_resolver`. **An imported config without such a bootstrap is refused**; the
+former repair that appended `local` (or used an Android plaintext DNS bridge) is no longer safe.
+Each physical dialer's resolver is also overwritten with the same family-aware encrypted bootstrap.
 
 `repair()` keeps everything it had, plus one migration it alone may make: when the core's rejection
 names `http_client`, the rule-set plumbing is downgraded back to `download_detour`. Losing a modern

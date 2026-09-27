@@ -174,107 +174,17 @@ object XrayConfigHardener {
     }
 
     /**
-     * Dedicated real-delay config, modelled after v2rayNG 2.3.5 postProcessForSpeedtest().
-     * A CLI child needs one local SOCKS inbound (gomobile core.Dial does not), but everything not
-     * required to establish the selected outbound is removed so repeated Rank runs are isolated.
+     * Real-delay MUST use production DNS and routing. A stripped config lets the core install
+     * its system resolver for node hostnames and gives a misleading green ping while leaking
+     * the node name. Keep the same encrypted bootstrap and family plan as the live tunnel.
      */
     fun hardenForDelayTest(
         source: String,
         socksPort: Int,
         settings: AppSettings = AppSettings(),
-        underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
-    ): String {
-        require(socksPort in 1..65535) { "Invalid delay-test SOCKS port" }
-        // MARBLE_CORE_CONFIG_SUPERSET_V165 — the delay test measures the config the tunnel will
-        // actually run, so it has to receive the same repaired document. A test that passed against
-        // the raw import while the core rejected it is how "ping is green, connect fails" happened.
-        val delayRepairs = XrayConfigRepairs.apply(source)
-        if (delayRepairs.changed) XrayConfigRepairs.record(delayRepairs.repairs)
-        val root = XrayConfigAdapter.document(if (delayRepairs.changed) delayRepairs.document else source)
-        val imported = root.optJSONArray("outbounds") ?: error("Xray JSON has no outbounds")
-        val byTag = linkedMapOf<String, JSONObject>()
-        var selectedTag = ""
-
-        for (index in 0 until imported.length()) {
-            val outbound = imported.optJSONObject(index)?.let { JSONObject(it.toString()) } ?: continue
-            val protocol = outbound.optString("protocol").lowercase()
-            val tag = outbound.optString("tag").ifBlank {
-                if (protocol !in infra && selectedTag.isBlank()) "proxy" else "delay-out-$index"
-            }
-            outbound.put("tag", tag)
-            byTag[tag] = outbound
-            if (protocol !in infra && selectedTag.isBlank()) selectedTag = tag
-        }
-        // A hand-imported serverless-style config may legitimately contain only freedom/direct
-        // outbounds (NORMAL tier). Treat the first one as the exit when no non-infra proxy exists.
-        if (selectedTag.isBlank()) {
-            selectedTag = byTag.entries.firstOrNull { (_, outbound) ->
-                outbound.optString("protocol").lowercase() in setOf("freedom", "direct")
-            }?.key.orEmpty()
-        }
-        require(selectedTag.isNotBlank()) { "No proxy outbound for delay test" }
-
-        val required = linkedSetOf<String>()
-        fun keep(tag: String) {
-            val outbound = byTag[tag] ?: return
-            if (!required.add(tag)) return
-            outbound.optJSONObject("proxySettings")?.optString("tag")
-                ?.takeIf { it.isNotBlank() }?.let(::keep)
-            outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")
-                ?.optString("dialerProxy")?.takeIf { it.isNotBlank() }?.let(::keep)
-        }
-        keep(selectedTag)
-
-        val outbounds = JSONArray()
-        required.forEach { tag ->
-            byTag[tag]?.let { outbound ->
-                outbound.remove("mux")
-                val protocol = outbound.optString("protocol").lowercase()
-                val dialerProxy = outbound.optJSONObject("streamSettings")
-                    ?.optJSONObject("sockopt")
-                    ?.optString("dialerProxy")
-                    .orEmpty()
-                val chained = outbound.optJSONObject("proxySettings")
-                    ?.optString("tag")
-                    ?.isNotBlank() == true || dialerProxy.isNotBlank()
-                // Same family plan as the tunnel, so a measured delay describes the path the user
-                // will actually get instead of the one the OS resolver happened to prefer. A
-                // serverless freedom/direct hop has no proxy endpoint to resolve, so it needs the
-                // outbound-level plan when it is the hop that opens the real socket.
-                if (protocol in setOf("freedom", "direct") && !chained) {
-                    val plan = AddressFamilyPolicy.plan(
-                        settings = settings,
-                        underlayHasIpv6 = underlayHasIpv6,
-                        tcpTransport = true
-                    )
-                    writeFreedomResolveStrategy(outbound, plan.endpointStrategy)
-                } else if (endpointDomains(outbound).isNotEmpty()) {
-                    applyAddressFamily(outbound, settings, underlayHasIpv6)
-                }
-                outbounds.put(outbound)
-            }
-        }
-
-        val inbound = JSONObject()
-            .put("tag", "delay-socks")
-            .put("listen", "127.0.0.1")
-            .put("port", socksPort)
-            .put("protocol", "socks")
-            .put("settings", JSONObject().put("auth", "noauth").put("udp", true))
-            .put("sniffing", JSONObject().put("enabled", false))
-
-        root.put("inbounds", JSONArray().put(inbound))
-        root.put("outbounds", outbounds)
-        listOf(
-            "dns", "fakedns", "routing", "stats", "policy", "api", "reverse", "metrics",
-            "observatory", "burstObservatory"
-        ).forEach { root.remove(it) }
-        root.put("log", JSONObject().put("loglevel", "warning"))
-        // MARBLE_TLS_PINNING_V149 — last gate before the core: repair TLS peer-verification
-        // fields even for profiles stored before the pinning fix existed. See [harden].
-        TlsPinningPolicy.sanitizeConfigDocument(root)
-        return root.toString()
-    }
+        underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6(),
+        link: LinkEvidence = LinkEvidence.UNKNOWN
+    ): String = harden(source, socksPort, settings, link, underlayHasIpv6)
 
     /**
      * Build Rank from the SAME production-compatible outbound graph as a real Marble connection,
@@ -305,46 +215,18 @@ object XrayConfigHardener {
             "observatory", "burstObservatory"
         ).forEach(root::remove)
 
-        // MARBLE_IPV6_DNS_PURGE_V135 — rank resolvers are also `https+local://` (they dial the
-        // underlay directly), so the same family gate applies: a v6 literal on an IPv4-only
-        // network would make every rank lookup pay a dead-resolver timeout.
-        val rankPlan = AddressFamilyPolicy.plan(
-            settings = settings,
-            underlayHasIpv6 = underlayHasIpv6
-        )
-        val rankIpv6Allowed = underlayHasIpv6 &&
-            rankPlan.preference != IpFamilyPreference.IPV4_ONLY
-        val rankResolvers = listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .filter { resolver ->
-                val isV6 = resolver.removePrefix("[").removeSuffix("]").contains(':')
-                if (isV6) rankIpv6Allowed else true
-            }
-            .distinct()
-        if (rankResolvers.isEmpty()) {
-            root.remove("dns")
-        } else {
-            root.put(
-                "dns",
-                JSONObject()
-                    .put(
-                        "servers",
-                        JSONArray(
-                            rankResolvers.map { resolver ->
-                                JSONObject().put(
-                                    "address",
-                                    "https+local://${dnsHostLiteral(resolver)}/dns-query"
-                                )
-                            }
-                        )
-                    )
-                    .put("queryStrategy", rankPlan.dnsQueryStrategy)
-                    .put("disableCache", false)
-                    .put("useSystemHosts", false)
-                    .put("tag", "xgc-dns")
-            )
+        // Keep the production encrypted bootstrap and remote DoH graph. The old rank path
+        // rebuilt it from only two user IPs; an empty/filtered list removed the entire DNS app
+        // and Xray silently installed the system resolver. Do not measure a leaking config.
+        val dns = root.optJSONObject("dns") ?: error("Rank requires encrypted DNS")
+        val servers = dns.optJSONArray("servers") ?: error("Rank requires encrypted DNS servers")
+        val encrypted = JSONArray()
+        for (index in 0 until servers.length()) {
+            val server = servers.optJSONObject(index) ?: continue
+            if (server.optString("address") != "fakedns") encrypted.put(server)
         }
+        require(encrypted.length() > 0) { "No encrypted rank resolver" }
+        dns.put("servers", encrypted)
 
         root.optJSONArray("outbounds")?.let { outbounds ->
             for (index in 0 until outbounds.length()) {
@@ -435,6 +317,13 @@ object XrayConfigHardener {
             }?.optString("tag").orEmpty()
         }
         require(firstTag.isNotBlank()) { "No proxy outbound" }
+        // A literal cannot be re-resolved into the requested family. Check the entire imported
+        // chain, not only the profile's display host, before the core can open any real socket.
+        if (AddressFamilyPolicy.preference(settings, true) == IpFamilyPreference.IPV6_ONLY) {
+            byTag.values.forEach { outbound ->
+                require(!hasIpv4LiteralEndpoint(outbound, settings)) { AddressFamilyPolicy.IPV4_LITERAL_DISABLED }
+            }
+        }
 
         val keep = linkedSetOf<String>()
         fun add(tag: String, viaDialer: Boolean = false) {
@@ -661,7 +550,8 @@ object XrayConfigHardener {
         fun resolverFamilyAllowed(candidate: String): Boolean {
             val host = candidate.removePrefix("[").removeSuffix("]").substringBefore('/')
             val isV6Literal = host.contains(':')
-            return if (isV6Literal) ipv6ResolverAllowed else true
+            return if (isV6Literal) ipv6ResolverAllowed
+                else dnsPlan.preference != IpFamilyPreference.IPV6_ONLY
         }
 
         val out = JSONArray()
@@ -1020,6 +910,9 @@ object XrayConfigHardener {
         val dnsServers = JSONArray()
 
         if (bootstrapDomains.isNotEmpty()) {
+            require(bootstrapIps.isNotEmpty()) {
+                "No encrypted, family-compatible direct DNS bootstrap for this node on the physical network"
+            }
             bootstrapIps.forEachIndexed { index, ip ->
                 // A single blocked literal must not burn the whole endpoint budget: the first
                 // (user-chosen) resolver keeps its tight budget and every later candidate gets a
@@ -1188,8 +1081,15 @@ object XrayConfigHardener {
         // Android VPN always captures ::/0. When the user turned IPv6 off, blocking here prevents
         // an OS-level IPv6 bypass; when it is on, the same prefix must stay routable or the tunnel
         // would black-hole its own preferred family.
-        if (dnsPlan.blockIpv6Traffic) {
-            addIpRule(rules, listOf("::/0"), "block")
+        if (dnsPlan.blockIpv6Traffic) addIpRule(rules, listOf("::/0"), "block")
+        if (dnsPlan.blockIpv4Traffic) addIpRule(rules, listOf("0.0.0.0/0"), "block")
+
+        // Fake addresses are local *tokens*, never LAN targets. Protect both pools ahead of
+        // geoip:private / bypass-private / user-direct routes; otherwise the entire IPv6 ULA
+        // pool and IPv4 benchmarking pool match `private` and go out of the physical interface.
+        // An explicitly excluded family is rejected by the block rules above before this rule.
+        if (fakeIpArmed) {
+            addIpRule(rules, listOf(FakeIpPolicy.IPV4_POOL, FakeIpPolicy.IPV6_POOL), firstTag)
         }
 
         if (firstTag == "ssh-proxy") {
@@ -1276,21 +1176,15 @@ object XrayConfigHardener {
         listOf("api", "reverse", "metrics", "stats", "observatory", "burstObservatory", "fakedns")
             .forEach(src::remove)
 
-        // MARBLE_FAKE_IP_V184 — the strip above removed the USER's fakedns block; this re-arms
-        // Marble's own. Written AFTER the strip so it cannot be removed with it, and only when
-        // the sniffing restore path is live (see [fakeIpArmed]). v26.9.9 JSON schema, straight
-        // from `infra/conf/fakedns.go`: `ipPool` + `poolSize` (the LRU cap, not `lruSize`). No
-        // routing rule is emitted: the v26.9.9 `RoutingRule` proto has no `fakedns` field, so a
-        // v25-style `{"type":"field","fakedns":true}` rule is an unknown-field parse error.
-        // Fake addresses fall through to the existing final rule and ride the selected proxy —
-        // the "Unmatched routing fallback must stay on the selected proxy" invariant is intact.
+        // v26.9.9 accepts an array of pools; a single IPv4 pool suppresses ALL AAAA fake
+        // answers. The separate ULA pool makes AAAA reversible by the same FakeDNS sniff stage.
+        // Routing uses ordinary IP CIDR rules (there is no `fakedns` rule field in this core).
         if (fakeIpArmed) {
-            src.put(
-                "fakedns",
-                JSONObject()
-                    .put("ipPool", FakeIpPolicy.IPV4_POOL)
-                    .put("poolSize", FakeIpPolicy.XRAY_LRU_SIZE)
-            )
+            src.put("fakedns", JSONArray()
+                .put(JSONObject().put("ipPool", FakeIpPolicy.IPV4_POOL)
+                    .put("poolSize", FakeIpPolicy.XRAY_LRU_SIZE))
+                .put(JSONObject().put("ipPool", FakeIpPolicy.IPV6_POOL)
+                    .put("poolSize", FakeIpPolicy.XRAY_LRU_SIZE)))
         }
 
         // MARBLE_TLS_PINNING_V149 — the last gate before Xray parses the document.
@@ -1305,6 +1199,36 @@ object XrayConfigHardener {
         TlsPinningPolicy.sanitizeConfigDocument(src)
         verify(src, socksPort, firstTag, needsDirect, settings, underlayHasIpv6)
         return src.toString(2)
+    }
+
+    private fun hasIpv4LiteralEndpoint(outbound: JSONObject, settings: AppSettings): Boolean {
+        fun walk(value: Any?): Boolean = when (value) {
+            is JSONObject -> {
+                val keys = value.keys()
+                var found = false
+                while (keys.hasNext() && !found) {
+                    val key = keys.next()
+                    val child = value.opt(key)
+                    found = if (key.equals("address", true) || key.equals("endpoint", true)) {
+                        if (child !is String) false else {
+                            val raw = child.trim()
+                            val host = when {
+                                raw.startsWith("[") -> raw.substringAfter('[').substringBefore(']')
+                                raw.count { it == ':' } == 1 &&
+                                    raw.substringAfterLast(':').toIntOrNull() != null ->
+                                    raw.substringBeforeLast(':')
+                                else -> raw // keep IPv4-mapped IPv6 literals intact
+                            }
+                            AddressFamilyPolicy.excludedIpv4Endpoint(host, settings)
+                        }
+                    } else walk(child)
+                }
+                found
+            }
+            is JSONArray -> (0 until value.length()).any { walk(value.opt(it)) }
+            else -> false
+        }
+        return walk(outbound.optJSONObject("settings"))
     }
 
     private fun endpointDomains(outbound: JSONObject): List<String> {
@@ -1777,6 +1701,9 @@ object XrayConfigHardener {
                     "A DNS server entry disagrees with the IPv6 setting"
                 }
             }
+        }
+        if (familyPlan.blockIpv4Traffic) {
+            require(hasIp("0.0.0.0/0", "block")) { "Force IPv6 must block captured IPv4 traffic" }
         }
         if (familyPlan.blockIpv6Traffic) {
             require(hasIp("::/0", "block")) { "IPv6 is disabled but ::/0 is not blocked" }
