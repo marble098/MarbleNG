@@ -180,6 +180,9 @@ import com.marbleng.app.core.availableOn
 import com.marbleng.app.core.coreEngine
 import com.marbleng.app.core.unavailableReason
 import com.marbleng.app.core.parseCoreEngine
+import com.marbleng.app.core.IpFamilyScan
+import com.marbleng.app.core.IpFamilySummary
+import com.marbleng.app.core.IpFamilyVerdict
 import com.marbleng.app.core.IranModeState
 import com.marbleng.app.core.ManualConfigBuilder
 import com.marbleng.app.core.ManualConfigDraft
@@ -4209,6 +4212,16 @@ private fun CyberLibrary(
         )
     }
 
+    // MARBLE_IP_FAMILY_SCAN_V196 — the scan reports itself. A measurement the user asked for and
+    // then has to hunt for in a toast is a measurement they will not trust; both dialogs are
+    // driven by repository state, so a result survives a recomposition or a rotation mid-sweep.
+    repo.ipFamilyScanResult?.let { scan ->
+        IpFamilyScanDialog(scan = scan, onDismiss = { repo.dismissIpFamilyScanResult() })
+    }
+    repo.ipFamilyScanSummary?.let { summary ->
+        IpFamilyGroupDialog(summary = summary, onDismiss = { repo.dismissIpFamilyScanResult() })
+    }
+
     // ------------------------------------------------------------------- page
 
     LazyColumn(
@@ -4421,6 +4434,8 @@ private fun CyberLibrary(
                             }
                             ServersGroupAction.SHOW_ONLY -> repo.selectLibrarySource(group.key)
                             ServersGroupAction.SHOW_ALL -> repo.selectLibrarySource("all")
+                            ServersGroupAction.SCAN_FAMILY ->
+                                repo.scanIpFamilyForProfiles(group.profiles, group.title)
                             ServersGroupAction.DELETE -> deleteSubscription = subscription
                         }
                     }
@@ -4538,6 +4553,10 @@ private enum class ServersGroupAction {
     // ignored the ping method chosen in Settings, so one menu reported two latencies per server.
     SHOW_ONLY,
     SHOW_ALL,
+    // MARBLE_IP_FAMILY_SCAN_V196 — measure which address families this group's servers really
+    // have. One entry for a whole subscription, because the question a user actually asks is
+    // "which of my servers can do IPv6?", not "can this one?".
+    SCAN_FAMILY,
     DELETE
 }
 
@@ -6074,6 +6093,17 @@ private fun ServersGroupMenu(
         // MARBLE_SERVERS_GROUP_PING_V145 — "Ping this group" is no longer a menu entry: the
         // group header owns a real ping icon beside its refresh icon. One verb, one control.
         ServersMenuItem(
+            label = "Scan IPv4 / IPv6",
+            icon = HomeIcon.NETWORK,
+            tone = Aether.Cyan,
+            detail = "${group.profiles.size} servers • resolves and dials both families",
+            enabled = group.profiles.isNotEmpty(),
+            onClick = {
+                onDismiss()
+                onMenu(ServersGroupAction.SCAN_FAMILY)
+            }
+        )
+        ServersMenuItem(
             label = "Show only this group",
             icon = HomeIcon.FILTER,
             tone = Aether.Ink,
@@ -6107,6 +6137,24 @@ private fun ServersGroupMenu(
 }
 
 // --------------------------------------------------------------------------- server card
+
+/**
+ * MARBLE_IP_FAMILY_SCAN_V196 — the colour of an address-family verdict.
+ *
+ * Green means "both families answer, Force IPv6 is safe here". Cyan is the IPv6-only node: fast,
+ * but it needs an IPv6 network. Amber is the honest middle — IPv4-only, or an IPv6 address that
+ * did not answer — which is information, not an error, so it never reads red. Red is reserved for
+ * the node that answered on neither family, because that one is actually broken.
+ */
+@Composable
+private fun familyChipTone(scan: IpFamilyScan): Color = when (scan.verdict) {
+    IpFamilyVerdict.DUAL_OK -> Aether.Emerald
+    IpFamilyVerdict.IPV6_ONLY -> Aether.Cyan
+    IpFamilyVerdict.IPV4_ONLY -> Aether.Amber
+    IpFamilyVerdict.IPV6_UNPROVEN -> Aether.Amber
+    IpFamilyVerdict.UNREACHABLE -> Aether.Danger
+    IpFamilyVerdict.UNKNOWN -> Aether.InkMuted
+}
 
 /** The tone of a measured latency, in the active theme's own palette. */
 @Composable
@@ -6380,6 +6428,13 @@ private fun ServersNodeCard(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
+                            // MARBLE_IP_FAMILY_SCAN_V196 — the measured address family, shown on
+                            // the row that owns it. Only a real measurement earns a chip: an
+                            // unscanned server shows nothing at all, because inventing "v4" from
+                            // a hostname is the guess this whole feature replaces.
+                            repo.ipFamilyScan(profile)?.let { scan ->
+                                ServerStateChip(scan.chip, familyChipTone(scan))
+                            }
                         }
                     }
                     // MARBLE_PROTOCOL_IDENTITY — the latency owns its own right-aligned stat
@@ -6553,6 +6608,9 @@ private fun ServersNodeMenu(
         mutableStateOf(profile.configJson)
     }
     val canEditJson = !profile.scheme.equals("ssh", true)
+    // MARBLE_IP_FAMILY_SCAN_V196 — read straight from the live scan map, so a sweep that lands
+    // while this menu is open updates the row in place instead of showing a stale verdict.
+    val familyScan = repo.ipFamilyScan(profile)
 
     if (jsonOpen) {
         AlertDialog(
@@ -6685,6 +6743,23 @@ private fun ServersNodeMenu(
                 }
             )
             ServersMenuItem(
+                // MARBLE_IP_FAMILY_SCAN_V196 — the answer to "does this server do IPv6?", measured
+                // rather than guessed. The detail line carries the last verdict so the menu itself
+                // is the report: `IPv4 only • no IPv6 address`, `Dual stack • 42 ms / 51 ms`, and
+                // so on. This is also the control that ends the Force-IPv6 guessing game — a node
+                // measured IPv4-only is dialled over IPv4 automatically instead of being refused.
+                label = "Scan IPv4 / IPv6",
+                icon = HomeIcon.NETWORK,
+                tone = familyScan?.let { familyChipTone(it) } ?: Aether.Cyan,
+                detail = familyScan?.let { "${it.chip} • ${it.headline}" }
+                    ?: "Resolve and dial both families on this server",
+                enabled = !repo.busy,
+                onClick = {
+                    open = false
+                    repo.scanIpFamily(profile)
+                }
+            )
+            ServersMenuItem(
                 label = "Move to group",
                 icon = HomeIcon.FOLDER,
                 tone = Aether.Ink,
@@ -6751,6 +6826,184 @@ private fun ServersNodeMenu(
 }
 
 // --------------------------------------------------------------------------- server dialogs
+
+/**
+ * MARBLE_IP_FAMILY_SCAN_V196 — the result of scanning one server.
+ *
+ * Deliberately a full report rather than a toast. Every line is a measurement or a consequence of
+ * one: which records exist, which of them accepted a TCP connection and how fast, what the phone's
+ * own network can carry, and what Marble will therefore do the next time this server is dialled.
+ * The last line is the important one — it is what turns "IPv4 only" from a complaint into a plan.
+ */
+@Composable
+private fun IpFamilyScanDialog(scan: IpFamilyScan, onDismiss: () -> Unit) {
+    val tone = familyChipTone(scan)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Aether.VoidElevated,
+        shape = ServersCardShape,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(trx("Address family scan"), color = Aether.Ink)
+                Text(
+                    scan.headline,
+                    color = tone,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpacing.XS)) {
+                IpFamilyLine(
+                    label = "IPv6",
+                    value = when {
+                        scan.ipv6Ok -> "${scan.ipv6Address} • ${scan.ipv6LatencyMs} ms"
+                        scan.hasIpv6 -> "${scan.ipv6Address} • no answer on port"
+                        else -> trx("No AAAA record")
+                    },
+                    tone = if (scan.ipv6Ok) Aether.Emerald else Aether.InkMuted
+                )
+                IpFamilyLine(
+                    label = "IPv4",
+                    value = when {
+                        scan.ipv4Ok -> "${scan.ipv4Address} • ${scan.ipv4LatencyMs} ms"
+                        scan.hasIpv4 -> "${scan.ipv4Address} • no answer on port"
+                        else -> trx("No A record")
+                    },
+                    tone = if (scan.ipv4Ok) Aether.Emerald else Aether.InkMuted
+                )
+                IpFamilyLine(
+                    label = trx("This network"),
+                    value = if (scan.underlayHasIpv6) {
+                        trx("Carries IPv6")
+                    } else {
+                        trx("IPv4 only • no IPv6 route")
+                    },
+                    tone = if (scan.underlayHasIpv6) Aether.Cyan else Aether.Amber
+                )
+                if (scan.fasterFamily.isNotBlank()) {
+                    IpFamilyLine(
+                        label = trx("Faster"),
+                        value = if (scan.fasterFamily == "ipv6") "IPv6" else "IPv4",
+                        tone = Aether.Emerald
+                    )
+                }
+                Text(
+                    scan.advice,
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        },
+        confirmButton = {
+            MarbleDialogAction(
+                label = "Done",
+                tone = Aether.Cyan,
+                variant = PrismButtonVariant.Primary,
+                onClick = onDismiss
+            )
+        }
+    )
+}
+
+/** One `label — value` row of the scan report. */
+@Composable
+private fun IpFamilyLine(label: String, value: String, tone: Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            trx(label),
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            value,
+            color = tone,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 12.dp)
+        )
+    }
+}
+
+/** MARBLE_IP_FAMILY_SCAN_V196 — what a whole group's scan found, counted by verdict. */
+@Composable
+private fun IpFamilyGroupDialog(summary: IpFamilySummary, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Aether.VoidElevated,
+        shape = ServersCardShape,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(trx("Address family scan"), color = Aether.Ink)
+                Text(
+                    "${summary.ipv6Capable}/${summary.scanned} ${trx("IPv6-capable")}",
+                    color = if (summary.ipv6Capable > 0) Aether.Emerald else Aether.Amber,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpacing.XS)) {
+                IpFamilyLine(
+                    "Dual stack",
+                    summary.dual.toString(),
+                    if (summary.dual > 0) Aether.Emerald else Aether.InkMuted
+                )
+                IpFamilyLine(
+                    "IPv6 only",
+                    summary.ipv6Only.toString(),
+                    if (summary.ipv6Only > 0) Aether.Cyan else Aether.InkMuted
+                )
+                IpFamilyLine(
+                    "IPv4 only",
+                    summary.ipv4Only.toString(),
+                    if (summary.ipv4Only > 0) Aether.Amber else Aether.InkMuted
+                )
+                if (summary.ipv6Unproven > 0) {
+                    IpFamilyLine("IPv6 unproven", summary.ipv6Unproven.toString(), Aether.Amber)
+                }
+                if (summary.unreachable > 0) {
+                    IpFamilyLine("No answer", summary.unreachable.toString(), Aether.Danger)
+                }
+                if (summary.unknown > 0) {
+                    IpFamilyLine("Unresolved", summary.unknown.toString(), Aether.InkMuted)
+                }
+                Text(
+                    if (summary.ipv6Capable == 0) {
+                        trx(
+                            "No server in this group answered over IPv6. Force IPv6 will dial " +
+                                "them over IPv4 and keep IPv6 for destinations, so nothing is " +
+                                "blocked."
+                        )
+                    } else {
+                        trx(
+                            "Servers marked v6 or v4+v6 can carry a strict IPv6 connection on " +
+                                "an IPv6-capable network."
+                        )
+                    },
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        },
+        confirmButton = {
+            MarbleDialogAction(
+                label = "Done",
+                tone = Aether.Cyan,
+                variant = PrismButtonVariant.Primary,
+                onClick = onDismiss
+            )
+        }
+    )
+}
 
 /** "Move to group": the server keeps its identity, only its owner changes. */
 @Composable
@@ -13280,6 +13533,39 @@ private fun DnsSettings(repo: AppRepository) {
                     )
                 )
             }
+        }
+    }
+
+    // MARBLE_IPV6_FALLBACK_LADDER_V196 — what a forced family does when it cannot be honoured.
+    //
+    // Off by default, and the copy says exactly what that means, because the old behaviour (the
+    // only behaviour) is what produced a run of `Kill switch active` states: Force IPv6 refused
+    // every IPv4-only server in the library instead of dialling it over IPv4 and keeping IPv6 for
+    // destinations. The switch is still here for people who mean "IPv6 or nothing" literally.
+    if (repo.settings.addressFamilyMode == AddressFamilyMode.FORCE_IPV6 ||
+        repo.settings.addressFamilyMode == AddressFamilyMode.FORCE_IPV4 ||
+        repo.settings.strictAddressFamily
+    ) {
+        SettingSwitch(
+            title = "Strict family enforcement",
+            subtitle = if (repo.settings.strictAddressFamily) {
+                "A server that cannot use the forced family is refused with the reason"
+            } else {
+                "A server that cannot use the forced family is dialled over the other one; " +
+                    "IPv6 stays on for destinations"
+            },
+            checked = repo.settings.strictAddressFamily
+        ) { repo.updateSettings(repo.settings.copy(strictAddressFamily = it)) }
+        if (!repo.settings.strictAddressFamily) {
+            Text(
+                trx(
+                    "Marble scans each server for IPv4 and IPv6 (Servers → ⋯ → Scan IPv4 / IPv6) " +
+                        "and falls back automatically, so a forced family never blocks a " +
+                        "connection on its own."
+                ),
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 

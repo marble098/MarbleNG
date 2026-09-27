@@ -457,6 +457,15 @@ object AddressFamilyPolicy {
         "This server has only an IPv4 address. Force IPv6 cannot dial it; select a server with an IPv6 address or choose Prefer IPv6."
 
     fun excludedIpv4Endpoint(host: String, settings: AppSettings): Boolean {
+        // MARBLE_IPV6_FALLBACK_LADDER_V196 — an exclusion is only an exclusion under strict
+        // enforcement. By default Force IPv6 no longer *refuses* an IPv4-only node: the ladder in
+        // Ipv6FallbackLadder has already rewritten the session's mode to "IPv6 first, IPv4 carries
+        // the socket" before any writer sees these settings, and the callers that still hold the
+        // raw preference (ranking's preflight pass, the JVM probers, the config builders' own
+        // `require` guard) must reach the same conclusion rather than quarantining a node the
+        // connect path is perfectly willing to dial. That disagreement is precisely what produced
+        // `BLOCKED • Kill switch active` on nine working servers in a row.
+        if (!settings.strictAddressFamily) return false
         if (preference(settings, underlayHasIpv6 = true) != IpFamilyPreference.IPV6_ONLY) return false
         val clean = host.trim().removeSurrounding("[", "]")
         if (!isLiteralIp(clean)) return false

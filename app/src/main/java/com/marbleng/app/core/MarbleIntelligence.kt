@@ -251,77 +251,6 @@ object ProtocolFitness {
 }
 
 /**
- * MARBLE_INTELLIGENCE_V141 — DNS storm detector.
- *
- * The log pair defines the healthy and broken regimes precisely:
- *
- *  - healthy (Netherlands-3, v7.0.4): about one attributed DoH failure every six minutes
- *    (~0.17/min) while the tunnel stays up for hours;
- *  - broken (Turkey-14, v7.0.9): six `context deadline exceeded` failures per minute against
- *    1.1.1.1/8.8.8.8/9.9.9.9, apps receiving no IPs and `rejected proxy/socks` socket closures,
- *    worst windows reaching 29/min.
- *
- * Endpoint demotion (V134) already removes a *decisively failing* resolver from the order, but a
- * storm is a property of the moment, not of one endpoint: when every resolver in the pool is
- * missing its budget at once, the correct responses are to race the pool instead of walking it
- * serially, to stop asking for the address family that doubles the failure surface, and to stop
- * the ranking engine from treating DNS-induced socket closures as node failures (which is what
- * turned a resolver problem into six forced restarts).
- *
- * The detector is a rolling window over *attributed deadline events* fed from
- * [MarbleIntelligence.recordResolverEvidence]. It arms fast (three events inside five minutes —
- * already 3.5x the healthy rate) and stands down slowly (at most one event inside ten minutes),
- * because flipping the query mode on every blip is its own instability.
- */
-private class DnsStormGuard {
-
-    private val events = ArrayDeque<Long>()
-
-    @Synchronized
-    fun recordDeadlineFailures(count: Int, nowMs: Long) {
-        repeat(count.coerceIn(0, 64)) { events.addLast(nowMs) }
-        trim(nowMs)
-    }
-
-    @Synchronized
-    fun armMs(nowMs: Long): Long? {
-        trim(nowMs)
-        val recent = events.count { nowMs - it <= STORM_ARM_WINDOW_MS }
-        return if (recent >= STORM_ARM_EVENTS) nowMs else null
-    }
-
-    /** True while the storm regime is active: armed recently and not yet quiet for the stand-down window. */
-    @Synchronized
-    fun active(nowMs: Long): Boolean {
-        trim(nowMs)
-        val recent = events.count { nowMs - it <= STAND_DOWN_WINDOW_MS }
-        return recent > STORM_QUIET_EVENTS
-    }
-
-    /** Attributed deadline events per minute over the arm window, for diagnostics. */
-    @Synchronized
-    fun eventsPerMinute(nowMs: Long): Double {
-        trim(nowMs)
-        val recent = events.count { nowMs - it <= STORM_ARM_WINDOW_MS }
-        return recent / (STORM_ARM_WINDOW_MS / 60_000.0)
-    }
-
-    @Synchronized
-    private fun trim(nowMs: Long) {
-        val horizon = maxOf(STORM_ARM_WINDOW_MS, STAND_DOWN_WINDOW_MS)
-        while (events.isNotEmpty() && nowMs - events.first() > horizon) events.removeFirst()
-        while (events.size > 512) events.removeFirst()
-    }
-
-    companion object {
-        const val STORM_ARM_WINDOW_MS = 5L * 60_000L
-        const val STORM_ARM_EVENTS = 3
-        const val STAND_DOWN_WINDOW_MS = 10L * 60_000L
-        const val STORM_QUIET_EVENTS = 1
-    }
-}
-
-/**
  * Persistent, network-scoped health store. SQLite keeps the hot path dependency-free and bounded.
  */
 private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-intelligence.db", null, 3) {
@@ -1345,6 +1274,23 @@ class MarbleIntelligence(private val context: Context) {
 
     private fun resolverEvidenceKey(): String = "resolver-evidence:${currentSnapshot().key()}"
 
+    /** MARBLE_DNS_DOMAIN_FAULT_V196 — per-name faults, scoped to the same physical network. */
+    private fun domainFaultKey(): String = "dns-domain-faults:${currentSnapshot().key()}"
+
+    /**
+     * Names that are currently failing on more than one independent resolver.
+     *
+     * This is the half of the DNS picture that used to be invisible: a domain nobody's resolvers
+     * can answer looked exactly like a resolver outage, so the app demoted healthy endpoints and
+     * armed the storm regime instead of naming the site.
+     */
+    fun dnsDomainFaults(): List<DnsDomainFaultPolicy.DomainFault> =
+        DnsDomainFaultPolicy.deserialize(prefs.getString(domainFaultKey(), "") ?: "")
+
+    /** One line for diagnostics: `noveo.ir (2 resolvers, 2 failures)`, or blank when healthy. */
+    fun dnsDomainFaultSummary(nowMs: Long = System.currentTimeMillis()): String =
+        DnsDomainFaultPolicy.summary(dnsDomainFaults(), nowMs)
+
     /**
      * Encrypted resolver failures attributed to an endpoint and scoped to the current physical
      * network. Empty means "nothing has been observed failing here", never "all resolvers are good".
@@ -1366,7 +1312,24 @@ class MarbleIntelligence(private val context: Context) {
     ): List<ResolverEvidencePolicy.EndpointEvidence> {
         val key = resolverEvidenceKey()
         val before = resolverEvidence()
-        val next = ResolverEvidencePolicy.observe(lines, before, nowMs)
+        // MARBLE_DNS_DOMAIN_FAULT_V196 — the lines are read twice (once per name, once per
+        // endpoint), so they are materialised first: a Sequence is one-shot and the second pass
+        // would silently see nothing.
+        val snapshot = lines.toList()
+        // Classify by NAME first. A name that more than one independent resolver could not answer
+        // is a fact about that name, and its lines must not reach endpoint attribution or the
+        // storm detector — that mis-attribution is what demoted healthy providers and armed
+        // parallel racing while nothing in the pool was actually broken.
+        val faultKey = domainFaultKey()
+        val faults = DnsDomainFaultPolicy.observe(snapshot.asSequence(), dnsDomainFaults(), nowMs)
+        val encodedFaults = DnsDomainFaultPolicy.serialize(faults)
+        if (encodedFaults != (prefs.getString(faultKey, "") ?: "")) {
+            prefs.edit().putString(faultKey, encodedFaults).apply()
+        }
+        val attributable = snapshot.filterNot {
+            DnsDomainFaultPolicy.isDomainFaultLine(it, faults, nowMs)
+        }
+        val next = ResolverEvidencePolicy.observe(attributable.asSequence(), before, nowMs)
         val encoded = ResolverEvidencePolicy.serialize(next)
 
         // MARBLE_INTELLIGENCE_V141 — the storm is measured on the *delta*, never on the stored
@@ -1395,6 +1358,10 @@ class MarbleIntelligence(private val context: Context) {
         nowMs: Long = System.currentTimeMillis()
     ) {
         val key = resolverEvidenceKey()
+        // MARBLE_DNS_DOMAIN_FAULT_V196 — recovery is evidence too. Without this the storm regime
+        // could only expire by clock, so a network that came back kept racing every lookup for the
+        // rest of the ten-minute stand-down window.
+        stormGuard.recordProvenAnswer(nowMs)
         val next = ResolverEvidencePolicy.recordSuccess(endpoint, resolverEvidence(), nowMs)
         val encoded = ResolverEvidencePolicy.serialize(next)
         if (encoded != (prefs.getString(key, "") ?: "")) {
@@ -1709,6 +1676,45 @@ class MarbleIntelligence(private val context: Context) {
      *   tuner must measure against so it never re-proves its own previous conclusion.
      */
     // MARBLE_IP_FAMILY_INTELLIGENCE_V24
+    /**
+     * MARBLE_IP_FAMILY_SCAN_V196 — the measured address-family verdict for one endpoint.
+     *
+     * Injected by [com.marbleng.app.AppRepository], which owns the durable scan table and the UI
+     * state around it. The intelligence layer only needs to *read* the verdict, and keeping the
+     * lookup behind a function seam means the connect path, the probers and the unit tests can all
+     * be given the same evidence without this file growing a second persistence store.
+     *
+     * `null` (no provider, or no verdict for this endpoint) means "never measured", never
+     * "measured as absent": the ladder treats the two completely differently on purpose.
+     */
+    @Volatile
+    var ipFamilyEvidence: ((String, Int) -> IpFamilyScan?)? = null
+
+    /**
+     * Which rung of [Ipv6FallbackLadder] this profile should run on, given everything measured.
+     *
+     * The connect path, the config writers and the Servers page all ask this one function, so the
+     * family a session actually runs on is decided once and reported once.
+     */
+    fun familyResolution(
+        profile: ProxyProfile,
+        settings: AppSettings,
+        network: NetworkSnapshot = currentSnapshot(),
+        nowMs: Long = System.currentTimeMillis()
+    ): FamilyResolution {
+        // Either source of truth is enough: the Android snapshot can be stale right after a
+        // network change, and a live global v6 address on a real interface is proof by itself.
+        val underlayHasIpv6 = network.hasIpv6 || AddressFamilyPolicy.underlayHasIpv6()
+        val scan = runCatching { ipFamilyEvidence?.invoke(profile.host, profile.port) }
+            .getOrNull()
+            ?.takeIf { it.usableOn(network.key(), nowMs) }
+        return Ipv6FallbackLadder.resolve(
+            requested = settings.addressFamilyMode,
+            evidence = Ipv6FallbackLadder.evidenceFor(profile.host, scan, underlayHasIpv6),
+            strict = settings.strictAddressFamily
+        )
+    }
+
     fun effectiveSettings(
         profile: ProxyProfile,
         base: AppSettings,
@@ -1784,7 +1790,19 @@ class MarbleIntelligence(private val context: Context) {
         // family order for the tunnel, the delay test and the probers in one place. A measured IPv6
         // pathology on this node demotes the automatic ordering, but never overrides what the user
         // explicitly asked for.
-        val familyBase = base.copy(dnsQueryStrategy = queryStrategy)
+        //
+        // MARBLE_IPV6_FALLBACK_LADDER_V196 — before any of that, a *forced* family is put through
+        // the ladder. This is the one function the connect path, the delay test, the ranking pool
+        // and every JVM prober share, so the rung decided here is the rung all of them run on:
+        // with Force IPv6 selected and an IPv4-only node (or a network with no IPv6 route at all),
+        // the session downgrades to "IPv6 first, IPv4 carries the socket" instead of every reader
+        // independently refusing the profile — which is what produced a string of
+        // `BLOCKED • Kill switch active` states and a Ping-all where every v4-only node failed.
+        val familyResolution = familyResolution(profile, base, n)
+        val familyBase = Ipv6FallbackLadder.apply(
+            base.copy(dnsQueryStrategy = queryStrategy),
+            familyResolution
+        )
         val familyPreference = AddressFamilyPolicy.preference(
             settings = familyBase,
             underlayHasIpv6 = n.hasIpv6,

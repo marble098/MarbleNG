@@ -1147,6 +1147,24 @@ data class AppSettings(
     val preferIpv6: Boolean = true,
 
     /**
+     * MARBLE_IPV6_FALLBACK_LADDER_V196 — whether a forced family may refuse to connect.
+     *
+     * OFF by default, and that default is the bug fix. With Force IPv6 selected, every IPv4-only
+     * server in the library used to be refused before the tunnel started: the kill switch held the
+     * old TUN and the user read `BLOCKED • Kill switch active` on server after server until one
+     * happened to publish an AAAA record. A transport preference that produces an outage is a
+     * defect, not a safety property — so by default Marble now walks the ladder in
+     * [com.marbleng.app.core.Ipv6FallbackLadder] (IPv6 strict → IPv6 first → IPv4 transport with
+     * IPv6 kept for destinations) and says so on screen, instead of failing closed.
+     *
+     * Switch it on to get the old contract back: a forced family is then a hard requirement and a
+     * node that cannot satisfy it is refused with the reason and the alternatives named. Leak
+     * containment is unaffected either way — the `::/0` / `0.0.0.0/0` block rules follow the
+     * *effective* family, so no traffic ever escapes the family the session actually runs.
+     */
+    val strictAddressFamily: Boolean = false,
+
+    /**
      * MARBLE_MEASURED_FAMILY_V133 — *transient*, never persisted.
      *
      * Marble Intelligence sets this when the node's own history shows IPv6 is unhealthy on this

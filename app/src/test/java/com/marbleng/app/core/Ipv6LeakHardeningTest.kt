@@ -12,7 +12,21 @@ import org.junit.Test
  * Config tests cannot simulate Android's VpnService; the dual-route TUN invariant is pinned by
  * NetworkPolicyTest and actual IPv6 egress must also be checked on a device. */
 class Ipv6LeakHardeningTest {
-    private val strict = AppSettings(addressFamilyMode = AddressFamilyMode.FORCE_IPV6)
+    /**
+     * MARBLE_IPV6_FALLBACK_LADDER_V196 — this fixture now opts into *strict* enforcement.
+     *
+     * Every assertion below is unchanged and still pinned: with strict IPv6 on, an IPv4-only node
+     * is refused, both config writers throw rather than emit it, and no IPv4 bootstrap peer ever
+     * appears. What changed is that this is no longer the default. Force IPv6 on its own is a
+     * transport *preference*, and a preference that refuses nine of a user's servers in a row
+     * (`BLOCKED • Kill switch active`) is an outage, not a safety property — the default path is
+     * pinned by [Ipv6FallbackLadderTest] and by `forceIpv6WithoutStrictDegradesInsteadOfRefusing`
+     * at the bottom of this file, which proves the leak rules stay intact after a degrade.
+     */
+    private val strict = AppSettings(
+        addressFamilyMode = AddressFamilyMode.FORCE_IPV6,
+        strictAddressFamily = true
+    )
     private val prefer = AppSettings(addressFamilyMode = AddressFamilyMode.PREFER_IPV6)
 
     private fun node(host: String): ProxyProfile {
@@ -121,6 +135,44 @@ class Ipv6LeakHardeningTest {
         assertTrue(healed.repaired)
         assertEquals("ipv6_only", JSONObject(healed.json).getJSONObject("route")
             .getJSONObject("default_domain_resolver").getString("strategy"))
+    }
+
+    /**
+     * The reported outage, as a test.
+     *
+     * Force IPv6 (the shipped, non-strict form) meets an IPv4-only server. Nothing may refuse it:
+     * not the preflight validator, not either config writer, not the family predicate. And the
+     * leak contract still has to hold on the rung it lands on — an IPv4-dialled session must not
+     * quietly stop blocking the family it is not using.
+     */
+    @Test fun forceIpv6WithoutStrictDegradesInsteadOfRefusing() {
+        val relaxed = AppSettings(addressFamilyMode = AddressFamilyMode.FORCE_IPV6)
+        val host = "192.0.2.1"
+        assertFalse(AddressFamilyPolicy.excludedIpv4Endpoint(host, relaxed))
+        assertTrue(ProfilePreflightValidator.validate(node(host), settings = relaxed).valid)
+
+        val resolution = Ipv6FallbackLadder.resolve(
+            requested = AddressFamilyMode.FORCE_IPV6,
+            evidence = Ipv6FallbackLadder.evidenceFor(host, scan = null, underlayHasIpv6 = true),
+            strict = relaxed.strictAddressFamily
+        )
+        assertEquals(FamilyRung.IPV4_FIRST, resolution.rung)
+        assertNull(resolution.refusal)
+
+        // The writers must accept the degraded settings and keep the IPv6 side of the tunnel
+        // alive: IPv6 destinations still resolve and route, they simply travel over an IPv4 dial.
+        val degraded = Ipv6FallbackLadder.apply(relaxed, resolution)
+        val xr = xray(host, degraded)
+        assertEquals("UseIP", xr.getJSONObject("dns").getString("queryStrategy"))
+        val rules = entries(xr.getJSONObject("routing"), "rules")
+        assertFalse(
+            "a degraded session must not blackhole the family it is dialling",
+            rules.any {
+                it.optString("outboundTag") == "block" &&
+                    it.optJSONArray("ip")?.toString()?.contains("0.0.0.0/0") == true
+            }
+        )
+        assertNotNull(singBox(host, degraded).getJSONObject("route"))
     }
 
     @Test fun singBoxFakeIpV6TokenIsProxiedAheadOfPrivateDirect() {

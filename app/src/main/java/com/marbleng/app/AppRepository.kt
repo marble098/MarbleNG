@@ -469,6 +469,195 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     fun serverLocation(profile: ProxyProfile): ServerCountry =
         serverLocations[ServerLocationKey.of(profile.host, profile.port)] ?: ServerCountry.UNKNOWN
 
+    // MARBLE_IP_FAMILY_SCAN_V196 — "does this server actually have IPv4, IPv6, or both?"
+    //
+    // The library answers this with folklore: a node name, a TLD, sometimes an AAAA record nobody
+    // ever dialled. Folklore is how a whole evening was spent watching `Kill switch active` scroll
+    // past — Force IPv6 was on, eleven of the saved servers were IPv4-only, and nothing in the app
+    // could say so before the connection was refused. This table is the measured answer: resolve
+    // both families, then *dial* both, and keep the verdict per endpoint with the network it was
+    // taken on.
+    //
+    // Keyed like the location cache (canonical `host:port`), so a subscription refresh that
+    // renumbers profile ids does not lose a single measurement.
+    val ipFamilyScans: MutableMap<String, IpFamilyScan> = initialIpFamilyScans()
+
+    /** True while a scan sweep is running; the Servers page shows it on the scanned rows. */
+    var ipFamilyScanning by mutableStateOf(false); private set
+
+    /** Scanned / total for a group sweep, so the sheet can show honest progress. */
+    var ipFamilyScanDone by mutableStateOf(0); private set
+    var ipFamilyScanTotal by mutableStateOf(0); private set
+
+    /** The single-node result awaiting its dialog, or null when nothing is pending. */
+    var ipFamilyScanResult by mutableStateOf<IpFamilyScan?>(null); private set
+
+    /** The group result awaiting its dialog, or null when nothing is pending. */
+    var ipFamilyScanSummary by mutableStateOf<IpFamilySummary?>(null); private set
+
+    private val ipFamilyScanInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    private fun initialIpFamilyScans(): MutableMap<String, IpFamilyScan> {
+        val map = mutableStateMapOf<String, IpFamilyScan>()
+        runCatching { store.loadIpFamilyScans() }.getOrDefault(emptyMap()).forEach { (k, v) ->
+            map[k] = v
+        }
+        return map
+    }
+
+    /** The remembered family verdict for a row, measured or not. */
+    fun ipFamilyScan(profile: ProxyProfile): IpFamilyScan? =
+        ipFamilyScans[IpFamilyScanner.endpointKey(profile.host, profile.port)]
+
+    fun dismissIpFamilyScanResult() {
+        ipFamilyScanResult = null
+        ipFamilyScanSummary = null
+    }
+
+    /**
+     * Which rung of the IPv6 ladder this profile would run on right now, and why.
+     *
+     * The Servers page, the connect path and the VPN service all read this one answer so the
+     * screen can never promise a family the tunnel is not going to use.
+     */
+    fun familyResolutionFor(profile: ProxyProfile): FamilyResolution =
+        intelligence.familyResolution(profile, settings)
+
+    /** One server, scanned on demand from its row menu. */
+    fun scanIpFamily(profile: ProxyProfile): Boolean =
+        task("Scanning ${profile.name} • IPv4 / IPv6") {
+            postToMain {
+                ipFamilyScanning = true
+                ipFamilyScanDone = 0
+                ipFamilyScanTotal = 1
+                ipFamilyScanResult = null
+                ipFamilyScanSummary = null
+            }
+            val scan = runFamilyScan(profile)
+            postToMain {
+                ipFamilyScanning = false
+                ipFamilyScanDone = 1
+                ipFamilyScanResult = scan
+                message = scan?.headline ?: "Scan failed • ${profile.name} has no usable address"
+            }
+        }
+
+    /**
+     * A whole subscription (or the whole library) scanned at once, concurrently.
+     *
+     * Serial scanning of forty nodes at up to four seconds each is a coffee break, so the sweep
+     * runs on a small bounded pool and dedupes by endpoint: two profiles that differ only by
+     * transport share one measurement. Results land as they land — a cancelled sweep keeps
+     * everything it already learned.
+     */
+    fun scanIpFamilyForProfiles(targets: List<ProxyProfile>, label: String): Boolean {
+        val unique = targets
+            .filter { IpFamilyScanner.endpointKey(it.host, it.port).isNotBlank() }
+            .distinctBy { IpFamilyScanner.endpointKey(it.host, it.port) }
+        if (unique.isEmpty()) {
+            message = "Nothing to scan • no server in $label has a usable address"
+            return false
+        }
+        return task("Scanning $label • IPv4 / IPv6 (${unique.size})") {
+            postToMain {
+                ipFamilyScanning = true
+                ipFamilyScanDone = 0
+                ipFamilyScanTotal = unique.size
+                ipFamilyScanResult = null
+                ipFamilyScanSummary = null
+            }
+            val done = java.util.concurrent.atomic.AtomicInteger(0)
+            val results = java.util.Collections.synchronizedList(mutableListOf<IpFamilyScan>())
+            val pool = Executors.newFixedThreadPool(
+                unique.size.coerceIn(1, IP_FAMILY_SCAN_CONCURRENCY)
+            )
+            try {
+                val futures = unique.map { profile ->
+                    pool.submit {
+                        val scan = runFamilyScan(profile)
+                        if (scan != null) results += scan
+                        val n = done.incrementAndGet()
+                        postToMain { ipFamilyScanDone = n }
+                    }
+                }
+                // The sweep is bounded end to end: a hung DNS server must not hold the task mutex.
+                val deadline = System.currentTimeMillis() +
+                    IpFamilyScanner.budgetMsFor(unique.size, IP_FAMILY_SCAN_CONCURRENCY)
+                for (f in futures) {
+                    val left = deadline - System.currentTimeMillis()
+                    if (left <= 0L) {
+                        f.cancel(true)
+                        continue
+                    }
+                    runCatching { f.get(left, java.util.concurrent.TimeUnit.MILLISECONDS) }
+                        .onFailure { f.cancel(true) }
+                }
+            } finally {
+                pool.shutdownNow()
+            }
+            val summary = IpFamilyScanner.summarize(results.toList())
+            postToMain {
+                ipFamilyScanning = false
+                ipFamilyScanSummary = summary
+                message = summary.line
+            }
+        }
+    }
+
+    /**
+     * Measures one endpoint and publishes the verdict everywhere it matters: the live map (so the
+     * row repaints), the durable store (so the next launch starts informed) and nothing else —
+     * the ladder reads the same map through the evidence seam installed in `init`.
+     */
+    private fun runFamilyScan(profile: ProxyProfile): IpFamilyScan? {
+        val key = IpFamilyScanner.endpointKey(profile.host, profile.port)
+        if (key.isBlank()) return null
+        if (!ipFamilyScanInFlight.add(key)) return ipFamilyScans[key]
+        return try {
+            val scan = IpFamilyScanner.scan(
+                host = profile.host,
+                port = profile.port,
+                networkKey = runCatching { intelligence.currentSnapshot().key() }.getOrDefault("")
+            )
+            runCatching { store.saveIpFamilyScan(scan) }
+            postToMain { ipFamilyScans[key] = scan }
+            diagnostics.event(
+                "NET",
+                "ip-family-scan",
+                "endpoint" to key,
+                "verdict" to scan.verdict.name,
+                "v4" to scan.ipv4Ok,
+                "v6" to scan.ipv6Ok
+            )
+            scan
+        } catch (t: Throwable) {
+            if (t is InterruptedException) Thread.currentThread().interrupt()
+            diagnostics.error("NET", "ip-family-scan-failed", t, "endpoint" to key)
+            null
+        } finally {
+            ipFamilyScanInFlight.remove(key)
+        }
+    }
+
+    /**
+     * Measure the family of a node the user is about to connect to, in the background.
+     *
+     * Deliberately *not* on the connect path's critical section: the dial must never wait on a
+     * scan. The point is the second attempt. An unmeasured node under Force IPv6 is given the
+     * benefit of the doubt exactly once (the dial is itself the cheapest possible measurement),
+     * and this makes sure that by the time a failed v6 dial comes back around, the ladder has a
+     * measured answer instead of the same guess — so a retry lands on IPv4 by itself rather than
+     * repeating the failure. Free when a fresh verdict already exists.
+     */
+    private fun ensureIpFamilyEvidence(profile: ProxyProfile) {
+        val key = IpFamilyScanner.endpointKey(profile.host, profile.port)
+        if (key.isBlank()) return
+        val networkKey = runCatching { intelligence.currentSnapshot().key() }.getOrDefault("")
+        val known = ipFamilyScans[key]
+        if (known != null && known.usableOn(networkKey, System.currentTimeMillis())) return
+        io.execute { runCatching { runFamilyScan(profile) } }
+    }
+
     /** How many of the visible library's endpoints have a location answer at all. */
     fun serverLocationSummary(): Pair<Int, Int> {
         val visible = libraryProfiles
@@ -950,6 +1139,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         private set
 
     init {
+        // MARBLE_IP_FAMILY_SCAN_V196 — the intelligence layer decides the address family for the
+        // tunnel, the delay test and every prober, so it is handed a read-only view of the
+        // measured scan table. Without this seam the ladder would be reasoning about a node's
+        // IPv6 support from DNS alone, which is the guess that started this whole bug.
+        intelligence.ipFamilyEvidence = { host, port ->
+            ipFamilyScans[IpFamilyScanner.endpointKey(host, port)]
+        }
         migrateLocalSourceOwnershipIfNeeded()
         installUrlTestHook()
         installRealDelayHook()
@@ -1739,8 +1935,17 @@ fun resetTelemetry() {
         val tuned = if (settings.intelligenceEnabled) {
             intelligence.effectiveSettings(profile, settings, withAcceleration)
         } else {
+            // MARBLE_IPV6_FALLBACK_LADDER_V196 — with the intelligence engine switched off nobody
+            // has walked the ladder yet, so it is walked here. A user who turned off the tuner
+            // asked for fewer opinions, not for `Kill switch active` on every IPv4-only node.
+            val resolution = familyResolutionFor(profile)
             DpiEvasionPolicy.heal(
-                IranShield.apply(settings, profile, iranMode, geoIpReady()),
+                IranShield.apply(
+                    Ipv6FallbackLadder.apply(settings, resolution),
+                    profile,
+                    iranMode,
+                    geoIpReady()
+                ),
                 DpiEvasionPolicy.PathEvidence(),
                 iranMode
             )
@@ -3405,6 +3610,7 @@ private fun postToMain(block: () -> Unit) {
     fun startVpn(p: ProxyProfile) {
         privacy = null
         runCatching { scanIranMode() }
+        ensureIpFamilyEvidence(p)
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
@@ -3417,6 +3623,7 @@ private fun postToMain(block: () -> Unit) {
     fun startLocalProxy(p: ProxyProfile) {
         privacy = null
         runCatching { scanIranMode() }
+        ensureIpFamilyEvidence(p)
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
@@ -4784,6 +4991,15 @@ private fun postToMain(block: () -> Unit) {
          * cache), is the whole radio cost.
          */
         const val LOCATION_SESSION_BUDGET = 48
+
+        /**
+         * MARBLE_IP_FAMILY_SCAN_V196 — parallel family probes during a group scan.
+         *
+         * Six is deliberately modest: each worker holds one DoH request and up to two TCP
+         * connects, and a scan that saturates a phone's radio to measure the radio is measuring
+         * itself. Six keeps a 40-node subscription under a minute without distorting latencies.
+         */
+        const val IP_FAMILY_SCAN_CONCURRENCY = 6
 
         /** MARBLE_SESSION_USAGE_V192 — how often the live session counter re-samples. */
         const val USAGE_TICK_MS = 2_000L

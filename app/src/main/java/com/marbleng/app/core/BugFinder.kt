@@ -678,6 +678,23 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             )
         }
 
+        // MARBLE_DNS_DOMAIN_FAULT_V196 — name the *site* when the site is the problem.
+        //
+        // "Your DNS is unstable" is the wrong report when two independent healthy resolvers both
+        // time out on one domestic name: nothing the user changes about their resolvers will fix
+        // it, and the previous build spent that failure demoting good endpoints instead of saying
+        // which name failed. This check is the visible half of that correction.
+        val domainFaults = intelligence?.dnsDomainFaultSummary().orEmpty()
+        if (domainFaults.isNotBlank()) {
+            checks += BugCheck(
+                "DNS name faults",
+                BugSeverity.INFO,
+                "Names failing on several independent resolvers • $domainFaults",
+                "These lookups are a property of the name, not of the resolver pool: " +
+                    "their failures no longer demote resolvers or arm the storm guard"
+            )
+        }
+
         val lastTcpInfo = allRuntime.lineSequence().filter { it.contains("tcp-info") }.lastOrNull()
         if (lastTcpInfo != null) {
             val lost = Regex("lost=(\\d+)").find(lastTcpInfo)?.groupValues?.get(1)?.toIntOrNull() ?: 0

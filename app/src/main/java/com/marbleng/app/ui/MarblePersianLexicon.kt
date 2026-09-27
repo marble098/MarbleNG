@@ -664,6 +664,30 @@ private val FaLexicon: Map<String, String> = mapOf(
     "IPv6 PREFERENCE WAITING" to "اولویت IPv6 در انتظار",
     "IPv4 / AUTO" to "IPv4 / خودکار",
     "Intercept traditional DNS" to "رهگیری DNS سنتی",
+    // MARBLE_IP_FAMILY_SCAN_V196 / MARBLE_IPV6_FALLBACK_LADDER_V196 — the family scan and the
+    // switch that decides whether a forced family may refuse a server.
+    "Scan IPv4 / IPv6" to "اسکن IPv4 / IPv6",
+    "Address family scan" to "اسکن خانواده آی‌پی",
+    "Resolve and dial both families on this server" to "هر دو خانواده این سرور بررسی و شماره‌گیری می‌شود",
+    "This network" to "این شبکه",
+    "Carries IPv6" to "‏IPv6 دارد",
+    "IPv4 only • no IPv6 route" to "فقط IPv4 • بدون مسیر IPv6",
+    "No AAAA record" to "بدون رکورد AAAA",
+    "No A record" to "بدون رکورد A",
+    "Faster" to "سریع‌تر",
+    "IPv6-capable" to "دارای IPv6",
+    "Dual stack" to "دو‌خانواده",
+    "IPv6 only" to "فقط IPv6",
+    "IPv4 only" to "فقط IPv4",
+    "IPv6 unproven" to "‏IPv6 تأییدنشده",
+    "No answer" to "بدون پاسخ",
+    "Unresolved" to "حل‌نشده",
+    "Strict family enforcement" to "اجرای سخت‌گیرانه خانواده آی‌پی",
+    "A server that cannot use the forced family is refused with the reason" to
+        "سروری که نتواند خانواده اجباری را استفاده کند، با ذکر دلیل رد می‌شود",
+    "A server that cannot use the forced family is dialled over the other one; " +
+        "IPv6 stays on for destinations" to
+        "سروری که نتواند خانواده اجباری را استفاده کند با خانواده دیگر شماره‌گیری می‌شود؛ IPv6 برای مقصدها روشن می‌ماند",
     "Port 53 → encrypted DNS" to "پورت ۵۳ ← DNS رمزنگاری‌شده",
     // MARBLE_FAKE_IP_V184
     "Fake IP DNS" to "فیک‌آی‌پی DNS",
