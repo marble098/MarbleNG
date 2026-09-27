@@ -264,65 +264,46 @@ tasks.configureEach {
 //
 // libxray.so / libsingbox.so are Go executables that the app launches from
 // applicationInfo.nativeLibraryDir, so every release APK must ship with
-// android:extractNativeLibs="true".  The source manifest cannot carry the
-// attribute (AGP 9 rejects it) and AGP defaults it to "false" for minSdk >= 23,
-// so the contract is enforced where it is actually decided: the merged manifest
-// under build/intermediates, after every manifest-processing task and again
-// before packaging.  A silent "false" flip turns an otherwise healthy release
-// into an uninstallable APK ("App not installed"; INSTALL_FAILED_INVALID_APK:
-// Failed to extract native libraries, res=-2), so the normalization is
-// mandatory and fail-loud.
+// extractNativeLibs="true" (or the attribute absent, which is the same thing).
+// The source manifest cannot carry the attribute (AGP 9 rejects it) and AGP
+// defaults it to "false" for minSdk >= 23, so the merged manifest under
+// build/intermediates is normalized after every manifest-processing task and
+// again before packaging: a silent "false" flip turns an otherwise healthy
+// release into an uninstallable APK ("App not installed";
+// INSTALL_FAILED_INVALID_APK: Failed to extract native libraries, res=-2).
 // -----------------------------------------------------------------------------
 
-fun marbleNormalizeExtractNativeLibs(buildDir: java.io.File) {
-    val intermediates = buildDir.resolve("intermediates")
-    if (!intermediates.isDirectory) return
-
-    val manifests = intermediates
-        .walkTopDown()
-        .filter { it.isFile && it.name == "AndroidManifest.xml" }
-        .toList()
-
-    for (manifest in manifests) {
-        val text = manifest.readText(Charsets.UTF_8)
-        val updated = when {
-            "android:extractNativeLibs=\"false\"" in text ->
-                text.replace(
-                    "android:extractNativeLibs=\"false\"",
-                    "android:extractNativeLibs=\"true\""
-                )
-
-            "android:extractNativeLibs=\"true\"" in text -> text
-
-            else -> {
-                val applicationTag = Regex("""<application\b""").find(text)
-                if (applicationTag == null) {
-                    text
-                } else {
-                    text.replaceFirst(
-                        "<application",
-                        "<application android:extractNativeLibs=\"true\""
-                    )
+tasks.configureEach {
+    val marbleIntermediatesDir = file("build/intermediates")
+    val marbleNormalizeExtractNativeLibs: (java.io.File) -> Unit = { root ->
+        if (root.isDirectory) {
+            var marbleNormalizedCount = 0
+            for (candidate in root.walkTopDown()) {
+                if (candidate.isFile && candidate.name == "AndroidManifest.xml") {
+                    var text = candidate.readText()
+                    if (text.contains("android:extractNativeLibs=\"false\"")) {
+                        text = text.replace(
+                            "android:extractNativeLibs=\"false\"",
+                            "android:extractNativeLibs=\"true\""
+                        )
+                        candidate.writeText(text)
+                        marbleNormalizedCount = marbleNormalizedCount + 1
+                    }
                 }
             }
-        }
-        if (updated != text) {
-            manifest.writeText(updated, Charsets.UTF_8)
+            if (marbleNormalizedCount > 0) {
+                println("::warning::MARBLE-INSTALL-CONTRACT-V195 normalized extractNativeLibs in " + marbleNormalizedCount + " merged manifest(s)")
+            }
         }
     }
-}
-
-val marbleBuildDirPath: String = layout.buildDirectory.get().asFile.absolutePath
-
-tasks.configureEach {
     if (name.startsWith("process") && name.contains("Manifest")) {
         doLast {
-            marbleNormalizeExtractNativeLibs(java.io.File(marbleBuildDirPath))
+            marbleNormalizeExtractNativeLibs(marbleIntermediatesDir)
         }
     }
     if (name.startsWith("package")) {
         doFirst {
-            marbleNormalizeExtractNativeLibs(java.io.File(marbleBuildDirPath))
+            marbleNormalizeExtractNativeLibs(marbleIntermediatesDir)
         }
     }
 }
