@@ -2,6 +2,7 @@ package com.marbleng.app.data
 
 import android.content.Context
 import com.marbleng.app.core.CoreEngine
+import com.marbleng.app.core.IpFamilyScan
 import com.marbleng.app.core.parseCoreEngine
 import com.marbleng.app.model.*
 import org.json.JSONArray
@@ -176,6 +177,52 @@ class AppStore(context: Context) {
         val out = JSONObject()
         kept.forEach { (k, v) -> out.put(k, JSONObject().put("code", v.first).put("at", v.second)) }
         prefs.edit().putString("serverLocations", out.toString()).apply()
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    // MARBLE_IP_FAMILY_SCAN_V196 — which address families each endpoint actually has.
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    //
+    // A family verdict is cheap to measure and expensive to guess wrong: it decides whether Force
+    // IPv6 can dial a node at all. The table below is the durable half — endpoint key (the same
+    // `host:port` form the location cache uses) → the whole measurement, including the physical
+    // network it was taken on and the moment it was taken. Both are load-bearing: a verdict from a
+    // v6-capable home Wi-Fi must not keep Force IPv6 armed in a v4-only café, and a node that
+    // gained an AAAA record last week must not stay branded IPv4-only forever. Failures ARE stored
+    // here (unlike locations): "this node has no IPv6" is exactly the fact the ladder needs.
+
+    /** How many endpoint family verdicts are remembered at most, newest first. */
+    val ipFamilyScanMemoryLimit: Int get() = 1024
+
+    fun loadIpFamilyScans(): Map<String, IpFamilyScan> {
+        val out = LinkedHashMap<String, IpFamilyScan>()
+        val root = runCatching { JSONObject(prefs.getString("ipFamilyScans", "{}") ?: "{}") }
+            .getOrNull() ?: return out
+        for (key in root.keys()) {
+            val entry = runCatching { root.getJSONObject(key) }.getOrNull() ?: continue
+            val scan = runCatching { IpFamilyScan.fromJson(entry) }.getOrNull() ?: continue
+            if (scan.endpoint.isNotBlank()) out[key] = scan
+        }
+        return out
+    }
+
+    /** Merges one measured verdict; the table is bounded and the oldest entries age out. */
+    fun saveIpFamilyScan(scan: IpFamilyScan) {
+        if (scan.endpoint.isBlank()) return
+        val all = loadIpFamilyScans().toMutableMap()
+        all[scan.endpoint] = scan
+        saveIpFamilyScans(all)
+    }
+
+    /** Writes a whole batch at once: a group scan must not cost one commit per server. */
+    fun saveIpFamilyScans(scans: Map<String, IpFamilyScan>) {
+        val kept = scans.values
+            .filter { it.endpoint.isNotBlank() }
+            .sortedByDescending { it.scannedAtMs }
+            .take(ipFamilyScanMemoryLimit)
+        val out = JSONObject()
+        kept.forEach { scan -> out.put(scan.endpoint, scan.toJson()) }
+        prefs.edit().putString("ipFamilyScans", out.toString()).apply()
     }
 
     // ───────────────────────────────────────────────────────────────────────────────────────────
@@ -520,6 +567,9 @@ class AppStore(context: Context) {
         ipv6Enabled = familyMode != AddressFamilyMode.FORCE_IPV4,
         preferIpv6 = familyMode == AddressFamilyMode.PREFER_IPV6 ||
             familyMode == AddressFamilyMode.FORCE_IPV6 || familyMode == AddressFamilyMode.SMART,
+        // MARBLE_IPV6_FALLBACK_LADDER_V196 — a forced family degrades along a ladder by default;
+        // only an explicit opt-in lets it refuse to connect.
+        strictAddressFamily = prefs.getBoolean("strictAddressFamily", false),
         // MARBLE_REALTIME_ENGINE_V70
         adaptiveHappyEyeballsEnabled = prefs.getBoolean("adaptiveHappyEyeballsEnabled", true),
         happyEyeballsTryDelayMs = prefs.getInt("happyEyeballsTryDelayMs", 60).coerceIn(0, 500),
@@ -762,6 +812,7 @@ class AppStore(context: Context) {
         .putString("addressFamilyMode", s.addressFamilyMode.name)
         .putBoolean("ipv6Enabled", s.ipv6Enabled)
         .putBoolean("preferIpv6", s.preferIpv6)
+        .putBoolean("strictAddressFamily", s.strictAddressFamily)
         .putBoolean("adaptiveHappyEyeballsEnabled", s.adaptiveHappyEyeballsEnabled)
         .putInt("happyEyeballsTryDelayMs", s.happyEyeballsTryDelayMs.coerceIn(0, 500))
         .putInt("happyEyeballsMaxConcurrent", s.happyEyeballsMaxConcurrent.coerceIn(2, 8))

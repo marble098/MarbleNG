@@ -20,6 +20,7 @@ import com.marbleng.app.core.ConnectivityDiagnosticsObserver
 import com.marbleng.app.core.DataStallGuard
 import com.marbleng.app.core.ConfigBlockGuard
 import com.marbleng.app.core.HevTunnelPolicy
+import com.marbleng.app.core.Ipv6FallbackLadder
 import com.marbleng.app.core.CoreConfigSuperset
 import com.marbleng.app.core.EgressObservationPolicy
 import com.marbleng.app.core.JitterControlPolicy
@@ -3503,17 +3504,49 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         // The consent switch means the same thing on both cores: switched off, Marble hands no
         // cleartext public node to *any* core — including sing-box extended, whose parser would
         // otherwise accept it. A user's "no plaintext" cannot be engine-dependent.
-        val settings = activeSettings ?: (application as MarbleApplication).repo.settings
+        val repo = (application as MarbleApplication).repo
+        val requested = activeSettings ?: repo.settings
+
+        /*
+         * MARBLE_IPV6_FALLBACK_LADDER_V196 — the family check is asked of the ladder, not of the
+         * raw preference.
+         *
+         * This block is where the reported outage was manufactured. With Force IPv6 selected and
+         * an IPv4-only node (nine of the user's servers), `excludedIpv4Endpoint` refused the
+         * profile here, `failBeforeTunnel` held the previous TUN, and the screen read
+         * `BLOCKED • Kill switch active` — once per server, for as long as the user kept trying.
+         * No network was broken; the app refused to use the one that worked.
+         *
+         * Now the ladder decides first. It returns the family this session will actually run on
+         * (and the same answer `effectiveSettingsFor` will hand the config writers moments later),
+         * so the exclusion tests below are evaluated against the *effective* mode. A literal that
+         * is genuinely unreachable is still refused — with the alternative named — but a
+         * preference that merely cannot be honoured degrades instead of blocking.
+         */
+        val resolution = runCatching { repo.familyResolutionFor(profile) }.getOrNull()
+        resolution?.refusal?.let { refusal ->
+            diag.event(
+                "VPN", "family-refused",
+                "profile" to profile.id.take(12),
+                "trace" to resolution.trace
+            )
+            return refusal
+        }
+        val settings = resolution?.let { Ipv6FallbackLadder.apply(requested, it) } ?: requested
+        if (resolution != null && resolution.degraded) {
+            diag.event(
+                "VPN", "family-degraded",
+                "profile" to profile.id.take(12),
+                "trace" to resolution.trace,
+                "headline" to resolution.headline
+            )
+        }
         if (AddressFamilyPolicy.excludedIpv6Endpoint(profile.host, settings)) {
             return AddressFamilyPolicy.IPV6_LITERAL_DISABLED
         }
         if (AddressFamilyPolicy.excludedIpv4Endpoint(profile.host, settings)) {
             return AddressFamilyPolicy.IPV4_LITERAL_DISABLED
         }
-        val underlay = (application as MarbleApplication).repo.intelligence.currentSnapshot()
-        if (settings.addressFamilyMode == com.marbleng.app.model.AddressFamilyMode.FORCE_IPV6 &&
-            underlay.transport != "unknown" && !underlay.hasIpv6
-        ) return "Force IPv6 needs an IPv6 default route to dial the server; an IPv4 underlay cannot carry a strict IPv6 node connection. Prefer IPv6 can use an IPv4 underlay."
         if (!CoreConfigSuperset.dialsPlaintextPublicNodes(settings) &&
             CoreConfigSuperset.wire(profile) == CoreConfigSuperset.Wire.PLAINTEXT_PUBLIC
         ) {
