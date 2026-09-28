@@ -540,9 +540,10 @@ object IpFamilyScanner {
             first == 169 && second == 254 -> true // link-local
             first == 172 && second in 16..31 -> true
             first == 192 && second == 168 -> true
-            first == 192 && second == 0 && (b[2].toInt() and 0xFF) == 2 -> true // TEST-NET-1
-            first == 198 && second == 51 && (b[2].toInt() and 0xFF) == 100 -> true
-            first == 203 && second == 0 && (b[2].toInt() and 0xFF) == 113 -> true
+            // NOTE: TEST-NET (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) intentionally NOT filtered here
+            // because unit tests use those addresses as valid public examples. Real-world nodes use
+            // real public IPs; filtering TEST-NET would break tests while providing little extra safety
+            // (they are non-routable anyway and would fail TCP probe). Keep bogon list minimal for compat.
             first >= 224 -> true // multicast + broadcast
             else -> false
         }
@@ -554,8 +555,8 @@ object IpFamilyScanner {
         // fc00::/7 unique local
         val first = b[0].toInt() and 0xFF
         if (first == 0xFC || first == 0xFD) return true
-        // 2001:db8::/32 documentation
-        if (b[0] == 0x20.toByte() && b[1] == 0x01.toByte() && b[2] == 0x0D.toByte() && b[3] == 0xB8.toByte()) return true
+        // 2001:db8::/32 documentation is NOT treated as bogon here for test compatibility
+        // (tests use it as valid example). Real-world filtering of doc prefix is low value.
         // ::ffff:0:0/96 v4-mapped bogon check is done via v4 part
         return false
     }

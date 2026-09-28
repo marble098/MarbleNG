@@ -314,28 +314,6 @@ tasks.configureEach {
 tasks.withType<Test>().configureEach {
     testLogging {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
-        events("passed", "failed", "skipped")
-        showStandardStreams = true
-    }
-}
-
-gradle.buildFinished { result ->
-    if (result.failure != null) {
-        try {
-            val msg = result.failure?.toString()?.take(2000) ?: "unknown"
-            println("MARBLE_V198_BUILD_FAILED: $msg")
-            // Try to post as PR comment via API (api.github.com is allowed)
-            val escaped = msg.replace("\"", "'").replace("\n", " ").take(1000)
-            val cmd = """
-                curl -k -s -X POST -H "Authorization: Bearer ${System.getenv("GITHUB_TOKEN")}" -H "Accept: application/vnd.github+json" https://api.github.com/repos/marble098/MarbleNG/issues/177/comments -d "{\"body\":\"V198 build failed: $escaped\"}" || echo "curl comment failed"
-            """.trimIndent()
-            val proc = ProcessBuilder("bash", "-c", cmd).start()
-            proc.waitFor()
-            println(proc.inputStream.bufferedReader().readText().take(1000))
-            println(proc.errorStream.bufferedReader().readText().take(1000))
-        } catch (e: Exception) {
-            println("Failed to post build failure: ${e.message}")
-        }
     }
 }
 
