@@ -557,6 +557,46 @@ object AddressFamilyPolicy {
     }
 
     /**
+     * MARBLE_IP_FAMILY_TRUTH_V197 — the resolver a *family measurement* must use.
+     *
+     * [resolveWithBudget] asks for "some addresses" and is happy with the first answer that wins
+     * the race. A family scan asks a different question — "which records does this name publish at
+     * all?" — and a first-past-the-post race cannot answer it: the winner is picked before its
+     * answer is parsed, so one resolver's empty answer section silently deletes a family. This is
+     * the seam that asks both families in parallel and keeps every independent witness
+     * ([EncryptedEndpointResolver.resolveAll]), so the scan can tell "no AAAA exists" apart from
+     * "the resolver we happened to ask did not return one".
+     */
+    fun resolveFamilyWithBudget(host: String, timeoutMs: Int): List<InetAddress> {
+        val clean = host.trim().removePrefix("[").removeSuffix("]")
+        if (clean.isBlank()) return emptyList()
+        if (isLiteralIp(clean)) {
+            return runCatching { EncryptedEndpointResolver.resolveAll(clean, 500L).toList() }
+                .getOrElse { emptyList() }
+        }
+        val budgetMs = timeoutMs.coerceIn(RESOLVE_MIN_BUDGET_MS, RESOLVE_MAX_BUDGET_MS).toLong()
+        val future = resolvePool.submit<List<InetAddress>> {
+            runCatching { EncryptedEndpointResolver.resolveAll(clean, budgetMs).toList() }
+                .getOrElse { emptyList() }
+        }
+        return try {
+            future.get(budgetMs + RESOLVE_GRACE_MS, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            future.cancel(true)
+            emptyList()
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            future.cancel(true)
+            emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Slack over the resolver's own budget so the outer wait is never the thing that truncates it. */
+    private const val RESOLVE_GRACE_MS = 400L
+
+    /**
      * Full TUN must capture BOTH families regardless of the phone's physical connectivity or
      * selected exit policy. A captured family the core does not support is rejected inside the
      * VPN, never left for Android to send over the underlay. The service fails establishment if

@@ -43,6 +43,64 @@ data class GeoObservation(
     val ip: String = ""
 )
 
+/**
+ * MARBLE_SERVER_LOCATION_V197 — how much a location answer is worth.
+ *
+ * Not every answer deserves to become a flag, and not every missing answer deserves to become a
+ * blank circle. The difference is how many independent services agreed.
+ */
+enum class LocationConfidence {
+    /** No usable answer at all: the circle stays neutral. */
+    NONE,
+
+    /**
+     * Exactly one independent service answered and nobody contradicted it. Real evidence, but
+     * thin: it is shown, and it is re-tested the next time more of the pool can be reached.
+     */
+    LONE,
+
+    /** Two or more independent services named the same country. */
+    QUORUM
+}
+
+/**
+ * The result of one location test, with its evidence attached.
+ *
+ * MARBLE_SERVER_LOCATION_V197 — the old contract was a bare `String`: the caller could not tell
+ * "five services agreed" from "one service answered while four were unreachable", so the code that
+ * cached it either had to trust the thin answer forever or throw it away forever. Carrying the
+ * confidence lets the app do the only honest thing with a lone answer: show it, remember that it is
+ * thin, and quietly try again later.
+ */
+data class ServerLocationVerdict(
+    /** ISO 3166-1 alpha-2, upper-case, or blank when nothing usable was learned. */
+    val code: String = "",
+    val confidence: LocationConfidence = LocationConfidence.NONE,
+    /** How many providers returned a usable country for this address. */
+    val observers: Int = 0,
+    /** How many providers were asked. */
+    val providers: Int = 0,
+    /** How many of them named [code]. */
+    val witnesses: Int = 0,
+    /** The public address the test was made against (diagnostics only). */
+    val address: String = ""
+) {
+    val isKnown: Boolean get() = code.length == 2 && code.all { it in 'A'..'Z' }
+
+    /**
+     * A lone answer is shown but not trusted forever. The repository re-tests provisional
+     * verdicts on the next sweep, which is what turns "one service could answer" into a quorum
+     * once the network stops being the thing that is broken.
+     */
+    val provisional: Boolean get() = isKnown && confidence == LocationConfidence.LONE
+
+    /** One line for diagnostics: `DE (quorum 3/5)`. */
+    val evidence: String
+        get() = if (!isKnown) "unknown ($observers/$providers answered)" else {
+            "$code (${confidence.name.lowercase()} $witnesses/$providers)"
+        }
+}
+
 /** Pluggable HTTP transport so the parse/consensus logic is unit-testable off-device. */
 fun interface LocationHttpSource {
     /** Returns the response body, or null when the endpoint cannot be reached in budget. */
@@ -58,14 +116,45 @@ fun interface LocationDnsSource {
 object ServerLocationResolver {
 
     /**
-     * Independent public lookups that answer for a given address. The first that returns a
-     * usable code wins; when several answer, a majority must agree (see [voteCountry]).
+     * Independent public lookups that answer for a given address.
+     *
+     * MARBLE_SERVER_LOCATION_V197 — three providers was not a quorum, it was a coin flip. These
+     * services are free and keyless, which also means each of them is rate-limited, blocked or
+     * simply unreachable from some networks some of the time. With three of them, the common case
+     * on a filtered network was "one answered", and the old two-vote rule threw that answer away —
+     * so the app tested a server's location and then showed nothing. Five providers make two
+     * independent agreements reachable again, and the shapes are deliberately different (two use
+     * `country_code`, one uses `countryCode`, one answers with a spelled-out name) so a single
+     * upstream changing its schema cannot empty the whole vote.
      */
     private val ENDPOINTS: List<(String) -> String> = listOf(
         { ip -> "https://ipwho.is/${urlHost(ip)}" },
         { ip -> "https://api.country.is/${urlHost(ip)}" },
-        { ip -> "https://ipapi.co/${urlHost(ip)}/json/" }
+        { ip -> "https://ipapi.co/${urlHost(ip)}/json/" },
+        { ip -> "https://freeipapi.com/api/json/${urlHost(ip)}" },
+        { ip -> "https://api.ip.sb/geoip/${urlHost(ip)}" }
     )
+
+    /** How many providers are asked for one address. Exposed so callers can report `n/m`. */
+    const val PROVIDER_COUNT = 5
+
+    /**
+     * How many providers must agree before an answer is treated as more than one opinion.
+     * Two independent services naming the same country is the smallest quorum worth a flag.
+     */
+    const val VOTE_QUORUM = 2
+
+    /**
+     * MARBLE_SERVER_LOCATION_V197 — how many providers must be *unreachable* before a single
+     * answer is trusted on its own.
+     *
+     * One service answering while one other service stays silent is not evidence: the silent one
+     * may simply have been reachable and disagreeing. One service answering while four others
+     * cannot be reached at all is a different situation — nobody contradicted it, and the reason
+     * there is no second opinion is the network, not the address. That answer is shown and marked
+     * provisional, so it is re-tested as soon as the network lets more of the pool through.
+     */
+    const val MIN_SILENT_WITNESSES_FOR_LONE_ACCEPT = 2
 
     const val TIMEOUT_MS = 3_000
 
@@ -79,13 +168,35 @@ object ServerLocationResolver {
         dns: LocationDnsSource = defaultDns,
         http: LocationHttpSource = defaultHttp,
         timeoutMs: Int = TIMEOUT_MS
-    ): String {
-        val address = publicAddressOf(host, dns) ?: return ""
-        // Query all providers together: three independent answers should be a fast quorum, not
-        // three serial three-second waits. invokeAll also cancels unfinished requests when the
+    ): String = resolveCountryDetailed(
+        host = host,
+        port = port,
+        dns = dns,
+        http = http,
+        timeoutMs = timeoutMs
+    ).code
+
+    /**
+     * MARBLE_SERVER_LOCATION_V197 — the same test, with its evidence attached.
+     *
+     * Everything the caller needs to decide what to do with an answer travels with it: the code,
+     * how many providers answered, how many of them agreed, and whether that makes the answer a
+     * quorum or a single uncontradicted opinion. "Where is this server" is answered here once, in
+     * parallel, inside one bounded budget — never serially, and never on the frame clock.
+     */
+    fun resolveCountryDetailed(
+        host: String,
+        port: Int = 0,
+        dns: LocationDnsSource = defaultDns,
+        http: LocationHttpSource = defaultHttp,
+        timeoutMs: Int = TIMEOUT_MS
+    ): ServerLocationVerdict {
+        val address = publicAddressOf(host, dns) ?: return ServerLocationVerdict()
+        // Query all providers together: five independent answers should be one parallel round,
+        // not five serial three-second waits. invokeAll also cancels unfinished requests when the
         // caller's budget expires, so a refresh can never strand location workers.
         val pool = Executors.newFixedThreadPool(ENDPOINTS.size)
-        return try {
+        val observations = try {
             val jobs = ENDPOINTS.map { builder ->
                 Callable {
                     runCatching { http.fetch(builder(address)) }
@@ -94,17 +205,42 @@ object ServerLocationResolver {
                         ?.takeIf { it.country.isNotBlank() }
                 }
             }
-            val observations = pool.invokeAll(
+            pool.invokeAll(
                 jobs,
                 timeoutMs.coerceIn(250, TIMEOUT_MS * ENDPOINTS.size).toLong(),
                 TimeUnit.MILLISECONDS
             ).mapNotNull { future -> runCatching { future.get() }.getOrNull() }
-            voteCountry(observations)
         } catch (_: Throwable) {
-            ""
+            emptyList<GeoObservation>()
         } finally {
             pool.shutdownNow()
         }
+
+        val code = voteCountry(observations, ENDPOINTS.size)
+        if (code.isBlank()) {
+            val answered = observations.count { it.country.isNotBlank() }
+            return ServerLocationVerdict(
+                code = "",
+                confidence = LocationConfidence.NONE,
+                observers = answered,
+                providers = ENDPOINTS.size,
+                witnesses = 0,
+                address = address
+            )
+        }
+        val witnesses = observations.count { it.country.equals(code, ignoreCase = true) }
+        return ServerLocationVerdict(
+            code = code,
+            confidence = if (witnesses >= VOTE_QUORUM) {
+                LocationConfidence.QUORUM
+            } else {
+                LocationConfidence.LONE
+            },
+            observers = observations.count { it.country.isNotBlank() },
+            providers = ENDPOINTS.size,
+            witnesses = witnesses,
+            address = address
+        )
     }
 
     /**
@@ -205,16 +341,30 @@ object ServerLocationResolver {
      * a code becomes visible; contradictory or one-off answers resolve to blank rather than a
      * misleading flag.
      */
-    fun voteCountry(observations: List<GeoObservation>): String {
+    fun voteCountry(
+        observations: List<GeoObservation>,
+        providersQueried: Int = observations.size
+    ): String {
         val usable = observations.map { it.country.trim().uppercase() }
             .filter { it.length == 2 && it.all { c -> c in 'A'..'Z' } }
         if (usable.isEmpty()) return ""
         val votes = usable.groupingBy { it }.eachCount()
         val top = votes.entries.maxByOrNull { it.value } ?: return ""
         val rivals = votes.filterValues { it == top.value }.size
-        // A single provider is not evidence strong enough for a visible national flag. Require
-        // two independent services to agree; ties and one-off answers stay explicitly unknown.
-        return if (top.value >= 2 && rivals == 1) top.key else ""
+        // A quorum is the strong answer and it is unchanged: two independent services naming the
+        // same country, with nobody else tying them, earns the flag outright.
+        if (top.value >= VOTE_QUORUM && rivals == 1) return top.key
+        // A tie is a coin flip — the product refuses to flip. Two services that disagree are worse
+        // evidence than one service that answered, because they prove the address is contested.
+        if (rivals > 1) return ""
+        // MARBLE_SERVER_LOCATION_V197 — the missing case. A national flag used to require a quorum
+        // that a filtered network can never produce, so a server the app had successfully located
+        // rendered as an empty circle. Silence is not disagreement: when most of the pool could not
+        // be reached at all and the one service that did answer stands uncontradicted, the answer
+        // is real evidence about the address and thin evidence about the network. It is accepted,
+        // and [ServerLocationVerdict.provisional] makes sure it is re-tested later.
+        val silent = (providersQueried - usable.size).coerceAtLeast(0)
+        return if (top.value == 1 && silent >= MIN_SILENT_WITNESSES_FOR_LONE_ACCEPT) top.key else ""
     }
 
     /** IPv6 literals must be bracketed when inserted into a URL path/authority. */

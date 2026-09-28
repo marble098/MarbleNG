@@ -116,6 +116,31 @@ class MarbleVpnService : VpnService() {
         // A bounded outcome window records both verified RTTs and misses. Twelve attempts remain
         // responsive while providing enough evidence for p90, IPDV and reliability scoring.
         private const val ROUTE_WINDOW_SIZE = 12
+
+        /**
+         * MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — how many literal targets a pivot races at once.
+         *
+         * Two is the whole point: one alternate is a fallback that can itself be filtered, and
+         * three turns a latency probe into a traffic source.
+         */
+        private const val PIVOT_RACE_TARGETS = 2
+
+        /**
+         * MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — samples a fresh target must earn before its
+         * score is published again.
+         *
+         * A pivot clears the evidence window, so the first burst back is three successes out of
+         * three attempts. That is a healthy route, but a 95 % confidence interval around 3/3
+         * starts at 44 %, and a score built on it swings for no reason the user caused. Four
+         * samples is the point where the window says something; latency and jitter never wait.
+         */
+        private const val PIVOT_QUALITY_MIN_SAMPLES = 4
+
+        /**
+         * Slack over one probe's own timeout, so the race waits for a genuinely slow answer but
+         * never for a socket that has already forgotten it was asked.
+         */
+        private const val PROBE_RACE_GRACE_MS = 400L
         private const val JITTER_OPTIMIZER_COOLDOWN_MS = 180_000L
         /** Consecutive verified good ticks required before a Turbo backoff may be released early. */
         private const val GOOD_ROUTE_TICKS_FOR_RELEASE = 2
@@ -290,6 +315,32 @@ class MarbleVpnService : VpnService() {
     /** Positive values are verified HTTPS RTTs; -1 is a failed attempt. */
     private val routeOutcomeWindow = ArrayDeque<Int>()
     @Volatile private var jitterProbeHost = JITTER_PRIMARY_HOST
+
+    /**
+     * MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — whether the previous sampling cycle produced a
+     * verified RTT. A cycle that follows a failed one measures two targets from its very first
+     * sample instead of re-discovering, one target at a time, that the pinned one is still
+     * filtered.
+     */
+    @Volatile private var lastRouteCycleVerified = true
+
+    /**
+     * MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — how many more samples the score must wait for after
+     * a target change. Zero means "the window is worth scoring".
+     */
+    @Volatile private var routeQualityHoldSamples = 0
+
+    /**
+     * The two-target race that makes a pivot a race instead of a queue. Daemon threads, two of
+     * them, created on first use: a route probe is a measurement, never a reason for this process
+     * to outlive the tunnel.
+     */
+    private val routeProbeRacePool by lazy {
+        Executors.newFixedThreadPool(PIVOT_RACE_TARGETS) { runnable ->
+            Thread(runnable, "marble-route-probe").apply { isDaemon = true }
+        }
+    }
+
     @Volatile private var jitterControlActive = false
     @Volatile private var lastJitterOptimizerRequestAt = 0L
     @Volatile private var verifiedRttBackoffUntilMs = 0L
@@ -524,6 +575,8 @@ class MarbleVpnService : VpnService() {
         }
         synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
         jitterProbeHost = JITTER_PRIMARY_HOST
+        lastRouteCycleVerified = true
+        routeQualityHoldSamples = 0
         jitterControlState = JitterControlPolicy.State()
         jitterControlActive = false
         lastJitterOptimizerRequestAt = 0L
@@ -2129,6 +2182,59 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             .throttleConfidenceFor(activeProfileId)
     }
 
+    /**
+     * MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — measure [targets] at once and return the first
+     * verified answer.
+     *
+     * The whole reason this exists is that a probe target is not reliable one at a time. Each
+     * literal anycast address in [JITTER_PROBE_TARGETS] is filtered intermittently and
+     * independently, so "the pinned target is quiet" is a fact about that target, not about the
+     * route — and the only way to learn it quickly is to ask somebody else at the same moment.
+     *
+     * The loser of the race is cancelled, so a filtered target cannot hold the cycle's budget
+     * hostage after the winner has already answered.
+     *
+     * @return the target that answered and its RTT, or the first target with `-1` when none did.
+     */
+    private fun raceFirstSample(
+        targets: List<String>,
+        measure: (String) -> Int
+    ): Pair<String, Int> {
+        if (targets.isEmpty()) return "" to -1
+        if (targets.size == 1) return targets.first() to measure(targets.first())
+
+        val jobs = targets.map { target ->
+            routeProbeRacePool.submit<Pair<String, Int>> { target to measure(target) }
+        }
+        var firstFailure: Pair<String, Int>? = null
+        for (job in jobs) {
+            val outcome = try {
+                job.get(LIVE_RTT_TIMEOUT_MS.toLong() + PROBE_RACE_GRACE_MS, TimeUnit.MILLISECONDS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                job.cancel(true)
+                continue
+            } catch (_: Throwable) {
+                job.cancel(true)
+                continue
+            }
+            if (outcome.second > 0) {
+                // A winner cancels the losers: the answer is known, so the rest is only traffic.
+                jobs.forEach { other -> if (other !== job) runCatching { other.cancel(true) } }
+                return outcome
+            }
+            if (firstFailure == null) firstFailure = outcome
+        }
+        return firstFailure ?: (targets.first() to -1)
+    }
+
+    /** The literal target a cycle should hedge against when the pinned one is suspected. */
+    private fun routeProbePartnerFor(host: String): String {
+        val order = JITTER_PROBE_TARGETS.map { it.first }
+        val at = order.indexOf(host)
+        return if (at < 0) order.firstOrNull().orEmpty() else order[(at + 1) % order.size]
+    }
+
     private fun sampleRouteLatency(
         session: String,
         port: Int,
@@ -2162,6 +2268,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             }
 
             if (snapshot[0] <= 0) return
+            // MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — latency and jitter are measurements and are
+            // published the moment they are real. The score is a judgement about a window, and a
+            // window that was cleared by a target change is not worth judging yet.
+            val holdQuality = routeQualityHoldSamples > 0
+            if (holdQuality) {
+                routeQualityHoldSamples = (routeQualityHoldSamples - 1).coerceAtLeast(0)
+            }
             repo.updateRouteQuality(
                 snapshot[0],
                 snapshot[1],
@@ -2169,7 +2282,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 snapshot[3],
                 snapshot[4],
                 snapshot[5],
-                snapshot[6]
+                snapshot[6],
+                holdQuality
             )
         }
 
@@ -2256,8 +2370,40 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             return false
         }
 
-        repo.updateRouteProbeStatus("Measuring verified RTT • ${probeLabel(host)}")
-        val primarySample = measureOne(host)
+        // MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — multi-target from the first sample of a cycle,
+        // not only as a fallback after the cycle has already failed. A cycle that follows a failed
+        // one knows the pinned target is suspect, so it races the pinned target against a partner
+        // from the very first measurement instead of measuring one, failing, and only then asking
+        // somebody else. A healthy cycle is unchanged: one target, one burst, no extra traffic.
+        val partner = if (lastRouteCycleVerified) "" else routeProbePartnerFor(host)
+        if (partner.isBlank()) {
+            repo.updateRouteProbeStatus("Measuring verified RTT • ${probeLabel(host)}")
+        } else {
+            repo.updateRouteProbeStatus(
+                "Measuring verified RTT • ${probeLabel(host)} + ${probeLabel(partner)}"
+            )
+        }
+        val (racedHost, primarySample) = if (partner.isBlank()) {
+            host to measureOne(host)
+        } else {
+            raceFirstSample(listOf(host, partner)) { target -> measureOne(target) }
+        }
+        if (primarySample > 0 && racedHost != host) {
+            // The partner answered and the pinned target did not: adopt it before any sample is
+            // published, so the route's reliability window is never charged for the target that
+            // went quiet. The score waits for the new window either way (see PIVOT_QUALITY_MIN_SAMPLES).
+            resetJitterBaselineForProbeHost(racedHost)
+            host = racedHost
+            routeQualityHoldSamples = PIVOT_QUALITY_MIN_SAMPLES
+            diag.event(
+                "ROUTE", "jitter-probe-hedge",
+                "session" to session,
+                "from" to jitterProbeHost,
+                "target" to racedHost,
+                "provider" to probeLabel(racedHost),
+                "reason" to "pinned target was silent in the previous cycle; partner answered"
+            )
+        }
         rttSamples = if (primarySample > 0) {
             measurePinnedBurst(host, primarySample)
         } else {
@@ -2266,30 +2412,38 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }
 
         if (rttSamples.isEmpty() && isRouteCurrent(session, generation)) {
+            // MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — the pivot is a race, not a queue.
+            //
+            // Filtering here is per-target and intermittent: a literal anycast address answers for
+            // weeks and then stops for an afternoon while its neighbour is perfectly healthy. Trying
+            // alternates one after another meant a pivot could spend the whole cycle's budget
+            // discovering that the first alternate was filtered too, and the user watched a blank
+            // ping for another thirty seconds. Both candidates are measured in parallel and the
+            // first verified answer wins the burst.
             val alternates = JITTER_PROBE_TARGETS
                 .map { it.first }
                 .filterNot { it == host }
-                .take(2)
+                .take(PIVOT_RACE_TARGETS)
 
-            for ((index, alternate) in alternates.withIndex()) {
+            if (alternates.isNotEmpty()) {
                 repo.updateRouteProbeStatus(
-                    "${probeLabel(host)} RTT unavailable • trying ${probeLabel(alternate)} " +
-                        "${index + 1}/${alternates.size}"
+                    "${probeLabel(host)} RTT unavailable • racing ${alternates.size} alternates"
                 )
-                val alternateSample = measureOne(alternate)
-                if (alternateSample <= 0) continue
-
-                resetJitterBaselineForProbeHost(alternate)
-                host = alternate
-                rttSamples = measurePinnedBurst(alternate, alternateSample)
-                diag.event(
-                    "ROUTE", "jitter-probe-pivot",
-                    "session" to session,
-                    "target" to alternate,
-                    "provider" to probeLabel(alternate),
-                    "reason" to "previous literal HTTPS target produced zero verified RTTs"
-                )
-                break
+                val (alternate, alternateSample) = raceFirstSample(alternates) { target -> measureOne(target) }
+                if (alternateSample > 0) {
+                    resetJitterBaselineForProbeHost(alternate)
+                    host = alternate
+                    routeQualityHoldSamples = PIVOT_QUALITY_MIN_SAMPLES
+                    rttSamples = measurePinnedBurst(alternate, alternateSample)
+                    diag.event(
+                        "ROUTE", "jitter-probe-pivot",
+                        "session" to session,
+                        "target" to alternate,
+                        "provider" to probeLabel(alternate),
+                        "candidates" to alternates.size,
+                        "reason" to "previous literal HTTPS target produced zero verified RTTs"
+                    )
+                }
             }
         }
 
@@ -2308,6 +2462,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
                 resetJitterBaselineForProbeHost(target.first)
                 host = target.first
+                routeQualityHoldSamples = PIVOT_QUALITY_MIN_SAMPLES
                 batch.forEach { sample -> publishRollingOutcome(host, sample) }
                 rttSamples = batch
                 diag.event(
@@ -2320,6 +2475,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 break
             }
         }
+
+        // MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — recorded before any early return: the next cycle
+        // reads this to decide whether to measure one target or race two, so it has to be written
+        // on the failure paths as well, not only on the way to a published sample.
+        lastRouteCycleVerified = rttSamples.isNotEmpty()
 
         if (rttSamples.isNotEmpty()) {
             verifiedRttBackoffUntilMs = 0L
@@ -2768,6 +2928,8 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
             dataStallGuard.reset()
             jitterProbeHost = JITTER_PRIMARY_HOST
+            lastRouteCycleVerified = true
+            routeQualityHoldSamples = 0
             // A new physical network invalidates every measurement-derived state: the jitter
             // baseline, the acceleration backoff and the learned PMTU all belonged to the old link.
             jitterControlState = JitterControlPolicy.State()

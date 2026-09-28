@@ -301,8 +301,7 @@ TUN now always captures both IP families (then rejects a disabled family inside 
 uncaptured `::/0` cannot bypass the VPN. The current family/DNS security contract and device
 verification steps are in [IPv6 and leak hardening](docs/IPV6_LEAK_HARDENING.md).
 
-`docs/IP_FAMILY_SCAN_V196.md` is the newest chapter, and the one that made Marble IPv6-first in
-practice rather than in intent. Force IPv6 used to be a gate: on a Wi-Fi with no IPv6 route and a
+`docs/IP_FAMILY_SCAN_V196.md` made Marble IPv6-first in practice rather than in intent. Force IPv6 used to be a gate: on a Wi-Fi with no IPv6 route and a
 library of mostly IPv4-only servers, every connect attempt was refused before the tunnel started
 and the kill switch held the old TUN, so the screen read `BLOCKED • Kill switch active` on server
 after server. A transport preference that produces an outage is a defect, so it now walks a
@@ -314,6 +313,19 @@ real bounded TCP connect per family, cached per endpoint *and* per physical netw
 chapter covers `DnsDomainFaultPolicy`: two independent healthy resolvers timing out on one name is
 a fact about that name, not a resolver storm, and it no longer demotes providers or arms parallel
 racing.
+
+`docs/IPV6_TRUTH_LOCATION_AND_IME_V197.md` is the newest chapter, and it came from one logcat. A
+dual-stack server was being reported IPv4-only because a DoH race picked its winner before reading
+the answer, so one empty answer section deleted a whole family; the resolver now asks A and AAAA in
+parallel and keeps every independent witness, and the scan refuses to believe absence from a single
+silent answer or a single lost IPv6 packet. Adding a server or a subscription now measures **both**
+of the things a row claims — where the server is and which families it answers on — in the
+background: the location pool grew from three keyless providers to five, and a lone uncontradicted
+answer is shown instead of discarded, marked provisional so the next sweep promotes it to a quorum.
+The same chapter fixes the hundred `InsetsController.hide(ime())` calls in a log with no keyboard
+ever open (a surface that only looks like a text field was being handed an input session, and no
+field declared the event that ends one), and turns the probe's reactive target pivot into a race
+that hedges from the first sample of a cycle and lets a freshly cleared window earn its score back.
 
 ## Main navigation
 
