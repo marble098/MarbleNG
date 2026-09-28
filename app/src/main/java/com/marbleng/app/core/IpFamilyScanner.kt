@@ -883,7 +883,7 @@ object IpFamilyScanner {
     // ── Detailed family probing with median, jitter, success rate ──
 
     fun probeFamilyDetailed(
-        addresses: List<InetAddress>,
+        addresses: List<out InetAddress>,
         port: Int,
         budgetMs: Int = CONNECT_BUDGET_MS,
         attemptsPerAddress: Int = CONNECT_ATTEMPTS_PER_ADDRESS,
@@ -1000,8 +1000,8 @@ object IpFamilyScanner {
      * Both families are still measured for reporting.
      */
     fun happyEyeballsRace(
-        v6Addresses: List<InetAddress>,
-        v4Addresses: List<InetAddress>,
+        v6Addresses: List<out InetAddress>,
+        v4Addresses: List<out InetAddress>,
         port: Int,
         tryDelayMs: Int = HAPPY_EYEBALLS_TRY_DELAY_MS,
         connectBudgetMs: Int = CONNECT_BUDGET_MS,
