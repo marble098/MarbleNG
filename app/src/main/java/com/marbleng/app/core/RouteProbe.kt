@@ -5,6 +5,7 @@ import com.marbleng.app.model.DelayTest
 import com.marbleng.app.model.PingBudget
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.ProxyProfile
+import com.marbleng.app.model.pingSampleSpacingMs
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.InetAddress

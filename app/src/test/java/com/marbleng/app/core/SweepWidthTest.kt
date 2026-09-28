@@ -33,7 +33,7 @@ class SweepWidthTest {
         xrayChildCeiling: Int = 8,
         speedFactor: Double = 1.5,
         v2rayStyleDelay: Boolean = false
-    ): Int = BenchmarkEngine.sweepWidth(
+    ): Int = sweepWidth(
         method = method,
         engine = engine,
         tcpWorkers = tcpWorkers,

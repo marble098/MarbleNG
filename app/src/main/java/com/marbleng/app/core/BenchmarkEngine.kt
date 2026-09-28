@@ -1172,58 +1172,59 @@ class BenchmarkEngine(
             return pool.map { it.host to it.path } + literals.take(3).map { it.host to it.path }
         }
 
-        /**
-         * MARBLE_PING_SPEED_DIAL_V199 — how wide one batch runs, as one pure policy.
-         *
-         * The rules, per measurement shape:
-         *
-         *  - **TCP ping (direct sweep)** runs exactly as wide as the caller asked. The sweep
-         *    constructs its settings through `AppSettings.pingWorkers()`, which is the user's
-         *    concurrency at the speed dial's width — 16 chips-wide at the classic pace, 24 at
-         *    the shipped default. MARBLE_PING_CONTROL_V145's rule is unchanged here: no hidden
-         *    clamp rewrites the number the user picked.
-         *
-         *  - **Every native-child measurement (URL test, and Real delay on the sing-box engine)**
-         *    stays capped by the device's measurement-core ceiling. That ceiling is a memory
-         *    decision (`MeasurementCoreBudget`), and the dial is a speed preference — the dial
-         *    feeds the pool as fast as the device allows and never one child wider. The scaled
-         *    `tcpWorkers` from the sweep still matters below the ceiling: a slower dial now
-         *    genuinely narrows the pool instead of being silently clamped back up.
-         *
-         *  - **Real delay on the Xray engine (the default engine)** now scales with the dial,
-         *    from the CPU-derived 2..4 pool it was pinned to. The shipped default runs it
-         *    ~1.5× wider (2..4 → 3..6), bounded by the device's own Xray-child ceiling — the
-         *    same `MeasurementCoreBudget` read the sing-box pool uses, and a conservative bound,
-         *    because an Xray child carries no controller API and no cache workspace. A device
-         *    that cannot carry more runs exactly the pool it has always run.
-         *
-         *  - **The legacy v2ray-style ladder** keeps its 2..4 envelope unscaled: four is that
-         *    path's same-host safety ceiling, chosen before the dial existed and unchanged by it.
-         *
-         * Pure, so the width policy is unit-testable in both directions (`SweepWidthTest`).
-         */
-        fun sweepWidth(
-            method: ProbeMethod,
-            engine: CoreEngine,
-            tcpWorkers: Int,
-            cpus: Int,
-            singBoxCeiling: Int,
-            xrayChildCeiling: Int,
-            speedFactor: Double,
-            v2rayStyleDelay: Boolean
-        ): Int = when {
-            method == ProbeMethod.TCP_PING -> PingBudget.concurrency(tcpWorkers)
-            method == ProbeMethod.URL_TEST || engine == CoreEngine.SINGBOX ->
-                tcpWorkers.coerceIn(1, singBoxCeiling.coerceIn(1, 64))
-            v2rayStyleDelay -> tcpWorkers.coerceIn(2, 4)
-            else -> {
-                val base = cpus.coerceIn(2, 4)
-                val scaled = (base * speedFactor).roundToInt()
-                scaled.coerceIn(2, xrayChildCeiling.coerceIn(2, 8))
-            }
-        }
-
         val TUNNEL_TARGET_CURSOR = AtomicInteger(0)
         const val DEAD_LATENCY = 99_999.0
+    }
+}
+
+/**
+ * MARBLE_PING_SPEED_DIAL_V199 — how wide one batch runs, as one pure policy.
+ *
+ * The rules, per measurement shape:
+ *
+ *  - **TCP ping (direct sweep)** runs exactly as wide as the caller asked. The sweep constructs
+ *    its settings through `AppSettings.pingWorkers()`, which is the user's concurrency at the
+ *    speed dial's width — 16 chips-wide at the classic pace, 24 at the shipped default.
+ *    MARBLE_PING_CONTROL_V145's rule is unchanged here: no hidden clamp rewrites the number the
+ *    user picked, and the engine never scales the caller's value a second time.
+ *
+ *  - **Every native-child measurement (URL test, and Real delay on the sing-box engine)** stays
+ *    capped by the device's measurement-core ceiling. That ceiling is a memory decision
+ *    (`MeasurementCoreBudget`), and the dial is a speed preference — the dial feeds the pool as
+ *    fast as the device allows and never one child wider. The scaled `tcpWorkers` from the sweep
+ *    still matters below the ceiling: a slower dial now genuinely narrows the pool instead of
+ *    being silently clamped back up.
+ *
+ *  - **Real delay on the Xray engine (the default engine)** now scales with the dial, from the
+ *    CPU-derived 2..4 pool it was pinned to. The shipped default runs it ~1.5× wider (2..4 →
+ *    3..6), bounded by the device's own Xray-child ceiling — the same `MeasurementCoreBudget`
+ *    read the sing-box pool uses, and a conservative bound, because an Xray child carries no
+ *    controller API and no cache workspace. A device that cannot carry more runs exactly the
+ *    pool it has always run.
+ *
+ *  - **The legacy v2ray-style ladder** keeps its 2..4 envelope unscaled: four is that path's
+ *    same-host safety ceiling, chosen before the dial existed and unchanged by it.
+ *
+ * Top-level and internal on purpose: the width is the sweep's wall clock, so the policy is one
+ * pure function pinned from every side by `SweepWidthTest`.
+ */
+internal fun sweepWidth(
+    method: ProbeMethod,
+    engine: CoreEngine,
+    tcpWorkers: Int,
+    cpus: Int,
+    singBoxCeiling: Int,
+    xrayChildCeiling: Int,
+    speedFactor: Double,
+    v2rayStyleDelay: Boolean
+): Int = when {
+    method == ProbeMethod.TCP_PING -> PingBudget.concurrency(tcpWorkers)
+    method == ProbeMethod.URL_TEST || engine == CoreEngine.SINGBOX ->
+        tcpWorkers.coerceIn(1, singBoxCeiling.coerceIn(1, 64))
+    v2rayStyleDelay -> tcpWorkers.coerceIn(2, 4)
+    else -> {
+        val base = cpus.coerceIn(2, 4)
+        val scaled = (base * speedFactor).roundToInt()
+        scaled.coerceIn(2, xrayChildCeiling.coerceIn(2, 8))
     }
 }
