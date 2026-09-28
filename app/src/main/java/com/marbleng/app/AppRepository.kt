@@ -548,7 +548,8 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 ipFamilyScanResult = null
                 ipFamilyScanSummary = null
             }
-            val scan = runFamilyScan(profile)
+            // V198: user-initiated single scan uses DEEP mode — full confidence, jitter, NAT64 detection
+            val scan = runFamilyScan(profile, com.marbleng.app.core.ScanMode.DEEP)
             postToMain {
                 ipFamilyScanning = false
                 ipFamilyScanDone = 1
@@ -589,15 +590,17 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             try {
                 val futures = unique.map { profile ->
                     pool.submit {
-                        val scan = runFamilyScan(profile)
+                        // V198: group scan uses BALANCED mode — fast enough for batch, equipped with confidence
+                        val scan = runFamilyScan(profile, com.marbleng.app.core.ScanMode.BALANCED)
                         if (scan != null) results += scan
                         val n = done.incrementAndGet()
                         postToMain { ipFamilyScanDone = n }
                     }
                 }
                 // The sweep is bounded end to end: a hung DNS server must not hold the task mutex.
+                // V198: budget now accounts for scan mode
                 val deadline = System.currentTimeMillis() +
-                    IpFamilyScanner.budgetMsFor(unique.size, IP_FAMILY_SCAN_CONCURRENCY)
+                    IpFamilyScanner.budgetMsFor(unique.size, IP_FAMILY_SCAN_CONCURRENCY, com.marbleng.app.core.ScanMode.BALANCED)
                 for (f in futures) {
                     val left = deadline - System.currentTimeMillis()
                     if (left <= 0L) {
@@ -623,16 +626,22 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      * Measures one endpoint and publishes the verdict everywhere it matters: the live map (so the
      * row repaints), the durable store (so the next launch starts informed) and nothing else —
      * the ladder reads the same map through the evidence seam installed in `init`.
+     *
+     * V198: now equipped with scan modes — FAST for background, BALANCED for group, DEEP for user.
      */
-    private fun runFamilyScan(profile: ProxyProfile): IpFamilyScan? {
+    private fun runFamilyScan(
+        profile: ProxyProfile,
+        mode: com.marbleng.app.core.ScanMode = com.marbleng.app.core.ScanMode.BALANCED
+    ): IpFamilyScan? {
         val key = IpFamilyScanner.endpointKey(profile.host, profile.port)
         if (key.isBlank()) return null
         if (!ipFamilyScanInFlight.add(key)) return ipFamilyScans[key]
         return try {
-            val scan = IpFamilyScanner.scan(
+            val scan = IpFamilyScanner.scanWithMode(
                 host = profile.host,
                 port = profile.port,
-                networkKey = runCatching { intelligence.currentSnapshot().key() }.getOrDefault("")
+                networkKey = runCatching { intelligence.currentSnapshot().key() }.getOrDefault(""),
+                mode = mode
             )
             runCatching { store.saveIpFamilyScan(scan) }
             postToMain { ipFamilyScans[key] = scan }
@@ -670,7 +679,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         val networkKey = runCatching { intelligence.currentSnapshot().key() }.getOrDefault("")
         val known = ipFamilyScans[key]
         if (known != null && known.usableOn(networkKey, System.currentTimeMillis())) return
-        io.execute { runCatching { runFamilyScan(profile) } }
+        io.execute { runCatching { runFamilyScan(profile, com.marbleng.app.core.ScanMode.FAST) } }
     }
 
     /** How many of the visible library's endpoints have a location answer at all. */
@@ -983,10 +992,11 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             )
             try {
                 val futures = pending.map { profile ->
-                    pool.submit(java.util.concurrent.Callable { runCatching { runFamilyScan(profile) } })
+                    // V198: background insights use FAST mode — low budget, but equipped with bogon filtering and confidence
+                    pool.submit(java.util.concurrent.Callable { runCatching { runFamilyScan(profile, com.marbleng.app.core.ScanMode.FAST) } })
                 }
                 val deadline = System.currentTimeMillis() +
-                    IpFamilyScanner.budgetMsFor(pending.size, IP_FAMILY_SCAN_CONCURRENCY)
+                    IpFamilyScanner.budgetMsFor(pending.size, IP_FAMILY_SCAN_CONCURRENCY, com.marbleng.app.core.ScanMode.FAST)
                 for (f in futures) {
                     val left = deadline - System.currentTimeMillis()
                     if (left <= 0L) {

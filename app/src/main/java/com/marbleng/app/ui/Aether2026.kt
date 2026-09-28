@@ -6875,16 +6875,25 @@ private fun IpFamilyScanDialog(scan: IpFamilyScan, onDismiss: () -> Unit) {
                 IpFamilyLine(
                     label = "IPv6",
                     value = when {
-                        scan.ipv6Ok -> "${scan.ipv6Address} • ${scan.ipv6LatencyMs} ms"
-                        scan.hasIpv6 -> "${scan.ipv6Address} • no answer on port"
-                        else -> trx("No AAAA record")
+                        scan.ipv6Ok -> buildString {
+                            append("${scan.ipv6Address} • ${scan.ipv6LatencyMs} ms")
+                            if (scan.ipv6JitterMs >= 0) append(" ±${scan.ipv6JitterMs}ms")
+                            if (scan.ipv6SuccessRate in 0.01f..0.99f) append(" ${(scan.ipv6SuccessRate*100).toInt()}%")
+                            if (scan.nat64Detected) append(" [NAT64]")
+                        }
+                        scan.hasIpv6 -> "${scan.ipv6Address} • no answer on port${if (scan.failureReason.isNotBlank()) " (${scan.failureReason})" else ""}"
+                        else -> trx("No AAAA record") + if (scan.dnsResultKind.isNotBlank()) " (${scan.dnsResultKind})" else ""
                     },
                     tone = if (scan.ipv6Ok) Aether.Emerald else Aether.InkMuted
                 )
                 IpFamilyLine(
                     label = "IPv4",
                     value = when {
-                        scan.ipv4Ok -> "${scan.ipv4Address} • ${scan.ipv4LatencyMs} ms"
+                        scan.ipv4Ok -> buildString {
+                            append("${scan.ipv4Address} • ${scan.ipv4LatencyMs} ms")
+                            if (scan.ipv4JitterMs >= 0) append(" ±${scan.ipv4JitterMs}ms")
+                            if (scan.ipv4SuccessRate in 0.01f..0.99f) append(" ${(scan.ipv4SuccessRate*100).toInt()}%")
+                        }
                         scan.hasIpv4 -> "${scan.ipv4Address} • no answer on port"
                         else -> trx("No A record")
                     },
@@ -6893,11 +6902,32 @@ private fun IpFamilyScanDialog(scan: IpFamilyScan, onDismiss: () -> Unit) {
                 IpFamilyLine(
                     label = trx("This network"),
                     value = if (scan.underlayHasIpv6) {
-                        trx("Carries IPv6")
+                        trx("Carries IPv6") + if (scan.underlayRttMs >= 0) " • ${scan.underlayRttMs}ms" else ""
                     } else {
                         trx("IPv4 only • no IPv6 route")
                     },
                     tone = if (scan.underlayHasIpv6) Aether.Cyan else Aether.Amber
+                )
+                IpFamilyLine(
+                    label = "Confidence",
+                    value = "${scan.confidence}% • ${scan.confidenceTier.name.lowercase()}${if (scan.dnsWitnesses > 0) " • ${scan.dnsWitnesses} witnesses" else ""}",
+                    tone = when {
+                        scan.confidence >= 80 -> Aether.Emerald
+                        scan.confidence >= 50 -> Aether.Cyan
+                        else -> Aether.Amber
+                    }
+                )
+                if (scan.bogonFiltered > 0) {
+                    IpFamilyLine(
+                        label = "Filtered",
+                        value = "${scan.bogonFiltered} bogon IPs dropped",
+                        tone = Aether.Danger
+                    )
+                }
+                IpFamilyLine(
+                    label = "Mode",
+                    value = scan.scanMode.lowercase() + if (scan.scanMode == "DEEP") " • full jitter & NAT64 check" else "",
+                    tone = Aether.InkMuted
                 )
                 if (scan.fasterFamily.isNotBlank()) {
                     IpFamilyLine(
@@ -6992,6 +7022,16 @@ private fun IpFamilyGroupDialog(summary: IpFamilySummary, onDismiss: () -> Unit)
                 }
                 if (summary.unknown > 0) {
                     IpFamilyLine("Unresolved", summary.unknown.toString(), Aether.InkMuted)
+                }
+                if (summary.avgConfidence > 0) {
+                    IpFamilyLine(
+                        "Avg confidence",
+                        "${summary.avgConfidence}% • ${summary.highConfidence} high-conf",
+                        if (summary.avgConfidence >= 70) Aether.Emerald else Aether.Amber
+                    )
+                }
+                if (summary.nat64Count > 0) {
+                    IpFamilyLine("NAT64", "${summary.nat64Count} synthetic", Aether.Cyan)
                 }
                 Text(
                     if (summary.ipv6Capable == 0) {
