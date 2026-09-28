@@ -1119,7 +1119,9 @@ check(
 #    Settings control, and the sweep-width policy is one pure function with its own test.
 # ───────────────────────────────────────────────────────────────────────────────────────────────
 
-ping_speed_dial_test = ""  # diagnostic bisect: tests removed
+ping_speed_dial_test = read(
+    "app/src/test/java/com/marbleng/app/model/PingSpeedTest.kt"
+)
 sweep_width_test = ""  # diagnostic bisect: tests removed
 check(
     "the speed dial is one policy object with one ruler for default and manual speed",
