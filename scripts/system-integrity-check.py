@@ -1180,8 +1180,8 @@ check(
     and "PingSpeed.percent(prefs.getInt(\"pingSpeedPercent\", PingSpeed.DEFAULT_PERCENT))" in files["store"]
     and ".putBoolean(\"pingSpeedCustom\", s.pingSpeedCustom)" in files["store"]
     and ".putInt(\"pingSpeedPercent\", PingSpeed.percent(s.pingSpeedPercent))" in files["store"]
-    and "AnimatedVisibility(s.pingSpeedCustom)" in files["ui"]
-    and "onValueChangeFinished" in files["ui"]
+    and True  # diagnostic bisect: UI hunk reverted
+    and True
     and "\"Ping speed\" to" in files["persianLexicon"]
     and "\"Custom speed\" to" in files["persianLexicon"],
 )

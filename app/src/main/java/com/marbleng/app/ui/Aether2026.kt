@@ -209,7 +209,6 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.roundToInt
-import kotlin.math.roundToLong
 import kotlin.math.sin
 
 private enum class SpatialTab(val label: String) {
@@ -15353,128 +15352,6 @@ private fun ProbeSettings(repo: AppRepository) {
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_PING_SPEED_DIAL_V199 — the speed dial of every ping measurement.
-    //
-    // Switched OFF (the default) every sweep runs at the shipped speed: about 50 % faster than
-    // the classic pace, delivered as sweep width and sample pacing — never as a shorter timeout
-    // or fewer samples, so a number stays a number. Switched ON, the slider IS the multiplier
-    // against the classic pace: 100 % plays it classic, dragging right runs the sweep faster
-    // (wider pool, shorter quiet gaps), dragging left trades speed for gentleness on a weak
-    // link. The dial never touches the measurement budget chips below: they stay the accuracy
-    // contract, the dial only decides how fast that contract is executed.
-    // ─────────────────────────────────────────────────────────────────────────
-    Text(
-        trx("Ping speed"),
-        color = Aether.Ink,
-        style = settingsRowTitleStyle()
-    )
-    Text(
-        trx("Default is about 50% faster sweeps for all three methods. Turn the dial on to choose the speed yourself — from gentler on a weak link to twice as fast."),
-        color = Aether.InkMuted,
-        style = settingsBodyStyle()
-    )
-
-    SettingSwitch(
-        title = "Custom speed",
-        subtitle = if (s.pingSpeedCustom) {
-            trx("Manual") + " • ${PingSpeed.percent(s.pingSpeedPercent)}% " + trx("of the classic pace")
-        } else {
-            trx("Off") + " • " + trx("default speed (~50% faster)")
-        },
-        checked = s.pingSpeedCustom
-    ) { enabled ->
-        repo.updateSettings(repo.settings.copy(pingSpeedCustom = enabled))
-    }
-
-    AnimatedVisibility(s.pingSpeedCustom) {
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            // The slider commits on release, not per frame: a drag must not write thirty
-            // settings to disk on the way past. Local state leads; the store follows the lift.
-            var dialPercent by remember(s.pingSpeedPercent) {
-                mutableFloatStateOf(PingSpeed.percent(s.pingSpeedPercent).toFloat())
-            }
-            val committed = PingSpeed.stepped(dialPercent.toDouble())
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Slider(
-                    value = dialPercent,
-                    onValueChange = { dialPercent = it },
-                    onValueChangeFinished = {
-                        repo.updateSettings(
-                            repo.settings.copy(pingSpeedPercent = committed)
-                        )
-                    },
-                    valueRange = PingSpeed.MIN_PERCENT.toFloat()..PingSpeed.MAX_PERCENT.toFloat(),
-                    steps = (PingSpeed.MAX_PERCENT - PingSpeed.MIN_PERCENT) / PingSpeed.STEP_PERCENT - 1,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    "$committed%",
-                    color = Aether.Cyan,
-                    style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    trx("Slower • ${PingSpeed.MIN_PERCENT}%"),
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall
-                )
-                Text(
-                    trx("Classic • 100%"),
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall
-                )
-                Text(
-                    trx("Faster • ${PingSpeed.MAX_PERCENT}%"),
-                    color = Aether.InkFaint,
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
-            Text(
-                trx("Now") + ": " + trx(PingSpeed.label(true, committed)) + " • " +
-                    (s.pingConcurrency * PingSpeed.factor(true, committed)).roundToInt().coerceIn(1, 64) +
-                    " " + trx("servers at once") + " • " +
-                    (PingBudget.SAMPLE_SPACING_MS / PingSpeed.factor(true, committed)).roundToLong().coerceIn(20L, 300L) +
-                    " ms " + trx("between samples"),
-                color = Aether.InkFaint,
-                style = settingsBodyStyle()
-            )
-            if (committed != PingSpeed.DEFAULT_PERCENT) {
-                CyberButton(
-                    label = trx("Use the default speed"),
-                    color = Aether.Cyan,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    repo.updateSettings(
-                        repo.settings.copy(pingSpeedCustom = false, pingSpeedPercent = PingSpeed.DEFAULT_PERCENT)
-                    )
-                }
-            }
-        }
-    }
-
-    if (!s.pingSpeedCustom) {
-        Text(
-            trx("Default speed") + " • " + trx("about 1.5× the classic pace") + " • " +
-                s.pingWorkers() + " " + trx("servers at once") + " • " +
-                s.pingSampleSpacingMs() + " ms " + trx("between samples"),
-            color = Aether.InkFaint,
-            style = settingsBodyStyle()
-        )
-    }
-
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-
     SettingSwitch(
         title = "Also measure download speed",
         subtitle = "Slower, uses data",
@@ -15508,7 +15385,7 @@ private fun ProbeSettings(repo: AppRepository) {
         style = settingsRowTitleStyle()
     )
     Text(
-        trx("Timeout and sample count apply to every method. Servers at once is the direct-method sweep concurrency; Real delay runs one throwaway core per server, so its pool is capped by what this device can carry — the speed dial widens it inside that bound."),
+        trx("Timeout and sample count apply to every method. Servers at once is the direct-method sweep concurrency; Real test is capped at the native-safe core pool (2–4) because it launches one real Xray child per server."),
         color = Aether.InkMuted,
         style = settingsBodyStyle()
     )
@@ -15540,12 +15417,10 @@ private fun ProbeSettings(repo: AppRepository) {
         tone = Aether.Amethyst
     ) { repo.updateSettings(repo.settings.copy(pingSamples = PingBudget.samples(it))) }
 
-    // MARBLE_PING_SPEED_DIAL_V199 — the read-out shows the numbers the sweep will really run:
-    // the budget wall clock at the dial's spacing, and the dial's width, not the raw chip.
     Text(
         "${trx("Worst case per server")}: " +
-            "${PingBudget.perServerBudgetMs(s.pingTimeoutSec, s.pingSamples, s.pingSampleSpacingMs()) / 1000}s • " +
-            "${s.pingWorkers()} ${trx("Direct at once")}",
+            "${PingBudget.perServerBudgetMs(s.pingTimeoutSec, s.pingSamples) / 1000}s • " +
+            "${PingBudget.concurrency(s.pingConcurrency)} ${trx("Direct at once")}",
         color = Aether.InkFaint,
         style = settingsBodyStyle()
     )
