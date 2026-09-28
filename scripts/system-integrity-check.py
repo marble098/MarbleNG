@@ -1119,8 +1119,8 @@ check(
 #    Settings control, and the sweep-width policy is one pure function with its own test.
 # ───────────────────────────────────────────────────────────────────────────────────────────────
 
-ping_speed_dial_test = ""  # diagnostic bisect: tests removed
-sweep_width_test = ""  # diagnostic bisect: tests removed
+ping_speed_dial_test = ""  # diagnostic bisect: PingSpeedTest removed
+sweep_width_test = read("app/src/test/java/com/marbleng/app/core/SweepWidthTest.kt")
 check(
     "the speed dial is one policy object with one ruler for default and manual speed",
     "object PingSpeed" in files["models"]
@@ -1158,7 +1158,7 @@ check(
     # The Xray Real-delay pool scales with the dial from its old 2..4 envelope.
     and "val scaled = (base * speedFactor).roundToInt()" in files["bench"]
     and "scaled.coerceIn(2, xrayChildCeiling.coerceIn(2, 8))" in files["bench"]
-    and True,  # diagnostic bisect: tests removed
+    and "class SweepWidthTest" in sweep_width_test,
 )
 check(
     "the device sizes the Xray Real-delay pool exactly like the sing-box pool",
@@ -1185,7 +1185,10 @@ check(
 )
 check(
     "the speed dial is pinned by unit tests in both directions",
-    True,  # diagnostic bisect: tests removed
+    True  # diagnostic bisect: PingSpeedTest removed
+    and "nativeChildMeasurementsStayUnderTheDeviceCeiling" in sweep_width_test
+    and "theXrayRealDelayPoolScalesWithTheDial" in sweep_width_test
+    and "noInputEscapesTheLegalRanges" in sweep_width_test,
 )
 
 # ───────────────────────────────────────────────────────────────────────────────────────────────
