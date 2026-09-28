@@ -348,6 +348,11 @@ object Ipv6FallbackLadder {
      * A literal host is decided locally and needs no measurement at all: `185.x.x.x` can never
      * gain an AAAA record, and `[2a01::1]` can never gain an A record. A stale or foreign-network
      * scan is ignored by the caller before it reaches this function.
+     *
+     * V198: equipped with confidence awareness and NAT64 handling:
+     *  - low-confidence (<20%) scans are treated as unmeasured to avoid poisoning the ladder
+     *  - NAT64 synthetic AAAA is treated as "has IPv6 record" but not "proven native IPv6",
+     *    so the ladder keeps IPv4 as primary and IPv6 as opportunistic
      */
     fun evidenceFor(
         host: String,
@@ -358,24 +363,36 @@ object Ipv6FallbackLadder {
         val literal = AddressFamilyPolicy.isLiteralIp(clean)
         val v6Literal = literal && clean.contains(':')
         val v4Literal = literal && !clean.contains(':')
+        // V198: low confidence scans are not evidence
+        val trustedScan = scan?.takeIf { it.confidence >= 20 || it.confidence == 0 && it.scannedAtMs > 0L } // 0 conf from old scans still trusted for backward compat
+        // Actually: old scans have conf=0, we treat them as trusted if they have verdict; new low-conf (<20) is distrusted
+        val effectiveScan = when {
+            scan == null -> null
+            scan.confidence == 0 && scan.scannedAtMs > 0L -> scan // backward compat: V197 scans have 0 conf but are valid
+            scan.confidence < 20 -> null // V198 low-confidence is not evidence
+            else -> scan
+        }
+        val hasIpv6 = when {
+            v6Literal -> true
+            v4Literal -> false
+            effectiveScan != null -> effectiveScan.hasIpv6
+            else -> null
+        }
+        val ipv6Proven = when {
+            effectiveScan == null -> null
+            effectiveScan.nat64Detected -> false // NAT64 synthetic is not native proven
+            effectiveScan.ipv6Ok -> true
+            effectiveScan.hasIpv6 -> false
+            else -> null
+        }
         return FamilyEvidence(
             underlayHasIpv6 = underlayHasIpv6,
-            nodeHasIpv6 = when {
-                v6Literal -> true
-                v4Literal -> false
-                scan != null -> scan.hasIpv6
-                else -> null
-            },
-            nodeIpv6Proven = when {
-                scan == null -> null
-                scan.ipv6Ok -> true
-                scan.hasIpv6 -> false
-                else -> null
-            },
+            nodeHasIpv6 = hasIpv6,
+            nodeIpv6Proven = ipv6Proven,
             nodeHasIpv4 = when {
                 v4Literal -> true
                 v6Literal -> false
-                scan != null -> scan.hasIpv4
+                effectiveScan != null -> effectiveScan.hasIpv4
                 else -> null
             },
             nodeIsIpv4Literal = v4Literal,

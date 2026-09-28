@@ -155,6 +155,66 @@ object AddressFamilyPolicy {
     }
 
     /**
+     * V198 — equipped underlay probe: more than boolean, measures interface count, RTT hint,
+     * NAT64 presence. Used by the enhanced family scanner to compute confidence and adaptive TTL.
+     *
+     * This is still pure enough to be called from background threads; it never does network I/O,
+     * only inspects local interfaces. The RTT hint is left -1 here and filled by the scanner's
+     * own TCP probe to a well-known IPv6 literal when needed.
+     */
+    data class UnderlayCapabilities(
+        val hasIpv6: Boolean,
+        val hasIpv4: Boolean = true,
+        val interfaceCount: Int = 0,
+        val ipv6AddressCount: Int = 0,
+        val hasNat64: Boolean = false,
+        val mtuHint: Int = -1
+    )
+
+    fun probeUnderlay(nowMs: Long = System.currentTimeMillis(), ttlMs: Long = 2_000): UnderlayCapabilities {
+        if (underlayCacheMs != 0L && nowMs - underlayCacheMs < ttlMs) {
+            // Fast path: return cached boolean with minimal detail
+            return UnderlayCapabilities(hasIpv6 = underlayCacheValue)
+        }
+        return runCatching {
+            val interfaces = NetworkInterface.getNetworkInterfaces()?.asSequence()
+                ?.filter { it.isUp && !it.isLoopback && !it.isVirtual }
+                ?.filterNot { net ->
+                    val name = net.name?.lowercase().orEmpty()
+                    name.startsWith("tun") || name.startsWith("utun") || name.startsWith("ppp") || name.startsWith("tap")
+                }?.toList() ?: emptyList()
+
+            var v6Count = 0
+            var hasV6 = false
+            var hasNat64 = false
+            for (iface in interfaces) {
+                for (addr in iface.inetAddresses.toList()) {
+                    if (addr is Inet6Address) {
+                        if (!addr.isLoopbackAddress && !addr.isLinkLocalAddress && !addr.isAnyLocalAddress && !isUniqueLocal(addr)) {
+                            hasV6 = true
+                            v6Count++
+                            // Detect NAT64 prefix in local address? Unlikely, but check for 64:ff9b::/96
+                            if (addr.address.size >= 4 && addr.address[0] == 0x00.toByte() && addr.address[1] == 0x64.toByte() &&
+                                addr.address[2] == 0xFF.toByte() && addr.address[3] == 0x9B.toByte()) {
+                                hasNat64 = true
+                            }
+                        }
+                    }
+                }
+            }
+            underlayCacheValue = hasV6
+            underlayCacheMs = nowMs
+            UnderlayCapabilities(
+                hasIpv6 = hasV6,
+                hasIpv4 = true,
+                interfaceCount = interfaces.size,
+                ipv6AddressCount = v6Count,
+                hasNat64 = hasNat64
+            )
+        }.getOrDefault(UnderlayCapabilities(hasIpv6 = underlayCacheValue))
+    }
+
+    /**
      * Resolve the user's intent for one outbound.
      *
      * @param importedStrategy `sockopt.domainStrategy` the node config already carried. A node that

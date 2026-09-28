@@ -42,6 +42,58 @@ object DnsWireCodec {
         }
     }
 
+    /** Extract RCODE (0=NOERROR, 3=NXDOMAIN, etc.) from a DNS wire message, -1 on malformed. */
+    fun extractRcode(message: ByteArray): Int {
+        if (message.size < 4) return -1
+        return message[3].toInt() and 0x0F
+    }
+
+    /** Result of a detailed parse that keeps RCODE and answer count. */
+    data class DetailedResult(
+        val rcode: Int,
+        val answerCount: Int,
+        val addresses: List<InetAddress>
+    )
+
+    /** Parse with RCODE preservation — used by the enhanced family scanner to distinguish NXDOMAIN from NODATA. */
+    fun parseDetailed(message: ByteArray): DetailedResult {
+        if (message.size < 12) return DetailedResult(rcode = -1, answerCount = 0, addresses = emptyList())
+        val rcode = message[3].toInt() and 0x0F
+        val answers = ((message[6].toInt() and 0xFF) shl 8) or (message[7].toInt() and 0xFF)
+        if (rcode != 0 || answers == 0) return DetailedResult(rcode = rcode, answerCount = answers, addresses = emptyList())
+        return DetailedResult(rcode = rcode, answerCount = answers, addresses = parseAnswersInternal(message))
+    }
+
+    private fun parseAnswersInternal(message: ByteArray): List<InetAddress> {
+        val answers = ((message[6].toInt() and 0xFF) shl 8) or (message[7].toInt() and 0xFF)
+        val out = mutableListOf<InetAddress>()
+        var offset = 12
+        var qdCount = ((message[4].toInt() and 0xFF) shl 8) or (message[5].toInt() and 0xFF)
+        while (qdCount > 0 && offset < message.size) {
+            offset = skipName(message, offset)
+            if (offset + 4 > message.size) return out
+            offset += 4
+            qdCount--
+        }
+        var remaining = answers
+        while (remaining > 0 && offset + 11 < message.size) {
+            offset = skipName(message, offset)
+            if (offset + 10 > message.size) break
+            val type = ((message[offset].toInt() and 0xFF) shl 8) or (message[offset + 1].toInt() and 0xFF)
+            val dataLen = ((message[offset + 8].toInt() and 0xFF) shl 8) or (message[offset + 9].toInt() and 0xFF)
+            offset += 10
+            if (offset + dataLen > message.size) break
+            val data = message.copyOfRange(offset, offset + dataLen)
+            when {
+                type == 1 && dataLen == 4 -> runCatching { out += InetAddress.getByAddress(data) }
+                type == 28 && dataLen == 16 -> runCatching { out += InetAddress.getByAddress(data) }
+            }
+            offset += dataLen
+            remaining--
+        }
+        return out
+    }
+
     /**
      * Parse A (type 1) and AAAA (type 28) answers from a DNS wire message.
      * Returns an empty list when no usable answer was returned (caller treats it as a failure).
