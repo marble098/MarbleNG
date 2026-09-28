@@ -166,17 +166,48 @@ class AppStore(context: Context) {
     }
 
     /** Merges one learned location; the table is bounded and the oldest entries age out. */
-    fun saveServerLocation(key: String, code: String) {
+    fun saveServerLocation(key: String, code: String, provisional: Boolean = false) {
         if (key.isBlank() || code.length != 2) return
         val all = loadServerLocations().toMutableMap()
+        val provisionalFlags = loadServerLocationProvisional().toMutableMap()
         all[key] = code.uppercase() to System.currentTimeMillis()
+        provisionalFlags[key] = provisional
         val kept = all.entries
             .sortedByDescending { it.value.second }
             .take(serverLocationMemoryLimit)
             .associate { it.key to it.value }
         val out = JSONObject()
-        kept.forEach { (k, v) -> out.put(k, JSONObject().put("code", v.first).put("at", v.second)) }
+        kept.forEach { (k, v) ->
+            out.put(
+                k,
+                JSONObject()
+                    .put("code", v.first)
+                    .put("at", v.second)
+                    // MARBLE_SERVER_LOCATION_V197 — a lone answer is remembered as lone. Without
+                    // this the app could not tell "measured, five services agreed" from "measured,
+                    // one service answered while four were unreachable", so the thin answer was
+                    // either trusted forever or discarded forever.
+                    .put("provisional", provisionalFlags[k] == true)
+            )
+        }
         prefs.edit().putString("serverLocations", out.toString()).apply()
+    }
+
+    /**
+     * MARBLE_SERVER_LOCATION_V197 — which learned locations were single-witness answers.
+     *
+     * Kept as its own read so the existing [loadServerLocations] contract is untouched: the rows
+     * that only want a flag keep asking for a flag.
+     */
+    fun loadServerLocationProvisional(): Map<String, Boolean> {
+        val out = mutableMapOf<String, Boolean>()
+        val root = runCatching { JSONObject(prefs.getString("serverLocations", "{}") ?: "{}") }
+            .getOrNull() ?: return out
+        for (key in root.keys()) {
+            val entry = runCatching { root.getJSONObject(key) }.getOrNull() ?: continue
+            out[key] = entry.optBoolean("provisional", false)
+        }
+        return out
     }
 
     // ───────────────────────────────────────────────────────────────────────────────────────────

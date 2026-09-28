@@ -141,7 +141,107 @@ class IpFamilyScannerTest {
             attempts += 1
             -1
         }
-        assertEquals(2 * IpFamilyScanner.MAX_ADDRESSES_PER_FAMILY, attempts)
+        // MARBLE_IP_FAMILY_TRUTH_V197 — every address is now dialled more than once, and the bound
+        // is the point: a sweep of forty nodes must still be provably finite.
+        assertEquals(
+            2 * IpFamilyScanner.MAX_ADDRESSES_PER_FAMILY * IpFamilyScanner.CONNECT_ATTEMPTS_PER_ADDRESS,
+            attempts
+        )
+    }
+
+    @Test fun aSingleLostIpv6PacketDoesNotBrandADualStackNodeIpv4Only() {
+        // The first IPv6 packet after neighbour discovery is the one a link is most likely to eat.
+        // A scanner that dials once and gives up turns every dual-stack node into "IPv6 unproven"
+        // and, when the resolver also misses, into "IPv4-only" — the exact wrong answer this file
+        // exists to prevent.
+        var v6Attempts = 0
+        val result = scan(listOf(v6, v4)) { address ->
+            if (address.hostAddress!!.contains(':')) {
+                v6Attempts += 1
+                if (v6Attempts == 1) -1 else 44
+            } else 60
+        }
+
+        assertEquals(IpFamilyVerdict.DUAL_OK, result.verdict)
+        assertEquals("v4+v6", result.chip)
+        assertEquals(44, result.ipv6LatencyMs)
+        assertTrue(result.ipv6Usable)
+    }
+
+    @Test fun aFamilyThatOnlyAppearsOnTheConfirmingResolutionIsBelieved() {
+        // MARBLE_IP_FAMILY_TRUTH_V197 — one resolver answering the AAAA question with an empty
+        // answer section must not be allowed to delete a family. The scanner asks again before it
+        // believes absence, and the second opinion is what the node's real record says.
+        var calls = 0
+        val result = IpFamilyScanner.scan(
+            host = "edge.example.net",
+            port = 443,
+            networkKey = "wifi:home",
+            nowMs = 10_000L,
+            resolver = { _, _ ->
+                calls += 1
+                if (calls == 1) listOf(v4) else listOf(v6, v4)
+            },
+            connector = { address, _, _ -> if (address.hostAddress!!.contains(':')) 38 else 60 }
+        )
+
+        assertEquals(2, calls)
+        assertTrue(result.hasIpv6)
+        assertEquals(IpFamilyVerdict.DUAL_OK, result.verdict)
+        assertFalse(result.ipv4Locked)
+    }
+
+    @Test fun aFamilyNobodyCanAnswerForIsStillAbsent() {
+        // The confirmation pass must not become a permanent "maybe": two silent answers are the
+        // evidence that the record does not exist, and that is what makes the ladder's rung honest.
+        var calls = 0
+        val result = IpFamilyScanner.scan(
+            host = "edge.example.net",
+            port = 443,
+            networkKey = "wifi:home",
+            nowMs = 10_000L,
+            resolver = { _, _ -> calls += 1; listOf(v4) },
+            connector = { _, _, _ -> 60 }
+        )
+
+        assertEquals(IpFamilyScanner.RESOLVE_CONFIRM_PASSES, calls)
+        assertEquals(IpFamilyVerdict.IPV4_ONLY, result.verdict)
+        assertTrue(result.ipv4Locked)
+    }
+
+    @Test fun anUnresolvedNameIsNeverConfirmedAndNeverLooksLikeIpv4Only() {
+        // Nothing resolved at all, so there is nothing to confirm: a second pass would only burn
+        // the sweep's budget while producing the same non-answer.
+        var calls = 0
+        val result = IpFamilyScanner.scan(
+            host = "edge.example.net",
+            port = 443,
+            nowMs = 10_000L,
+            resolver = { _, _ -> calls += 1; emptyList() },
+            connector = { _, _, _ -> 60 }
+        )
+
+        assertEquals(1, calls)
+        assertEquals(IpFamilyVerdict.UNKNOWN, result.verdict)
+        assertFalse(result.ipv4Locked)
+    }
+
+    @Test fun ipv6WinsATieAndEverythingInsideTheNoiseFloor() {
+        // Marble is an IPv6-forward client: a difference too small to be real (one handshake, one
+        // radio) must not be allowed to talk the tunnel out of the family it is for.
+        val tie = scan(listOf(v6, v4)) { if (it == v6) 50 else 50 }
+        val noise = scan(listOf(v6, v4)) {
+            if (it == v6) 50 else 50 - IpFamilyScanner.IPV6_PREFERENCE_TOLERANCE_MS
+        }
+        val real = scan(listOf(v6, v4)) {
+            if (it == v6) 50 else 50 - IpFamilyScanner.IPV6_PREFERENCE_TOLERANCE_MS - 1
+        }
+
+        assertEquals("ipv6", tie.fasterFamily)
+        assertEquals("ipv6", noise.fasterFamily)
+        assertEquals("ipv4", real.fasterFamily)
+        assertTrue(tie.ipv6Preferred)
+        assertFalse(real.ipv6Preferred)
     }
 
     @Test fun anInvalidPortIsRejectedWithoutTouchingTheNetwork() {

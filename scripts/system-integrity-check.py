@@ -174,6 +174,26 @@ files = {
     # keeps a forced family from becoming an outage, and the name-vs-resolver classifier that
     # stopped one failing domain from looking like a resolver storm.
     "familyScanner": read("app/src/main/java/com/marbleng/app/core/IpFamilyScanner.kt"),
+    # MARBLE_IP_FAMILY_TRUTH_V197 / MARBLE_SERVER_LOCATION_V197 / MARBLE_IME_HYGIENE_V197 /
+    # MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — the four chapters that came out of one logcat:
+    # a scan that could call a dual-stack server IPv4-only, a location test that measured a
+    # country and then drew no flag, a keyboard that was asked to hide a hundred times, and a
+    # probe that only discovered a filtered target after spending a whole cycle on it.
+    "endpointResolver": read(
+        "app/src/main/java/com/marbleng/app/core/EncryptedEndpointResolver.kt"
+    ),
+    "locationResolver": read(
+        "app/src/main/java/com/marbleng/app/core/ServerLocationResolver.kt"
+    ),
+    "locationTest": read(
+        "app/src/test/java/com/marbleng/app/core/ServerLocationResolverV192Test.kt"
+    ),
+    "locationV197Test": read(
+        "app/src/test/java/com/marbleng/app/core/ServerLocationResolverV197Test.kt"
+    ),
+    "ime": read("app/src/main/java/com/marbleng/app/ui/MarbleIme.kt"),
+    "imeTest": read("app/src/test/java/com/marbleng/app/ui/MarbleImeHiderTest.kt"),
+    "v197Doc": read("docs/IPV6_TRUTH_LOCATION_AND_IME_V197.md"),
     "familyLadder": read("app/src/main/java/com/marbleng/app/core/Ipv6FallbackLadder.kt"),
     "domainFault": read("app/src/main/java/com/marbleng/app/core/DnsDomainFaultPolicy.kt"),
     "stormGuard": read("app/src/main/java/com/marbleng/app/core/DnsStormGuard.kt"),
@@ -2650,7 +2670,7 @@ check(
     and "IPV4_ONLY" in files["familyScanner"]
     and "fun classify(" in files["familyScanner"]
     # Encrypted DoH only — a scan must never leak a node name to the local resolver.
-    and "AddressFamilyPolicy.resolveWithBudget" in files["familyScanner"]
+    and "AddressFamilyPolicy.resolveFamilyWithBudget" in files["familyScanner"]
     # A verdict belongs to one physical network and expires.
     and "fun usableOn(" in files["familyScanner"]
     and "const val TTL_MS" in files["familyScanner"]
@@ -2703,6 +2723,116 @@ check(
     and "forceIpv6WithoutStrictDegradesInsteadOfRefusing" in files["ipv6Test"]
     and "MARBLE_IP_FAMILY_SCAN_V196" in files["familyScanDoc"]
     and "IP_FAMILY_SCAN_V196.md" in files["readme"],
+)
+
+# =================================================================================================
+# V197 — the four fixes
+# =================================================================================================
+
+check(
+    "V197 a family is only called absent when independent resolvers say so",
+    # The resolver used to keep the FIRST provider that answered, and the winner was chosen before
+    # its answer was parsed: one empty answer section deleted a whole family and a dual-stack
+    # server was reported IPv4-only. Both families are now asked in parallel, with witnesses.
+    "fun resolveAll(" in files["endpointResolver"]
+    and "fun queryFamily(" in files["endpointResolver"]
+    and "MIN_WITNESS_PROVIDERS" in files["endpointResolver"]
+    and "MAX_WITNESS_PROVIDERS" in files["endpointResolver"]
+    and "fun resolveFamilyWithBudget(" in files["addressFamily"]
+    # ...and the scan refuses to believe absence from a single silent answer.
+    and "fun resolveFamilies(" in files["familyScanner"]
+    and "RESOLVE_CONFIRM_PASSES" in files["familyScanner"]
+    and "MIN_CONFIRM_BUDGET_MS" in files["familyScanner"],
+)
+check(
+    "V197 a lost first IPv6 packet does not cost a server its IPv6",
+    # One connect per address decided reachability, and the first IPv6 packet on a link is exactly
+    # the one neighbour discovery and PMTU discovery eat. Bounded retries, still a finite sweep.
+    "CONNECT_ATTEMPTS_PER_ADDRESS" in files["familyScanner"]
+    and "fun probeAddress(" in files["familyScanner"]
+    and "CONNECT_ATTEMPTS_PER_ADDRESS" in files["familyScannerTest"]
+    and "aSingleLostIpv6PacketDoesNotBrandADualStackNodeIpv4Only" in files["familyScannerTest"]
+    and "aFamilyThatOnlyAppearsOnTheConfirmingResolutionIsBelieved" in files["familyScannerTest"],
+)
+check(
+    "V197 IPv6 is the preferred family inside the noise floor",
+    # The user's goal is the fastest path and for Marble that path is IPv6, so a handshake
+    # difference too small to be real must not be allowed to argue the tunnel out of it.
+    "IPV6_PREFERENCE_TOLERANCE_MS" in files["familyScanner"]
+    and "val ipv6Preferred" in files["familyScanner"]
+    and "ipv6WinsATieAndEverythingInsideTheNoiseFloor" in files["familyScannerTest"],
+)
+check(
+    "V197 every added server is located, including the ones a label already names",
+    # The old sweep skipped any node whose own label named a country, so the flag was the
+    # subscription's claim and not the address's fact. The label now orders the queue only.
+    "fun ensureServerInsights(" in files["repo"]
+    and "ensureServerInsights()" in files["repo"]
+    and "LOCATION_SWEEP_CONCURRENCY" in files["repo"]
+    and "INSIGHT_FAMILY_BATCH" in files["repo"]
+    # A lone answer is remembered as lone, so the next sweep can promote it.
+    and "verdict.provisional" in files["repo"]
+    and "loadServerLocationProvisional" in files["store"],
+)
+check(
+    "V197 a single uncontradicted geo answer is shown and marked provisional",
+    # Two of three providers being unreachable used to mean "no flag", which is the same thing as
+    # not having tested. Silence is not disagreement — but a thin answer stays thin until proved.
+    "enum class LocationConfidence" in files["locationResolver"]
+    and "data class ServerLocationVerdict" in files["locationResolver"]
+    and "MIN_SILENT_WITNESSES_FOR_LONE_ACCEPT" in files["locationResolver"]
+    and "fun resolveCountryDetailed(" in files["locationResolver"]
+    and "val provisional" in files["locationResolver"]
+    # The quorum rule that was already right is untouched, and still pinned by its own test.
+    and "voteRequiresAnIndependentQuorum" in files["locationTest"]
+    and "oneAnswerWhileTheRestOfThePoolIsUnreachableIsAccepted" in files["locationV197Test"]
+    and "aLoneAnswerIsMarkedProvisionalSoItIsTestedAgain" in files["locationV197Test"],
+)
+check(
+    "V197 the keyboard is released by an event, never by a recomposition",
+    "MARBLE_IME_HYGIENE_V197" in files["ime"]
+    # A surface that only looks like a text field must never be handed an input session.
+    and "fun Modifier.marbleImeInert()" in files["ime"]
+    and "marbleImeInert()" in files["ui"]
+    # Every real field declares the event that ends its session.
+    and "marbleImeOptions(" in files["ui"]
+    and "marbleImeActions(" in files["ui"]
+    # ...and a host that leaves releases it exactly once.
+    and "fun MarbleImeReleaseOnDispose(" in files["ime"]
+    and "MarbleImeReleaseOnDispose(" in files["ui"]
+    # No composable is allowed to ask for a hide on its own.
+    and "LocalSoftwareKeyboardController" not in files["ui"]
+    and "LocalSoftwareKeyboardController" not in files["ime"],
+)
+check(
+    "V197 a repeated hide request is contained instead of logged a hundred times",
+    "MARBLE_IME_HIDE_COOLDOWN_MS" in files["ime"]
+    and "fun hide(): Boolean" in files["ime"]
+    and "val suppressedHides" in files["ime"]
+    and "class MarbleImeHiderTest" in files["imeTest"]
+    and "aLoopInsideTheCooldownCostsOneCallInsteadOfAHundred" in files["imeTest"],
+)
+check(
+    "V197 the route probe is multi-target from the first sample, and a pivot is a race",
+    # A cycle that follows a failed one used to re-measure the same silent target and only then
+    # ask somebody else, one at a time. Now it races two targets, and a pivot races its candidates.
+    "fun raceFirstSample(" in files["vpn"]
+    and "fun routeProbePartnerFor(" in files["vpn"]
+    and "lastRouteCycleVerified" in files["vpn"]
+    and "PIVOT_RACE_TARGETS" in files["vpn"]
+    # A freshly cleared window is not worth scoring yet: latency publishes, the score waits.
+    and "PIVOT_QUALITY_MIN_SAMPLES" in files["vpn"]
+    and "holdQuality" in files["vpn"]
+    and "holdQuality: Boolean = false" in files["repo"]
+    and "score settling after target change" in files["repo"],
+)
+check(
+    "V197 the four chapters are pinned by tests and written down",
+    "MARBLE_IP_FAMILY_TRUTH_V197" in files["familyScanner"]
+    and "MARBLE_SERVER_LOCATION_V197" in files["locationResolver"]
+    and "MARBLE_IME_HYGIENE_V197" in files["ime"]
+    and "MARBLE_ROUTE_PROBE_MULTI_TARGET_V197" in files["vpn"]
+    and "IPV6_TRUTH_LOCATION_AND_IME_V197.md" in files["readme"],
 )
 
 production = "\n".join(

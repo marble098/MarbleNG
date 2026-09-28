@@ -25,11 +25,12 @@ import java.net.Socket
  * measures the two facts that matter, per endpoint, on the network the phone is actually on:
  *
  *  1. **Which records exist** — A and/or AAAA, resolved through the app's own encrypted
- *     IP-literal DoH ([AddressFamilyPolicy.resolveWithBudget]). System DNS is never consulted, so
- *     a scan cannot leak a node name to the local ISP and cannot be poisoned by it either.
- *  2. **Which of them actually connects** — one bounded TCP connect per family, to the node's own
- *     port. "Advertises AAAA" and "answers over IPv6" are different claims, and only the second
- *     one is worth routing on.
+ *     IP-literal DoH ([AddressFamilyPolicy.resolveFamilyWithBudget]), which asks both families in
+ *     parallel and keeps every independent witness. System DNS is never consulted, so a scan
+ *     cannot leak a node name to the local ISP and cannot be poisoned by it either.
+ *  2. **Which of them actually connects** — a bounded TCP connect per family, retried, to the
+ *     node's own port. "Advertises AAAA" and "answers over IPv6" are different claims, and only
+ *     the second one is worth routing on.
  *
  * ## What the verdict means
  *
@@ -58,6 +59,33 @@ import java.net.Socket
  * home Wi-Fi to a v4-only café must not let yesterday's "IPv6 works" answer keep Force IPv6
  * armed, and a node that gained an AAAA record last week must not stay branded IPv4-only forever.
  * Everything here is pure enough to unit-test: DNS and TCP arrive as function seams.
+ *
+ * ## MARBLE_IP_FAMILY_TRUTH_V197 — why a scan could call a dual-stack server IPv4-only
+ *
+ * Three measurements, each individually reasonable, combined into the wrong answer:
+ *
+ *  1. **The resolver raced, so one provider decided a family.** `EncryptedEndpointResolver.resolve`
+ *     keeps the first provider that answers, and the winner is chosen before its answer is parsed.
+ *     A resolver that replies NOERROR with an empty answer section therefore ends the race and the
+ *     providers that did hold the AAAA record are cancelled mid-flight. `hasIpv6 = false` followed,
+ *     and the scanner branded the node IPv4-only while the node answered over IPv6 all along.
+ *     Fixed at the source: [AddressFamilyPolicy.resolveFamilyWithBudget] asks A and AAAA in
+ *     parallel and keeps every independent witness, and [IpFamilyScanner.resolveFamilies] refuses
+ *     to conclude "this family does not exist" from a single silent answer — it re-asks before it
+ *     believes absence (see [RESOLVE_CONFIRM_PASSES]).
+ *  2. **One TCP connect decided reachability.** A single 1.4 s probe is a coin toss on IPv6: the
+ *     first packet after neighbour discovery, a PMTU black hole or a cold radio all lose exactly
+ *     that one packet. Fixed with [CONNECT_ATTEMPTS_PER_ADDRESS] — bounded, so a sweep is still
+ *     provably finite.
+ *  3. **Absence was inferred from the underlay.** A phone with no global IPv6 address used to make
+ *     an IPv6 connect fail, and that failure used to read as "the node has no IPv6". It never has:
+ *     [IpFamilyScan.underlayHasIpv6] is recorded with every scan and the verdict keeps "the record
+ *     exists" apart from "the record answered here".
+ *
+ * The product goal this serves is speed. Marble's fastest path is IPv6, so a false "IPv4-only"
+ * verdict does not merely mislabel a row — it removes the node from the family the tunnel should
+ * be using. The scan now costs a second resolver pass only in the case where it matters: when one
+ * family answered and the other did not.
  */
 enum class IpFamilyVerdict {
     /** Nothing measured yet, or the scan produced no DNS answer at all. */
@@ -193,15 +221,24 @@ data class IpFamilyScan(
 
     /**
      * Which family is the fast one, when both work: `"ipv6"`, `"ipv4"` or `""` when only one (or
-     * neither) family answered. Marble prefers IPv6 on a tie — that is the product's whole point,
-     * and a tie means the v6 path costs nothing extra.
+     * neither) family answered.
+     *
+     * MARBLE_IP_FAMILY_TRUTH_V197 — Marble prefers IPv6 on a tie *and inside the noise floor*:
+     * [IpFamilyScanner.IPV6_PREFERENCE_TOLERANCE_MS]. Two TCP handshakes taken a fraction of a
+     * second apart on the same radio differ by more than that every day, so treating a 3 ms
+     * difference as evidence would flip a node's family on noise alone. The user's goal is the
+     * fastest, highest-quality path and for this product that path is IPv6, so a difference too
+     * small to be real must not be allowed to talk it out of it.
      */
     val fasterFamily: String
         get() = when {
             !ipv6Ok || !ipv4Ok -> ""
-            ipv6LatencyMs <= ipv4LatencyMs -> "ipv6"
+            ipv6LatencyMs <= ipv4LatencyMs + IpFamilyScanner.IPV6_PREFERENCE_TOLERANCE_MS -> "ipv6"
             else -> "ipv4"
         }
+
+    /** Whether both families answered and IPv6 is at least as good — the speed case for IPv6. */
+    val ipv6Preferred: Boolean get() = fasterFamily == "ipv6"
 
     fun toJson(): JSONObject = JSONObject()
         .put("endpoint", endpoint)
@@ -261,14 +298,55 @@ object IpFamilyScanner {
     /** A family verdict is evidence for six hours; after that the node is re-measured. */
     const val TTL_MS: Long = 6L * 60L * 60L * 1_000L
 
-    /** Encrypted DoH budget for one endpoint. Literals never reach a resolver at all. */
-    const val RESOLVE_BUDGET_MS: Int = 2_500
+    /**
+     * Encrypted DoH budget for one endpoint, for BOTH families together.
+     *
+     * MARBLE_IP_FAMILY_TRUTH_V197: raised from 2 500 ms because A and AAAA are now resolved in
+     * parallel by independent witnesses. Two witnesses per family at 900 ms each is 1 800 ms of
+     * real work; a 2 500 ms ceiling turned a merely slow network into "unresolvable", which
+     * produced no verdict at all instead of a slow one.
+     */
+    const val RESOLVE_BUDGET_MS: Int = 3_000
 
     /** One TCP connect per family. Long enough for a distant node, short enough for a sweep. */
-    const val CONNECT_BUDGET_MS: Int = 1_400
+    const val CONNECT_BUDGET_MS: Int = 1_200
+
+    /**
+     * MARBLE_IP_FAMILY_TRUTH_V197 — how many times one address is dialled before it is declared
+     * unreachable.
+     *
+     * The second attempt is not superstition: on IPv6 the packets most likely to be dropped are
+     * the first ones (neighbour discovery, PMTU discovery, a cold radio), so a single probe loses
+     * dual-stack nodes at exactly the rate the product cares about most. Bounded at two so a sweep
+     * of forty nodes is still provably finite — see [budgetMsFor].
+     */
+    const val CONNECT_ATTEMPTS_PER_ADDRESS: Int = 2
 
     /** At most this many addresses per family are tried, newest answer order preserved. */
     const val MAX_ADDRESSES_PER_FAMILY: Int = 2
+
+    /**
+     * How many independent resolver passes a family must stay silent through before the scan
+     * believes it has no record at all.
+     *
+     * One pass is only ever taken when the *other* family answered: if neither answered, the name
+     * did not resolve and there is nothing to confirm. The confirmation pass gets half the budget
+     * — it is a second opinion, not a second full lookup.
+     */
+    const val RESOLVE_CONFIRM_PASSES: Int = 2
+
+    /** Floor for the confirmation pass, so halving a tight budget cannot produce a 0 ms lookup. */
+    const val MIN_CONFIRM_BUDGET_MS: Int = 900
+
+    /**
+     * How much faster IPv4 must be before IPv6 stops being the preferred family.
+     *
+     * MARBLE_IP_FAMILY_TRUTH_V197: the product's thesis is that the IPv6 path is the fast one, and
+     * a one-sample TCP handshake difference of a few milliseconds is noise, not evidence — two
+     * connects taken 200 ms apart on the same radio differ by more than this every day. Inside the
+     * tolerance IPv6 still wins, so a dual-stack node keeps using the family Marble is for.
+     */
+    const val IPV6_PREFERENCE_TOLERANCE_MS: Int = 8
 
     /** The canonical cache key of an endpoint — shared with the server-location cache. */
     fun endpointKey(host: String, port: Int): String = ServerLocationKey.of(host, port)
@@ -283,9 +361,13 @@ object IpFamilyScanner {
     fun budgetMsFor(count: Int, concurrency: Int): Long {
         val workers = concurrency.coerceAtLeast(1)
         val waves = ((count.coerceAtLeast(1) + workers - 1) / workers).toLong()
-        val perEndpointMs =
-            RESOLVE_BUDGET_MS.toLong() + 2L * MAX_ADDRESSES_PER_FAMILY * CONNECT_BUDGET_MS
-        return waves * perEndpointMs + 2_000L
+        // MARBLE_IP_FAMILY_TRUTH_V197 — the worst case per endpoint is now the resolve budget
+        // (both families, two witnesses each) plus the confirmation pass, plus every address of
+        // both families dialled CONNECT_ATTEMPTS_PER_ADDRESS times.
+        val resolveMs = RESOLVE_BUDGET_MS.toLong() +
+            (RESOLVE_CONFIRM_PASSES - 1) * (RESOLVE_BUDGET_MS.toLong() / 2)
+        val probeMs = 2L * MAX_ADDRESSES_PER_FAMILY * CONNECT_ATTEMPTS_PER_ADDRESS * CONNECT_BUDGET_MS
+        return waves * (resolveMs + probeMs) + 2_000L
     }
 
     /**
@@ -315,10 +397,11 @@ object IpFamilyScanner {
      * is the one the tunnel will use. Both probes always run: knowing that IPv4 also works is what
      * lets the fallback ladder promise a route instead of a refusal.
      *
-     * @param resolver seam: hostname + budget → addresses. Defaults to the encrypted IP-literal
-     *   DoH resolver, never the OS resolver.
+     * @param resolver seam: hostname + budget → addresses of BOTH families. Defaults to the
+     *   encrypted IP-literal DoH resolver, never the OS resolver. Called a second time (half the
+     *   budget) only when one family answered and the other did not — see [resolveFamilies].
      * @param connector seam: address + port + budget → latency in ms, or a negative value when the
-     *   connect failed. Defaults to a bounded TCP connect.
+     *   connect failed. Defaults to a bounded TCP connect, retried by [probeAddress].
      */
     fun scan(
         host: String,
@@ -329,7 +412,7 @@ object IpFamilyScanner {
         connectBudgetMs: Int = CONNECT_BUDGET_MS,
         nowMs: Long = System.currentTimeMillis(),
         resolver: (String, Int) -> List<InetAddress> = { name, budget ->
-            AddressFamilyPolicy.resolveWithBudget(name, budget)
+            AddressFamilyPolicy.resolveFamilyWithBudget(name, budget)
         },
         connector: (InetAddress, Int, Int) -> Int = ::tcpLatencyMs
     ): IpFamilyScan {
@@ -343,19 +426,13 @@ object IpFamilyScanner {
         if (key.isBlank() || port !in 1..65535) return blank
 
         val clean = host.trim().removeSurrounding("[", "]")
-        val answers = runCatching { resolver(clean, resolveBudgetMs) }.getOrDefault(emptyList())
-        val v6 = answers.filterIsInstance<Inet6Address>()
-            .distinctBy { it.hostAddress.orEmpty() }
-            .take(MAX_ADDRESSES_PER_FAMILY)
-        val v4 = answers.filterIsInstance<Inet4Address>()
-            .distinctBy { it.hostAddress.orEmpty() }
-            .take(MAX_ADDRESSES_PER_FAMILY)
+        val (v4, v6) = resolveFamilies(clean, resolveBudgetMs, resolver)
         if (v6.isEmpty() && v4.isEmpty()) return blank
 
         var ipv6Latency = -1
         var ipv6Address = v6.firstOrNull()?.hostAddress.orEmpty()
         for (address in v6) {
-            val ms = runCatching { connector(address, port, connectBudgetMs) }.getOrDefault(-1)
+            val ms = probeAddress(address, port, connectBudgetMs, connector)
             if (ms >= 0) {
                 ipv6Latency = ms
                 ipv6Address = address.hostAddress.orEmpty()
@@ -366,7 +443,7 @@ object IpFamilyScanner {
         var ipv4Latency = -1
         var ipv4Address = v4.firstOrNull()?.hostAddress.orEmpty()
         for (address in v4) {
-            val ms = runCatching { connector(address, port, connectBudgetMs) }.getOrDefault(-1)
+            val ms = probeAddress(address, port, connectBudgetMs, connector)
             if (ms >= 0) {
                 ipv4Latency = ms
                 ipv4Address = address.hostAddress.orEmpty()
@@ -388,6 +465,75 @@ object IpFamilyScanner {
             underlayHasIpv6 = underlayHasIpv6,
             scannedAtMs = nowMs
         )
+    }
+
+    /**
+     * MARBLE_IP_FAMILY_TRUTH_V197 — resolve both families of [host], refusing to take one silent
+     * answer as proof that a family does not exist.
+     *
+     * The rule is narrow on purpose: a second pass only runs when the *other* family answered. If
+     * neither family produced anything, the name did not resolve and asking again would only burn
+     * the sweep's budget — that case stays [IpFamilyVerdict.UNKNOWN], which is the one verdict that
+     * forbids every conclusion, including "IPv4-only".
+     *
+     * @param resolver seam: hostname + budget → every address of both families. The production
+     *   default asks A and AAAA in parallel and keeps independent witnesses, so a single provider's
+     *   empty answer section can no longer delete a family.
+     */
+    fun resolveFamilies(
+        host: String,
+        budgetMs: Int = RESOLVE_BUDGET_MS,
+        resolver: (String, Int) -> List<InetAddress> = { name, budget ->
+            AddressFamilyPolicy.resolveFamilyWithBudget(name, budget)
+        }
+    ): Pair<List<Inet4Address>, List<Inet6Address>> {
+        if (host.isBlank()) return emptyList<Inet4Address>() to emptyList<Inet6Address>()
+
+        fun split(answers: List<InetAddress>): Pair<List<Inet4Address>, List<Inet6Address>> =
+            answers.filterIsInstance<Inet4Address>()
+                .distinctBy { it.hostAddress.orEmpty() }
+                .take(MAX_ADDRESSES_PER_FAMILY) to
+                answers.filterIsInstance<Inet6Address>()
+                    .distinctBy { it.hostAddress.orEmpty() }
+                    .take(MAX_ADDRESSES_PER_FAMILY)
+
+        var (v4, v6) = split(runCatching { resolver(host, budgetMs) }.getOrDefault(emptyList()))
+        for (pass in 2..RESOLVE_CONFIRM_PASSES) {
+            val v6Missing = v6.isEmpty() && v4.isNotEmpty()
+            val v4Missing = v4.isEmpty() && v6.isNotEmpty()
+            if (!v6Missing && !v4Missing) break
+            // The confirmation is a second opinion, not a second full lookup: half the budget, and
+            // only the family that came back empty is allowed to change the answer.
+            val confirmBudget = (budgetMs / 2).coerceAtLeast(MIN_CONFIRM_BUDGET_MS)
+            val (retryV4, retryV6) = split(
+                runCatching { resolver(host, confirmBudget) }.getOrDefault(emptyList())
+            )
+            if (v4.isEmpty()) v4 = retryV4
+            if (v6.isEmpty()) v6 = retryV6
+        }
+        return v4 to v6
+    }
+
+    /**
+     * MARBLE_IP_FAMILY_TRUTH_V197 — dial one address up to [CONNECT_ATTEMPTS_PER_ADDRESS] times.
+     *
+     * The seam reports a refusal and a timeout the same way (a negative number), so the retry is
+     * unconditional — and the cost is what makes that correct rather than lazy: a refusal answers
+     * immediately, so retrying one is nearly free, while a timeout is exactly the case a retry can
+     * rescue. That asymmetry is why a dual-stack node stops being written off as IPv4-only without
+     * a sweep getting slower in any case that was already settled.
+     */
+    fun probeAddress(
+        address: InetAddress,
+        port: Int,
+        budgetMs: Int = CONNECT_BUDGET_MS,
+        connector: (InetAddress, Int, Int) -> Int = ::tcpLatencyMs
+    ): Int {
+        for (attempt in 1..CONNECT_ATTEMPTS_PER_ADDRESS) {
+            val ms = runCatching { connector(address, port, budgetMs) }.getOrDefault(-1)
+            if (ms >= 0) return ms
+        }
+        return -1
     }
 
     /** One bounded TCP connect. Never throws; a refusal and a timeout are the same answer here. */

@@ -155,6 +155,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -3984,12 +3985,19 @@ private fun CyberLibrary(
             shape = ServersCardShape,
             title = { Text(trx("Edit server"), color = Aether.Ink) },
             text = {
+                // MARBLE_IME_HYGIENE_V197 — the dialog owns its IME session: Done releases it,
+                // and leaving the dialog releases it exactly once instead of bequeathing an open
+                // session to the list behind it.
+                val renameIme = rememberMarbleImeHider()
+                MarbleImeReleaseOnDispose(renameIme)
                 OutlinedTextField(
                     value = renameText,
                     onValueChange = { renameText = it },
                     label = { Text(trx("Display name")) },
                     singleLine = true,
                     shape = ServersCardShape,
+                    keyboardOptions = marbleImeOptions(ImeAction.Done),
+                    keyboardActions = marbleImeActions(renameIme),
                     modifier = Modifier.fillMaxWidth(),
                     colors = marbleOutlinedTextFieldColors()
                 )
@@ -4950,11 +4958,16 @@ private fun ServersSearchField(
     onValueChange: (String) -> Unit,
     onClear: () -> Unit
 ) {
+    // MARBLE_IME_HYGIENE_V197 — the field owns its own IME handle, and the keyboard's Search key
+    // is a real event that releases it. Nothing hides the keyboard from a composable body.
+    val ime = rememberMarbleImeHider()
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
+        keyboardOptions = marbleImeOptions(ImeAction.Search),
+        keyboardActions = marbleImeActions(ime),
         shape = ServersPillShape,
         placeholder = {
             Text(
@@ -6631,6 +6644,10 @@ private fun ServersNodeMenu(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(MarbleSpacing.S)) {
+                    // MARBLE_IME_HYGIENE_V197 — a JSON editor is the one place a session stays
+                    // open for minutes; releasing it on disposal is what stops the list behind it
+                    // from inheriting a session nobody is typing into any more.
+                    MarbleImeReleaseOnDispose(rememberMarbleImeHider())
                     OutlinedTextField(
                         value = jsonText,
                         onValueChange = { jsonText = it },
@@ -7203,12 +7220,18 @@ private fun ServersSubscriptionDialog(
                 modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // MARBLE_IME_HYGIENE_V197 — one handle for the two fields, released on the way
+                // out, and reachable from the keyboard's own Done key.
+                val manageIme = rememberMarbleImeHider()
+                MarbleImeReleaseOnDispose(manageIme)
                 OutlinedTextField(
                     value = nameDraft,
                     onValueChange = onNameChange,
                     label = { Text(trx("Source name")) },
                     singleLine = true,
                     shape = ServersCardShape,
+                    keyboardOptions = marbleImeOptions(ImeAction.Next),
+                    keyboardActions = marbleImeActions(manageIme),
                     modifier = Modifier.fillMaxWidth(),
                     colors = marbleOutlinedTextFieldColors()
                 )
@@ -7218,6 +7241,8 @@ private fun ServersSubscriptionDialog(
                     label = { Text(trx("Subscription URL")) },
                     singleLine = true,
                     shape = ServersCardShape,
+                    keyboardOptions = marbleImeOptions(ImeAction.Done),
+                    keyboardActions = marbleImeActions(manageIme),
                     modifier = Modifier.fillMaxWidth(),
                     colors = marbleOutlinedTextFieldColors()
                 )
@@ -7341,6 +7366,13 @@ private fun ServersDropdownField(
             label = { Text(trx(label)) },
             shape = ServersCardShape,
             colors = marbleOutlinedTextFieldColors(),
+            // MARBLE_IME_HYGIENE_V197 — this field is a painted menu row: it looks like a text
+            // field so its label floats like the real ones beside it, and a tap opens a menu.
+            // It must never be handed an input session, or the platform spends a hide request
+            // per pass taking away a keyboard that was never there.
+            modifier = Modifier
+                .fillMaxWidth()
+                .marbleImeInert(),
             trailingIcon = {
                 Box(
                     Modifier
@@ -7349,8 +7381,7 @@ private fun ServersDropdownField(
                 ) {
                     HomeVectorIcon(HomeIcon.CHEVRON, Aether.InkFaint, Modifier.fillMaxSize())
                 }
-            },
-            modifier = Modifier.fillMaxWidth()
+            }
         )
         Box(
             Modifier
@@ -7418,6 +7449,7 @@ private fun ServersField(
     } else {
         { Text(placeholder) }
     }
+    val ime = rememberMarbleImeHider()
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -7426,6 +7458,11 @@ private fun ServersField(
         placeholder = hint,
         singleLine = singleLine,
         isError = isError,
+        // MARBLE_IME_HYGIENE_V197 — a single-line field ends on Done, and Done is an event the
+        // keyboard can raise. Without it the session only ever ends when the framework notices,
+        // which is the request being logged a hundred times a session.
+        keyboardOptions = marbleImeOptions(if (singleLine) ImeAction.Done else ImeAction.None),
+        keyboardActions = marbleImeActions(ime),
         shape = ServersCardShape,
         colors = marbleOutlinedTextFieldColors(),
         trailingIcon = trailing
@@ -8095,6 +8132,11 @@ private fun ServersAddPage(
     var mode by remember(initialMode) { mutableStateOf(initialMode) }
     var subName by remember { mutableStateOf("") }
     var subUrl by remember { mutableStateOf("") }
+    // MARBLE_IME_HYGIENE_V197 — the sheet owns one IME handle and releases it when it leaves, so
+    // a full-screen form dismissed with the keyboard open cannot leave the session behind for the
+    // Servers page underneath to inherit.
+    val addSheetIme = rememberMarbleImeHider()
+    MarbleImeReleaseOnDispose(addSheetIme)
     var importText by remember { mutableStateOf("") }
     var target by remember { mutableStateOf(libraryIntakeTarget(repo)) }
     val clipboard = LocalClipboardManager.current
@@ -8202,6 +8244,8 @@ private fun ServersAddPage(
                                 singleLine = true,
                                 shape = ServersCardShape,
                                 colors = marbleOutlinedTextFieldColors(),
+                                keyboardOptions = marbleImeOptions(ImeAction.Next),
+                                keyboardActions = marbleImeActions(addSheetIme),
                                 modifier = Modifier.fillMaxWidth()
                             )
                             OutlinedTextField(
@@ -8211,6 +8255,8 @@ private fun ServersAddPage(
                                 singleLine = true,
                                 shape = ServersCardShape,
                                 colors = marbleOutlinedTextFieldColors(),
+                                keyboardOptions = marbleImeOptions(ImeAction.Done),
+                                keyboardActions = marbleImeActions(addSheetIme),
                                 modifier = Modifier.fillMaxWidth()
                             )
                             CyberButton(
@@ -8441,6 +8487,7 @@ private fun ManualField(
     singleLine: Boolean = true,
     minLines: Int = 1
 ) {
+    val ime = rememberMarbleImeHider()
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -8449,6 +8496,9 @@ private fun ManualField(
         minLines = minLines,
         maxLines = if (singleLine) 1 else 18,
         modifier = modifier,
+        // MARBLE_IME_HYGIENE_V197 — every manual field ends on an event the keyboard can raise.
+        keyboardOptions = marbleImeOptions(if (singleLine) ImeAction.Done else ImeAction.None),
+        keyboardActions = marbleImeActions(ime),
         shape = RoundedCornerShape(16.dp),
         colors = marbleOutlinedTextFieldColors(),
         textStyle = if (singleLine) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
@@ -16689,12 +16739,17 @@ private fun TinyField(
     modifier: Modifier = Modifier,
     onValue: (String) -> Unit
 ) {
+    val ime = rememberMarbleImeHider()
     OutlinedTextField(
         value = value,
         onValueChange = onValue,
         label = { Text(trx(label)) },
         singleLine = true,
         modifier = modifier,
+        // MARBLE_IME_HYGIENE_V197 — same rule as every other field in the app: the keyboard is
+        // released by an event, never by a recomposition.
+        keyboardOptions = marbleImeOptions(ImeAction.Done),
+        keyboardActions = marbleImeActions(ime),
         shape = RoundedCornerShape(17.dp),
         colors = marbleOutlinedTextFieldColors()
     )

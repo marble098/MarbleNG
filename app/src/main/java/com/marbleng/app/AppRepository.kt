@@ -462,6 +462,21 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private val locationBudget = java.util.concurrent.atomic.AtomicInteger(LOCATION_SESSION_BUDGET)
 
     /**
+     * MARBLE_SERVER_LOCATION_V197 — the evidence behind each learned location.
+     *
+     * The country alone cannot tell the sweep what to do next: a code five providers agreed on is
+     * finished work, while a code one provider produced while four were unreachable is waiting for
+     * a better moment. This table is what lets the app show the thin answer *and* keep trying to
+     * earn the strong one. It does not drive recomposition — the visible flag is [serverLocations].
+     */
+    val serverLocationVerdicts: MutableMap<String, ServerLocationVerdict> =
+        java.util.concurrent.ConcurrentHashMap()
+
+    /** How strong the learned location of one endpoint is, for the diagnostics surfaces. */
+    fun serverLocationEvidence(profile: ProxyProfile): String =
+        serverLocationVerdicts[ServerLocationKey.of(profile.host, profile.port)]?.evidence.orEmpty()
+
+    /**
      * The location a server row should show. Only a persisted multi-provider result is
      * authoritative; subscription labels and host TLDs are hints, not proof, and must never be
      * painted as a national flag before the quick location quorum completes.
@@ -800,53 +815,189 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     /**
-     * Kicks the one-shot location sweep: every endpoint without a learned answer gets at most
-     * one bounded public lookup this launch (the budget), on the io pool, never on the frame
-     * clock. Safe to call repeatedly — in-flight dedup and the durable cache make it idempotent.
+     * MARBLE_SERVER_LOCATION_V197 — the location sweep the user asked for: automatic, on import,
+     * for every server.
+     *
+     * What this replaced, and why the old shape could not satisfy "detect my server's location":
+     *
+     *  1. **A label that named a country was never tested.** The old loop carried the line
+     *     `if (offline.isKnown && answered < candidates.size / 2) continue` — a node called
+     *     "🇩🇪 Germany 3" was skipped, so the flag the user saw was the one the *subscription*
+     *     wrote, not the one the server's address actually geolocates to. A name is a claim;
+     *     the address is a fact. The label is now used only to order the queue (unknown first),
+     *     never to decide whether a server is measured.
+     *  2. **The sweep was serial.** One profile at a time, each with a three-second budget, so a
+     *     forty-server import took minutes and the budget ran out long before the list did. It
+     *     now runs on a small bounded pool and every answer lands as soon as it is known.
+     *  3. **A single-witness answer was thrown away and never retried**, which is the same thing
+     *     as not showing a flag at all on a filtered network. [ServerLocationResolver] now has five
+     *     providers and reports [ServerLocationVerdict.confidence]; a lone answer is shown and
+     *     remembered as [LocationConfidence.LONE], and this sweep re-tests it the next time around.
+     *
+     * Still bounded and still off the frame clock: [LOCATION_SESSION_BUDGET] tests per launch,
+     * deduped by endpoint, in-flight guarded, and cancellable by turning auto-detect off.
+     *
+     * @param force re-test endpoints that already have an answer. Used for the explicit
+     *   "re-detect locations" action and after a physical network change, never on import.
      */
-    fun ensureServerLocations() {
+    fun ensureServerLocations(force: Boolean = false) {
         if (!settings.serverLocationAutoDetect) {
-            serverLocationScanning = false
+            postToMain { serverLocationScanning = false }
             return
         }
         io.execute {
             if (!settings.serverLocationAutoDetect) return@execute
-            val candidates = profiles.filter { p ->
+            val learned = runCatching { store.loadServerLocations() }.getOrDefault(emptyMap())
+            // Explicit type: the store hands back a mutable map, but everything here only reads
+            // it, and `emptyMap()` is a read-only Map — naming the type keeps the fallback from
+            // being inferred as something it cannot be.
+            val provisional: Map<String, Boolean> =
+                runCatching { store.loadServerLocationProvisional() }.getOrDefault(emptyMap())
+
+            // One entry per endpoint: two profiles that share a host:port share one measurement.
+            val queue = LinkedHashMap<String, ProxyProfile>()
+            val upgradable = LinkedHashMap<String, ProxyProfile>()
+            for (p in profiles) {
                 val key = ServerLocationKey.of(p.host, p.port)
-                key.isNotBlank() &&
-                    runCatching { store.loadServerLocations() }.getOrDefault(emptyMap())[key] == null
-            }
-            if (candidates.isEmpty()) {
-                serverLocationScanning = false
-                return@execute
-            }
-            serverLocationScanning = true
-            var answered = 0
-            for (p in candidates) {
-                if (!settings.serverLocationAutoDetect) break
-                if (locationBudget.get() <= 0) break
-                val key = ServerLocationKey.of(p.host, p.port)
-                if (!locationInFlight.add(key)) continue
-                try {
-                    val offline = ServerCountry.of(p.name, p.host)
-                    // A label that already names a country is a provider statement; the test
-                    // runs in the background but is not urgent, so unknowns go first.
-                    if (offline.isKnown && answered < candidates.size / 2) continue
-                    if (locationBudget.decrementAndGet() < 0) continue
-                    val code = ServerLocationResolver.resolveCountry(p.host, p.port)
-                    if (code.isBlank()) continue
-                    answered += 1
-                    runCatching { store.saveServerLocation(key, code) }
-                    postToMain {
-                        serverLocations[key] =
-                            ServerCountry(code, ServerCountry.nameFor(code), ServerCountry.flagFor(code))
-                    }
-                } finally {
-                    locationInFlight.remove(key)
+                if (key.isBlank()) continue
+                if (queue.containsKey(key) || upgradable.containsKey(key)) continue
+                val learnedCode = learned[key]?.first.orEmpty()
+                when {
+                    force -> queue[key] = p
+                    learnedCode.isBlank() -> queue[key] = p
+                    // A lone answer is real but thin: put it back in the queue behind the
+                    // endpoints that have never been measured.
+                    provisional[key] == true -> upgradable[key] = p
+                    else -> Unit
                 }
             }
-            if (locationBudget.get() <= 0) {
+
+            // Unknown endpoints first, then single-witness answers that a fuller pool could promote
+            // to a quorum. A node whose own label names a country goes last — not skipped: it is
+            // the least likely to surprise the user, not the least worth measuring.
+            val ordered = queue.values.sortedBy { p -> if (ServerCountry.of(p.name, p.host).isKnown) 1 else 0 } +
+                upgradable.values.sortedBy { p -> if (ServerCountry.of(p.name, p.host).isKnown) 1 else 0 }
+            if (ordered.isEmpty()) {
                 postToMain { serverLocationScanning = false }
+                return@execute
+            }
+
+            postToMain { serverLocationScanning = true }
+            val workers = ordered.size.coerceIn(1, LOCATION_SWEEP_CONCURRENCY)
+            val pool = Executors.newFixedThreadPool(workers)
+            try {
+                val futures = ordered.map { profile ->
+                    pool.submit(Runnable { measureLocationOf(profile) })
+                }
+                // The sweep is bounded end to end: a dead network must not hold the io pool.
+                val deadline = System.currentTimeMillis() +
+                    LOCATION_SWEEP_DEADLINE_MS
+                for (f in futures) {
+                    val left = deadline - System.currentTimeMillis()
+                    if (left <= 0L) {
+                        f.cancel(true)
+                        continue
+                    }
+                    runCatching { f.get(left, java.util.concurrent.TimeUnit.MILLISECONDS) }
+                        .onFailure { f.cancel(true) }
+                }
+            } finally {
+                pool.shutdownNow()
+                postToMain { serverLocationScanning = false }
+            }
+        }
+    }
+
+    /**
+     * One endpoint's location test, on a sweep worker.
+     *
+     * Split out of [ensureServerLocations] so the submitting lambda is an honest `Runnable`: every
+     * early exit is a `return` from a named function instead of a labelled return inside a
+     * `try/finally`, which is the shape that makes overload resolution and the in-flight guard
+     * both obvious.
+     */
+    private fun measureLocationOf(profile: ProxyProfile) {
+        if (!settings.serverLocationAutoDetect) return
+        if (locationBudget.get() <= 0) return
+        val key = ServerLocationKey.of(profile.host, profile.port)
+        if (!locationInFlight.add(key)) return
+        try {
+            if (locationBudget.decrementAndGet() < 0) return
+            val verdict = ServerLocationResolver.resolveCountryDetailed(
+                host = profile.host,
+                port = profile.port
+            )
+            if (!verdict.isKnown) return
+            runCatching {
+                store.saveServerLocation(key, verdict.code, verdict.provisional)
+            }
+            postToMain {
+                serverLocations[key] = ServerCountry(
+                    verdict.code,
+                    ServerCountry.nameFor(verdict.code),
+                    ServerCountry.flagFor(verdict.code)
+                )
+                serverLocationVerdicts[key] = verdict
+            }
+            diagnostics.event(
+                "GEO",
+                "server-location",
+                "endpoint" to key,
+                "code" to verdict.code,
+                "confidence" to verdict.confidence.name,
+                "witnesses" to verdict.witnesses,
+                "providers" to verdict.providers
+            )
+        } finally {
+            locationInFlight.remove(key)
+        }
+    }
+
+    /**
+     * The whole "tell me what this server is" sweep: where it lives ([ensureServerLocations]) and
+     * which address families it answers on ([IpFamilyScanner]).
+     *
+     * MARBLE_SERVER_LOCATION_V197 / MARBLE_IP_FAMILY_TRUTH_V197 — the two questions the user asks
+     * when a server is added are asked together, in the background, from one call. Neither is ever
+     * on the frame clock and neither is on the connect path's critical section.
+     */
+    fun ensureServerInsights(force: Boolean = false) {
+        ensureServerLocations(force)
+        io.execute {
+            val networkKey = runCatching { intelligence.currentSnapshot().key() }.getOrDefault("")
+            val nowMs = System.currentTimeMillis()
+            val pending = profiles.distinctBy { ServerLocationKey.of(it.host, it.port) }
+                .filter { p ->
+                    val key = IpFamilyScanner.endpointKey(p.host, p.port)
+                    if (key.isBlank()) return@filter false
+                    val known = ipFamilyScans[key]
+                    force || known == null || !known.usableOn(networkKey, nowMs)
+                }
+                // A library can be large; one sweep measures a bounded wave of it. The rest is
+                // picked up by the next sweep (or by the connect path's own evidence pass), so an
+                // import of two hundred servers still leaves the app responsive.
+                .take(INSIGHT_FAMILY_BATCH)
+            if (pending.isEmpty()) return@execute
+            val pool = Executors.newFixedThreadPool(
+                pending.size.coerceIn(1, IP_FAMILY_SCAN_CONCURRENCY)
+            )
+            try {
+                val futures = pending.map { profile ->
+                    pool.submit(java.util.concurrent.Callable { runCatching { runFamilyScan(profile) } })
+                }
+                val deadline = System.currentTimeMillis() +
+                    IpFamilyScanner.budgetMsFor(pending.size, IP_FAMILY_SCAN_CONCURRENCY)
+                for (f in futures) {
+                    val left = deadline - System.currentTimeMillis()
+                    if (left <= 0L) {
+                        f.cancel(true)
+                        continue
+                    }
+                    runCatching { f.get(left, java.util.concurrent.TimeUnit.MILLISECONDS) }
+                        .onFailure { f.cancel(true) }
+                }
+            } finally {
+                pool.shutdownNow()
             }
         }
     }
@@ -1154,7 +1305,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         reconcileProfilesWithTheirLinks()
         // MARBLE_SERVER_LOCATION_V192 — the first location sweep rides the background init:
         // every server without a learned answer gets its one test while the app settles.
-        ensureServerLocations()
+        ensureServerInsights()
         // MARBLE_SESSION_USAGE_V192 — a process death mid-session leaves a durable anchor;
         // finish that accounting once at launch so the counter never loses a session to a kill.
         finishOrphanedUsageSession()
@@ -1169,6 +1320,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             }
             // The physical underlay changed, so the ISP almost certainly changed with it.
             scanIranMode(force = true, deep = false)
+            // MARBLE_SERVER_LOCATION_V197 / MARBLE_IP_FAMILY_TRUTH_V197 — a different network is a
+            // different set of reachable geolocation providers and a different IPv6 path, so a
+            // single-witness flag measured on the last network is worth re-testing and a family
+            // verdict from it is already invalid (IpFamilyScan.usableOn keys on the same network).
+            // Only the endpoints that are actually stale are touched: everything with a quorum
+            // answer stays as it is.
+            ensureServerInsights()
         }
         refreshIntelligenceStatus()
         // Cheap classification only at app start; deep filtering fingerprints are deferred.
@@ -1659,7 +1817,8 @@ fun updateRouteQuality(
         jitterSampleCount: Int = -1,
         attemptCount: Int = sampleCount,
         successPercent: Int = 100,
-        tailLatencyMs: Int = -1
+        tailLatencyMs: Int = -1,
+        holdQuality: Boolean = false
     ) {
         if (pingMs <= 0) return
         // MARBLE_HONEST_PING_V119 — the live monitor, the Home probe and Stored benchmark seeds
@@ -1687,9 +1846,18 @@ fun updateRouteQuality(
 
             // The inputs are already rolling aggregates. A second EWMA here made Quality lag well
             // behind Ping/Jitter after a network change, so publish the evidence-window score.
-            liveRouteScore = rawScore
+            //
+            // MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — except right after a target pivot. A pivot
+            // clears the evidence window, so the first burst back is three samples out of three:
+            // a perfectly good route momentarily scores like a route that only answers three times
+            // in a row, because a 95 % confidence interval around 3/3 starts at 44 %. Latency and
+            // jitter are still real measurements the moment they land, so they publish; only the
+            // *score* waits for the window to be worth scoring.
+            if (!holdQuality) {
+                liveRouteScore = rawScore
+                liveRouteSuccessPercent = successPercent.coerceIn(0, 100)
+            }
             liveRouteAttempts = attemptCount.coerceIn(0, 10_000)
-            liveRouteSuccessPercent = successPercent.coerceIn(0, 100)
             if (tailLatencyMs >= 0) liveTailLatencyMs = tailLatencyMs.coerceIn(0, 10_000)
             liveRouteProbeStatus = buildString {
                 append("Verified HTTPS • ")
@@ -1700,6 +1868,7 @@ fun updateRouteQuality(
                 append(successPercent.coerceIn(0, 100))
                 append("% success")
                 if (tailLatencyMs > 0) append(" • p90 ${tailLatencyMs.coerceAtMost(10_000)} ms")
+                if (holdQuality) append(" • score settling after target change")
             }
 
             // v18 counted publications forever although ping came from a bounded window.
@@ -2624,7 +2793,7 @@ private fun postToMain(block: () -> Unit) {
             )
         }
         // MARBLE_SERVER_LOCATION_V192 — a refresh may bring endpoints no one has tested yet.
-        ensureServerLocations()
+        ensureServerInsights()
         return incoming.size
     }
 
@@ -2791,7 +2960,7 @@ private fun postToMain(block: () -> Unit) {
             "source" to stored.subscriptionId.take(16)
         )
         message = "${stored.scheme.uppercase()} added • ${stored.name}"
-        ensureServerLocations()
+        ensureServerInsights()
         return true
     }
 
@@ -2852,7 +3021,7 @@ private fun postToMain(block: () -> Unit) {
             "source" to target.id.take(16)
         )
         message = "${hops.size}-hop chain saved • $name"
-        ensureServerLocations()
+        ensureServerInsights()
         return true
     }
     /**
@@ -2930,7 +3099,7 @@ private fun postToMain(block: () -> Unit) {
             }
             store.saveProfiles(profilesSnapshot)
             message = "$addedCount profile${if (addedCount == 1) "" else "s"} imported into ${target.name}"
-            ensureServerLocations()
+            ensureServerInsights()
         }
     }
 
@@ -3114,7 +3283,7 @@ private fun postToMain(block: () -> Unit) {
         )
         store.saveProfiles(profiles)
         message = "Manual copy created • $name"
-        ensureServerLocations()
+        ensureServerInsights()
         return true
     }
 
@@ -4991,6 +5160,27 @@ private fun postToMain(block: () -> Unit) {
          * cache), is the whole radio cost.
          */
         const val LOCATION_SESSION_BUDGET = 48
+
+        /**
+         * MARBLE_SERVER_LOCATION_V197 — how many endpoints are located at once.
+         *
+         * The sweep used to be serial, one three-second lookup after another, so a forty-server
+         * import spent minutes being measured and the session budget ran out long before the list
+         * did. Five providers per endpoint are already queried in parallel, so four endpoints in
+         * flight is a bounded, polite amount of concurrency — and an answer appears on the row the
+         * moment it is known instead of when its turn comes up.
+         */
+        const val LOCATION_SWEEP_CONCURRENCY = 4
+
+        /** End-to-end ceiling for one sweep, so a dead network cannot hold the io pool. */
+        const val LOCATION_SWEEP_DEADLINE_MS = 90_000L
+
+        /**
+         * MARBLE_IP_FAMILY_TRUTH_V197 — how many endpoints the background insights sweep measures
+         * per call. Small on purpose: this runs when a server is added, and the measurement the
+         * user is waiting for is the one on the row they just imported.
+         */
+        const val INSIGHT_FAMILY_BATCH = 12
 
         /**
          * MARBLE_IP_FAMILY_SCAN_V196 — parallel family probes during a group scan.
