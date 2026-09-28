@@ -39,6 +39,7 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - Smart GitHub Release update checks.
 - Signed multi-ABI APKs built by GitHub Actions.
 - Remembers the last ping of every server across restarts, updates and process death.
+- A **ping speed dial**: the default sweeps about 50 % faster across all three methods, and a slider lets you choose slower or faster — width and pacing only, never accuracy.
 - A **fourth tab you fill yourself** — a subscription, one config, or the live pulse of the route.
 - **Material 3 Expressive motion** — stretching loaders, cascading arrivals, rolling readouts and springy releases on every control.
 - **A living, layered surface** — a slowly breathing brand aurora behind every page, and one cool-shadow depth system above it, so nothing floats on a dead flat field.

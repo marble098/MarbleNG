@@ -13,6 +13,7 @@ import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Real-tunnel benchmark and predictive route selector.
@@ -76,32 +77,21 @@ class BenchmarkEngine(
         val cpu = Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
         // Probing waits on sockets far more than on the CPU, and direct probes spawn no process at
         // all, so the old (cpu / 2) cap left most of the batch idle behind four workers.
-        val nominalWorkers = when {
-            // MARBLE_PING_CONTROL_V145 — a direct (Smart) probe batch runs exactly as wide as the
-            // user asked. The old `coerceIn(4, 32)` made the Settings value advisory: it could not
-            // be lowered to 1 or 2 (which is what a congested mobile link needs before its numbers
-            // mean anything) and it could not be raised past 32 on a fast connection.
-            s.probeMethod == ProbeMethod.TCP_PING -> PingBudget.concurrency(s.tcpWorkers)
-            // MARBLE_REAL_DELAY_SPEED_V156 — every measurement on the sing-box engine builds its
-            // own native child, so the pool is capped at the child ceiling the manager enforces.
-            // The old cap of two serialised a whole subscription behind two process spawns.
-            //
-            // MARBLE_PING_SPEED_V160 — the ceiling is the one the *device* was granted, not a
-            // constant: a phone with eight cores and a real heap budget starts eight children
-            // while the first ones wait on the network, so a hundred-node URL test stops running
-            // in twenty-five waves. The four-wide floor is unchanged on a small device, and the
-            // manager's own semaphore stays the authority on how many may exist at once.
-            s.probeMethod == ProbeMethod.URL_TEST || s.coreEngine() == CoreEngine.SINGBOX ->
-                s.tcpWorkers.coerceIn(
-                    1,
-                    xray.singBox?.measurementCoreCeiling ?: SingBoxManager.MAX_TEMPORARY_CORES
-                )
-            // MarbleNG launches one native Xray child per candidate, unlike v2rayNG's in-process
-            // dialer. Four is the safe ceiling here: larger same-host bursts can manufacture
-            // Connection reset / TLS timeout failures that disappear when the node is tapped alone.
-            v2rayStyleDelay -> s.tcpWorkers.coerceIn(2, 4)
-            else -> cpu.coerceIn(2, 4)
-        }
+        //
+        // MARBLE_PING_SPEED_DIAL_V199 — the width is one pure policy (see [sweepWidth]): the
+        // user's concurrency for the direct sweep, the device's child ceiling for every native
+        // measurement, and the speed dial on the Xray Real-delay pool, which had stayed pinned
+        // to 2..4 CPU-derived children whatever the device could carry.
+        val nominalWorkers = sweepWidth(
+            method = s.probeMethod,
+            engine = s.coreEngine(),
+            tcpWorkers = s.tcpWorkers,
+            cpus = cpu,
+            singBoxCeiling = xray.singBox?.measurementCoreCeiling ?: SingBoxManager.MAX_TEMPORARY_CORES,
+            xrayChildCeiling = xray.measurementCoreCeiling,
+            speedFactor = settings.pingSpeedFactor(),
+            v2rayStyleDelay = v2rayStyleDelay
+        )
         val liveWorkers = max(1, (nominalWorkers * thermal).toInt())
             .coerceAtMost(candidates.size)
 
@@ -147,7 +137,10 @@ class BenchmarkEngine(
          * wedged thread outlives the run. Healthy runs never touch the deadline — it only binds
          * the runs that used to hang.
          */
-        val perTaskCapMs = PingBudget.perServerBudgetMs(s.benchTimeoutSec, s.benchSamples) +
+        // MARBLE_PING_SPEED_DIAL_V199 — the deadline describes the pacing the prober will really
+        // use: the dial-scaled quiet gap, not the shipped constant.
+        val sampleSpacingMs = settings.pingSampleSpacingMs()
+        val perTaskCapMs = PingBudget.perServerBudgetMs(s.benchTimeoutSec, s.benchSamples, sampleSpacingMs) +
             if (s.probeMethod == ProbeMethod.TCP_PING) BATCH_DIRECT_GRACE_MS else maxOf(BATCH_TUNNEL_GRACE_MS, 15_000L)
         val waves = ((candidates.size + liveWorkers - 1) / liveWorkers).coerceAtLeast(1)
         val batchCapMs = (perTaskCapMs * waves + BATCH_WAVE_GRACE_MS)
@@ -1181,5 +1174,61 @@ class BenchmarkEngine(
 
         val TUNNEL_TARGET_CURSOR = AtomicInteger(0)
         const val DEAD_LATENCY = 99_999.0
+    }
+}
+
+/**
+ * MARBLE_PING_SPEED_DIAL_V199 — how wide one batch runs, as one pure policy.
+ *
+ * The rules, per measurement shape:
+ *
+ *  - **TCP ping (direct sweep)** runs exactly as wide as the caller asked. The sweep constructs
+ *    its settings through `AppSettings.pingWorkers()`, which is the user's concurrency at the
+ *    speed dial's width — 16 chips-wide at the classic pace, 24 at the shipped default.
+ *    MARBLE_PING_CONTROL_V145's rule is unchanged here: no hidden clamp rewrites the number the
+ *    user picked, and the engine never scales the caller's value a second time.
+ *
+ *  - **Every native-child measurement (URL test, and Real delay on the sing-box engine)** stays
+ *    capped by the device's measurement-core ceiling. That ceiling is a memory decision
+ *    (`MeasurementCoreBudget`), and the dial is a speed preference — the dial feeds the pool as
+ *    fast as the device allows and never one child wider. The scaled `tcpWorkers` from the sweep
+ *    still matters below the ceiling: a slower dial now genuinely narrows the pool instead of
+ *    being silently clamped back up.
+ *
+ *  - **Real delay on the Xray engine (the default engine)** now scales with the dial, from the
+ *    CPU-derived 2..4 pool it was pinned to. The shipped default runs it ~1.5× wider (2..4 →
+ *    3..6), bounded by the device's own Xray-child ceiling — the same `MeasurementCoreBudget`
+ *    read the sing-box pool uses, and a conservative bound, because an Xray child carries no
+ *    controller API and no cache workspace. A device that cannot carry more runs exactly the
+ *    pool it has always run.
+ *
+ *  - **The legacy v2ray-style ladder** keeps its 2..4 envelope unscaled: four is that path's
+ *    same-host safety ceiling, chosen before the dial existed and unchanged by it.
+ *
+ * Top-level and internal on purpose: the width is the sweep's wall clock, so the policy is one
+ * pure function pinned from every side by `SweepWidthTest`.
+ */
+internal fun sweepWidth(
+    method: ProbeMethod,
+    engine: CoreEngine,
+    tcpWorkers: Int,
+    cpus: Int,
+    singBoxCeiling: Int,
+    xrayChildCeiling: Int,
+    speedFactor: Double,
+    v2rayStyleDelay: Boolean
+): Int = when {
+    method == ProbeMethod.TCP_PING -> PingBudget.concurrency(tcpWorkers)
+    method == ProbeMethod.URL_TEST || engine == CoreEngine.SINGBOX ->
+        tcpWorkers.coerceIn(1, singBoxCeiling.coerceIn(1, 64))
+    v2rayStyleDelay -> tcpWorkers.coerceIn(2, 4)
+    else -> {
+        val base = cpus.coerceIn(2, 4)
+        // MARBLE_PING_SPEED_DIAL_V199 — a hostile factor (NaN or ±Inf) must land inside the
+        // envelope, never crash the sweep: roundToInt() refuses NaN, so non-finite input is
+        // folded back to the classic 1.0 pace before it can reach the rounding.
+        val factor = if (speedFactor.isFinite()) speedFactor else 1.0
+        val scaled = (base * factor).roundToInt()
+        scaled.coerceIn(2, xrayChildCeiling.coerceIn(2, 8))
     }
 }

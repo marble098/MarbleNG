@@ -1,6 +1,8 @@
 package com.marbleng.app.model
 
 import org.json.JSONObject
+import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 data class ProxyProfile(
     val id: String,
@@ -639,12 +641,90 @@ object PingBudget {
      * Wall clock one server may consume: every sample gets the full per-sample budget, plus the
      * inter-sample spacing the prober inserts, plus scheduling grace. Pure, so the batch
      * deadline derived from it stays unit-testable.
+     *
+     * The V199 overload takes the *effective* spacing (the base [SAMPLE_SPACING_MS] divided by
+     * the speed dial), so a sweep's batch deadline describes the pacing the prober will really
+     * use. The two-argument form stays the shipped-spacing budget.
      */
-    fun perServerBudgetMs(timeoutSec: Int, samples: Int): Long {
+    fun perServerBudgetMs(timeoutSec: Int, samples: Int, spacingMs: Long): Long {
         val perSample = timeoutSec(timeoutSec) * 1_000L
         val rounds = samples(samples)
-        return perSample * rounds + SAMPLE_SPACING_MS * (rounds - 1) + 750L
+        return perSample * rounds + spacingMs.coerceIn(0L, 5_000L) * (rounds - 1) + 750L
     }
+
+    fun perServerBudgetMs(timeoutSec: Int, samples: Int): Long =
+        perServerBudgetMs(timeoutSec, samples, SAMPLE_SPACING_MS)
+}
+
+/**
+ * MARBLE_PING_SPEED_DIAL_V199 — the speed dial of every ping measurement.
+ *
+ * V160 made each measurement itself cheaper (one session for every Real-delay sample, tight
+ * readiness polls, a device-sized measurement pool) without touching a sample count or a
+ * timeout. V199 adds the one thing a speed label always implied and the product never had: a
+ * single dial over how fast the *sweeps* run, with an honest default.
+ *
+ * The dial changes exactly two things, and both are time, never truth:
+ *
+ *  - **width** — how many servers are measured at once (the direct sweep pool, and the throwaway
+ *    Xray-child pool a Real-delay sweep runs on);
+ *  - **pacing** — the quiet gap between two samples of one server, and the anti-probing stagger
+ *    of the multi-sample gate.
+ *
+ * It never changes a sample count, a per-sample timeout, a delay-test target or the median —
+ * so a number measured at one dial position is comparable with the same server measured at
+ * another. The shipped default (the dial switched off) is [DEFAULT_FACTOR]: every sweep runs
+ * about 1.5× wider/faster-paced than the V160 baseline, which is the "about 50 % faster" the
+ * product now promises for all three methods. When the user turns the dial on, the percent IS
+ * the multiplier against that same V160 baseline — 100 % is the classic pace, 50 % half of it,
+ * 200 % twice it — so the default and the manual scale are one ruler, not two.
+ *
+ * Pure: every consumer derives its own number from [factor], and the whole policy is pinned by
+ * unit tests in both directions.
+ */
+object PingSpeed {
+    /** The dial's own scale, in percent of the V160 baseline pace. */
+    const val MIN_PERCENT = 50
+    const val MAX_PERCENT = 200
+    const val DEFAULT_PERCENT = 100
+    const val STEP_PERCENT = 5
+
+    /**
+     * The speed a sweep runs at when the dial is switched off: about 1.5× the V160 baseline —
+     * the shipped "about 50 % faster" default for all three ping methods.
+     */
+    const val DEFAULT_FACTOR = 1.5
+
+    /** Below this the readout says the sweep is trading speed for gentleness. */
+    const val SLOW_PERCENT = 95
+
+    /** Above this the readout says the sweep is running hot. */
+    const val FAST_PERCENT = 150
+
+    fun percent(value: Int): Int = value.coerceIn(MIN_PERCENT, MAX_PERCENT)
+
+    /** Snap a slider percent to the dial's [STEP_PERCENT] grid, inside the legal range. */
+    fun stepped(rawPercent: Double): Int =
+        percent(((rawPercent / STEP_PERCENT).roundToInt()) * STEP_PERCENT)
+
+    /**
+     * The effective speed multiplier of one measurement: [DEFAULT_FACTOR] when the dial is off,
+     * otherwise the user's own percent of the V160 baseline.
+     */
+    fun factor(custom: Boolean, dialPercent: Int): Double =
+        if (!custom) DEFAULT_FACTOR else percent(dialPercent) / 100.0
+
+    /** One-word verdict shown beside the slider; the number itself is always shown too. */
+    fun label(custom: Boolean, dialPercent: Int): String =
+        if (!custom) {
+            "Default"
+        } else {
+            when (val p = percent(dialPercent)) {
+                in Int.MIN_VALUE until SLOW_PERCENT -> "Slow"
+                in SLOW_PERCENT..FAST_PERCENT -> if (p == DEFAULT_PERCENT) "Classic" else "Standard"
+                else -> "Fast"
+            }
+        }
 }
 
 /** Per-server socket budget, in milliseconds, exactly as the user configured it. */
@@ -653,8 +733,31 @@ fun AppSettings.pingTimeoutMs(): Int = PingBudget.timeoutSec(pingTimeoutSec) * 1
 /** Samples measured per server before a median is published. */
 fun AppSettings.pingSampleCount(): Int = PingBudget.samples(pingSamples)
 
-/** Servers measured at the same time. */
-fun AppSettings.pingWorkers(): Int = PingBudget.concurrency(pingConcurrency)
+/**
+ * MARBLE_PING_SPEED_DIAL_V199 — the effective speed multiplier of this measurement: the shipped
+ * default (dial off) or the user's own percent of the V160 baseline.
+ */
+fun AppSettings.pingSpeedFactor(): Double = PingSpeed.factor(pingSpeedCustom, pingSpeedPercent)
+
+/**
+ * Servers measured at the same time, at the dial's speed.
+ *
+ * The dial scales the width of the direct sweep, not the user's chip: "16 servers at once" at
+ * the shipped default runs 24-wide, because the default promise is about 50 % more sweep per
+ * second. The result is clamped through [PingBudget.concurrency] exactly like a raw value, so
+ * the legal range can never be escaped by arithmetic.
+ */
+fun AppSettings.pingWorkers(): Int =
+    PingBudget.concurrency((pingConcurrency * pingSpeedFactor()).roundToInt())
+
+/**
+ * MARBLE_PING_SPEED_DIAL_V199 — quiet time between two samples of one server, at the dial's
+ * speed. The base gap exists so a multi-sample run is never a burst an adaptive filter can
+ * learn; the dial only moves how long the quiet is. Scaled from [PingBudget.SAMPLE_SPACING_MS]
+ * and clamped well away from both a burst (20 ms floor) and a stall (300 ms ceiling).
+ */
+fun AppSettings.pingSampleSpacingMs(): Long =
+    (PingBudget.SAMPLE_SPACING_MS / pingSpeedFactor()).roundToLong().coerceIn(20L, 300L)
 
 /**
  * MARBLE_DOCK_CUSTOM_V145 — how large the bottom navigation bar renders.
@@ -1031,6 +1134,16 @@ data class AppSettings(
      * each other on a mobile link. Lower it (4, 2, 1) when accuracy matters more than speed.
      */
     val pingConcurrency: Int = 16,
+
+    // MARBLE_PING_SPEED_DIAL_V199 — the speed dial the user owns. Off (the default) runs every
+    // sweep at the shipped V199 speed: about 1.5× the V160 baseline, delivered as width and
+    // pacing, never as a shorter timeout or fewer samples. On, the percent IS the multiplier
+    // against that same baseline — 100 % is the classic pace, higher is faster, lower slower —
+    // so the default and the manual scale are one ruler. See [PingSpeed].
+    /** False → the shipped default speed; true → [pingSpeedPercent] drives every sweep. */
+    val pingSpeedCustom: Boolean = false,
+    /** Speed of every sweep, in percent of the V160 baseline pace (50..200, step 5). */
+    val pingSpeedPercent: Int = PingSpeed.DEFAULT_PERCENT,
 
     // Library order. Ping is intentionally the default; untested nodes stay last.
     val nodeSortMode: NodeSortMode = NodeSortMode.DEFAULT,
