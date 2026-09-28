@@ -258,7 +258,8 @@ class IpFamilyScannerTest {
         val seven = IpFamilyScanner.budgetMsFor(count = 7, concurrency = 6)
         assertEquals(one, six)
         assertTrue(seven > six)
-        assertTrue(IpFamilyScanner.budgetMsFor(count = 40, concurrency = 6) < 180_000L)
+        // V198: increased probes (3x3) need larger but still finite budget — 40 nodes under 4 minutes
+        assertTrue(IpFamilyScanner.budgetMsFor(count = 40, concurrency = 6) < 250_000L)
     }
 
     // ─────────────────────────────────────────────────────────── scope of a result
