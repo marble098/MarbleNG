@@ -45,7 +45,58 @@ class SweepWidthTest {
     )
 
     @Test
-    fun smoke() {
-        assertEquals(1, 1)
+    fun theDirectSweepRunsExactlyAsWideAsTheCallerAsked() {
+        assertEquals(24, width(method = ProbeMethod.TCP_PING, tcpWorkers = 24))
+        assertEquals(16, width(method = ProbeMethod.TCP_PING, tcpWorkers = 16))
+        // The caller's value is already dial-scaled upstream (pingWorkers()); the engine must
+        // not scale it a second time.
+        assertEquals(8, width(method = ProbeMethod.TCP_PING, tcpWorkers = 8, speedFactor = 2.0))
+    }
+
+    @Test
+    fun nativeChildMeasurementsStayUnderTheDeviceCeiling() {
+        // URL test / sing-box Real delay: the device ceiling is a memory decision; the dial
+        // cannot buy one child past it.
+        for (factor in listOf(0.5, 1.0, 1.5, 2.0)) {
+            assertEquals(
+                4,
+                width(
+                    method = ProbeMethod.URL_TEST,
+                    tcpWorkers = 24,
+                    singBoxCeiling = 4,
+                    speedFactor = factor
+                )
+            )
+            assertEquals(
+                6,
+                width(
+                    method = ProbeMethod.REAL_DELAY,
+                    engine = CoreEngine.SINGBOX,
+                    tcpWorkers = 24,
+                    singBoxCeiling = 6,
+                    speedFactor = factor
+                )
+            )
+        }
+        // Below the ceiling the caller's width rules: a slower dial genuinely narrows the pool.
+        assertEquals(8, width(method = ProbeMethod.URL_TEST, tcpWorkers = 24, singBoxCeiling = 8, speedFactor = 1.5))
+        assertEquals(4, width(method = ProbeMethod.URL_TEST, tcpWorkers = 4, singBoxCeiling = 8, speedFactor = 1.5))
+    }
+
+    @Test
+    fun theXrayRealDelayPoolScalesWithTheDial() {
+        // The old envelope: 2..4 CPU-derived children.
+        assertEquals(4, width(cpus = 8, speedFactor = 1.0))
+        assertEquals(2, width(cpus = 2, speedFactor = 1.0))
+        // The shipped default: ~1.5× wider — the Real-delay share of the ~50 % promise.
+        assertEquals(6, width(cpus = 8, speedFactor = 1.5))
+        assertEquals(3, width(cpus = 2, speedFactor = 1.5))
+        // A slower dial narrows back toward the old floor, never under it.
+        assertEquals(2, width(cpus = 8, speedFactor = 0.5))
+        // A hot dial widens further but never past the device's child ceiling.
+        assertEquals(8, width(cpus = 8, speedFactor = 2.0, xrayChildCeiling = 8))
+        assertEquals(5, width(cpus = 8, speedFactor = 2.0, xrayChildCeiling = 5))
+        // A device that can only carry the old pool keeps the old pool.
+        assertEquals(4, width(cpus = 8, speedFactor = 1.5, xrayChildCeiling = 4))
     }
 }

@@ -1186,7 +1186,7 @@ check(
 check(
     "the speed dial is pinned by unit tests in both directions",
     True  # diagnostic bisect: PingSpeedTest removed
-    and True
+    and "nativeChildMeasurementsStayUnderTheDeviceCeiling" in sweep_width_test
     and True
     and True,
 )
