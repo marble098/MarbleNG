@@ -146,8 +146,8 @@ class IpFamilyScannerTest {
 
     @Test fun theProbeCountPerFamilyIsBounded() {
         var attempts = 0
-        // V198: MAX=3, ATTEMPTS=3, so need 3+3 addresses to hit full bound
-        scan(listOf(v6, v6b, v6c, v4, v4b, v4c)) {
+        // V198: BALANCED keeps 2 for backward compat, so 5 addrs (3 v6 truncated to 2) => 8 attempts
+        scan(listOf(v6, v6b, v6c, v4, v4b)) {
             attempts += 1
             -1
         }
@@ -258,8 +258,8 @@ class IpFamilyScannerTest {
         val seven = IpFamilyScanner.budgetMsFor(count = 7, concurrency = 6)
         assertEquals(one, six)
         assertTrue(seven > six)
-        // V198: increased probes (3x3) need larger but still finite budget — 40 nodes under 4 minutes
-        assertTrue(IpFamilyScanner.budgetMsFor(count = 40, concurrency = 6) < 250_000L)
+        // V198: BALANCED keeps 2, so 40 nodes still under 2 minutes
+        assertTrue(IpFamilyScanner.budgetMsFor(count = 40, concurrency = 6) < 120_000L)
     }
 
     // ─────────────────────────────────────────────────────────── scope of a result

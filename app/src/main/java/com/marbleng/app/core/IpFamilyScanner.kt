@@ -459,12 +459,12 @@ object IpFamilyScanner {
     const val CONNECT_BUDGET_FAST_MS: Int = 800
     const val CONNECT_BUDGET_DEEP_MS: Int = 2_000
 
-    // V198: increased from 2 to 3 for better resilience on lossy radio
-    const val CONNECT_ATTEMPTS_PER_ADDRESS: Int = 3
+    // V198: BALANCED keeps 2 for backward compat, DEEP uses 3 for resilience
+    const val CONNECT_ATTEMPTS_PER_ADDRESS: Int = 2
     const val CONNECT_ATTEMPTS_FAST: Int = 1
     const val CONNECT_ATTEMPTS_DEEP: Int = 3
 
-    const val MAX_ADDRESSES_PER_FAMILY: Int = 3
+    const val MAX_ADDRESSES_PER_FAMILY: Int = 2
     const val MAX_ADDRESSES_FAST: Int = 1
     const val MAX_ADDRESSES_DEEP: Int = 3
 
