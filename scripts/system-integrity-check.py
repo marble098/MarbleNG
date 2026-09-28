@@ -1188,7 +1188,7 @@ check(
     True  # diagnostic bisect: PingSpeedTest removed
     and "nativeChildMeasurementsStayUnderTheDeviceCeiling" in sweep_width_test
     and True
-    and True,
+    and "noInputEscapesTheLegalRanges" in sweep_width_test,
 )
 
 # ───────────────────────────────────────────────────────────────────────────────────────────────
