@@ -30,6 +30,25 @@ class XrayManager(private val context: Context) {
     @Volatile var singBox: SingBoxManager? = null
     @Volatile var intelligence: MarbleIntelligence? = null
 
+    /**
+     * MARBLE_PING_SPEED_DIAL_V199 — how many throwaway Xray children this device may carry at
+     * once during a Real-delay sweep.
+     *
+     * A Real-delay measurement on the Xray engine spawns one child per candidate. The pool that
+     * carries those spawns was pinned to the CPU count (2..4) whatever the device was, so a
+     * hundred-node sweep ran in twenty-five waves of two to four even on a phone that could
+     * comfortably overlap more children while the first ones wait on the network. The same
+     * device-derived budget the sing-box measurement pool uses ([MeasurementCoreBudget], cores +
+     * per-app heap + `isLowRamDevice`) is the honest authority for Xray children too — and a
+     * conservative one, because an Xray child owns no controller API and no cache workspace, so
+     * it is strictly lighter than the sing-box child the budget was sized for.
+     *
+     * The floor never moves: a device that cannot carry more runs exactly the pool it has always
+     * run. Pure device read, computed once.
+     */
+    val measurementCoreCeiling: Int =
+        MeasurementCoreBudget.BASE + MeasurementCoreBudget.read(context)
+
     private fun underlayHasIpv6(): Boolean = intelligence?.currentSnapshot()
         ?.takeIf { it.transport != "unknown" }?.hasIpv6 ?: AddressFamilyPolicy.underlayHasIpv6()
     // MARBLE_FAST_START_V12

@@ -526,6 +526,11 @@ class AppStore(context: Context) {
         pingSamples = PingBudget.samples(prefs.getInt("pingSamples", 3)),
         pingConcurrency = PingBudget.concurrency(prefs.getInt("pingConcurrency", 16)),
 
+        // MARBLE_PING_SPEED_DIAL_V199 — the speed dial: off by default (the shipped ~1.5×
+        // baseline), and the percent clamped to the dial's legal range on the way in.
+        pingSpeedCustom = prefs.getBoolean("pingSpeedCustom", false),
+        pingSpeedPercent = PingSpeed.percent(prefs.getInt("pingSpeedPercent", PingSpeed.DEFAULT_PERCENT)),
+
         nodeSortMode = enumValue("nodeSortMode", NodeSortMode.DEFAULT),
         nodeSortReverse = prefs.getBoolean("nodeSortReverse", false),
 
@@ -777,6 +782,10 @@ class AppStore(context: Context) {
         .putInt("pingTimeoutSec", PingBudget.timeoutSec(s.pingTimeoutSec))
         .putInt("pingSamples", PingBudget.samples(s.pingSamples))
         .putInt("pingConcurrency", PingBudget.concurrency(s.pingConcurrency))
+
+        // MARBLE_PING_SPEED_DIAL_V199 — the dial persists next to the budget it scales.
+        .putBoolean("pingSpeedCustom", s.pingSpeedCustom)
+        .putInt("pingSpeedPercent", PingSpeed.percent(s.pingSpeedPercent))
 
         .putString("nodeSortMode", s.nodeSortMode.name)
         .putBoolean("nodeSortReverse", s.nodeSortReverse)

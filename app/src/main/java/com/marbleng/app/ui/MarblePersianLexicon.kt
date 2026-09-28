@@ -1108,6 +1108,27 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Worst case per server" to "بدترین حالت برای هر سرور",
     "at once" to "هم‌زمان",
 
+    // ------------------------------------------------------------------ V199: ping speed dial
+    // MARBLE_PING_SPEED_DIAL_V199 — the speed dial of every ping measurement: off = the shipped
+    // default (about 50 % faster sweeps), on = the user's own pace from gentle to twice as fast.
+    "Ping speed" to "سرعت پینگ",
+    "Default is about 50% faster sweeps for all three methods. Turn the dial on to choose the speed yourself — from gentler on a weak link to twice as fast." to
+        "پیش‌فرض، پویش‌ها را برای هر سه روش حدود ۵۰٪ سریع‌تر می‌کند. نوار را روشن کنید تا سرعت را خودتان انتخاب کنید — از ملایم‌تر روی اینترنت ضعیف تا دو برابر سریع‌تر.",
+    "Custom speed" to "سرعت دلخواه",
+    "of the classic pace" to "از سرعت کلاسیک",
+    "default speed (~50% faster)" to "سرعت پیش‌فرض (حدود ۵۰٪ سریع‌تر)",
+    "Slower • 50%" to "کندتر • ۵۰٪",
+    "Classic • 100%" to "کلاسیک • ۱۰۰٪",
+    "Faster • 200%" to "سریع‌تر • ۲۰۰٪",
+    "Now" to "اکنون",
+    "Classic" to "کلاسیک",
+    "Standard" to "استاندارد",
+    "servers at once" to "سرور هم‌زمان",
+    "between samples" to "بین نمونه‌ها",
+    "Use the default speed" to "استفاده از سرعت پیش‌فرض",
+    "Default speed" to "سرعت پیش‌فرض",
+    "about 1.5× the classic pace" to "حدود ۱.۵ برابر سرعت کلاسیک",
+
     // ------------------------------------------------------------------ V145: geo asset gate
     "Geo routing paused until the routing databases finish downloading" to
         "مسیریابی جغرافیایی تا کامل شدن دانلود پایگاه‌های داده موقتاً غیرفعال است",
@@ -1152,8 +1173,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Direct at once" to "مستقیم هم‌زمان",
     "Direct methods use this exact value; fewer is slower but far more accurate on a weak link" to
         "روش‌های مستقیم دقیقاً همین مقدار را استفاده می‌کنند؛ تعداد کمتر کندتر ولی روی اتصال ضعیف بسیار دقیق‌تر است",
-    "Timeout and sample count apply to every method. Servers at once is the direct-method sweep concurrency; Real test is capped at the native-safe core pool (2–4) because it launches one real Xray child per server." to
-        "مهلت و تعداد نمونه برای هر روش اعمال می‌شود. سرورهای هم‌زمان، همزمانی پویش روش‌های مستقیم است؛ تست واقعی به دلیل اجرای یک هسته Xray برای هر سرور به ۲ تا ۴ محدود است.",
+    "Timeout and sample count apply to every method. Servers at once is the direct-method sweep concurrency; Real delay runs one throwaway core per server, so its pool is capped by what this device can carry — the speed dial widens it inside that bound." to
+        "مهلت و تعداد نمونه برای هر روش اعمال می‌شود. «سرورهای هم‌زمان»، همزمانی پویش روش‌های مستقیم است؛ تأخیر واقعی برای هر سرور یک هسته موقتی اجرا می‌کند، پس استخر آن به توان این دستگاه محدود است — نوار سرعت آن را در همین محدوده پهن‌تر می‌کند.",
     "Used by the Home ping button, subscription ping and Ping all." to
         "استفاده توسط دکمه پینگ خانه، پینگ ساب و پینگ همه.",
     "DNS ping measures resolution time only — it does not test the server itself." to

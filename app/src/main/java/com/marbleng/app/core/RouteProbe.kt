@@ -275,7 +275,7 @@ object RouteProbe {
         var attempts = 0
         var consecutiveFailures = 0
         for (round in 0 until rounds) {
-            if (round > 0 && !pauseBetweenSamples()) break
+            if (round > 0 && !pauseBetweenSamples(settings.pingSampleSpacingMs())) break
             attempts += 1
             val value = tcpConnect(host, port, timeoutMs, settings, resolved)
             if (value < UNREACHABLE) {
@@ -362,9 +362,16 @@ object RouteProbe {
         )
     }
 
-    /** Quiet gap between two samples of the same endpoint; interruption ends the run. */
-    private fun pauseBetweenSamples(): Boolean = try {
-        Thread.sleep(PingBudget.SAMPLE_SPACING_MS)
+    /**
+     * Quiet gap between two samples of the same endpoint; interruption ends the run.
+     *
+     * MARBLE_PING_SPEED_DIAL_V199 — the gap length comes from the caller's settings (the base
+     * [PingBudget.SAMPLE_SPACING_MS] at the dial's speed), so the pacing of a multi-sample run
+     * is the one the user asked for. It stays a real quiet gap at every dial position: the
+     * scaled floor never approaches a burst, and an interrupted sleep still ends the run.
+     */
+    private fun pauseBetweenSamples(sampleSpacingMs: Long): Boolean = try {
+        Thread.sleep(sampleSpacingMs)
         true
     } catch (_: InterruptedException) {
         Thread.currentThread().interrupt()
@@ -935,7 +942,10 @@ object RouteProbe {
         timeoutMs: Int = 5000,
         samples: Int = 3,
         targets: List<String> = realDelayTargets(),
-        httpMethod: String = "GET"
+        httpMethod: String = "GET",
+        // MARBLE_PING_SPEED_DIAL_V199 — the same dial-driven quiet gap every other multi-sample
+        // run uses. The default is the shipped spacing, so the legacy helper keeps its pace.
+        sampleSpacingMs: Long = PingBudget.SAMPLE_SPACING_MS
     ): ProbeResult {
         val rounds = PingBudget.samples(samples)
         val times = ArrayList<Double>(rounds)
@@ -950,7 +960,7 @@ object RouteProbe {
         for (round in 0 until rounds) {
             // MARBLE_PING_ACCURACY_V145 — spaced samples: a burst of HTTPS requests to the same
             // 204 origin measures connection reuse and server-side rate limiting, not the route.
-            if (round > 0 && !pauseBetweenSamples()) break
+            if (round > 0 && !pauseBetweenSamples(sampleSpacingMs)) break
             attempts += 1
             val result = httpPing(socksPort, timeoutMs, targets, httpMethod)
             if (result.latencyMs < UNREACHABLE) {
@@ -1307,7 +1317,7 @@ object RouteProbe {
         var attempts = 0
         var consecutiveFailures = 0
         for (round in 0 until rounds) {
-            if (round > 0 && !pauseBetweenSamples()) break
+            if (round > 0 && !pauseBetweenSamples(settings.pingSampleSpacingMs())) break
             attempts += 1
             val value = if (icmpMode) {
                 icmp(profile.host, timeoutMs, settings)
@@ -1408,11 +1418,16 @@ object RouteProbe {
         // SNI-throttling on that single origin failed every sample of an otherwise perfect route,
         // which is precisely the "healthy server, red row" report. The same candidate walk, each
         // target with the full samples-and-timeout budget, now backs both paths.
+        //
+        // MARBLE_PING_SPEED_DIAL_V199 — the quiet gap inside the batch and between the two
+        // attempts of one origin follows the user's speed dial, exactly like every other
+        // multi-sample measurement in the product.
         return tunnelHttpsMeasureTargets(
             socksPort = tunnelPort,
             timeoutMs = timeoutMs,
             samples = samples,
-            urls = DelayTest.candidates(settings.delayTestUrl)
+            urls = DelayTest.candidates(settings.delayTestUrl),
+            sampleSpacingMs = settings.pingSampleSpacingMs()
         )
     }
 
@@ -1636,14 +1651,19 @@ object RouteProbe {
         socksPort: Int,
         timeoutMs: Int,
         samples: Int,
-        urls: List<String>
+        urls: List<String>,
+        // MARBLE_PING_SPEED_DIAL_V199 — the dial-driven quiet gap between this measurement's
+        // samples (and between the two attempts of one silent origin). The default stays the
+        // shipped spacing so every existing caller keeps its exact pace.
+        sampleSpacingMs: Long = PingBudget.SAMPLE_SPACING_MS
     ): ProbeResult =
         ProbeTargetWalk.realDelay(urls) { url ->
             tunnelHttpsMeasure(
                 socksPort = socksPort,
                 timeoutMs = timeoutMs,
                 samples = samples,
-                url = url
+                url = url,
+                sampleSpacingMs = sampleSpacingMs
             )
         }.copy(method = METHOD_REAL_DELAY)
 
@@ -1655,7 +1675,11 @@ object RouteProbe {
         socksPort: Int,
         timeoutMs: Int,
         samples: Int = 2,
-        url: String = DelayTest.URL
+        url: String = DelayTest.URL,
+        // MARBLE_PING_SPEED_DIAL_V199 — the quiet gap between samples of this batch and between
+        // the two attempts of a silent origin. The default is the shipped spacing, so callers
+        // that do not carry settings keep the exact V160 pace.
+        sampleSpacingMs: Long = PingBudget.SAMPLE_SPACING_MS
     ): ProbeResult {
         // MARBLE_PING_TRUTH_V147 — configured samples are the budget. The old 3-sample ceiling
         // made "samples per server" a suggestion for the real-tunnel path, and warm-up was kept
@@ -1701,14 +1725,14 @@ object RouteProbe {
         val attempts = if (rounds > 1) CONSECUTIVE_FAILURES_BEFORE_ABANDON else 1
         var result: TunnelRttBatch? = null
         repeat(attempts) { attempt ->
-            if (attempt > 0 && !pauseBetweenSamples()) return@repeat
+            if (attempt > 0 && !pauseBetweenSamples(sampleSpacingMs)) return@repeat
             result = runCatching {
                 SocksHttpClient.tunnelRttBatchUrl(
                     port = socksPort,
                     url = url,
                     samples = rounds,
                     timeoutMs = budget,
-                    spacingMs = PingBudget.SAMPLE_SPACING_MS
+                    spacingMs = sampleSpacingMs
                 )
             }.getOrNull()
             if (result != null) return@repeat

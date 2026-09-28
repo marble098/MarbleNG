@@ -217,6 +217,8 @@ files = {
     "homeStyles": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStyles.kt"),
     "protocolIdentity": read("app/src/main/java/com/marbleng/app/ui/MarbleProtocolIdentity.kt"),
     "strings": read("app/src/main/java/com/marbleng/app/ui/MarbleStrings.kt"),
+    # MARBLE_PING_SPEED_DIAL_V199 — the Persian face of the dial, checked like every other file.
+    "persianLexicon": read("app/src/main/java/com/marbleng/app/ui/MarblePersianLexicon.kt"),
     # MARBLE_DOCK_SLOT_V167 — the fourth tab's model test and the chapter that explains it.
     "dockSlotTest": read("app/src/test/java/com/marbleng/app/model/DockSlotV167Test.kt"),
     "dockSlotDoc": read("docs/DOCK_SLOT_AND_COMPACT_BANNER_V167.md"),
@@ -1058,7 +1060,11 @@ check(
 check(
     "Real delay takes every sample on one session and keeps the quiet gap between them",
     "samples = rounds," in files["probe"]
-    and "spacingMs = PingBudget.SAMPLE_SPACING_MS" in files["probe"]
+    # MARBLE_PING_SPEED_DIAL_V199 — the gap flows from the caller's speed dial now: the batch
+    # call passes the dial-driven spacing whose DEFAULT is still the shipped
+    # PingBudget.SAMPLE_SPACING_MS, so a caller without settings keeps the exact V160 pace.
+    and "sampleSpacingMs: Long = PingBudget.SAMPLE_SPACING_MS" in files["probe"]
+    and "spacingMs = sampleSpacingMs" in files["probe"]
     # The old per-round loop, verbatim: one fresh connection and one full handshake per sample.
     # (The quiet pause between samples still belongs to the other multi-sample methods, so the
     # assertion names the whole call shape instead of one of its tokens.)
@@ -1101,6 +1107,92 @@ check(
     "badge = CoreEngineInfo.displayName(repo.activeCoreEngine)" in files["ui"]
     and "badge: String = \"\"," in files["ui"]
     and "CoreEngineInfo.displayName(engine) +" in files["ui"],
+)
+
+# ───────────────────────────────────────────────────────────────────────────────────────────────
+# MARBLE_PING_SPEED_DIAL_V199 — every ping measurement got a speed dial.
+#
+#  - the shipped default (dial off) runs every sweep about 1.5× the V160 baseline — the
+#    "about 50 % faster" promise for all three methods — delivered as sweep width and sample
+#    pacing, never as a shorter timeout or fewer samples;
+#  - the dial is one object (PingSpeed), one pair of settings, one store round-trip, one
+#    Settings control, and the sweep-width policy is one pure function with its own test.
+# ───────────────────────────────────────────────────────────────────────────────────────────────
+
+ping_speed_dial_test = read(
+    "app/src/test/java/com/marbleng/app/model/PingSpeedTest.kt"
+)
+sweep_width_test = read("app/src/test/java/com/marbleng/app/core/SweepWidthTest.kt")
+check(
+    "the speed dial is one policy object with one ruler for default and manual speed",
+    "object PingSpeed" in files["models"]
+    and "const val DEFAULT_FACTOR = 1.5" in files["models"]
+    and "const val MIN_PERCENT = 50" in files["models"]
+    and "const val MAX_PERCENT = 200" in files["models"]
+    and "fun factor(custom: Boolean, dialPercent: Int): Double" in files["models"]
+    and "val pingSpeedCustom: Boolean = false" in files["models"]
+    and "val pingSpeedPercent: Int = PingSpeed.DEFAULT_PERCENT" in files["models"]
+    and "fun AppSettings.pingSpeedFactor(): Double" in files["models"]
+    # The default is the dial's answer, not a stored percent: dial off always reads 1.5.
+    and "PingSpeed.factor(pingSpeedCustom, pingSpeedPercent)" in files["models"],
+)
+check(
+    "the dial scales sweep width and pacing, never the accuracy budget",
+    # Width: the direct sweep pool scales through the accessor the sweep constructs its
+    # settings with, clamped through the same PingBudget concurrency as a raw value.
+    "(pingConcurrency * pingSpeedFactor()).roundToInt()" in files["models"]
+    and "fun AppSettings.pingWorkers(): Int" in files["models"]
+    # Pacing: the quiet gap scales with a burst-proof floor and a stall-proof ceiling.
+    and "fun AppSettings.pingSampleSpacingMs(): Long" in files["models"]
+    and "coerceIn(20L, 300L)" in files["models"]
+    # The accuracy contract is untouched by the dial: samples and timeout read the raw fields.
+    and "fun AppSettings.pingTimeoutMs(): Int = PingBudget.timeoutSec(pingTimeoutSec) * 1_000" in files["models"]
+    and "fun AppSettings.pingSampleCount(): Int = PingBudget.samples(pingSamples)" in files["models"]
+    # The batch deadline describes the pacing the prober will really use.
+    and "perServerBudgetMs(timeoutSec: Int, samples: Int, spacingMs: Long)" in files["models"],
+)
+check(
+    "the sweep-width policy is one pure function, tested from every side",
+    "fun sweepWidth(" in files["bench"]
+    and "xray.singBox?.measurementCoreCeiling ?: SingBoxManager.MAX_TEMPORARY_CORES" in files["bench"]
+    # The native-child ceiling stays a memory decision: the dial never buys a child past it.
+    and "tcpWorkers.coerceIn(1, singBoxCeiling.coerceIn(1, 64))" in files["bench"]
+    # The Xray Real-delay pool scales with the dial from its old 2..4 envelope.
+    and "val scaled = (base * speedFactor).roundToInt()" in files["bench"]
+    and "scaled.coerceIn(2, xrayChildCeiling.coerceIn(2, 8))" in files["bench"]
+    and "class SweepWidthTest" in sweep_width_test,
+)
+check(
+    "the device sizes the Xray Real-delay pool exactly like the sing-box pool",
+    "val measurementCoreCeiling: Int =" in files["xray"]
+    and "MeasurementCoreBudget.BASE + MeasurementCoreBudget.read(context)" in files["xray"],
+)
+check(
+    "the dial reaches every multi-sample measurement and the anti-probing stagger",
+    "pauseBetweenSamples(settings.pingSampleSpacingMs())" in files["probe"]
+    and "sampleSpacingMs = settings.pingSampleSpacingMs()" in files["probe"]
+    and "sampleSpacingMs = probeSettings.pingSampleSpacingMs()" in files["repo"]
+    and "ProbeTargetPool.staggerProbe(staggerScale)" in files["reachability"],
+)
+check(
+    "the dial persists, renders, and translates",
+    "pingSpeedCustom = prefs.getBoolean(\"pingSpeedCustom\", false)" in files["store"]
+    and "PingSpeed.percent(prefs.getInt(\"pingSpeedPercent\", PingSpeed.DEFAULT_PERCENT))" in files["store"]
+    and ".putBoolean(\"pingSpeedCustom\", s.pingSpeedCustom)" in files["store"]
+    and ".putInt(\"pingSpeedPercent\", PingSpeed.percent(s.pingSpeedPercent))" in files["store"]
+    and "AnimatedVisibility(s.pingSpeedCustom)" in files["ui"]
+    and "onValueChangeFinished" in files["ui"]
+    and "\"Ping speed\" to" in files["persianLexicon"]
+    and "\"Custom speed\" to" in files["persianLexicon"],
+)
+check(
+    "the speed dial is pinned by unit tests in both directions",
+    "dialOffIsAlwaysTheShippedFasterDefault" in ping_speed_dial_test
+    and "theDialNeverTouchesTheAccuracyBudget" in ping_speed_dial_test
+    and "theQuietGapNeverBecomesABurstOrAStall" in ping_speed_dial_test
+    and "nativeChildMeasurementsStayUnderTheDeviceCeiling" in sweep_width_test
+    and "theXrayRealDelayPoolScalesWithTheDial" in sweep_width_test
+    and "noInputEscapesTheLegalRanges" in sweep_width_test,
 )
 
 # ───────────────────────────────────────────────────────────────────────────────────────────────

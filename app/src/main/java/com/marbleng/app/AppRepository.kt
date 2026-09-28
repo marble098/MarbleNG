@@ -1437,7 +1437,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                             socksPort = port,
                             timeoutMs = timeoutMs,
                             samples = samples,
-                            urls = targets
+                            urls = targets,
+                            // MARBLE_PING_SPEED_DIAL_V199 — the throwaway tunnel's samples keep
+                            // the caller's dial-driven quiet gap, exactly like the live path.
+                            sampleSpacingMs = probeSettings.pingSampleSpacingMs()
                         )
                     }
                 }.onFailure { error ->

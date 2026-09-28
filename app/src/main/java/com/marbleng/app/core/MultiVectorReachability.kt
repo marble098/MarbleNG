@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.pingSpeedFactor
 import java.net.ConnectException
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -495,8 +496,11 @@ object MultiVectorReachability {
     ): ReachabilitySummary {
         val rounds = samples.coerceIn(1, 10)
         val signals = ArrayList<ReachabilitySignal>(rounds)
+        // MARBLE_PING_SPEED_DIAL_V199 — the anti-probing stagger between this run's samples
+        // follows the caller's speed dial; the gap stays randomized and never approaches a burst.
+        val staggerScale = settings.pingSpeedFactor()
         for (index in 0 until rounds) {
-            if (index > 0) ProbeTargetPool.staggerProbe()
+            if (index > 0) ProbeTargetPool.staggerProbe(staggerScale)
             // One resolution per run: re-resolving per sample measured the resolver, not the route.
             val signal = probe(host, port, timeoutMs, settings, referenceRttMs, resolved)
             signals += signal
@@ -616,13 +620,26 @@ object ProbeTargetPool {
         return pool[Math.floorMod(cursor.getAndIncrement(), pool.size)]
     }
 
-    /** Random 50–400 ms anti-probing jitter. */
-    fun nextJitterMs(): Long =
-        MIN_JITTER_MS + ThreadLocalRandom.current().nextLong(MAX_JITTER_MS - MIN_JITTER_MS + 1)
+    /**
+     * Random 50–400 ms anti-probing jitter, at the caller's speed.
+     *
+     * MARBLE_PING_SPEED_DIAL_V199 — [scale] is the caller's speed dial (1.0 = the shipped V160
+     * pace, 1.5 = the shipped default). The RANGE is scaled, never removed: a faster dial keeps
+     * a real randomized quiet gap between the samples of one endpoint (proportionally shorter),
+     * a slower dial keeps a proportionally longer one. The result is clamped to a 20 ms floor —
+     * the gap must never become the burst the stagger exists to prevent — and to the unscaled
+     * maximum, so no dial position can wait longer than the product has ever waited.
+     */
+    fun nextJitterMs(scale: Double = 1.0): Long {
+        val safe = if (scale.isFinite() && scale > 0.0) scale else 1.0
+        val min = (MIN_JITTER_MS / safe).toLong().coerceIn(20L, MAX_JITTER_MS)
+        val max = (MAX_JITTER_MS / safe).toLong().coerceIn(min, MAX_JITTER_MS)
+        return min + ThreadLocalRandom.current().nextLong(max - min + 1)
+    }
 
     /** Sleep the anti-probing jitter; returns the actual delay, 0 on interrupt. */
-    fun staggerProbe(): Long {
-        val delay = nextJitterMs()
+    fun staggerProbe(scale: Double = 1.0): Long {
+        val delay = nextJitterMs(scale)
         return try {
             Thread.sleep(delay)
             delay
