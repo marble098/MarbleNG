@@ -105,6 +105,25 @@ class SweepWidthTest {
         assertEquals(4, width(v2rayStyleDelay = true, tcpWorkers = 24, speedFactor = 2.0))
         assertEquals(2, width(v2rayStyleDelay = true, tcpWorkers = 1, speedFactor = 0.5))
     }
+
+    @Test
+    fun noInputEscapesTheLegalRanges() {
+        for (cpus in 1..16) {
+            for (workers in intArrayOf(0, 1, 20, 64, 999)) {
+                for (factor in listOf(-1.0, 0.0, 0.5, 1.0, 1.5, 2.0, 40.0, Double.NaN)) {
+                    val w = width(
+                        tcpWorkers = workers,
+                        cpus = cpus,
+                        singBoxCeiling = 6,
+                        xrayChildCeiling = 6,
+                        speedFactor = factor
+                    )
+                    assertTrue("width $w out of range (cpus=$cpus workers=$workers factor=$factor)", w in 1..64)
+                }
+            }
+        }
+    }
+
     @Test
     fun theDeviceCeilingsThisEngineActuallyReads() {
         // The sing-box pool: granted by MeasurementCoreBudget and never below the shipped floor.

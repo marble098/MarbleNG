@@ -1224,7 +1224,11 @@ internal fun sweepWidth(
     v2rayStyleDelay -> tcpWorkers.coerceIn(2, 4)
     else -> {
         val base = cpus.coerceIn(2, 4)
-        val scaled = (base * speedFactor).roundToInt()
+        // MARBLE_PING_SPEED_DIAL_V199 — a hostile factor (NaN or ±Inf) must land inside the
+        // envelope, never crash the sweep: roundToInt() refuses NaN, so non-finite input is
+        // folded back to the classic 1.0 pace before it can reach the rounding.
+        val factor = if (speedFactor.isFinite()) speedFactor else 1.0
+        val scaled = (base * factor).roundToInt()
         scaled.coerceIn(2, xrayChildCeiling.coerceIn(2, 8))
     }
 }

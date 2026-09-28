@@ -1119,7 +1119,9 @@ check(
 #    Settings control, and the sweep-width policy is one pure function with its own test.
 # ───────────────────────────────────────────────────────────────────────────────────────────────
 
-ping_speed_dial_test = ""  # diagnostic bisect: PingSpeedTest removed
+ping_speed_dial_test = read(
+    "app/src/test/java/com/marbleng/app/model/PingSpeedTest.kt"
+)
 sweep_width_test = read("app/src/test/java/com/marbleng/app/core/SweepWidthTest.kt")
 check(
     "the speed dial is one policy object with one ruler for default and manual speed",
@@ -1156,7 +1158,8 @@ check(
     # The native-child ceiling stays a memory decision: the dial never buys a child past it.
     and "tcpWorkers.coerceIn(1, singBoxCeiling.coerceIn(1, 64))" in files["bench"]
     # The Xray Real-delay pool scales with the dial from its old 2..4 envelope.
-    and "val scaled = (base * speedFactor).roundToInt()" in files["bench"]
+    and "val factor = if (speedFactor.isFinite()) speedFactor else 1.0" in files["bench"]
+    and "val scaled = (base * factor).roundToInt()" in files["bench"]
     and "scaled.coerceIn(2, xrayChildCeiling.coerceIn(2, 8))" in files["bench"]
     and "class SweepWidthTest" in sweep_width_test,
 )
@@ -1185,10 +1188,12 @@ check(
 )
 check(
     "the speed dial is pinned by unit tests in both directions",
-    True  # diagnostic bisect: PingSpeedTest removed
+    "dialOffIsAlwaysTheShippedFasterDefault" in ping_speed_dial_test
+    and "theDialNeverTouchesTheAccuracyBudget" in ping_speed_dial_test
+    and "theQuietGapNeverBecomesABurstOrAStall" in ping_speed_dial_test
     and "nativeChildMeasurementsStayUnderTheDeviceCeiling" in sweep_width_test
-    and True
-    and True,  # diagnostic bisect: method 5 dropped
+    and "theXrayRealDelayPoolScalesWithTheDial" in sweep_width_test
+    and "noInputEscapesTheLegalRanges" in sweep_width_test,
 )
 
 # ───────────────────────────────────────────────────────────────────────────────────────────────
