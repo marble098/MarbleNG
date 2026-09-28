@@ -531,20 +531,16 @@ class SingBoxManager(private val context: Context) {
          * MARBLE_SINGBOX_STARTUP_GATE_V162 — the grace window a live connect pays once, after the
          * inbound answers and before the session is handed to the TUN.
          *
-         * It is the *same reason* the canary pays its own, larger window
-         * ([SingBoxCoreSelfTest.SETTLE_MS]): `box.Start()` opens the inbounds before it walks the
-         * outbounds' post-start, so a core that is about to die in an outbound has already
-         * published a listening port. A core that dies does so microseconds after the inbound
-         * opened, so the live path only needs a fraction of the one-time canary's margin — the
-         * canary is paid once per binary, the live settle is paid on *every* connect, and 250 ms
-         * is far more than enough to catch an immediate post-start crash. Shaving the remaining
-         * ~450 ms off every SingBox connect is the single largest, safest latency win on the
-         * TUN bring-up path.
-         *
-         * MARBLE_CONNECT_FAST_START — kept distinct from the canary so the per-connection cost can
-         * be tuned independently of the one-time binary capability check.
+         * It is the same window the canary pays ([SingBoxCoreSelfTest.SETTLE_MS]) for the same
+         * reason: `box.Start()` opens the inbounds before it walks the outbounds' post-start, so a
+         * core that is about to die in an outbound has already published a listening port. The
+         * live path used to pay nothing here and wait for the controller instead — which worked,
+         * but made a diagnostic the gate of the tunnel (see [start]). The per-connection speed-up
+         * for the live path comes from decoupling that controller wait (see [start] /
+         * [verifyControllerLater]) and from overlapping TUN establishment with core start-up, not
+         * from shrinking this safety window.
          */
-        const val LIVE_SETTLE_MS: Long = 250L
+        const val LIVE_SETTLE_MS: Long = SingBoxCoreSelfTest.SETTLE_MS
 
         private val testSlots = Semaphore(MAX_TEMPORARY_CORES, true)
         private val diagnosticLock = Any()

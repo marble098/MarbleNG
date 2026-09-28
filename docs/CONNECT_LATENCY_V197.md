@@ -49,12 +49,13 @@ thread (`verifyControllerLater`). A controller that never answers is still recor
 before — as a degraded, usable session (`StartReadiness.controllerMissing`) — it simply no
 longer delays CONNECTED. If a newer session takes over, the background verdict is discarded.
 
-### 2. Sing-box: an oversized per-connection settle (≈ 450 ms every connect)
+### 2. Sing-box: the per-connection safety settle is intentionally unchanged
 
-`LIVE_SETTLE_MS` was aliased to `SingBoxCoreSelfTest.SETTLE_MS` (700 ms). That window only
-exists to catch a core that dies *microseconds* after its inbound opens. 700 ms is far more
-than that needs, and it was paid on **every** connect while the one-time binary canary pays it
-once. Reduced to **250 ms** (kept distinct from the canary).
+`LIVE_SETTLE_MS` is aliased to the one-time binary canary's 700 ms. That window only exists
+to catch a core that dies *microseconds* after its inbound opens. It is a pinned invariant of
+the controller-gate design, so the live-path speed-up does **not** come from shrinking it; the
+grace is left intact and the win comes from decoupling the controller wait and overlapping the
+TUN/core bring-up instead.
 
 ### 3. Both cores: TUN establishment was serial with core start-up (≈ 150–400 ms)
 
@@ -91,9 +92,9 @@ visible rather than felt.
 
 | Phase | Before | After |
 |-------|--------|-------|
-| Sing-box settle (per connect) | 700 ms | 250 ms |
 | Sing-box controller wait (critical path) | up to 2.5 s | 0 (deferred) |
 | TUN vs core start-up (both cores) | serial (~150–400 ms added) | overlapped |
 
-Typical Sing-box connect: **~0.5–3 s faster**. Both cores: **~150–400 ms faster** from the
-overlap, with Sing-box carrying the larger, worst-case win.
+Typical Sing-box connect: **up to ~2.5 s faster** (controller no longer gates CONNECTED), plus
+**~150–400 ms** from the overlap shared by both cores. The per-connection safety settle is
+unchanged.
