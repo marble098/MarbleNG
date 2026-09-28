@@ -710,8 +710,8 @@ object IpFamilyScanner {
             ScanMode.BALANCED -> Triple(MAX_ADDRESSES_PER_FAMILY, CONNECT_ATTEMPTS_PER_ADDRESS, CONNECT_BUDGET_MS)
         }
 
-        val ipv6Probe = probeFamilyDetailed(v6.take(maxAddr), port, connBudget, attemptsPerAddr, connector)
-        val ipv4Probe = probeFamilyDetailed(v4.take(maxAddr), port, connBudget, attemptsPerAddr, connector)
+        val ipv6Probe = probeFamilyDetailed(v6.take(maxAddr).map { it as InetAddress }, port, connBudget, attemptsPerAddr, connector)
+        val ipv4Probe = probeFamilyDetailed(v4.take(maxAddr).map { it as InetAddress }, port, connBudget, attemptsPerAddr, connector)
 
         val ipv6Ok = ipv6Probe.ok
         val ipv4Ok = ipv4Probe.ok
@@ -883,7 +883,7 @@ object IpFamilyScanner {
     // ── Detailed family probing with median, jitter, success rate ──
 
     fun probeFamilyDetailed(
-        addresses: List<out InetAddress>,
+        addresses: List<InetAddress>,
         port: Int,
         budgetMs: Int = CONNECT_BUDGET_MS,
         attemptsPerAddress: Int = CONNECT_ATTEMPTS_PER_ADDRESS,
@@ -1000,8 +1000,8 @@ object IpFamilyScanner {
      * Both families are still measured for reporting.
      */
     fun happyEyeballsRace(
-        v6Addresses: List<out InetAddress>,
-        v4Addresses: List<out InetAddress>,
+        v6Addresses: List<InetAddress>,
+        v4Addresses: List<InetAddress>,
         port: Int,
         tryDelayMs: Int = HAPPY_EYEBALLS_TRY_DELAY_MS,
         connectBudgetMs: Int = CONNECT_BUDGET_MS,
