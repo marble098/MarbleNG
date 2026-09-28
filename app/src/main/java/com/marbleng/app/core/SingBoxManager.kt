@@ -34,6 +34,8 @@ class SingBoxManager(private val context: Context) {
         private set
     @Volatile var apiPort: Int = 0
         private set
+    /** Bearer secret for the live session's Clash controller; used by [verifyControllerLater]. */
+    @Volatile private var apiSecret: String = ""
     @Volatile var intelligence: MarbleIntelligence? = null
 
     /**
@@ -132,6 +134,15 @@ class SingBoxManager(private val context: Context) {
             // went BLOCKED because a *diagnostic* had not finished binding. The tunnel is the
             // inbound hev-socks5-tunnel dials, so that is what the wait is for, and a controller
             // that never answers is recorded as a degraded session instead of a failed connect.
+            //
+            // MARBLE_CONNECT_FAST_START — the controller is *not* part of the data path, yet the
+            // old live path still waited up to [SingBoxProcessSession.CONTROLLER_TIMEOUT_MS] for it
+            // inside [start] before the tunnel could be handed to the VPN. On a core whose
+            // controller binds slowly (or never), that wait added up to 2.5 s to every SingBox
+            // connect. The inbound — the socket HEV actually dials — is already proven up here, so
+            // the session is handed over immediately and the controller is confirmed out-of-band.
+            // A controller that never answers is still recorded as a degraded session (see
+            // [verifyControllerLater]); only the *wait* is removed from the connect critical path.
             val started = openFirst(
                 candidates = builds,
                 configFile = File(context.filesDir, "runtime-singbox.json"),
@@ -141,7 +152,7 @@ class SingBoxManager(private val context: Context) {
                 controller = controller,
                 secret = secret,
                 validate = true,
-                awaitApi = true,
+                awaitApi = false,
                 requireController = false,
                 settleMs = LIVE_SETTLE_MS
             )
@@ -159,7 +170,10 @@ class SingBoxManager(private val context: Context) {
             }
             session = started.first
             apiPort = controller
+            apiSecret = secret
             lastStartPhase = "ready"
+            // Confirm the controller without blocking CONNECTED; see method doc for the rationale.
+            verifyControllerLater(started.first, controller, secret)
             return true
         } catch (error: Exception) {
             if (error is InterruptedException) Thread.currentThread().interrupt()
@@ -178,6 +192,57 @@ class SingBoxManager(private val context: Context) {
             lastStartPhase = "failed"
             return false
         }
+    }
+
+    /**
+     * MARBLE_CONNECT_FAST_START — confirms the live session's Clash controller out-of-band so a
+     * SingBox connect is never blocked on it.
+     *
+     * [start] has already proved the inbound (the socket HEV actually dials) is up and handed the
+     * session to the VPN. This runs afterwards, on a daemon thread, and only updates diagnostics
+     * ([lastStartReadiness] / [lastSelfHealNotes]); it never touches the data path or the connect
+     * state. A controller that never answers is recorded exactly as the old synchronous path did —
+     * as a degraded, usable session ([StartReadiness.controllerMissing]) — it simply no longer
+     * delays CONNECTED. If a newer session has since taken over, the verdict is discarded.
+     */
+    private fun verifyControllerLater(session: SingBoxProcessSession, port: Int, secret: String) {
+        Thread({
+            try {
+                var up = false
+                val deadlineNs = System.nanoTime() +
+                    TimeUnit.MILLISECONDS.toNanos(SingBoxProcessSession.CONTROLLER_TIMEOUT_MS)
+                var delayMs = 50L
+                while (System.nanoTime() < deadlineNs) {
+                    if (this.session !== session) return@Thread
+                    if (SingBoxProcessSession.apiReady(
+                            port, secret, SingBoxProcessSession.CONTROLLER_TIMEOUT_MS
+                        )
+                    ) {
+                        up = true
+                        break
+                    }
+                    Thread.sleep(minOf(delayMs, 200L).coerceAtLeast(1L))
+                    delayMs = (delayMs * 2L).coerceAtMost(200L)
+                }
+                if (this.session !== session) return@Thread
+                lastStartReadiness = StartReadiness(
+                    inboundUp = true,
+                    controllerUp = up,
+                    controllerAwaited = true,
+                    phase = if (up) "ready" else "controller",
+                    elapsedMs = 0L
+                )
+                if (!up) {
+                    lastSelfHealNotes = lastSelfHealNotes + listOf(
+                        "the core is carrying traffic, but its Clash controller never answered " +
+                            "(${SingBoxProcessSession.CONTROLLER_TIMEOUT_MS} ms): Real delay through " +
+                            "the core and the Engine page's live counters are unavailable, the route is not"
+                    )
+                }
+            } catch (_: InterruptedException) {
+                // Superseded by another connect; nothing to record.
+            }
+        }, "marble-singbox-ctrl").apply { isDaemon = true; start() }
     }
 
     @Synchronized fun stop() {
@@ -466,13 +531,20 @@ class SingBoxManager(private val context: Context) {
          * MARBLE_SINGBOX_STARTUP_GATE_V162 — the grace window a live connect pays once, after the
          * inbound answers and before the session is handed to the TUN.
          *
-         * It is the same window the canary pays ([SingBoxCoreSelfTest.SETTLE_MS]) for the same
-         * reason: `box.Start()` opens the inbounds before it walks the outbounds' post-start, so a
-         * core that is about to die in an outbound has already published a listening port. The
-         * live path used to pay nothing here and wait for the controller instead — which worked,
-         * but made a diagnostic the gate of the tunnel (see [start]).
+         * It is the *same reason* the canary pays its own, larger window
+         * ([SingBoxCoreSelfTest.SETTLE_MS]): `box.Start()` opens the inbounds before it walks the
+         * outbounds' post-start, so a core that is about to die in an outbound has already
+         * published a listening port. A core that dies does so microseconds after the inbound
+         * opened, so the live path only needs a fraction of the one-time canary's margin — the
+         * canary is paid once per binary, the live settle is paid on *every* connect, and 250 ms
+         * is far more than enough to catch an immediate post-start crash. Shaving the remaining
+         * ~450 ms off every SingBox connect is the single largest, safest latency win on the
+         * TUN bring-up path.
+         *
+         * MARBLE_CONNECT_FAST_START — kept distinct from the canary so the per-connection cost can
+         * be tuned independently of the one-time binary capability check.
          */
-        const val LIVE_SETTLE_MS: Long = SingBoxCoreSelfTest.SETTLE_MS
+        const val LIVE_SETTLE_MS: Long = 250L
 
         private val testSlots = Semaphore(MAX_TEMPORARY_CORES, true)
         private val diagnosticLock = Any()
