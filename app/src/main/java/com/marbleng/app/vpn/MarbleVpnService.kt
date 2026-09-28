@@ -712,7 +712,6 @@ class MarbleVpnService : VpnService() {
         val app = application as MarbleApplication
         activeProfileId = profile.id
         activeSettings = requestedSettings
-        var started = false
         var generation = 0
 
         // Marble Turbo runs before the route carries traffic: the TUN is already established and
@@ -888,7 +887,6 @@ class MarbleVpnService : VpnService() {
             startProxyMonitor(session, port, generation)
             return CoreLaunch(true, generation, settings)
         }
-        started = true
         return CoreLaunch(true, generation, settings)
     }
 
