@@ -59,6 +59,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -655,12 +656,14 @@ class MarbleVpnService : VpnService() {
                 } else {
                     settings.socksPort
                 }
-                if (normalizedMode == MODE_TUN && !establishTun(profile, session, settings)) {
-                    handleFailure(session, "VPN establish failed")
-                    return@runCatching
+                if (normalizedMode == MODE_TUN) {
+                    // MARBLE_CONNECT_FAST_START — overlap TUN establishment with core spawn so the
+                    // two independent start-up costs run in parallel instead of serially.
+                    connectTunOverlapped(profile, session, port, settings)
+                } else {
+                    if (!isCurrent(session)) return@runCatching
+                    startXrayAndForward(profile, session, port, settings, recovering = false)
                 }
-                if (!isCurrent(session)) return@runCatching
-                startXrayAndForward(profile, session, port, settings, recovering = false)
             }.onFailure { error ->
                 diag.error(
                     "VPN",
@@ -680,27 +683,47 @@ class MarbleVpnService : VpnService() {
         }
     }
 
-    private fun startXrayAndForward(
+    /**
+     * MARBLE_CONNECT_FAST_START — the outcome of bringing a core up, returned without starting HEV.
+     * The TUN bring-up ([establishTun]) is independent of this and is overlapped with it on the
+     * fresh TUN path ([connectTunOverlapped]) so the two start-up costs run in parallel instead of
+     * serially. [generation] is the route generation HEV must use to stay current with this core.
+     */
+    private data class CoreLaunch(
+        val started: Boolean,
+        val generation: Int,
+        val settings: AppSettings
+    )
+
+    /**
+     * MARBLE_CONNECT_FAST_START — brings the core up (spawn + readiness) and schedules the
+     * post-start diagnostics, but does NOT start HEV. Split out of the old [startXrayAndForward]
+     * so the TUN interface can be established concurrently with it on the fresh TUN path. The
+     * PROXY path still calls [markConnected] here (it has no TUN); the TUN path returns the
+     * result and lets the caller start HEV once both halves are ready.
+     */
+    private fun launchCore(
         profile: ProxyProfile,
         session: String,
         port: Int,
         requestedSettings: AppSettings,
         recovering: Boolean
-    ) {
+    ): CoreLaunch {
         val app = application as MarbleApplication
         activeProfileId = profile.id
         activeSettings = requestedSettings
+        var generation = 0
 
         // Marble Turbo runs before the route carries traffic: the TUN is already established and
         // fail-closed, so measuring transport methods here costs nothing but a few seconds.
         val settings = preTune(profile, session, requestedSettings, recovering)
-        if (!isCurrent(session)) return
+        if (!isCurrent(session)) return CoreLaunch(false, generation, settings)
         activeSettings = settings
         activeMethodId = app.repo.intelligence.acceleration(profile.id)?.methodId
             ?: AccelerationPlan.DIRECT
         connectStartedNs = System.nanoTime()
         verifiedRttBackoffUntilMs = 0L
-        val generation = routeGeneration.incrementAndGet()
+        generation = routeGeneration.incrementAndGet()
 
         // MARBLE_LINK_DEADLINE_V133 — the config this core is about to run carries deadlines. They
         // must be sized for the link this route actually has, otherwise a healthy ~1.1 s tunnel gets
@@ -766,7 +789,7 @@ class MarbleVpnService : VpnService() {
                     "session" to session,
                     "phase" to coreStartPhase
                 )
-                return
+                return CoreLaunch(false, generation, settings)
             }
             // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — engine selection stays the user's contract:
             // see "Explicit engine selection is a contract" above `activeEngine = settings.coreEngine()`.
@@ -815,11 +838,11 @@ class MarbleVpnService : VpnService() {
                     else -> "Core/configuration error"
                 }
             )
-            return
+            return CoreLaunch(false, generation, settings)
         }
         if (!isCurrent(session)) {
             coreStop()
-            return
+            return CoreLaunch(false, generation, settings)
         }
 
         // Synthetic Internet observations are diagnostics, not startup gates. Defer them until the
@@ -839,7 +862,7 @@ class MarbleVpnService : VpnService() {
             (recovering || existingIdentityPin) &&
             !verifyExitIdentity(session, port, generation)
         ) {
-            return
+            return CoreLaunch(false, generation, settings)
         }
         if (settings.identityGuardEnabled && !recovering && !existingIdentityPin) {
             diag.event("IDENTITY", "initial-pin-deferred", "session" to session)
@@ -862,9 +885,83 @@ class MarbleVpnService : VpnService() {
             )
             updateSentinel(killSwitch = false)
             startProxyMonitor(session, port, generation)
+            return CoreLaunch(true, generation, settings)
+        }
+        return CoreLaunch(true, generation, settings)
+    }
+
+    /**
+     * MARBLE_CONNECT_FAST_START — fresh TUN bring-up for both cores.
+     *
+     * The VPN interface ([establishTun]) and the core's spawn + readiness ([launchCore]) are
+     * completely independent, so they are run concurrently: the core is launched on a helper thread
+     * while the TUN is established on the connection worker, and HEV is started only once both
+     * halves are ready. The old path ran these strictly in series, so the TUN-establishment cost
+     * (~150–400 ms on most devices) was added on top of the core's own start-up; overlapping it
+     * removes that cost from the connect critical path for Xray and sing-box alike.
+     */
+    private fun connectTunOverlapped(
+        profile: ProxyProfile,
+        session: String,
+        port: Int,
+        settings: AppSettings
+    ) {
+        val t0 = System.nanoTime()
+        val coreResult = AtomicReference<CoreLaunch?>(null)
+        val coreThread = Thread({
+            try {
+                coreResult.set(launchCore(profile, session, port, settings, recovering = false))
+            } catch (t: Throwable) {
+                diag.error("VPN", "core-launch-crash", t, "session" to session)
+            }
+        }, "marble-core-start").apply { isDaemon = true; start() }
+
+        // Meanwhile establish the TUN on this (connection worker) thread.
+        val tunOk = establishTun(profile, session, settings)
+        diag.event(
+            "VPN", "connect-phase", "session" to session, "step" to "tun",
+            "ms" to ((System.nanoTime() - t0) / 1_000_000L), "ok" to tunOk
+        )
+
+        runCatching { coreThread.join() }
+        if (!isCurrent(session)) {
+            coreStop()
             return
         }
-        runTun(profile, session, port, settings, recovering, generation)
+        val launch = coreResult.get()
+        diag.event(
+            "VPN", "connect-phase", "session" to session, "step" to "core",
+            "ms" to ((System.nanoTime() - t0) / 1_000_000L),
+            "started" to (launch?.started == true)
+        )
+        if (launch?.started != true) {
+            // Core failed or a newer session superseded it; launchCore already reported/handled
+            // its own failure. Never record a second failure here.
+            return
+        }
+        if (!tunOk) {
+            coreStop()
+            handleFailure(session, "VPN establish failed")
+            return
+        }
+        runTun(profile, session, port, launch.settings, recovering = false, generation = launch.generation)
+    }
+
+    /**
+     * MARBLE_CONNECT_FAST_START — non-overlapped bring-up, used by the recovery path (where the
+     * TUN is already established) and as a fallback. Starts HEV once the core is up.
+     */
+    private fun startXrayAndForward(
+        profile: ProxyProfile,
+        session: String,
+        port: Int,
+        requestedSettings: AppSettings,
+        recovering: Boolean
+    ) {
+        val launch = launchCore(profile, session, port, requestedSettings, recovering)
+        if (launch.started && activeMode == MODE_TUN) {
+            runTun(profile, session, port, launch.settings, recovering, launch.generation)
+        }
     }
 
     private fun establishTun(profile: ProxyProfile, session: String, settings: AppSettings): Boolean {
