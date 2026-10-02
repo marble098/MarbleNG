@@ -381,3 +381,44 @@ dependencies {
         "androidx.compose.ui:ui-tooling"
     )
 }
+
+// ───────────────────────────────────────────────────────────────────────────────────
+// TEMPORARY DIAGNOSTIC — REVERT BEFORE MERGE.
+// ───────────────────────────────────────────────────────────────────────────────────
+run {
+    println("::error file=diag.txt,line=1::DIAG-PROJECT-EVALUATED")
+    val seen = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    var emitting = false
+    var n = 0
+    gradle.addListener(object : org.gradle.api.execution.TaskExecutionListener {
+        override fun beforeExecute(task: org.gradle.api.Task) {}
+        override fun afterExecute(task: org.gradle.api.Task, state: org.gradle.api.tasks.TaskState) {
+            val failure = state.failure ?: return
+            if (emitting || n >= 8) return
+            emitting = true
+            val lines = failure.toString()
+                .replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            println("::error file=diag.txt,line=${100 + n}::TASK ${task.path} :: ${lines.take(400)}")
+            n++
+            emitting = false
+        }
+    })
+    org.gradle.api.logging.Logging.addOutputEventListener(
+        object : org.gradle.api.logging.OutputEventListener {
+            override fun onOutput(event: org.gradle.api.logging.OutputEvent?) {
+                if (emitting || n >= 8) return
+                val text = event?.toString() ?: return
+                if (!text.contains("^ e: ".trim()) && !text.contains("Unresolved reference") &&
+                    !text.contains("Unresolved") && !text.contains("error:")
+                ) return
+                val key = text.take(120)
+                if (!seen.add(key)) return
+                emitting = true
+                println("::error file=diag.txt,line=${200 + n}::" + text
+                    .replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A").take(400))
+                n++
+                emitting = false
+            }
+        }
+    )
+}
