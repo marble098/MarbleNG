@@ -288,7 +288,10 @@ object AutoServerSelector {
                 val draw = if (randomSeed == 0L) {
                     ordered.indices.random()
                 } else {
-                    val mixed = (randomSeed xor (randomSeed ushr 32)) * 0x9E3779B97F4A7C15L
+                    // The golden-ratio mixer 0x9E3779B97F4A7C15 does not fit in a signed Long, and
+                    // Kotlin rejects an out-of-range integer literal, so it is written as its
+                    // two's-complement decimal form. Multiplication wraps identically.
+                    val mixed = (randomSeed xor (randomSeed ushr 32)) * -7046029254386353131L
                     val positive = if (mixed == Long.MIN_VALUE) 0L else abs(mixed)
                     (positive % ordered.size.toLong()).toInt()
                 }

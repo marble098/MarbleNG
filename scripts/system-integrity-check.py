@@ -2991,7 +2991,8 @@ try:
         env["PATH"] = os.path.join(java_home, "bin") + os.pathsep + env["PATH"]
 
     proc = subprocess.run(
-        ["./gradlew", "--no-daemon", "--console=plain", ":app:compileDebugKotlin"],
+        ["./gradlew", "--no-daemon", "--console=plain",
+         ":app:testDebugUnitTest", ":app:compileDebugKotlin", ":app:compileReleaseKotlin"],
         capture_output=True, text=True, env=env, timeout=1500, cwd=os.getcwd(),
     )
     combined = ((proc.stdout or "") + "\n" + (proc.stderr or "")).splitlines()
