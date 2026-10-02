@@ -3,6 +3,7 @@ package com.marbleng.app.core
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.TransportProfileMode
+import com.marbleng.app.model.transportProfileModeEnum
 import org.junit.Test
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
