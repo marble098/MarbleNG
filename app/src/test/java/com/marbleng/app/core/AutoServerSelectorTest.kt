@@ -1,6 +1,8 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.autoServerScopeEnum
+import com.marbleng.app.model.autoServerStrategyEnum
 import com.marbleng.app.model.AutoServerScope
 import com.marbleng.app.model.AutoServerStrategy
 import com.marbleng.app.model.BenchmarkResult

@@ -329,7 +329,7 @@ class TransportAdaptationTest {
             nowMs = 1_000L
         )
         assertTrue("a cell with no history is being explored by definition", decision.exploring)
-        assertTrue(decision.reason.contains("first contact"), decision.reason)
+        assertTrue(decision.reason, decision.reason.contains("first contact"))
         assertTrue(
             "the baseline must be the pair the severity table believes in",
             TransportAdaptation.priorFor(decision.pair, FilterSeverity.EXTREME) > 0.5

@@ -18,13 +18,13 @@ class PingParallelTest {
 
     @Test
     fun `one core device runs two at once`() {
-        assertEquals(2, PingParallel.recommend(1, 4_096L, ProbeMethod.TCP))
+        assertEquals(2, PingParallel.recommend(1, 4_096L, ProbeMethod.TCP_PING))
     }
 
     @Test
     fun `width rises monotonically with core count`() {
         val ladder = (1..16).map { cores ->
-            PingParallel.recommend(cores, 8_192L, ProbeMethod.TCP)
+            PingParallel.recommend(cores, 8_192L, ProbeMethod.TCP_PING)
         }
         for (i in 1 until ladder.size) {
             assertTrue(
@@ -37,9 +37,9 @@ class PingParallelTest {
 
     @Test
     fun `width is flat past the core ceiling`() {
-        val at16 = PingParallel.recommend(16, 8_192L, ProbeMethod.TCP)
-        val at32 = PingParallel.recommend(32, 8_192L, ProbeMethod.TCP)
-        val at64 = PingParallel.recommend(64, 8_192L, ProbeMethod.TCP)
+        val at16 = PingParallel.recommend(16, 8_192L, ProbeMethod.TCP_PING)
+        val at32 = PingParallel.recommend(32, 8_192L, ProbeMethod.TCP_PING)
+        val at64 = PingParallel.recommend(64, 8_192L, ProbeMethod.TCP_PING)
         assertEquals("past the ceiling more cores stop buying width", at16, at32)
         assertEquals("past the ceiling more cores stop buying width", at16, at64)
     }
@@ -52,8 +52,8 @@ class PingParallelTest {
         assertEquals(PingDeviceClass.STRONG, roomy)
         assertEquals(PingDeviceClass.CAPABLE, starving)
         assertTrue(
-            PingParallel.recommend(strongCores, 1_024L, ProbeMethod.TCP) <
-                PingParallel.recommend(strongCores, 8_192L, ProbeMethod.TCP)
+            PingParallel.recommend(strongCores, 1_024L, ProbeMethod.TCP_PING) <
+                PingParallel.recommend(strongCores, 8_192L, ProbeMethod.TCP_PING)
         )
     }
 
@@ -66,7 +66,7 @@ class PingParallelTest {
     @Test
     fun `real delay runs narrower than the direct sweep on the same device`() {
         for (cores in 1..16) {
-            val direct = PingParallel.recommend(cores, 8_192L, ProbeMethod.TCP)
+            val direct = PingParallel.recommend(cores, 8_192L, ProbeMethod.TCP_PING)
             val real = PingParallel.recommend(cores, 8_192L, ProbeMethod.REAL_DELAY)
             assertTrue(
                 "real delay spawns a core per server, so it must never be wider: $cores cores",
@@ -123,12 +123,12 @@ class PingParallelTest {
 
     @Test
     fun `the summary names the device and the number it bought`() {
-        val text = PingParallel.describe(8, 8_192L, ProbeMethod.TCP)
-        assertTrue(text.contains("8 cores"), text)
-        assertTrue(text.contains("8 GB RAM"), text)
+        val text = PingParallel.describe(8, 8_192L, ProbeMethod.TCP_PING)
+        assertTrue(text, text.contains("8 cores"))
+        assertTrue(text, text.contains("8 GB RAM"))
         assertTrue(
-            text.contains("${PingParallel.recommend(8, 8_192L, ProbeMethod.TCP)} at once"),
-            text
+            text,
+            text.contains("${PingParallel.recommend(8, 8_192L, ProbeMethod.TCP_PING)} at once")
         )
     }
 
