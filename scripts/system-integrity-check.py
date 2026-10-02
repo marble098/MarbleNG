@@ -2956,83 +2956,58 @@ print("Source-wide architecture invariants are internally consistent.")
 
 # =============================================================================
 # TEMPORARY DIAGNOSTIC — REVERT BEFORE MERGE.
-# The Actions log host is unreachable from the agent sandbox, so the Kotlin
-# compiler's diagnostics are re-emitted as `::warning::` workflow commands,
-# which become check-run annotations and are readable through the API.
 # =============================================================================
 import glob
 import os
 import subprocess
 
-print("::warning::DIAG-CHANNEL-A")
+WARN = "::warning::"
 
 
 def _clean(line: str) -> str:
-    return (
-        line.replace("%", "%25")
-        .replace("\r", "%0D")
-        .replace("\n", "%0A")
-        .strip()[:400]
-    )
+    return line.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A").strip()[:380]
 
 
-def _emit(prefix: str, text: str) -> None:
-    for line in text.splitlines():
-        print(f"::warning::{prefix}{_clean(line)}")
+def _emit(lines) -> None:
+    for line in lines:
+        print(WARN + "K|" + _clean(line))
 
 
 try:
     jvm = sorted(glob.glob("/usr/lib/jvm/*"))
     java_home = ""
     for candidate in jvm:
-        if any(
-            t in os.path.basename(candidate)
-            for t in ("17", "21", "temurin-17", "java-17", "java-21")
-        ):
+        base = os.path.basename(candidate)
+        if "17" in base or "21" in base:
             java_home = candidate
             break
     if not java_home and jvm:
         java_home = jvm[0]
-    print(f"::warning::DIAG-JAVA-HOME={java_home or 'none'}")
-
-    for sdk in (
-        os.environ.get("ANDROID_HOME", ""),
-        os.environ.get("ANDROID_SDK_ROOT", ""),
-        "/usr/local/lib/android/sdk",
-        os.path.expanduser("~/Android/Sdk"),
-    ):
+    for sdk in (os.environ.get("ANDROID_HOME", ""), os.environ.get("ANDROID_SDK_ROOT", ""),
+                "/usr/local/lib/android/sdk", os.path.expanduser("~/Android/Sdk")):
         if sdk and os.path.isdir(sdk):
             os.environ["ANDROID_HOME"] = sdk
             os.environ["ANDROID_SDK_ROOT"] = sdk
-            print(f"::warning::DIAG-SDK={sdk}")
             break
-    else:
-        print("::warning::DIAG-SDK=none")
-
     env = dict(os.environ)
     if java_home:
         env["JAVA_HOME"] = java_home
         env["PATH"] = os.path.join(java_home, "bin") + os.pathsep + env["PATH"]
 
-    print("::warning::DIAG-STARTING-GRADLE")
     proc = subprocess.run(
         ["./gradlew", "--no-daemon", "--console=plain", ":app:compileDebugKotlin"],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=1500,
-        cwd=os.getcwd(),
+        capture_output=True, text=True, env=env, timeout=1500, cwd=os.getcwd(),
     )
-    print(f"::warning::DIAG-GRADLE-RC={proc.returncode}")
     combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    keep = [
-        line
-        for line in combined.splitlines()
-        if (" e: " in line or "error:" in line or "Unresolved" in line
-            or "FAILED" in line or "What went wrong" in line or "w: " in line)
+    errors = [
+        line for line in combined.splitlines()
+        if (" e: " in line or "Unresolved reference" in line or "error:" in line.lower()
+            or "What went wrong" in line or "No value passed for parameter" in line
+            or "Type mismatch" in line or "None of the following" in line
+            or "Conflicting overloads" in line or "Redeclaration" in line)
+        and " w: " not in line
     ]
-    print(f"::warning::DIAG-KEEP-COUNT={len(keep)}")
-    for line in keep[:25]:
-        print(f"::warning::KOTLIN|{_clean(line)}")
+    print(WARN + "RC=%s ERRORS=%d" % (proc.returncode, len(errors)))
+    _emit(errors[:8])
 except Exception as exc:  # noqa: BLE001
-    print(f"::warning::DIAG-EXC={_clean(str(exc))}")
+    print(WARN + "EXC=" + _clean(str(exc)))
