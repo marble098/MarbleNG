@@ -75,9 +75,9 @@ class TransportAdaptationTest {
 
     @Test
     fun `a pair that cannot complete is worth nothing however fast it was`() {
-        assertEquals(0.0, TransportAdaptation.quality(false, 20.0, 5.0, 40_000_000.0))
-        assertEquals(0.0, TransportAdaptation.quality(true, 0.0, 0.0, 0.0))
-        assertEquals(0.0, TransportAdaptation.quality(true, Double.NaN, 0.0, 0.0))
+        assertEquals(0.0, TransportAdaptation.quality(false, 20.0, 5.0, 40_000_000.0), 0.0)
+        assertEquals(0.0, TransportAdaptation.quality(true, 0.0, 0.0, 0.0), 0.0)
+        assertEquals(0.0, TransportAdaptation.quality(true, Double.NaN, 0.0, 0.0), 0.0)
     }
 
     @Test

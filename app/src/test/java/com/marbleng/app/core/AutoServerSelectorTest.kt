@@ -100,8 +100,8 @@ class AutoServerSelectorTest {
         val firstStep = fast - mid
         val secondStep = mid - slow
         assertTrue("equal latency must cost less as latency grows", firstStep > secondStep)
-        assertEquals("an unknown latency earns nothing", 0.0, AutoServerSelector.latencyScore(0.0))
-        assertEquals("NaN is not a measurement", 0.0, AutoServerSelector.latencyScore(Double.NaN))
+        assertEquals("an unknown latency earns nothing", 0.0, AutoServerSelector.latencyScore(0.0), 0.0)
+        assertEquals("NaN is not a measurement", 0.0, AutoServerSelector.latencyScore(Double.NaN), 0.0)
     }
 
     @Test
