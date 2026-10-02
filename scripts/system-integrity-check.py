@@ -2996,15 +2996,27 @@ try:
     )
     combined = ((proc.stdout or "") + "\n" + (proc.stderr or "")).splitlines()
 
-    # Compiler errors first; everything else is noise at this point.
-    picked = [line for line in combined if " e: " in line or line.startswith("e: ")]
-    if not picked:
-        # Unit-test failures surface through the test task, not the compiler.
-        pat = re.compile(r"FAILED|tests completed|expected:|AssertionError|"
-                         r"ComparisonFailure|\.kt:[0-9]+|What went wrong")
-        picked = [line for line in combined if pat.search(line) and " w: " not in line]
-    print(WARN + "RC=%s PICKED=%d TOTAL=%d" % (proc.returncode, len(picked), len(combined)))
-    for line in picked[:9]:
-        print(WARN + "K|" + _clean(line))
+    errors = [line for line in combined if " e: " in line or line.startswith("e: ")]
+    print(WARN + "RC=%s ERRORS=%d" % (proc.returncode, len(errors)))
+
+    # Group by file so one annotation per file conveys the whole picture.
+    by_file = {}
+    order = []
+    for line in errors:
+        m = re.search(r"([A-Za-z0-9_]+\.kts?):(\d+):(\d+)", line)
+        key = m.group(1) if m else "?"
+        if key not in by_file:
+            by_file[key] = []
+            order.append(key)
+        by_file[key].append(m.group(2) + ":" + m.group(3) + " " + line.split(" ", 2)[-1] if m else line)
+    for key in order[:7]:
+        items = by_file[key]
+        print(WARN + "F|%s n=%d %s" % (key, len(items), _clean(items[0])[:300]))
+    if not errors:
+        pat = re.compile(r"FAILED|tests completed|expected:|AssertionError|What went wrong")
+        other = [line for line in combined if pat.search(line) and " w: " not in line]
+        print(WARN + "NO-E-OTHER=%d" % len(other))
+        for line in other[:7]:
+            print(WARN + "O|" + _clean(line))
 except Exception as exc:  # noqa: BLE001
     print(WARN + "EXC=" + _clean(str(exc)))

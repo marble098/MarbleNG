@@ -1,8 +1,8 @@
 package com.marbleng.app.ui
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.junit.Test
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 
 /**
  * MARBLE_FLOATING_CHROME_V201 — the contrast guarantee behind the floating buttons.
@@ -60,7 +60,7 @@ class MarbleFloatingChromeTest {
         val wash = marbleWithAlphaArgb(electricBlue, 0.24f)
         val asIfOpaque = marbleContrastRatioArgb(electricBlue, icePage)
         val flattened = marbleContrastRatioArgb(wash, icePage)
-        assertTrue(flattened < asIfOpaque, "a 24 % wash is not the accent at 100 %")
+        assertTrue("a 24 % wash is not the accent at 100 %", flattened < asIfOpaque)
         assertTrue(flattened >= 1f)
     }
 
@@ -69,12 +69,12 @@ class MarbleFloatingChromeTest {
         // #FFFFFF on #3399FF is 2.94:1 — under the 3:1 floor for a graphical object, on the
         // single most important control in the product. This is the regression test.
         val asShipped = marbleContrastRatioArgb(0xFFFFFFFF.toInt(), brightBlue)
-        assertTrue(asShipped < 3.0f, "the old hard-coded white really was failing: $asShipped")
+        assertTrue("the old hard-coded white really was failing: $asShipped", asShipped < 3.0f)
 
         val fixed = marbleOnColorArgb(brightBlue)
         assertTrue(
-            marbleContrastRatioArgb(fixed, brightBlue) >= 3.0f,
-            "the chosen ink must clear the graphical floor"
+            "the chosen ink must clear the graphical floor",
+            marbleContrastRatioArgb(fixed, brightBlue) >= 3.0f
         )
     }
 
@@ -86,17 +86,17 @@ class MarbleFloatingChromeTest {
             val ink = marbleOnColorArgb(accent)
             val ratio = marbleContrastRatioArgb(ink, accent)
             assertTrue(
-                ratio >= 3.0f,
-                "ink on #${Integer.toHexString(accent).uppercase()} is $ratio:1"
+                "ink on #${Integer.toHexString(accent).uppercase()} is $ratio:1",
+                ratio >= 3.0f
             )
         }
     }
 
     @Test
     fun `a light accent keeps the dark ink and a dark accent keeps the white one`() {
-        assertEquals(0xFFFFFFFF.toInt(), marbleOnColorArgb(navyPage), "navy keeps white ink")
-        assertEquals(0xFF000033.toInt(), marbleOnColorArgb(cyan), "cyan keeps the dark ink")
-        assertEquals(0xFF000033.toInt(), marbleOnColorArgb(amber), "amber keeps the dark ink")
+        assertEquals("navy keeps white ink", 0xFFFFFFFF.toInt(), marbleOnColorArgb(navyPage))
+        assertEquals("cyan keeps the dark ink", 0xFF000033.toInt(), marbleOnColorArgb(cyan))
+        assertEquals("amber keeps the dark ink", 0xFF000033.toInt(), marbleOnColorArgb(amber))
     }
 
     @Test
@@ -121,8 +121,8 @@ class MarbleFloatingChromeTest {
                 val repaired = marbleReadableOnArgb(pastel, page, 4.5f)
                 val ratio = marbleContrastRatioArgb(repaired, page)
                 assertTrue(
-                    ratio >= 4.5f,
-                    "#${Integer.toHexString(pastel).uppercase()} on #${Integer.toHexString(page).uppercase()} reached only $ratio:1"
+                    "#${Integer.toHexString(pastel).uppercase()} on #${Integer.toHexString(page).uppercase()} reached only $ratio:1",
+                    ratio >= 4.5f
                 )
             }
         }
@@ -136,7 +136,7 @@ class MarbleFloatingChromeTest {
         val distance = kotlin.math.abs(
             ((repaired ushr 16) and 0xFF) - 0xA8
         ) + kotlin.math.abs(((repaired ushr 8) and 0xFF) - 0xC7)
-        assertTrue(distance < 400, "the repaired colour must stay close to the accent: $distance")
+        assertTrue("the repaired colour must stay close to the accent: $distance", distance < 400)
         assertNotBlackOrWhite(repaired)
     }
 
@@ -145,13 +145,13 @@ class MarbleFloatingChromeTest {
         var previous = 0f
         for (elevation in listOf(0f, 1f, 2f, 3f, 4f, 6f, 8f, 12f, 24f, 64f)) {
             val alpha = marbleFloatShadowAlpha(elevation)
-            assertTrue(alpha in 0.10f..0.34f, "elevation $elevation -> $alpha")
-            assertTrue(alpha >= previous, "a higher element must not cast a lighter shadow")
+            assertTrue("elevation $elevation -> $alpha", alpha in 0.10f..0.34f)
+            assertTrue("a higher element must not cast a lighter shadow", alpha >= previous)
             previous = alpha
         }
         assertTrue(
-            marbleFloatShadowAlpha(8f) > marbleFloatShadowAlpha(3f),
-            "the dock must read as a layer above the bar, not a sticker on it"
+            "the dock must read as a layer above the bar, not a sticker on it",
+            marbleFloatShadowAlpha(8f) > marbleFloatShadowAlpha(3f)
         )
     }
 
@@ -159,7 +159,7 @@ class MarbleFloatingChromeTest {
     fun `the ambient shadow is always softer than the spot`() {
         for (elevation in listOf(0f, 3f, 8f, 24f)) {
             val (ambient, spot) = marbleFloatShadowPair(elevation)
-            assertTrue(ambient < spot, "elevation $elevation: $ambient vs $spot")
+            assertTrue("elevation $elevation: $ambient vs $spot", ambient < spot)
             assertTrue(spot <= 0.34f)
         }
     }
@@ -174,13 +174,13 @@ class MarbleFloatingChromeTest {
         // Half-transparent white over black is mid grey.
         val grey = marbleCompositeArgb(marbleWithAlphaArgb(white, 0.5f), black)
         val channel = (grey ushr 16) and 0xFF
-        assertTrue(channel in 126..129, "expected mid grey, got $channel")
+        assertTrue("expected mid grey, got $channel", channel in 126..129)
     }
 
     private fun assertNotBlackOrWhite(argb: Int) {
         assertTrue(
-            argb != 0xFF000000.toInt() && argb != 0xFFFFFFFF.toInt(),
-            "the accent was flattened to an endpoint: #${Integer.toHexString(argb).uppercase()}"
+            "the accent was flattened to an endpoint: #${Integer.toHexString(argb).uppercase()}",
+            argb != 0xFF000000.toInt() && argb != 0xFFFFFFFF.toInt()
         )
     }
 }

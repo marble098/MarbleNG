@@ -1,8 +1,8 @@
 package com.marbleng.app.model
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import org.junit.Test
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 
 /**
  * MARBLE_PING_PARALLEL_V200 — the width of a sweep.
@@ -28,11 +28,11 @@ class PingParallelTest {
         }
         for (i in 1 until ladder.size) {
             assertTrue(
-                ladder[i] >= ladder[i - 1],
-                "width must never shrink as cores grow: ${ladder[i - 1]} -> ${ladder[i]} at ${i + 1} cores"
+                "width must never shrink as cores grow: ${ladder[i - 1]} -> ${ladder[i]} at ${i + 1} cores",
+                ladder[i] >= ladder[i - 1]
             )
         }
-        assertTrue(ladder.last() > ladder.first(), "a 16-core device must out-width a 1-core one")
+        assertTrue("a 16-core device must out-width a 1-core one", ladder.last() > ladder.first())
     }
 
     @Test
@@ -40,8 +40,8 @@ class PingParallelTest {
         val at16 = PingParallel.recommend(16, 8_192L, ProbeMethod.TCP)
         val at32 = PingParallel.recommend(32, 8_192L, ProbeMethod.TCP)
         val at64 = PingParallel.recommend(64, 8_192L, ProbeMethod.TCP)
-        assertEquals(at16, at32, "past the ceiling more cores stop buying width")
-        assertEquals(at16, at64, "past the ceiling more cores stop buying width")
+        assertEquals("past the ceiling more cores stop buying width", at16, at32)
+        assertEquals("past the ceiling more cores stop buying width", at16, at64)
     }
 
     @Test
@@ -69,10 +69,10 @@ class PingParallelTest {
             val direct = PingParallel.recommend(cores, 8_192L, ProbeMethod.TCP)
             val real = PingParallel.recommend(cores, 8_192L, ProbeMethod.REAL_DELAY)
             assertTrue(
-                real <= direct,
-                "real delay spawns a core per server, so it must never be wider: $cores cores"
+                "real delay spawns a core per server, so it must never be wider: $cores cores",
+                real <= direct
             )
-            assertTrue(real >= 1, "a real-delay sweep still needs at least one slot")
+            assertTrue("a real-delay sweep still needs at least one slot", real >= 1)
         }
     }
 
@@ -83,8 +83,8 @@ class PingParallelTest {
                 for (method in ProbeMethod.entries) {
                     val width = PingParallel.recommend(cores, memory, method)
                     assertTrue(
-                        width in PingBudget.CONCURRENCY_MIN..PingBudget.CONCURRENCY_MAX,
-                        "width out of range: $cores cores / $memory MB / $method -> $width"
+                        "width out of range: $cores cores / $memory MB / $method -> $width",
+                        width in PingBudget.CONCURRENCY_MIN..PingBudget.CONCURRENCY_MAX
                     )
                 }
             }
@@ -109,8 +109,8 @@ class PingParallelTest {
         )
         val wide = PingParallel.resolve(settings, 8, 8_192L)
         val narrow = PingParallel.resolve(settings, 2, 2_048L)
-        assertTrue(wide > narrow, "the same settings must yield a wider sweep on a wider device")
-        assertTrue(wide < 64, "the stale maximum chip must not leak into automatic mode")
+        assertTrue("the same settings must yield a wider sweep on a wider device", wide > narrow)
+        assertTrue("the stale maximum chip must not leak into automatic mode", wide < 64)
     }
 
     @Test
@@ -144,14 +144,14 @@ class PingParallelTest {
             }
         }.toSet()
         val missing = recommended.filter { it !in PingBudget.CONCURRENCY_CHOICES }
-        assertTrue(missing.isEmpty(), "chip list cannot express: $missing")
+        assertTrue("chip list cannot express: $missing", missing.isEmpty())
     }
 
     @Test
     fun `the chip list is sorted and holds no duplicates`() {
         val chips = PingBudget.CONCURRENCY_CHOICES
-        assertEquals(chips.sorted(), chips, "the chips are shown in order")
-        assertEquals(chips.toSet().size, chips.size, "a duplicated chip is a bug in the row")
+        assertEquals("the chips are shown in order", chips.sorted(), chips)
+        assertEquals("a duplicated chip is a bug in the row", chips.toSet().size, chips.size)
         assertTrue(chips.first() == PingBudget.CONCURRENCY_MIN)
         assertTrue(chips.last() == PingBudget.CONCURRENCY_MAX)
     }

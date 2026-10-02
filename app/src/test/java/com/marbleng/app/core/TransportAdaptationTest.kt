@@ -1,13 +1,12 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
-import com.marbleng.app.model.FilterSeverity
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.TransportProfileMode
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
-import kotlin.test.assertTrue
+import org.junit.Test
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 
 /**
  * MARBLE_TRANSPORT_ADAPTATION_V203 — the learner behind Fragment & Mux.
@@ -88,7 +87,7 @@ class TransportAdaptationTest {
         val thin = TransportAdaptation.quality(true, 40.0, 10.0, 100_000.0)
         assertTrue(fast > slow && fast > shaky && fast > thin)
         for (value in listOf(fast, slow, shaky, thin)) {
-            assertTrue(value in 0.0..1.0, "quality must stay in 0..1, got $value")
+            assertTrue("quality must stay in 0..1, got $value", value in 0.0..1.0)
         }
     }
 
@@ -108,8 +107,8 @@ class TransportAdaptationTest {
             TransportPair(FragmentProfile.FULL_FRAGMENT, MuxProfile.BALANCED),
             FilterSeverity.LIGHT
         )
-        assertTrue(extreme >= heavy, "shredding is at least as plausible on an extreme link")
-        assertTrue(heavy > light, "shredding a light link is paying for nothing")
+        assertTrue("shredding is at least as plausible on an extreme link", extreme >= heavy)
+        assertTrue("shredding a light link is paying for nothing", heavy > light)
     }
 
     @Test
@@ -118,7 +117,7 @@ class TransportAdaptationTest {
             for (fragment in FragmentProfile.entries) {
                 for (mux in MuxProfile.entries) {
                     val prior = TransportAdaptation.priorFor(TransportPair(fragment, mux), severity)
-                    assertTrue(prior > 0.0, "$fragment+$mux on $severity has no chance of being tried")
+                    assertTrue("$fragment+$mux on $severity has no chance of being tried", prior > 0.0)
                 }
             }
         }
@@ -127,18 +126,18 @@ class TransportAdaptationTest {
     @Test
     fun `quic and plaintext hops are not offered fragments that do nothing there`() {
         val quic = TransportAdaptation.candidatesFor(TransportShape.QUIC, FilterSeverity.HEAVY)
-        assertTrue(quic.all { it.fragment == FragmentProfile.OFF }, "QUIC has no stream to split")
-        assertTrue(quic.all { it.mux == MuxProfile.OFF }, "QUIC carries no Mux here")
+        assertTrue("QUIC has no stream to split", quic.all { it.fragment == FragmentProfile.OFF })
+        assertTrue("QUIC carries no Mux here", quic.all { it.mux == MuxProfile.OFF })
 
         val plain = TransportAdaptation.candidatesFor(TransportShape.TCP_PLAIN, FilterSeverity.HEAVY)
         assertTrue(
-            plain.none { it.fragment.innerEnabled },
-            "a plaintext hop has no ClientHello to chain"
+            "a plaintext hop has no ClientHello to chain",
+            plain.none { it.fragment.innerEnabled }
         )
-        assertTrue(plain.any { it.mux != MuxProfile.OFF }, "Mux is transport-agnostic and still valid")
+        assertTrue("Mux is transport-agnostic and still valid", plain.any { it.mux != MuxProfile.OFF })
 
         val tls = TransportAdaptation.candidatesFor(TransportShape.TCP_TLS, FilterSeverity.HEAVY)
-        assertTrue(tls.size > plain.size, "a TLS hop has the widest field")
+        assertTrue("a TLS hop has the widest field", tls.size > plain.size)
     }
 
     // ─── Drift: the reason this feature exists ────────────────────────────────────────
@@ -151,7 +150,7 @@ class TransportAdaptationTest {
             // Alternate wildly: a young cell must not report drift on two observations.
             memory = observe(memory, pair, success = index % 2 == 0, nowMs = 1_000L + index)
         }
-        assertEquals(0.0, memory!!.drift, 0.0001, "drift needs a baseline first")
+        assertEquals("drift needs a baseline first", 0.0, memory!!.drift, 0.0001)
     }
 
     @Test
@@ -163,16 +162,16 @@ class TransportAdaptationTest {
             memory = observe(memory, pair, success = true, latencyMs = 110.0, nowMs = 1_000L + index)
         }
         val before = memory!!.drift
-        assertTrue(before < TransportAdaptation.DRIFT_THRESHOLD, "a stable operator must not drift")
-        assertEquals(0.0, before, 0.0001, "and it must not drift at all on a constant signal")
+        assertTrue("a stable operator must not drift", before < TransportAdaptation.DRIFT_THRESHOLD)
+        assertEquals("and it must not drift at all on a constant signal", 0.0, before, 0.0001)
 
         // The filter changes: the same profile stops completing.
         repeat(6) { index ->
             memory = observe(memory, pair, success = false, latencyMs = 0.0, nowMs = 5_000L + index)
         }
         assertTrue(
-            memory!!.drift >= TransportAdaptation.DRIFT_THRESHOLD,
-            "a profile that stops working must read as the operator changing, drift=${memory!!.drift}"
+            "a profile that stops working must read as the operator changing, drift=${memory!!.drift}",
+            memory!!.drift >= TransportAdaptation.DRIFT_THRESHOLD
         )
     }
 
@@ -186,8 +185,8 @@ class TransportAdaptationTest {
         repeat(12) { index ->
             memory = observe(memory, pair, success = true, latencyMs = 110.0, nowMs = 1_000L + index)
         }
-        assertEquals(0.0, memory!!.drift, 0.0001, "a stable operator must never read as drifting")
-        assertEquals(12, memory!!.observations, "the observation count is a count, not a score")
+        assertEquals("a stable operator must never read as drifting", 0.0, memory!!.drift, 0.0001)
+        assertEquals("the observation count is a count, not a score", 12, memory!!.observations)
     }
 
     @Test
@@ -217,8 +216,8 @@ class TransportAdaptationTest {
             )
         }
         assertTrue(
-            memory!!.drift < TransportAdaptation.DRIFT_THRESHOLD,
-            "a re-learned operator must stop reading as drifting: ${memory!!.drift}"
+            "a re-learned operator must stop reading as drifting: ${memory!!.drift}",
+            memory!!.drift < TransportAdaptation.DRIFT_THRESHOLD
         )
     }
 
@@ -234,7 +233,7 @@ class TransportAdaptationTest {
         repeat(45) { index ->
             memory = observe(memory, pair, success = false, latencyMs = 0.0, nowMs = 5_000L + index)
         }
-        assertTrue(memory!!.drift >= TransportAdaptation.DRIFT_THRESHOLD, "${memory!!.drift}")
+        assertTrue("${memory!!.drift}", memory!!.drift >= TransportAdaptation.DRIFT_THRESHOLD)
     }
 
     @Test
@@ -259,11 +258,11 @@ class TransportAdaptationTest {
             severity = FilterSeverity.HEAVY,
             nowMs = 9_000_000L
         )
-        assertTrue(after.drifted, "the decision must say the operator moved")
+        assertTrue("the decision must say the operator moved", after.drifted)
         assertNotEquals(
+            "holding a profile that just stopped working is the failure this feature exists to prevent",
             broken.id,
-            after.pair.id,
-            "holding a profile that just stopped working is the failure this feature exists to prevent"
+            after.pair.id
         )
     }
 
@@ -283,7 +282,7 @@ class TransportAdaptationTest {
             explore = true,
             nowMs = 9_000_000L
         )
-        assertTrue(decision.exploring, "two observations is not proof")
+        assertTrue("two observations is not proof", decision.exploring)
     }
 
     @Test
@@ -300,7 +299,7 @@ class TransportAdaptationTest {
             explore = false,
             nowMs = 9_000_000L
         )
-        assertEquals(good.id, decision.pair.id, "with exploration off the best evidence wins outright")
+        assertEquals("with exploration off the best evidence wins outright", good.id, decision.pair.id)
     }
 
     @Test
@@ -318,7 +317,7 @@ class TransportAdaptationTest {
             // Just after a change: inside the switch interval, so hysteresis applies.
             nowMs = memory!!.changedAtMs + 1_000L
         )
-        assertEquals(incumbent.id, decision.pair.id, "a settled route must not flap")
+        assertEquals("a settled route must not flap", incumbent.id, decision.pair.id)
     }
 
     @Test
@@ -329,11 +328,11 @@ class TransportAdaptationTest {
             severity = FilterSeverity.EXTREME,
             nowMs = 1_000L
         )
-        assertTrue(decision.exploring, "a cell with no history is being explored by definition")
+        assertTrue("a cell with no history is being explored by definition", decision.exploring)
         assertTrue(decision.reason.contains("first contact"), decision.reason)
         assertTrue(
-            TransportAdaptation.priorFor(decision.pair, FilterSeverity.EXTREME) > 0.5,
-            "the baseline must be the pair the severity table believes in"
+            "the baseline must be the pair the severity table believes in",
+            TransportAdaptation.priorFor(decision.pair, FilterSeverity.EXTREME) > 0.5
         )
     }
 
@@ -364,7 +363,7 @@ class TransportAdaptationTest {
         repeat(5) { index ->
             memory = observe(memory, pair, success = false, latencyMs = 0.0, nowMs = 2_000L + index)
         }
-        assertTrue(memory!!.scoreEwma < good, "the record must fall when the operator breaks the profile")
+        assertTrue("the record must fall when the operator breaks the profile", memory!!.scoreEwma < good)
         assertTrue(memory!!.successEwma < 1.0)
     }
 
@@ -375,17 +374,17 @@ class TransportAdaptationTest {
         val pairs = FragmentProfile.entries.flatMap { fragment ->
             MuxProfile.entries.map { mux -> TransportPair(fragment, mux) }
         }
-        assertEquals(48, pairs.size, "8 fragments × 6 mux profiles")
+        assertEquals("8 fragments × 6 mux profiles", 48, pairs.size)
         repeat(6) { round ->
             pairs.forEach { pair ->
                 memory = observe(memory, pair, nowMs = now++)
             }
         }
         assertTrue(
-            memory!!.profileScores.size <= TransportAdaptation.MAX_RECORDED_PAIRS,
-            "the table grew to ${memory!!.profileScores.size}"
+            "the table grew to ${memory!!.profileScores.size}",
+            memory!!.profileScores.size <= TransportAdaptation.MAX_RECORDED_PAIRS
         )
-        assertTrue(memory!!.profileScores.containsKey(memory!!.pairId), "the current pair is never evicted")
+        assertTrue("the current pair is never evicted", memory!!.profileScores.containsKey(memory!!.pairId))
     }
 
     @Test
@@ -400,8 +399,8 @@ class TransportAdaptationTest {
             TransportMemoryRecord.keyOf(record.carrierId, record.dayPart) to record
         }
         val pruned = TransportAdaptation.prune(young, now)
-        assertTrue(pruned.size <= TransportAdaptation.MAX_CELLS, "pruned to ${pruned.size}")
-        assertTrue(pruned.containsKey("carrier-0|morning"), "the newest cell survives")
+        assertTrue("pruned to ${pruned.size}", pruned.size <= TransportAdaptation.MAX_CELLS)
+        assertTrue("the newest cell survives", pruned.containsKey("carrier-0|morning"))
 
         val ancient = mapOf(
             "old|morning" to TransportMemoryRecord(
@@ -410,7 +409,7 @@ class TransportAdaptationTest {
                 updatedAtMs = now - TransportAdaptation.MEMORY_MAX_AGE_MS - 1
             )
         )
-        assertTrue(TransportAdaptation.prune(ancient, now).isEmpty(), "a 45-day-old cell is a guess")
+        assertTrue("a 45-day-old cell is a guess", TransportAdaptation.prune(ancient, now).isEmpty())
     }
 
     // ─── Applying a decision ──────────────────────────────────────────────────────────
@@ -437,8 +436,8 @@ class TransportAdaptationTest {
             for (mux in MuxProfile.entries) {
                 val pair = TransportPair(fragment, mux)
                 val read = TransportAdaptation.pairFromSettings(TransportAdaptation.applyTo(AppSettings(), pair))
-                assertEquals(fragment, read.fragment, "$pair did not survive apply→read")
-                assertEquals(mux, read.mux, "$pair did not survive apply→read")
+                assertEquals("$pair did not survive apply→read", fragment, read.fragment)
+                assertEquals("$pair did not survive apply→read", mux, read.mux)
             }
         }
     }
@@ -459,12 +458,12 @@ class TransportAdaptationTest {
             muxUdp443 = "allow"
         )
         val pair = TransportAdaptation.pairFromSettings(custom)
-        assertTrue(pair.fragment.enabled, "custom values must not read as fragment-off")
+        assertTrue("custom values must not read as fragment-off", pair.fragment.enabled)
         assertTrue(pair.mux.enabled)
         assertEquals(
+            "the shipped default is automatic, gated behind the separate enable switch",
             TransportProfileMode.AUTO,
-            AppSettings().transportProfileModeEnum,
-            "the shipped default is automatic, gated behind the separate enable switch"
+            AppSettings().transportProfileModeEnum
         )
     }
 

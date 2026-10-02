@@ -5,13 +5,12 @@ import com.marbleng.app.model.AutoServerScope
 import com.marbleng.app.model.AutoServerStrategy
 import com.marbleng.app.model.BenchmarkResult
 import com.marbleng.app.model.ProxyProfile
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
-import kotlin.test.assertTrue
+import org.junit.Test
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 
 /**
  * MARBLE_AUTO_SERVER_SELECTOR_V202 — the five strategies, and the three guards that make them
@@ -66,13 +65,15 @@ class AutoServerSelectorTest {
         lossPercent: Double = 0.0,
         loadedLatencyMs: Double = 0.0,
         bytesPerSecond: Double = 0.0,
-        measuredAtMs: Long = 0L
+        measuredAtMs: Long = 0L,
+        success: Int = 1
     ) = ServerCandidate(
         profile = profile(id),
         benchmark = latencyMs?.let {
             bench(
                 id = id,
                 latencyMs = it,
+                success = success,
                 jitterMs = jitterMs,
                 lossPercent = lossPercent,
                 loadedLatencyMs = loadedLatencyMs,
@@ -93,18 +94,18 @@ class AutoServerSelectorTest {
         val mid = AutoServerSelector.latencyScore(160.0)
         val slow = AutoServerSelector.latencyScore(320.0)
         assertTrue(fast > mid && mid > slow)
-        assertEquals(0.5, mid, 0.001, "the reference latency is worth exactly half credit")
+        assertEquals("the reference latency is worth exactly half credit", 0.5, mid, 0.001)
         val firstStep = fast - mid
         val secondStep = mid - slow
-        assertTrue(firstStep > secondStep, "equal latency must cost less as latency grows")
-        assertEquals(0.0, AutoServerSelector.latencyScore(0.0), "an unknown latency earns nothing")
-        assertEquals(0.0, AutoServerSelector.latencyScore(Double.NaN), "NaN is not a measurement")
+        assertTrue("equal latency must cost less as latency grows", firstStep > secondStep)
+        assertEquals("an unknown latency earns nothing", 0.0, AutoServerSelector.latencyScore(0.0))
+        assertEquals("NaN is not a measurement", 0.0, AutoServerSelector.latencyScore(Double.NaN))
     }
 
     @Test
     fun `loss is a hard penalty not a soft one`() {
         assertEquals(1.0, AutoServerSelector.lossScore(0.0), 0.001)
-        assertEquals(0.0, AutoServerSelector.lossScore(34.0), 0.001, "a third lost is a broken route")
+        assertEquals("a third lost is a broken route", 0.0, AutoServerSelector.lossScore(34.0), 0.001)
         assertEquals(0.0, AutoServerSelector.lossScore(100.0), 0.001)
     }
 
@@ -113,8 +114,8 @@ class AutoServerSelectorTest {
         val idleFast = AutoServerSelector.loadScore(50.0, 50.0, 5_000_000.0)
         val idleFastLoaded = AutoServerSelector.loadScore(50.0, 150.0, 5_000_000.0)
         assertTrue(
-            idleFast > idleFastLoaded,
-            "bufferbloat must cost a node even when its idle latency is identical"
+            "bufferbloat must cost a node even when its idle latency is identical",
+            idleFast > idleFastLoaded
         )
         // Without an under-load measurement the score falls back on throughput and says so by
         // never reaching the certainty of a real measurement.
@@ -128,9 +129,9 @@ class AutoServerSelectorTest {
         val fresh = AutoServerSelector.freshnessScore(now, now)
         val quarter = AutoServerSelector.freshnessScore(now - AutoServerSelector.EVIDENCE_MAX_AGE_MS / 4, now)
         val ancient = AutoServerSelector.freshnessScore(1L, now)
-        assertTrue(fresh > quarter && quarter > ancient, "$fresh / $quarter / $ancient")
-        assertEquals(0.25, ancient, 0.001, "a memory still counts for something")
-        assertEquals(0.5, AutoServerSelector.freshnessScore(0L, now), 0.001, "an unstamped result is neutral")
+        assertTrue("$fresh / $quarter / $ancient", fresh > quarter && quarter > ancient)
+        assertEquals("a memory still counts for something", 0.25, ancient, 0.001)
+        assertEquals("an unstamped result is neutral", 0.5, AutoServerSelector.freshnessScore(0L, now), 0.001)
         // An unstamped result is indistinguishable from a negative one, so the guard is on the
         // stamp and not on the arithmetic: a clock that has not run yet must not read as
         // "measured ten evidence windows ago".
@@ -169,9 +170,9 @@ class AutoServerSelectorTest {
         )) {
             val choice = AutoServerSelector.choose(listOf(broken, healthy), strategy, nowMs = now)
             assertEquals(
+                "$strategy must not pick a quarantined node",
                 "healthy",
-                choice.profile?.id,
-                "$strategy must not pick a quarantined node"
+                choice.profile?.id
             )
         }
     }
@@ -204,7 +205,7 @@ class AutoServerSelectorTest {
             nowMs = now,
             switchMarginPercent = 15
         )
-        assertEquals("current", held.profile?.id, "a 4 % edge must not move the exit node")
+        assertEquals("a 4 % edge must not move the exit node", "current", held.profile?.id)
         assertTrue(held.held)
 
         val moved = AutoServerSelector.choose(
@@ -243,7 +244,7 @@ class AutoServerSelectorTest {
             nowMs = now,
             switchMarginPercent = 0
         )
-        assertEquals("hair", choice.profile?.id, "margin 0 is the user asking for exactly this")
+        assertEquals("margin 0 is the user asking for exactly this", "hair", choice.profile?.id)
     }
 
     // ─── The five strategies ─────────────────────────────────────────────────────────
@@ -284,7 +285,7 @@ class AutoServerSelectorTest {
             AutoServerStrategy.SMART,
             nowMs = now
         )
-        assertEquals("fresh", choice.profile?.id, "an hour-old 30 ms is not worth more than a live 80 ms")
+        assertEquals("an hour-old 30 ms is not worth more than a live 80 ms", "fresh", choice.profile?.id)
 
         val flaky = candidate("flaky", latencyMs = 40.0, failureStreak = 2, nowMs = now)
         val solid = candidate("solid", latencyMs = 90.0, nowMs = now)
@@ -293,7 +294,7 @@ class AutoServerSelectorTest {
             AutoServerStrategy.SMART,
             nowMs = now
         )
-        assertEquals("solid", second.profile?.id, "a node that keeps failing is not a route")
+        assertEquals("a node that keeps failing is not a route", "solid", second.profile?.id)
     }
 
     @Test
@@ -317,7 +318,7 @@ class AutoServerSelectorTest {
             visited += id
             cursor = AutoServerSelector.nextCursor(pool, cursor)
         }
-        assertEquals(setOf("a", "b", "c"), visited, "rotation exists to try the untried node")
+        assertEquals("rotation exists to try the untried node", setOf("a", "b", "c"), visited)
     }
 
     @Test
@@ -326,7 +327,7 @@ class AutoServerSelectorTest {
         assertEquals(1, AutoServerSelector.nextCursor(pool, 0))
         assertEquals(2, AutoServerSelector.nextCursor(pool, 1))
         assertEquals(0, AutoServerSelector.nextCursor(pool, 2))
-        assertEquals(0, AutoServerSelector.nextCursor(emptyList(), 7), "a stale index must not be carried")
+        assertEquals("a stale index must not be carried", 0, AutoServerSelector.nextCursor(emptyList(), 7))
         val small = pool.take(1)
         assertEquals(0, AutoServerSelector.nextCursor(small, 5))
     }
@@ -340,14 +341,14 @@ class AutoServerSelectorTest {
         val same = AutoServerSelector.choose(
             pool, AutoServerStrategy.RANDOM, nowMs = 1L, randomSeed = 42L
         )
-        assertEquals(seeded.profile?.id, same.profile?.id, "the same seed is the same draw")
+        assertEquals("the same seed is the same draw", seeded.profile?.id, same.profile?.id)
 
         val spread = (1L..200L).map { seed ->
             AutoServerSelector.choose(
                 pool, AutoServerStrategy.RANDOM, nowMs = 1L, randomSeed = seed
             ).profile?.id
         }.toSet()
-        assertEquals(4, spread.size, "random must reach every node in the pool")
+        assertEquals("random must reach every node in the pool", 4, spread.size)
     }
 
     @Test
@@ -382,7 +383,7 @@ class AutoServerSelectorTest {
         // The requirement is explicit: the user switches this on. Anything that moves a
         // user's exit node without being asked is a bug however well it chooses.
         val settings = AppSettings()
-        assertFalse(settings.autoServerSelectorEnabled, "the selector must never surprise a user")
+        assertFalse("the selector must never surprise a user", settings.autoServerSelectorEnabled)
         assertEquals(AutoServerStrategy.SMART, settings.autoServerStrategyEnum)
         assertEquals(AutoServerScope.SOURCE, settings.autoServerScopeEnum)
         assertEquals(15, settings.autoServerSwitchMarginPercent)
