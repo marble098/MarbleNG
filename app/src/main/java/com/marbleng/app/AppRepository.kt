@@ -81,6 +81,46 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      */
     val activeCoreEngine: CoreEngine get() = parseCoreEngine(settings.coreEngineId)
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARBLE_PING_PARALLEL_V200 — the device this app is running on.
+    //
+    // The sweep width is a CPU and memory decision, so it has to be answerable by the object
+    // that owns the sweep. Both values are read once at construction: a phone does not gain
+    // cores mid-session, and `availableProcessors()` is not free to call on every sweep.
+    //
+    // Memory is read through ActivityManager's `MemoryInfo` rather than a build-time constant
+    // because the same APK ships to a 2 GB handset and to a 12 GB one, and the difference is
+    // exactly the decision [PingParallel.deviceClass] exists to make.
+    // ─────────────────────────────────────────────────────────────────────────
+    val deviceCores: Int = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+
+    val deviceMemoryMb: Long = runCatching {
+        val manager = context.getSystemService(android.app.ActivityManager::class.java)
+        val info = android.app.ActivityManager.MemoryInfo()
+        manager?.getMemoryInfo(info)
+        val bytes = info?.totalMem ?: 0L
+        (bytes / (1024L * 1024L)).coerceAtLeast(0L)
+    }.getOrDefault(0L)
+
+    /** The width the device earns, in [PingParallelMode.AUTO], for the current method. */
+    fun recommendedPingParallelism(method: ProbeMethod = settings.probeMethod): Int =
+        PingParallel.recommend(deviceCores, deviceMemoryMb, method)
+
+    /** The width a sweep will actually run at, right now. */
+    fun effectivePingParallelism(method: ProbeMethod = settings.probeMethod): Int =
+        PingParallel.resolve(settings, deviceCores, deviceMemoryMb, method)
+
+    /** One line for the setting: what the device is and what it bought. */
+    fun pingParallelismSummary(method: ProbeMethod = settings.probeMethod): String =
+        PingParallel.describe(deviceCores, deviceMemoryMb, method)
+
+    /**
+     * How many representatives a sweep re-measures when every node came back dead and no local
+     * fault explains it. Three is the smallest number that can distinguish "the measurement did
+     * not happen" from "all of them really are down", which is the whole question.
+     */
+    private val CANARY_NODES = 3
+
     val coreStartPhase: String
         get() = if (activeCoreEngine == CoreEngine.SINGBOX) singBox.lastStartPhase else xray.lastStartPhase
 
@@ -157,6 +197,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     val history = mutableStateListOf<ConnectionRecord>().apply { addAll(store.loadHistory()) }
 
     var settings by mutableStateOf(store.settings()); private set
+
 
     // MARBLE_MANUAL_BUCKET_V122 — Manual is a permanent local bucket, never a gated option.
     private fun normalizeLibrarySourceFilter(id: String): String = when {
@@ -289,7 +330,14 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    private fun libraryScopeLabel(sourceId: String): String = when (sourceId) {
+    /**
+     * Human name of one library scope.
+     *
+     * MARBLE_FAILED_PRUNE_V204 — public, because the failed-server cleanup dialogs name the
+     * scope they are about to prune and a second, drifting copy of this mapping is how a dialog
+     * ends up saying "Missing source" about the Manual bucket it is about to empty.
+     */
+    fun libraryScopeLabel(sourceId: String): String = when (sourceId) {
         "all" -> "All sources"
         "manual" -> "Manual"
         else -> subscriptions.firstOrNull { it.id == sourceId }?.name ?: "Missing source"
@@ -1263,6 +1311,20 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var connectionPingFailure by mutableStateOf(""); private set
     private val connectionPingInFlight = AtomicBoolean(false)
 
+    /**
+     * MARBLE_HOME_PING_SPEED_V200 — true while the displayed [connectionPingMs] is a provisional
+     * number: either the previous reading being re-measured, or the first sample of the run in
+     * progress. The readout shows it dimmed with a "refreshing" cue instead of hiding it.
+     *
+     * Why this exists: V114 promised an *instant* Home ping ("the first frame after a tap shows
+     * that real number instead of a measuring placeholder"), and the shipped code did the
+     * opposite — it wrote `connectionPingMs = 0` before every run, so the latency capsule went
+     * blank and then sat on "•••" for the whole batch. A number the user already paid for is
+     * erased by the act of refreshing it, which is the single most visible way a ping button can
+     * feel slow while being exactly as fast as it always was.
+     */
+    var connectionPingProvisional by mutableStateOf(false); private set
+
     // MARBLE_IRAN_AWARE_PING — Layer 0/2/3 signals surfaced to the Home readout: the latency
     // capsule turns its status glyph into ✅/⚠️/🚫, the sparkline segments injected samples, and
     // the national-event banner is driven by [nationalEventCause].
@@ -1279,6 +1341,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var selectedPingState by mutableStateOf(ConnectionPingState.IDLE); private set
     var selectedPingFailure by mutableStateOf(""); private set
     private val selectedPingInFlight = AtomicBoolean(false)
+
+    /** MARBLE_HOME_PING_SPEED_V200 — the disconnected twin of [connectionPingProvisional]. */
+    var selectedPingProvisional by mutableStateOf(false); private set
 
     var livePingMs by mutableStateOf(0); private set
     var liveJitterMs by mutableStateOf(0); private set
@@ -1421,7 +1486,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
      * a dead node.
      */
     private fun installRealDelayHook() {
-        RouteProbe.realDelayHook = { profile, timeoutMs, samples, probeSettings ->
+        RouteProbe.realDelayHook = { profile, timeoutMs, samples, probeSettings, onSample ->
             val effective = intelligence.effectiveSettings(profile, probeSettings)
             // MARBLE_PING_FALSE_FAILED_V159 — every DelayTest candidate origin is walked inside
             // ONE throwaway core (never one core per target). A momentarily filtered primary
@@ -1440,7 +1505,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                             urls = targets,
                             // MARBLE_PING_SPEED_DIAL_V199 — the throwaway tunnel's samples keep
                             // the caller's dial-driven quiet gap, exactly like the live path.
-                            sampleSpacingMs = probeSettings.pingSampleSpacingMs()
+                            sampleSpacingMs = probeSettings.pingSampleSpacingMs(),
+                            // MARBLE_HOME_PING_SPEED_V200 — the throwaway path publishes per
+                            // sample too. This is the disconnected Home ping, and it is the
+                            // slowest of the three (it builds a core before it measures a
+                            // single byte), so it is the one that most needs to show a number
+                            // the moment one exists.
+                            onSample = onSample
                         )
                     }
                 }.onFailure { error ->
@@ -1872,6 +1943,26 @@ fun updateRouteQuality(
             }
             liveRouteAttempts = attemptCount.coerceIn(0, 10_000)
             if (tailLatencyMs >= 0) liveTailLatencyMs = tailLatencyMs.coerceIn(0, 10_000)
+            // MARBLE_AUTO_SERVER_SELECTOR_V202 — the "the route stopped working" moment.
+            //
+            // One shot per session. The monitor calls this every few seconds, so without the
+            // arm a route that stays broken would move the connection every tick. The arm is
+            // set when a session opens and consumed here: one session, one failover.
+            if (settings.autoServerSelectorEnabled &&
+                settings.autoServerOnFailure &&
+                state == "CONNECTED" &&
+                liveRouteBroken() &&
+                autoFailoverArmed.compareAndSet(true, false)
+            ) {
+                diagnostics.event(
+                    "AUTOSELECT",
+                    "failover-triggered",
+                    "from" to activeProfileId.take(12),
+                    "attempts" to liveRouteAttempts,
+                    "successPercent" to liveRouteSuccessPercent
+                )
+                runAutoServerSelection(reason = "failure", connect = true)
+            }
             liveRouteProbeStatus = buildString {
                 append("Verified HTTPS • ")
                 append(sampleCount.coerceAtLeast(1))
@@ -2017,7 +2108,14 @@ fun resetTelemetry() {
             // MARBLE_SESSION_USAGE_V192 — the teardown is the moment a session's usage becomes a
             // fact: one bounded history row, one running total, and the live counter frozen at
             // its final value.
-            if (s == "DISCONNECTED") finishUsageSession()
+            if (s == "DISCONNECTED") {
+                autoFailoverArmed.set(false)
+                finishUsageSession()
+                // MARBLE_TRANSPORT_ADAPTATION_V203 — the teardown is when a connection becomes
+                // evidence. A session is one observation: what the operator did to the pair we
+                // chose, for the whole time we used it.
+                settleTransportSession()
+            }
             if (s != "CONNECTED") {
                 activeProfileId = ""
                 activeProfileSourceId = ""
@@ -2132,7 +2230,28 @@ fun resetTelemetry() {
                 iranMode
             )
         }
-        return IdentityGuard.apply(tuned)
+        /*
+         * MARBLE_TRANSPORT_ADAPTATION_V203 — the learned fragment/Mux profile lands here, after
+         * every other policy and before Identity Guard, because that is the order the old stack
+         * already established: Iran Mode and DPI evasion decide what the *link* needs, and this
+         * decides the shape of the bytes that answer it.
+         *
+         * The decision is taken even in MANUAL mode — it is then the user's own values, not a
+         * learned pair — because that is what lets the teardown credit the session. A user who
+         * sets their own numbers and later flips to Automatic arrives with a month of evidence
+         * about their operator instead of an empty table.
+         */
+        val shaped = if (settings.transportAdaptationEnabled) {
+            val decision = decideTransportPair(profile)
+            if (settings.transportProfileModeEnum == TransportProfileMode.AUTO) {
+                TransportAdaptation.applyTo(tuned, decision.pair)
+            } else {
+                tuned
+            }
+        } else {
+            tuned
+        }
+        return IdentityGuard.apply(shaped)
     }
 
     /**
@@ -2490,13 +2609,19 @@ private fun postToMain(block: () -> Unit) {
         val timeoutMs = settings.pingTimeoutMs()
         val samples = settings.pingSampleCount()
 
-        // MARBLE_PING_METHODS_V148 — the Home readout obeys Settings → Tests → Ping exactly like
-        // every other measurement. The method gets a real SOCKS port when the tunnel is up, so
-        // Smart / Real test / HTTP GET / HTTP HEAD measure through the live route while
-        // TCP Connect / TCP (recommended) / ICMP intentionally measure the server address itself.
+        // MARBLE_HOME_PING_SPEED_V200 — the tap is acknowledged with the number we already have,
+        // not with a blank. The old code zeroed [connectionPingMs] here, which is why the capsule
+        // flashed empty and then sat on "•••" for the whole batch: the *display* was three round
+        // trips behind the *measurement*, and a user reads the display.
+        //
+        // Two things now happen that did not before:
+        //  1. the previous reading stays on screen, marked provisional;
+        //  2. every sample is published the moment it lands ([onSample]), so the first round trip
+        //     replaces it with a fresh real number and the rest only refine it.
+        // Neither changes what is measured: same method, same budget, same median at the end.
         postToMain {
-            connectionPingMs = 0
             connectionPingState = ConnectionPingState.MEASURING
+            connectionPingProvisional = true
             connectionPingFailure = ""
         }
 
@@ -2509,7 +2634,30 @@ private fun postToMain(block: () -> Unit) {
                         tunnelPort = port,
                         samples = samples,
                         timeoutMs = timeoutMs,
-                        settings = settings
+                        settings = settings,
+                        onSample = { sampleMs ->
+                            // First sample wins the screen; later ones refine it. The guard keeps
+                            // a stale run from writing over a newer one (the session can end mid
+                            // probe, and a disconnected readout owes the user nothing).
+                            if (connectionPingInFlight.get() &&
+                                connectedSinceMs == sessionAtStart &&
+                                state == "CONNECTED"
+                            ) {
+                                val provisional = LinkQualityEstimator.sanitaryRtt(
+                                    sampleMs.roundToInt()
+                                ).takeIf { it >= 20 } ?: 0
+                                if (provisional > 0) {
+                                    postToMain {
+                                        if (connectionPingInFlight.get() &&
+                                            connectedSinceMs == sessionAtStart &&
+                                            state == "CONNECTED"
+                                        ) {
+                                            connectionPingMs = provisional
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     )
                 } ?: RouteProbe.ProbeResult(
                     "HOME",
@@ -2562,11 +2710,15 @@ private fun postToMain(block: () -> Unit) {
                         connectionPingFailure = ""
                     }
                     else -> {
-                        connectionPingMs = 0
+                        // MARBLE_HOME_PING_SPEED_V200 — a route that just carried traffic does not
+                        // get a bare "✕" because one batch of samples came back empty. The last
+                        // real reading stays, marked provisional, and the failure keeps its own
+                        // word so the panel can still say *what* went wrong.
                         connectionPingState = ConnectionPingState.FAILED
                         connectionPingFailure = classifyPingFailure(probe?.failureReason)
                     }
                 }
+                connectionPingProvisional = false
                 homePingInjectedReset = probe?.injectedResetSuspected == true || measured < 20
                 homePingStabilityClass = stability?.stabilityClass?.name ?: ""
                 nationalEventCause = if (attribution?.rankingFreeze == true) {
@@ -2629,6 +2781,7 @@ private fun postToMain(block: () -> Unit) {
                 selectedPingMs = 0
                 selectedPingState = if (target == null) ConnectionPingState.IDLE else ConnectionPingState.FAILED
                 selectedPingFailure = if (target == null) "" else "error"
+                selectedPingProvisional = false
             }
             if (target == null) message = "Select a server first • then ping it"
             return
@@ -2637,9 +2790,14 @@ private fun postToMain(block: () -> Unit) {
         // while the probe is in flight invalidates it.
         val targetId = target.id
         val targetSource = target.subscriptionId
+        // MARBLE_HOME_PING_SPEED_V200 — same acknowledgement contract as the connected path: the
+        // number stays on screen while it is being re-measured, and the first sample replaces it
+        // as soon as one exists. A disconnected ping is the slowest button in the product when
+        // Real delay has to build a whole core before it can time anything, so nothing about the
+        // wait should be invisible.
         postToMain {
-            selectedPingMs = 0
             selectedPingState = ConnectionPingState.MEASURING
+            selectedPingProvisional = true
             selectedPingFailure = ""
         }
         io.execute {
@@ -2653,7 +2811,27 @@ private fun postToMain(block: () -> Unit) {
                     tunnelPort = 0,
                     samples = samples,
                     timeoutMs = timeoutMs,
-                    settings = settings
+                    settings = settings,
+                    onSample = { sampleMs ->
+                        if (selectedPingInFlight.get() &&
+                            selectedProfileId == targetId &&
+                            state != "CONNECTED"
+                        ) {
+                            val provisional = LinkQualityEstimator.sanitaryRtt(
+                                sampleMs.roundToInt()
+                            ).takeIf { it >= 20 } ?: 0
+                            if (provisional > 0) {
+                                postToMain {
+                                    if (selectedPingInFlight.get() &&
+                                        selectedProfileId == targetId &&
+                                        state != "CONNECTED"
+                                    ) {
+                                        selectedPingMs = provisional
+                                    }
+                                }
+                            }
+                        }
+                    }
                 )
             }.getOrNull()
             val measured = probeResult
@@ -2699,11 +2877,14 @@ private fun postToMain(block: () -> Unit) {
                             selectedPingFailure = ""
                         }
                         else -> {
-                            selectedPingMs = 0
+                            // MARBLE_HOME_PING_SPEED_V200 — keep the last real reading instead of
+                            // blanking it; the failure word travels beside it, so the capsule
+                            // reads "🚫 148 ms" (last known) rather than a bare "✕".
                             selectedPingState = ConnectionPingState.FAILED
                             selectedPingFailure = classifyPingFailure(probeResult?.failureReason)
                         }
                     }
+                    selectedPingProvisional = false
                     homePingInjectedReset = probeResult?.injectedResetSuspected == true || measured < 20
                     homePingStabilityClass = stability?.stabilityClass?.name ?: ""
                 }
@@ -3491,23 +3672,71 @@ private fun postToMain(block: () -> Unit) {
     fun subscriptionNodeCount(id: String): Int = profiles.count { it.subscriptionId == id }
 
     /**
-     * Count nodes in one subscription whose most recent stored benchmark explicitly failed
-     * the requested evidence type. SMART (endpoint-gate verdict) and TUNNEL (real config verdict)
-     * stay separate.
+     * MARBLE_FAILED_PRUNE_V204 — the source ids a "remove failed servers" action may target.
+     *
+     * Before V204 the cleanup existed for exactly one kind of owner: a row in `subscriptions`.
+     * The Manual bucket is not such a row — it is a permanent local source with no subscription
+     * record — so `removeFailedSubscriptionNodes("manual", …)` answered *"Subscription no longer
+     * exists"* and deleted nothing. The servers a user pastes, scans from a QR code or imports
+     * from a file all land in that bucket, which is to say: the servers most likely to be dead
+     * on arrival were the only ones the product could not clean up.
+     *
+     * `"manual"` and `"all"` are therefore first-class targets, and every other id is still
+     * resolved against the subscription list.
+     */
+    val PRUNE_TARGET_MANUAL = "manual"
+    val PRUNE_TARGET_ALL = "all"
+
+    /**
+     * Count nodes whose most recent stored benchmark explicitly failed the requested evidence
+     * type, inside one source (a subscription id, `"manual"`, or `"all"`).
+     *
+     * SMART (endpoint-gate verdict) and TUNNEL (real config verdict) stay separate: a node that
+     * failed a real tunnel test is not the same claim as a node whose endpoint did not answer.
      */
     fun failedSubscriptionNodeCount(id: String, probeKind: String): Int {
         val kind = probeKind.trim().uppercase()
         if (kind !in setOf("SMART", "TUNNEL")) return 0
-        val failedIds = benchmarks.asSequence()
-            .filter { it.success <= 0 && it.probeKind.equals(kind, ignoreCase = true) }
+        val failedIds = failedNodeIds(kind)
+        return profiles.count { inPruneScope(it, id) && it.id in failedIds }
+    }
+
+    /** Every node of the library whose latest [probeKind] verdict failed. */
+    private fun failedNodeIds(probeKind: String): Set<String> =
+        benchmarks.asSequence()
+            .filter { it.success <= 0 && it.probeKind.equals(probeKind, ignoreCase = true) }
             .mapTo(mutableSetOf()) { it.profileId }
-        return profiles.count { it.subscriptionId == id && it.id in failedIds }
+
+    /**
+     * Distinct nodes with a failed verdict of ANY evidence type, inside [target].
+     *
+     * The count the UI badges. It is deliberately a *distinct node* count and not the sum of the
+     * two per-kind counts: a node that failed both the endpoint gate and the real tunnel test is
+     * one server to delete, and a chip that promised "12" and removed "7" would be a lie.
+     */
+    fun failedNodeCount(target: String): Int {
+        val failed = failedNodeIds("SMART") + failedNodeIds("TUNNEL")
+        if (failed.isEmpty()) return 0
+        return profiles.count { inPruneScope(it, target) && it.id in failed }
+    }
+
+    /** Convenience for the library-wide control: how many dead servers are there anywhere? */
+    fun failedNodeCountEverywhere(): Int = failedNodeCount(PRUNE_TARGET_ALL)
+
+    /** Does this node belong to the prune target [target]? */
+    private fun inPruneScope(profile: ProxyProfile, target: String): Boolean = when (target) {
+        PRUNE_TARGET_ALL -> true
+        PRUNE_TARGET_MANUAL -> profile.subscriptionId == PRUNE_TARGET_MANUAL
+        else -> profile.subscriptionId == target
     }
 
     /**
-     * Remove only failed nodes from ONE subscription and ONE evidence type.
-     * Group cleanup is disabled while connected/connecting so stale evidence cannot delete
-     * the route Android is currently using.
+     * Remove failed nodes of ONE evidence type from ONE source — a subscription, the Manual
+     * bucket, or the whole library.
+     *
+     * Group cleanup is disabled while connected/connecting so stale evidence cannot delete the
+     * route Android is currently using, and it never touches a node with no verdict: "never
+     * measured" is not the same claim as "measured and dead".
      */
     fun removeFailedSubscriptionNodes(id: String, probeKind: String): Int {
         if (busy) {
@@ -3515,37 +3744,40 @@ private fun postToMain(block: () -> Unit) {
             return 0
         }
         if (state != "DISCONNECTED") {
-            message = "Disconnect before removing failed servers from a subscription"
+            message = "Disconnect before removing failed servers"
             return 0
         }
 
-        val sub = subscriptions.firstOrNull { it.id == id } ?: run {
-            message = "Subscription no longer exists"
-            return 0
-        }
         val kind = probeKind.trim().uppercase()
         if (kind !in setOf("SMART", "TUNNEL")) {
             message = "Unsupported failed-server evidence type"
             return 0
         }
 
-        val failedIds = benchmarks.asSequence()
-            .filter { it.success <= 0 && it.probeKind.equals(kind, ignoreCase = true) }
-            .mapTo(mutableSetOf()) { it.profileId }
+        // MARBLE_FAILED_PRUNE_V204 — the only place the old version knew how to fail: the Manual
+        // bucket has no subscription row, so the lookup is skipped for the two synthetic targets
+        // instead of refusing them.
+        val isSynthetic = id == PRUNE_TARGET_MANUAL || id == PRUNE_TARGET_ALL
+        if (!isSynthetic && subscriptions.none { it.id == id }) {
+            message = "Subscription no longer exists"
+            return 0
+        }
+        val scopeName = libraryScopeLabel(id)
 
+        val failedIds = failedNodeIds(kind)
         val doomedIds = profiles.asSequence()
-            .filter { it.subscriptionId == id && it.id in failedIds }
+            .filter { inPruneScope(it, id) && it.id in failedIds }
             .mapTo(linkedSetOf()) { it.id }
 
         if (doomedIds.isEmpty()) {
-            message = "No failed $kind servers recorded for ${sub.name}"
+            message = "No failed $kind servers recorded in $scopeName"
             return 0
         }
 
         val remembered = lastProfile()
         if (remembered != null &&
-            remembered.subscriptionId == id &&
-            remembered.id in doomedIds) {
+            remembered.id in doomedIds &&
+            (id == PRUNE_TARGET_ALL || remembered.subscriptionId == id)) {
             store.clearLastProfile()
         }
         doomedIds.forEach(intelligence::forgetAcceleration)
@@ -3557,12 +3789,13 @@ private fun postToMain(block: () -> Unit) {
         diagnostics.event(
             "LIBRARY",
             "failed-nodes-removed",
-            "source" to sub.id.take(16),
-            "sourceName" to sub.name,
+            "source" to id.take(16),
+            "sourceName" to scopeName,
             "probeKind" to kind,
             "removed" to doomedIds.size
         )
-        message = "Removed ${doomedIds.size} failed $kind server${if (doomedIds.size == 1) "" else "s"} from ${sub.name}"
+        message = "Removed ${doomedIds.size} failed $kind server" +
+            (if (doomedIds.size == 1) "" else "s") + " from $scopeName"
         return doomedIds.size
     }
 
@@ -3692,6 +3925,18 @@ private fun postToMain(block: () -> Unit) {
             message = "No servers yet • add a subscription or import configs first"
             return
         }
+        // MARBLE_AUTO_SERVER_SELECTOR_V202 — the "press connect with nothing chosen" moment.
+        // This is the one entrance where no server has been tapped, so the selector is not
+        // overriding an explicit choice; it is answering a question the user did not answer.
+        // It is off by default for exactly the opposite reason: a tap on a named server IS a
+        // choice, and a selector that ignores it is not assistance.
+        if (settings.autoServerSelectorEnabled && settings.autoServerOnConnect) {
+            val chosen = runAutoServerSelection(reason = "connect", connect = false)
+            chosen?.profile?.let {
+                onConnect(it)
+                return
+            }
+        }
         val remembered = lastProfile()
         val measured = benchmarks
             .asSequence()
@@ -3740,6 +3985,8 @@ private fun postToMain(block: () -> Unit) {
             // markConnected for an already-running session must not.
             if (previousState != "CONNECTED" || connectedSinceMs <= 0L) {
                 connectedSinceMs = System.currentTimeMillis()
+                // A new session earns one automatic failover.
+                autoFailoverArmed.set(true)
                 // MARBLE_SESSION_USAGE_V192 — the session's byte clock starts with the session.
                 beginUsageSession(p)
                 connectionPingMs = 0
@@ -3793,6 +4040,10 @@ private fun postToMain(block: () -> Unit) {
         privacy = null
         runCatching { scanIranMode() }
         ensureIpFamilyEvidence(p)
+        // MARBLE_TRANSPORT_ADAPTATION_V203 — a new session settles the previous one before it
+        // starts, so a rapid server switch still credits the pair that carried the last session
+        // instead of dropping its evidence on the floor.
+        settleTransportSession()
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
@@ -3806,6 +4057,7 @@ private fun postToMain(block: () -> Unit) {
         privacy = null
         runCatching { scanIranMode() }
         ensureIpFamilyEvidence(p)
+        settleTransportSession()
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
@@ -4355,6 +4607,375 @@ private fun postToMain(block: () -> Unit) {
     private fun quickPingEndpointKey(profile: ProxyProfile): String =
         "${profile.host.trim().lowercase()}:${profile.port}"
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARBLE_AUTO_SERVER_SELECTOR_V202
+    //
+    // The repository owns the library, the measurements, the health records and the
+    // consequences of a choice; [AutoServerSelector] owns the ranking. Nothing below decides
+    // *how* to rank — that is the strategy — and nothing in the selector decides *what happens*
+    // to the winner, which is why the connect step stays here, on the main looper, next to
+    // every other place this product opens a tunnel.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARBLE_TRANSPORT_ADAPTATION_V203
+    //
+    // Fragment and Mux are the two knobs that decide whether a filtered link carries traffic
+    // at all, and until now both were static: a table of operator recipes written down once
+    // and a triple of user constants. [TransportAdaptation] supplies the learner; this block
+    // supplies the two things only the repository has — the identity of the network we are
+    // on, and the outcome of the connection we just finished.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The pair that is on the wire for the session currently up, or about to be.
+     *
+     * Set at connect time and consumed at teardown, so the observation always credits the pair
+     * that actually carried the traffic — never the pair the learner would pick *now*, which is
+     * how a bandit ends up rewarding decisions it did not make.
+     */
+    @Volatile
+    var activeTransportPair: TransportPair? = null
+        private set
+
+    /** The decision behind [activeTransportPair], for the diagnostics log and the settings page. */
+    var lastTransportDecision: TransportDecision? by mutableStateOf(null)
+        private set
+
+    /**
+     * The learner's working copy of the memory table.
+     *
+     * This is the field the engine itself reads and writes, and it is `@Volatile` rather than
+     * Compose state for one reason: [decideTransportPair] is called from
+     * [effectiveSettingsFor], which `MARBLE_CONNECT_OFF_MAIN_V144` deliberately moved onto the
+     * connection worker — so the learner runs off the main thread, and a snapshot-backed
+     * `mutableStateOf` is not the right thing to touch there. [transportMemory] is the
+     * main-thread mirror the Settings page composes.
+     */
+    @Volatile
+    private var transportMemoryEngine: Map<String, TransportMemoryRecord> =
+        runCatching { store.loadTransportMemory() }.getOrDefault(emptyMap())
+
+    /**
+     * Every operator/time-of-day cell we have learned, for the Settings page.
+     *
+     * Initialized from the engine copy at construction — not in an `init` block placed above,
+     * which would be overwritten by this property's own initializer.
+     */
+    var transportMemory: Map<String, TransportMemoryRecord> by mutableStateOf(transportMemoryEngine)
+        private set
+
+    /** Store the table, hand it to the learner, and show it on the main thread. */
+    private fun publishTransportMemory(cells: Map<String, TransportMemoryRecord>) {
+        transportMemoryEngine = cells
+        postToMain { transportMemory = cells }
+    }
+
+    /** Reload the learned table from disk after an external restore. */
+    fun refreshTransportMemory() {
+        publishTransportMemory(runCatching { store.loadTransportMemory() }.getOrDefault(emptyMap()))
+    }
+
+    /**
+     * MARBLE_TRANSPORT_ADAPTATION_V203 — throw the whole table away.
+     *
+     * A user who moved country, changed SIM, or simply does not want the product to remember
+     * how their network behaves must be able to make that true in one tap. The next connection
+     * starts from the severity prior, which is where a fresh install starts too.
+     */
+    fun forgetTransportMemory() {
+        io.execute {
+            runCatching { store.saveTransportMemory(emptyMap()) }
+            activeTransportPair = null
+            publishTransportMemory(emptyMap())
+            postToMain {
+                lastTransportDecision = null
+                message = "Forgot every learned fragment and Mux profile"
+            }
+            diagnostics.event("TRANSPORT", "memory-cleared", "cells" to 0)
+        }
+    }
+
+    /**
+     * Who we are talking through, as a stable key.
+     *
+     * MCC/MNC when the phone will tell us (it is what the SIM and the serving network actually
+     * are), the detected ISP's short name otherwise, and one shared "unknown" cell when neither
+     * is available — because a per-connection unique key would give the learner a brand new
+     * operator every time it asked.
+     */
+    fun currentCarrierKey(): String {
+        val operatorCode = runCatching {
+            val telephony = context.getSystemService(android.telephony.TelephonyManager::class.java)
+            telephony?.networkOperator.orEmpty()
+        }.getOrDefault("")
+        return TransportAdaptation.carrierKeyOf(
+            operatorCode = operatorCode,
+            ispShortName = iranMode.ispShortName,
+            carrierName = iranMode.carrierName
+        )
+    }
+
+    /**
+     * Choose the fragment/Mux pair for one connection and remember the choice.
+     *
+     * Called from [effectiveSettingsFor], which is the single funnel every config writer reads,
+     * so the decision cannot be bypassed by one path or applied twice by another.
+     */
+    private fun decideTransportPair(profile: ProxyProfile): TransportDecision {
+        val dayPart = dayPartOf(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY))
+        val decision = if (!settings.transportAdaptationEnabled ||
+            settings.transportProfileModeEnum != TransportProfileMode.AUTO
+        ) {
+            // MANUAL still records what it is about to send. Otherwise a user who sets their
+            // own values, runs them for a month and then flips to Automatic would land on a
+            // blank table — and the month they spent proving what works on their operator
+            // would be the one piece of evidence the learner never saw.
+            TransportDecision(
+                pair = TransportAdaptation.pairFromSettings(settings),
+                reason = "user values"
+            )
+        } else {
+            val carrier = currentCarrierKey()
+            val cell = transportMemoryEngine[TransportMemoryRecord.keyOf(carrier, dayPart)]
+            val picked = TransportAdaptation.decide(
+                memory = cell,
+                shape = transportShapeOf(profile),
+                severity = iranMode.severity,
+                explore = settings.transportAdaptationExplore,
+                nowMs = System.currentTimeMillis()
+            )
+            diagnostics.event(
+                "TRANSPORT",
+                "profile-chosen",
+                "carrier" to carrier.take(24),
+                "dayPart" to dayPart.id,
+                "pair" to picked.pair.id,
+                "exploring" to picked.exploring,
+                "drifted" to picked.drifted,
+                "reason" to picked.reason.take(120)
+            )
+            picked
+        }
+        // The wire field is volatile and safe to set here; the read-out is Compose state, so it
+        // is published on the main thread instead of written from the connection worker.
+        activeTransportPair = decision.pair
+        postToMain { lastTransportDecision = decision }
+        return decision
+    }
+
+    /**
+     * Credit the finished session to the pair that carried it.
+     *
+     * One observation per connection, built from the session's own evidence: whether it stayed
+     * up, the latency and jitter the live monitor measured, and the throughput the byte counters
+     * saw. A session that never came up is still an observation — "this pair does not complete on
+     * this operator at this hour" is the most valuable thing the learner can be told.
+     */
+    fun settleTransportSession() {
+        val pair = activeTransportPair ?: return
+        activeTransportPair = null
+        if (!settings.transportAdaptationEnabled) return
+        val carrier = currentCarrierKey()
+        val dayPart = dayPartOf(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY))
+        val latency = livePingMs.toDouble()
+        val jitter = liveJitterMs.toDouble()
+        val throughput = liveDownBps.toDouble()
+        val success = liveRouteScore >= 0 && latency > 0.0 &&
+            (liveRouteSuccessPercent <= 0 || liveRouteSuccessPercent >= 50)
+        io.execute {
+            runCatching {
+                val cells = transportMemoryEngine.toMutableMap()
+                val key = TransportMemoryRecord.keyOf(carrier, dayPart)
+                val updated = TransportAdaptation.observe(
+                    memory = cells[key],
+                    carrierId = carrier,
+                    dayPart = dayPart,
+                    pair = pair,
+                    success = success,
+                    latencyMs = latency,
+                    jitterMs = jitter,
+                    throughputBytesPerSecond = throughput,
+                    nowMs = System.currentTimeMillis(),
+                    severity = iranMode.severity
+                )
+                cells[key] = updated
+                store.saveTransportMemory(cells)
+                diagnostics.event(
+                    "TRANSPORT",
+                    "profile-observed",
+                    "carrier" to carrier.take(24),
+                    "dayPart" to dayPart.id,
+                    "pair" to pair.id,
+                    "success" to success,
+                    "latency" to latency.toInt(),
+                    "quality" to String.format(Locale.US, "%.3f", updated.scoreEwma),
+                    "observations" to updated.observations,
+                    "drift" to String.format(Locale.US, "%.3f", updated.drift)
+                )
+                publishTransportMemory(store.loadTransportMemory())
+            }
+        }
+    }
+
+    /** The pool the selector is allowed to choose from, for the scope the user picked. */
+    fun autoServerPool(): List<ProxyProfile> = when (settings.autoServerScopeEnum) {
+        AutoServerScope.SOURCE -> {
+            // Same resolution as the Home ping: the source the user is looking at, else the
+            // source of the route on screen, else the local bucket. Never "all" by accident —
+            // a selector that silently widens its pool is a selector that can move the user to a
+            // subscription they never looked at.
+            val sourceId = librarySourceFilter.takeIf { it.isNotBlank() && it != "all" }
+                ?: homeRoute()?.subscriptionId?.takeIf { it.isNotBlank() }
+                ?: "manual"
+            libraryScopeSnapshot(sourceId)
+        }
+        AutoServerScope.ALL -> libraryProfiles.toList()
+    }
+
+    /**
+     * True when the live monitor has enough evidence to call the route that is up unusable.
+     *
+     * Deliberately strict, because this is the input that moves a live connection: at least
+     * [AUTO_FAILOVER_MIN_ATTEMPTS] probes (so a slow session start is not a verdict), a success
+     * rate under half, and a score the product already publishes on the Home page. Without the
+     * attempt floor, two lost packets at session start would move everybody's route.
+     */
+    private fun liveRouteBroken(): Boolean =
+        liveRouteAttempts >= AUTO_FAILOVER_MIN_ATTEMPTS &&
+            liveRouteScore >= 0 &&
+            liveRouteSuccessPercent in 1..49
+
+    /** Probes the live monitor must have run before its verdict can move the route. */
+    private val AUTO_FAILOVER_MIN_ATTEMPTS = 6
+
+    /**
+     * MARBLE_AUTO_SERVER_SELECTOR_V202 — one failover per session.
+     *
+     * Set when a session opens, consumed by the first "this route is unusable" verdict. A
+     * route that stays broken must not move the connection on every monitor tick, and a
+     * session that recovers must not inherit a previous session's spent failover.
+     */
+    private val autoFailoverArmed = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Everything the selector is allowed to know about the current pool. */
+    fun autoServerCandidates(pool: List<ProxyProfile> = autoServerPool()): List<ServerCandidate> {
+        val measured = benchmarks.associateBy { it.profileId }
+        val currentId = if (state == "CONNECTED") activeProfileId else selectedProfileId
+        // A node that is up and not working is not an answer to "what should be up". The live
+        // monitor is the freshest evidence in the product — far fresher than a sweep from an
+        // hour ago — so when it has spoken, it outranks the stored benchmark entirely.
+        val liveBroken = state == "CONNECTED" && liveRouteBroken()
+        return pool.distinctBy { it.id }.map { profile ->
+            ServerCandidate(
+                profile = profile,
+                benchmark = measured[profile.id],
+                failureStreak = if (liveBroken && profile.id == currentId) {
+                    AutoServerSelector.QUARANTINE_STREAK
+                } else {
+                    runCatching {
+                        intelligence.healthOf(profile.id)?.failureStreak ?: 0
+                    }.getOrDefault(0)
+                },
+                current = profile.id == currentId
+            )
+        }
+    }
+
+    /**
+     * What the selector would pick right now, without applying it.
+     *
+     * The Settings page shows this so a user can see what "Smart" means for their own library
+     * before handing the route over to it — a selector you cannot interrogate is a selector you
+     * cannot trust.
+     */
+    fun previewAutoServerChoice(): AutoServerChoice {
+        val strategy = settings.autoServerStrategyEnum
+        return AutoServerSelector.choose(
+            candidates = autoServerCandidates(),
+            strategy = strategy,
+            nowMs = System.currentTimeMillis(),
+            roundRobinCursor = store.loadAutoServerCursor(),
+            randomSeed = System.nanoTime(),
+            switchMarginPercent = settings.autoServerSwitchMarginPercent,
+            scope = settings.autoServerScopeEnum
+        )
+    }
+
+    /**
+     * Run one selection round and, when [connect] asks for it, move the route.
+     *
+     * Returns the choice so the caller can log it and the UI can explain it. `null` only when
+     * there is nothing at all to choose from.
+     */
+    fun runAutoServerSelection(
+        pool: List<ProxyProfile> = autoServerPool(),
+        reason: String = "manual",
+        connect: Boolean = false
+    ): AutoServerChoice? {
+        val strategy = settings.autoServerStrategyEnum
+        val candidates = autoServerCandidates(pool)
+        var cursor = store.loadAutoServerCursor()
+        val choice = AutoServerSelector.choose(
+            candidates = candidates,
+            strategy = strategy,
+            nowMs = System.currentTimeMillis(),
+            roundRobinCursor = cursor,
+            // Seeded with the wall clock: rotation must be reproducible in a test and fresh in
+            // production, which is the one thing `Random` cannot be both of.
+            randomSeed = System.nanoTime(),
+            switchMarginPercent = settings.autoServerSwitchMarginPercent,
+            scope = settings.autoServerScopeEnum
+        )
+        val winner = choice.profile
+        diagnostics.event(
+            "AUTOSELECT",
+            "round",
+            "trigger" to reason,
+            "strategy" to strategy.id,
+            "pool" to candidates.size,
+            "picked" to (winner?.id ?: "").take(12),
+            "held" to choice.held,
+            "confidence" to String.format(
+                Locale.US, "%.2f",
+                AutoServerSelector.confidenceOf(choice, System.currentTimeMillis())
+            ),
+            "reason" to choice.reason.take(120)
+        )
+        if (winner == null) {
+            message = "Auto-select • nothing to choose from in ${AutoServerSelector.scopeLabel(settings.autoServerScopeEnum)}"
+            return null
+        }
+        if (strategy == AutoServerStrategy.ROUND_ROBIN) {
+            cursor = AutoServerSelector.nextCursor(candidates, cursor)
+            store.saveAutoServerCursor(cursor)
+        }
+        if (choice.held) {
+            // Nothing to do: the incumbent won. Saying so is still worth it — a user who asked
+            // for a selector and sees no movement has a right to know it moved nothing on purpose.
+            message = "Auto-select • ${AutoServerSelector.shortLabel(strategy)} • ${choice.reason}"
+            return choice
+        }
+        // Profile selection mutates Compose state. Keep both selection and launch on the main
+        // looper instead of racing a frame from whichever thread triggered the round.
+        //
+        // The guard is "is this server already the live route", not "is anything live": moving
+        // from one server to another while a tunnel is up is the service's own hot-switch path
+        // (`startConnection` preserves the TUN across a same-mode restart), which is exactly
+        // what the failure trigger needs. Re-starting the server that is already up would only
+        // drop the session for nothing.
+        postToMain {
+            selectProfile(winner, stopRunningSweep = false)
+            val alreadyLive = state == "CONNECTED" && activeProfileId == winner.id
+            if (connect && !alreadyLive) {
+                if (settings.connectionMode == ConnectionMode.FULL_TUN) startVpn(winner)
+                else startLocalProxy(winner)
+            }
+        }
+        message = "Auto-select • ${AutoServerSelector.shortLabel(strategy)} • ${winner.name}"
+        return choice
+    }
+
     /**
      * MARBLE_ONE_PING_V121 / MARBLE_PING_TRUTH_V147 — the one ping of the product, confined to
      * the selected source.
@@ -4434,7 +5055,16 @@ private fun postToMain(block: () -> Unit) {
                 benchSamples = settings.pingSampleCount(),
                 benchTimeoutSec = PingBudget.timeoutSec(settings.pingTimeoutSec),
                 tcpPrecheckTimeoutMs = settings.tcpPrecheckTimeoutMs,
-                tcpWorkers = settings.pingWorkers(),
+                // MARBLE_PING_PARALLEL_V200 — the width is resolved for *this* device and *this*
+                // method, not read off a chip a flagship owner picked. In AUTO the number comes
+                // from the core count and the memory class, so a four-core handset stops being
+                // handed a 16-way sweep whose parallel handshakes inflate every latency it
+                // measures; in MANUAL the chip is used verbatim, as before.
+                tcpWorkers = settings.pingWorkers(
+                    cores = deviceCores,
+                    memoryMb = deviceMemoryMb,
+                    method = method
+                ),
                 probeSpeedTest = false,
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
@@ -4471,36 +5101,88 @@ private fun postToMain(block: () -> Unit) {
                 }
 
             val firstStartedNs = System.nanoTime()
-            var representativeResults = runQuickPass()
+            val representativeResults = runQuickPass()
             val firstElapsedMs =
                 ((System.nanoTime() - firstStartedNs) / 1_000_000L).coerceAtLeast(0L)
 
-            if (
+            /*
+             * MARBLE_PING_PARALLEL_V200 — what this block used to be, and why it is gone.
+             *
+             * It re-ran the ENTIRE sweep (`runQuickPass()` over every representative) whenever
+             * every node came back dead in under 350 ms. The intent was sound — a sweep that
+             * finishes that fast did not have time to be a real measurement, so it was probably
+             * a local fault (a core that refused to start, a resolver that answered nothing) —
+             * but the remedy was the single most expensive mistake in the file:
+             *
+             *   - the failure it fires on is the *worst case*, and there it doubles the cost.
+             *     A 200-node subscription whose core is broken now costs two full 200-node
+             *     sweeps plus a 120 ms sleep before the user is told anything.
+             *   - it cannot distinguish "all 200 nodes are dead" (a true verdict, reached
+             *     slowly, correctly) from "the measurement itself never happened" (a local
+             *     fault), because all it looks at is the clock and the empty result.
+             *   - `representativeResults.isNotEmpty()` was the only guard, so a cancelled sweep
+             *     that returned nothing was retried as if it had failed.
+             *
+             * The replacement is a *canary*: at most three representatives, re-measured once
+             * with the real budget. That is the actual question ("did the measurement run at
+             * all?") at 3/nodes of the price, and it is gated on local-fault evidence rather
+             * than on a stopwatch.
+             */
+            /**
+             * MARBLE_PING_PARALLEL_V200 — a canary, not a second sweep.
+             *
+             * The guard is deliberately narrow: only a sweep that measured something, found
+             * nothing alive, and was neither cancelled nor tripped by a *local* fault (a core
+             * that would not start, a resolver that answered nothing) gets a second look. When
+             * it does, only [CANARY_NODES] representatives are re-measured with the identical
+             * budget, and their verdicts replace the first pass's for those nodes and nothing
+             * else. If a local fault is already known, the canary is skipped entirely: re-running
+             * three nodes against a broken core is how a local fault becomes three more dead
+             * rows instead of one honest diagnosis.
+             */
+            val canaryNeeded =
                 representatives.size >= 4 &&
-                representativeResults.isNotEmpty() &&
-                representativeResults.none { it.success > 0 } &&
-                firstElapsedMs < 350L
-            ) {
+                    representativeResults.isNotEmpty() &&
+                    representativeResults.none { it.success > 0 } &&
+                    !probeLocalFaultGate.isTripped &&
+                    probeLocalFault.isBlank() &&
+                    !probeCancelGate.isRequested
+
+            val settledResults = if (!canaryNeeded) {
+                representativeResults
+            } else {
+                val canary = representatives.take(CANARY_NODES)
+                val retried = runCatching {
+                    BenchmarkEngine(xray, intelligence).run(
+                        canary,
+                        quickSettings.copy(benchCandidates = canary.size.coerceAtLeast(1)),
+                        usePrecheck = false,
+                        shouldStop = probeShouldStop,
+                        onCandidates = {},
+                        onStart = {},
+                        onResult = { _, _ -> }
+                    )
+                }.getOrDefault(emptyList())
                 diagnostics.event(
                     "BENCHMARK",
-                    "ping-fast-zero-retry",
+                    "ping-canary-recheck",
                     "source" to sourceId.take(24),
                     "scope" to scope,
                     "servers" to scoped.size,
                     "endpoints" to representatives.size,
+                    "canary" to canary.size,
+                    "recovered" to retried.count { it.success > 0 },
                     "firstElapsedMs" to firstElapsedMs
                 )
-                try {
-                    Thread.sleep(120L)
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                }
-                if (!Thread.currentThread().isInterrupted) {
-                    representativeResults = runQuickPass()
+                if (retried.any { it.success > 0 }) {
+                    val recovered = retried.associateBy { it.profileId }
+                    representativeResults.map { first -> recovered[first.profileId] ?: first }
+                } else {
+                    representativeResults
                 }
             }
 
-            val expanded = representativeResults.flatMap { result ->
+            val expanded = settledResults.flatMap { result ->
                 val representative = representatives.firstOrNull { it.id == result.profileId }
                 if (representative == null) {
                     listOf(result)
@@ -4512,16 +5194,35 @@ private fun postToMain(block: () -> Unit) {
             }
 
             mergeBenchmarks(expanded)
-            if (settings.autoConnectBestAfterScan && !probeCancelGate.isRequested && state == "DISCONNECTED") {
-                val winnerResult = expanded.filter { it.success > 0 }.minByOrNull { it.latencyMs }
-                val winner = winnerResult?.let { result -> scoped.firstOrNull { it.id == result.profileId } }
-                if (winner != null) {
-                    // Profile selection mutates Compose state. Keep both selection and launch on
-                    // the main looper instead of racing a frame from this benchmark worker.
-                    postToMain {
-                        selectProfile(winner, stopRunningSweep = false)
-                        if (settings.connectionMode == ConnectionMode.FULL_TUN) startVpn(winner)
-                        else startLocalProxy(winner)
+            /*
+             * MARBLE_AUTO_SERVER_SELECTOR_V202 — the end of a sweep is the one moment the
+             * selector has fresh evidence for every node in its pool, so it is the one moment
+             * the switch is allowed to act on its own.
+             *
+             * The two switches compose instead of competing: the selector decides *which*
+             * server, `autoConnectBestAfterScan` decides *whether to connect*. Turning the
+             * selector on therefore never silently starts a tunnel for someone who only wanted
+             * a smarter recommendation, and leaving it off keeps the old behaviour exactly —
+             * fastest reachable node, connect if asked.
+             */
+            if (!probeCancelGate.isRequested && state == "DISCONNECTED") {
+                if (settings.autoServerSelectorEnabled && settings.autoServerOnScan) {
+                    runAutoServerSelection(
+                        pool = scoped,
+                        reason = "scan",
+                        connect = settings.autoConnectBestAfterScan
+                    )
+                } else if (settings.autoConnectBestAfterScan) {
+                    val winnerResult = expanded.filter { it.success > 0 }.minByOrNull { it.latencyMs }
+                    val winner = winnerResult?.let { result -> scoped.firstOrNull { it.id == result.profileId } }
+                    if (winner != null) {
+                        // Profile selection mutates Compose state. Keep both selection and launch
+                        // on the main looper instead of racing a frame from this benchmark worker.
+                        postToMain {
+                            selectProfile(winner, stopRunningSweep = false)
+                            if (settings.connectionMode == ConnectionMode.FULL_TUN) startVpn(winner)
+                            else startLocalProxy(winner)
+                        }
                     }
                 }
             }

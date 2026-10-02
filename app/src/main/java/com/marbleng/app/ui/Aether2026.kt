@@ -194,6 +194,13 @@ import com.marbleng.app.core.QrEcc
 import com.marbleng.app.core.ServerCountry
 import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersQuery
+import com.marbleng.app.core.AutoServerSelector
+import com.marbleng.app.core.TransportAdaptation
+import com.marbleng.app.core.TransportPair
+import com.marbleng.app.core.TransportMemoryRecord
+import com.marbleng.app.core.dayPartOf
+import com.marbleng.app.core.transportShapeOf
+import com.marbleng.app.core.ServerCandidate
 import com.marbleng.app.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1264,12 +1271,19 @@ private fun FloatingSpatialDock(
             label = "dock-glass-fraction"
         )
 
-        val idleSurface = Aether.VoidElevated
+        // MARBLE_FLOATING_CHROME_V201 — the bar is an object with its own body, not a film over
+        // whatever happens to scroll past. Idle it is the palette's floating step (a cool
+        // near-white above the light page, a navy-lifted step above AMOLED black), and while
+        // content moves it opens to the palette's glass tone so the list shows through. The
+        // previous pairing was `VoidElevated` → `BarGlass @ .90`: on the light theme both ends
+        // were effectively white over a white page, and on AMOLED both were effectively black,
+        // so the transition was invisible and the bar's own edges were the only thing defining
+        // it — which is why a scroll made it look like it disappeared.
+        val chrome = rememberMarbleFloatChrome()
+        val idleSurface = chrome.surface
         val glassSurface = Aether.BarGlass
-        // MARBLE_DOCK_GLASS_VISIBILITY_V191 — the glass floor rises with the token: 0.78 left the
-        // light bar at ~61% body, i.e. legible only by its shadow.
         val surfaceAlpha by animateFloatAsState(
-            targetValue = if (glass) 0.90f else 1f,
+            targetValue = if (glass) 0.92f else 1f,
             animationSpec = MarbleMotionSpecs.DockFloat,
             label = "dock-surface-alpha"
         )
@@ -1308,14 +1322,25 @@ private fun FloatingSpatialDock(
                 .shadow(
                     elevation = dockElevation,
                     shape = barShape,
-                    ambientColor = Color.Black.copy(alpha = 0.16f),
-                    spotColor = Color.Black.copy(alpha = 0.20f)
+                    // MARBLE_FLOATING_CHROME_V201 — the lift is cast in the palette's own hue.
+                    // A hard-coded black shadow on an ice-blue light surface reads as dirt, and
+                    // on a wallpaper-derived palette it was the one element that never followed
+                    // the theme at all.
+                    ambientColor = chrome.shadow.copy(
+                        alpha = marbleFloatShadowPair(dockElevation.value).first
+                    ),
+                    spotColor = chrome.shadow.copy(
+                        alpha = marbleFloatShadowPair(dockElevation.value).second
+                    )
                 )
                 .clip(barShape)
                 .background(dockSurface)
                 .border(
                     1.dp,
-                    Aether.BarGlassBorder.copy(alpha = Aether.BarGlassBorder.alpha * borderAlpha),
+                    // The border belongs to the body it sits on, so it follows the same blend
+                    // instead of being a second, independent animation.
+                    lerp(chrome.border, Aether.BarGlassBorder, glassFraction)
+                        .copy(alpha = lerp(chrome.border, Aether.BarGlassBorder, glassFraction).alpha * borderAlpha),
                     barShape
                 )
                 .padding(horizontal = 8.dp, vertical = metrics.innerPadding),
@@ -1337,25 +1362,43 @@ private fun FloatingSpatialDock(
                 // MARBLE_DOCK_STABLE_COLOR_V115 — the selected custom tab now uses its own saved
                 // accent, while the three permanent tabs keep the brand cyan. All three chrome
                 // layers still settle on the overshoot-free dock tween.
+                //
+                // MARBLE_FLOATING_CHROME_V201 — the label is no longer the raw accent. It is the
+                // accent pushed toward black or white until it clears 4.5:1 against the pill it
+                // actually sits on. The old code painted `slotAccent` over `slotAccent @ .24f`,
+                // i.e. the same hue at 100 % over the same hue at 24 %, which is a legible
+                // caption only when the accent happens to be dark: with Material You the primary
+                // is routinely a pastel, and two strengths of one pastel is not a contrast.
+                val pillFill = marblePillFill(slotAccent, dockSurface)
                 val inkTone by animateColorAsState(
-                    targetValue = if (active) slotAccent else Aether.InkMuted,
+                    targetValue = if (active) {
+                        marbleReadableOn(slotAccent, pillFill, 4.5f)
+                    } else {
+                        marbleReadableOn(Aether.InkMuted, dockSurface, 4.5f)
+                    },
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-tone-${item.name}"
                 )
                 // MARBLE_DOCK_PRESENCE_V191 — the selected pill finally reads as selected. The
                 // V190 "lighter rim" pass (.16 fill / .20 rim) left the active tab almost
                 // indistinguishable from its neighbours on the light theme — a navigation bar
-                // must answer "where am I?" from across the room. The fill rises to a quarter
-                // tint, the rim to a third, and the pill gains a vertical gradient (accent-lit
-                // top → calm bottom) so the selection reads as a lit object, not a wash. The
-                // geometry is untouched: the bar still never moves.
+                // must answer "where am I?" from across the room.
+                //
+                // MARBLE_FLOATING_CHROME_V201 — the fill is composited over the bar's own body
+                // rather than laid over nothing, so a selected tab is a lit *container* (and
+                // therefore has a computable contrast) instead of a translucent film whose
+                // apparent colour changes with whatever scrolls behind the bar.
                 val pillBg by animateColorAsState(
-                    targetValue = if (active) slotAccent.copy(alpha = .24f) else Color.Transparent,
+                    targetValue = if (active) pillFill else Color.Transparent,
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-pill-${item.name}"
                 )
                 val indicatorTone by animateColorAsState(
-                    targetValue = if (active) slotAccent.copy(alpha = .34f) else Color.Transparent,
+                    targetValue = if (active) {
+                        marblePillRim(slotAccent, dockSurface)
+                    } else {
+                        Color.Transparent
+                    },
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-indicator-${item.name}"
                 )
@@ -3907,7 +3950,12 @@ private fun CyberLibrary(
     var editSubscriptionName by remember { mutableStateOf("") }
     var editSubscriptionUrl by remember { mutableStateOf("") }
     var deleteSubscription by remember { mutableStateOf<Subscription?>(null) }
-    var pruneFailedTarget by remember { mutableStateOf<Pair<Subscription, String>?>(null) }
+    // MARBLE_FAILED_PRUNE_V204 — the prune target is a *scope id* now, not a subscription row.
+    // The Manual bucket and the whole library are both legitimate scopes and neither has a
+    // subscription to point at, which is exactly why they could not be cleaned before.
+    var pruneFailedTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var manualBucketOpen by remember { mutableStateOf(false) }
+    var pruneEverywhere by remember { mutableStateOf(false) }
 
     LaunchedEffect(listState.isScrollInProgress) {
         onContentScrollChanged(listState.isScrollInProgress)
@@ -4138,7 +4186,7 @@ private fun CyberLibrary(
             onNameChange = { editSubscriptionName = it },
             onUrlChange = { editSubscriptionUrl = it },
             onPrune = { kind ->
-                pruneFailedTarget = target to kind
+                pruneFailedTarget = target.id to kind
                 manageSubscription = null
             },
             onDelete = {
@@ -4150,9 +4198,10 @@ private fun CyberLibrary(
     }
 
     pruneFailedTarget?.let { request ->
-        val target = request.first
+        val targetId = request.first
         val kind = request.second
-        val failedCount = repo.failedSubscriptionNodeCount(target.id, kind)
+        val failedCount = repo.failedSubscriptionNodeCount(targetId, kind)
+        val scopeName = repo.libraryScopeLabel(targetId)
         AlertDialog(
             onDismissRequest = { pruneFailedTarget = null },
             containerColor = Aether.VoidElevated,
@@ -4161,7 +4210,8 @@ private fun CyberLibrary(
             text = {
                 Text(
                     "This removes $failedCount failed server" +
-                        (if (failedCount == 1) "" else "s") + " from ${target.name}.",
+                        (if (failedCount == 1) "" else "s") + " from $scopeName. " +
+                        trx("Servers that were never measured are kept."),
                     color = Aether.InkMuted
                 )
             },
@@ -4171,7 +4221,7 @@ private fun CyberLibrary(
                     tone = Aether.Danger,
                     enabled = !repo.busy && failedCount > 0 && repo.state == "DISCONNECTED",
                     onClick = {
-                        repo.removeFailedSubscriptionNodes(target.id, kind)
+                        repo.removeFailedSubscriptionNodes(targetId, kind)
                         pruneFailedTarget = null
                     }
                 )
@@ -4181,6 +4231,63 @@ private fun CyberLibrary(
                     label = "Cancel",
                     tone = Aether.InkMuted,
                     onClick = { pruneFailedTarget = null }
+                )
+            }
+        )
+    }
+
+    // MARBLE_FAILED_PRUNE_V204 — the Manual bucket's own page.
+    //
+    // The bucket is permanent and has no subscription row, so the subscription dialog could not
+    // represent it: Manage simply did nothing on that header. Everything a user needs from the
+    // bucket is here — how many servers it holds, how many of them are dead, and the same two
+    // cleanup actions every subscription header offers.
+    if (manualBucketOpen) {
+        ManualBucketCleanupDialog(
+            repo = repo,
+            onPrune = { kind ->
+                pruneFailedTarget = "manual" to kind
+                manualBucketOpen = false
+            },
+            onDismiss = { manualBucketOpen = false }
+        )
+    }
+
+    // MARBLE_FAILED_PRUNE_V204 — the library-wide cleanup, one tap for every dead server in
+    // every group at once.
+    if (pruneEverywhere) {
+        val failedCount = repo.failedNodeCountEverywhere()
+        AlertDialog(
+            onDismissRequest = { pruneEverywhere = false },
+            containerColor = Aether.VoidElevated,
+            shape = ServersCardShape,
+            title = { Text(trx("Remove failed servers everywhere?"), color = Aether.Danger) },
+            text = {
+                Text(
+                    trx("This removes") + " $failedCount " + trx("failed server") +
+                        (if (failedCount == 1) "" else "s") + " " +
+                        trx("from every group, including Manual.") + " " +
+                        trx("Servers that were never measured are kept."),
+                    color = Aether.InkMuted
+                )
+            },
+            confirmButton = {
+                MarbleDialogAction(
+                    label = "Remove failed",
+                    tone = Aether.Danger,
+                    enabled = !repo.busy && failedCount > 0 && repo.state == "DISCONNECTED",
+                    onClick = {
+                        repo.removeFailedSubscriptionNodes("all", "SMART")
+                        repo.removeFailedSubscriptionNodes("all", "TUNNEL")
+                        pruneEverywhere = false
+                    }
+                )
+            },
+            dismissButton = {
+                MarbleDialogAction(
+                    label = "Cancel",
+                    tone = Aether.InkMuted,
+                    onClick = { pruneEverywhere = false }
                 )
             }
         )
@@ -4359,6 +4466,7 @@ private fun CyberLibrary(
                         }
                         ServersAdvancedAction.REFRESH_ALL -> repo.refreshLibrarySource("all")
                         ServersAdvancedAction.RANK_ALL -> repo.smartRank()
+                        ServersAdvancedAction.PRUNE_FAILED_ALL -> pruneEverywhere = true
                         ServersAdvancedAction.ALL_FILTERS -> allFiltersOpen = true
                     }
                 },
@@ -4426,9 +4534,18 @@ private fun CyberLibrary(
                     onMenu = {
                         when (it) {
                             ServersGroupAction.MANAGE -> {
-                                manageSubscription = subscription
-                                editSubscriptionName = subscription?.name.orEmpty()
-                                editSubscriptionUrl = subscription?.url.orEmpty()
+                                // MARBLE_FAILED_PRUNE_V204 — a group header with no subscription
+                                // row is the Manual bucket, and tapping Manage on it used to do
+                                // nothing at all: `manageSubscription = null` is a no-op dialog
+                                // state. It now opens the bucket's own page, which carries the
+                                // same cleanup actions every subscription has.
+                                if (subscription == null) {
+                                    manualBucketOpen = true
+                                } else {
+                                    manageSubscription = subscription
+                                    editSubscriptionName = subscription.name
+                                    editSubscriptionUrl = subscription.url
+                                }
                             }
                             ServersGroupAction.REFRESH -> repo.refresh(group.key)
                             ServersGroupAction.COPY_URL -> {
@@ -4547,6 +4664,10 @@ private enum class ServersAdvancedAction {
     RESET,
     REFRESH_ALL,
     RANK_ALL,
+    // MARBLE_FAILED_PRUNE_V204 — "remove everything that did not answer", across every group at
+    // once. It is the bulk form of the per-source action: one tap for a library whose dead half
+    // is spread over six subscriptions and the Manual bucket.
+    PRUNE_FAILED_ALL,
     ALL_FILTERS
 }
 
@@ -5060,6 +5181,10 @@ private fun ServersFilterRail(
         onlyReachable = settings.serversOnlyReachable,
         maxPingMs = maxPing
     )
+    // MARBLE_FAILED_PRUNE_V204 — how many servers the library-wide cleanup would take. Read from
+    // the repository rather than from the visible list: the cleanup acts on every group, while
+    // the list on screen is filtered, so a number derived from the rows would under-report.
+    val failedEverywhere = repo.failedNodeCountEverywhere()
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -5277,6 +5402,16 @@ private fun ServersFilterRail(
                     tone = Aether.Emerald,
                     enabled = !repo.busy,
                     onClick = { onAdvancedAction(ServersAdvancedAction.RANK_ALL) }
+                )
+                // MARBLE_FAILED_PRUNE_V204 — the library-wide cleanup. Disabled while connected
+                // for the same reason the per-source one is: stale evidence must never delete the
+                // route Android is currently using.
+                ServersMenuItem(
+                    label = "Remove failed everywhere ($failedEverywhere)",
+                    icon = HomeIcon.TRASH,
+                    tone = Aether.Danger,
+                    enabled = !repo.busy && failedEverywhere > 0 && repo.state == "DISCONNECTED",
+                    onClick = { onAdvancedAction(ServersAdvancedAction.PRUNE_FAILED_ALL) }
                 )
                 HorizontalDivider(color = Aether.GlassBorderSoft)
                 ServersMenuItem(
@@ -7369,6 +7504,104 @@ private fun ServersSubscriptionDialog(
                 )
                 MarbleDialogAction(label = "Close", tone = Aether.InkMuted, onClick = onDismiss)
             }
+        }
+    )
+}
+
+/**
+ * MARBLE_FAILED_PRUNE_V204 — the Manual bucket's own page.
+ *
+ * Manual is where every pasted link, scanned QR code and imported file lands, which makes it the
+ * group most likely to accumulate servers that never worked — and, until now, the one group the
+ * product could not clean: it has no subscription row, so `removeFailedSubscriptionNodes`
+ * answered "Subscription no longer exists" for it and the header's Manage action did nothing.
+ *
+ * Everything here is something the bucket can honestly answer: how many servers it holds, how
+ * many of them are dead by each evidence type, and the same two cleanup actions a subscription
+ * offers. There is no URL field and no rename, because a local bucket has neither.
+ */
+@Composable
+private fun ManualBucketCleanupDialog(
+    repo: AppRepository,
+    onPrune: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val clipboard = LocalClipboardManager.current
+    val total = repo.subscriptionNodeCount("manual")
+    val failedPingCount = repo.failedSubscriptionNodeCount("manual", "SMART")
+    val failedTunnelCount = repo.failedSubscriptionNodeCount("manual", "TUNNEL")
+    val disconnected = repo.state == "DISCONNECTED"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Aether.VoidElevated,
+        shape = ServersCardShape,
+        title = {
+            Column {
+                Text(trx("Manual servers"), color = Aether.Ink)
+                Text(
+                    "$total " + trx("servers") + " • " + trx("added by link, QR or file"),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    trx("Servers you added yourself live here. They are never replaced by a subscription refresh."),
+                    color = Aether.InkMuted,
+                    style = settingsBodyStyle()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    CyberButton(
+                        label = "Copy servers",
+                        color = Aether.Cyan,
+                        modifier = Modifier.weight(1f),
+                        enabled = total > 0
+                    ) {
+                        clipboard.setText(AnnotatedString(repo.subscriptionRawText("manual")))
+                        repo.setRuntimeMessage("$total server links copied")
+                    }
+                    CyberButton(
+                        label = "View servers",
+                        color = Aether.Emerald,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.selectLibrarySource("manual")
+                        onDismiss()
+                    }
+                }
+                HorizontalDivider(color = Aether.GlassBorderSoft)
+                Text(
+                    trx("Clean failed tests"),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
+                CyberButton(
+                    label = "Remove failed Smart ($failedPingCount)",
+                    color = Aether.Danger,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !repo.busy && failedPingCount > 0 && disconnected
+                ) { onPrune("SMART") }
+                CyberButton(
+                    label = "Remove failed tunnel ($failedTunnelCount)",
+                    color = Aether.Danger,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !repo.busy && failedTunnelCount > 0 && disconnected
+                ) { onPrune("TUNNEL") }
+                if (!disconnected) {
+                    Text(
+                        trx("Disconnect before removing failed servers"),
+                        color = Aether.Amber,
+                        style = settingsBodyStyle()
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            MarbleDialogAction(label = "Close", tone = Aether.InkMuted, onClick = onDismiss)
         }
     )
 }
@@ -12515,6 +12748,19 @@ private fun settingsSections(
                 HomeIcon.BENCHMARK,
                 Aether.Amethyst
             ) { ProbeSettings(repo) },
+            // MARBLE_AUTO_SERVER_SELECTOR_V202 — the selector lives under Tests because the
+            // measurement is what it decides from: every strategy except rotation is a way of
+            // reading the same numbers this section configures.
+            card(
+                "Automatic server selector",
+                if (repo.settings.autoServerSelectorEnabled) {
+                    "On • ${AutoServerSelector.shortLabel(repo.settings.autoServerStrategyEnum)}"
+                } else {
+                    "Off • you choose the server"
+                },
+                HomeIcon.RANK,
+                Aether.Cyan
+            ) { AutoServerSelectorSettings(repo) },
             card("Identity Guard","Keep one public exit",HomeIcon.SHIELD,Aether.Cyan) {
                 SettingSwitch(
                     title = "Identity Guard",
@@ -12638,7 +12884,20 @@ private fun settingsSections(
                             modifier = Modifier.fillMaxWidth()
                         ) { repo.setDelayTestUrl(DelayTest.URL) }
                     }
-                }
+                },
+                // MARBLE_TRANSPORT_ADAPTATION_V203 — fragment and Mux are the engine's own
+                // outbound knobs, so their learner lives beside the core options that used to
+                // be the only place they could be set.
+                card(
+                    "Fragment & Mux",
+                    if (repo.settings.transportAdaptationEnabled) {
+                        "Learning • ${repo.transportMemory.size} remembered"
+                    } else {
+                        "Off • your values only"
+                    },
+                    HomeIcon.SHIELD,
+                    Aether.Amethyst
+                ) { TransportAdaptationSettings(repo) }
             )
         }
         // MARBLE_BUGFINDER_HOME_V144 — Bug Finder is a runtime-diagnostics instrument, not an
@@ -15522,14 +15781,67 @@ private fun ProbeSettings(repo: AppRepository) {
         tone = Aether.Cyan
     ) { repo.updateSettings(repo.settings.copy(pingTimeoutSec = PingBudget.timeoutSec(it))) }
 
-    PingBudgetChoiceRow(
-        title = "Direct servers at once",
-        detail = "Direct methods use this exact value; fewer is slower but far more accurate on a weak link",
-        selected = PingBudget.concurrency(s.pingConcurrency),
-        choices = PingBudget.CONCURRENCY_CHOICES,
-        suffix = "",
-        tone = Aether.Emerald
-    ) { repo.updateSettings(repo.settings.copy(pingConcurrency = PingBudget.concurrency(it))) }
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARBLE_PING_PARALLEL_V200 — how many servers are measured at the same time.
+    //
+    // The old control was a single row of chips (1/2/4/8/16/32) whose default answered a
+    // question the product had no business answering for everyone: "how much CPU does your
+    // phone have". A four-core handset was handed a flagship's 16-way sweep, and the cost was
+    // not only battery — parallel handshakes inflate each other's latency, so the *numbers*
+    // were wrong too. The knob now has an owner: the device, or the user.
+    // ─────────────────────────────────────────────────────────────────────────
+    Text(
+        trx("Parallel servers"),
+        color = Aether.Ink,
+        style = settingsRowTitleStyle()
+    )
+    Text(
+        trx("How many servers are measured at the same time. More is faster and noisier: every parallel handshake raises the latency of the others, so a small phone running a wide sweep measures a link that does not exist."),
+        color = Aether.InkMuted,
+        style = settingsBodyStyle()
+    )
+
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        PingParallelMode.entries.forEach { mode ->
+            CyberChoiceChip(
+                text = if (mode == PingParallelMode.AUTO) trx("Automatic") else trx("Manual"),
+                selected = s.pingParallelMode == mode,
+                color = Aether.Emerald,
+                modifier = Modifier.weight(1f)
+            ) {
+                repo.updateSettings(repo.settings.copy(pingParallelMode = mode))
+            }
+        }
+    }
+
+    if (s.pingParallelMode == PingParallelMode.AUTO) {
+        Text(
+            trx("Automatic") + " • " + repo.pingParallelismSummary(),
+            color = Aether.Emerald,
+            style = settingsBodyStyle()
+        )
+        Text(
+            trx("The number follows this device and is re-read every sweep, so it stays right if you change phones. Real delay spawns one core per server, so it runs narrower than the direct methods on the same device."),
+            color = Aether.InkFaint,
+            style = settingsBodyStyle()
+        )
+    } else {
+        PingBudgetChoiceRow(
+            title = "Servers at once",
+            detail = "Fewer is slower but far more accurate on a weak link",
+            selected = PingBudget.concurrency(s.pingConcurrency),
+            choices = PingBudget.CONCURRENCY_CHOICES,
+            suffix = "",
+            tone = Aether.Emerald
+        ) { repo.updateSettings(repo.settings.copy(pingConcurrency = PingBudget.concurrency(it))) }
+        Text(
+            trx("Automatic would pick") + " ${repo.recommendedPingParallelism()} " +
+                trx("on this device") +
+                " • " + repo.pingParallelismSummary(),
+            color = Aether.InkFaint,
+            style = settingsBodyStyle()
+        )
+    }
 
     PingBudgetChoiceRow(
         title = "Samples per server",
@@ -15542,13 +15854,321 @@ private fun ProbeSettings(repo: AppRepository) {
 
     // MARBLE_PING_SPEED_DIAL_V199 — the read-out shows the numbers the sweep will really run:
     // the budget wall clock at the dial's spacing, and the dial's width, not the raw chip.
+    // MARBLE_PING_PARALLEL_V200 — and the width now names the device's own number when the dial
+    // is automatic, because "16 at once" on a four-core phone is not the number that will run.
     Text(
         "${trx("Worst case per server")}: " +
             "${PingBudget.perServerBudgetMs(s.pingTimeoutSec, s.pingSamples, s.pingSampleSpacingMs()) / 1000}s • " +
-            "${s.pingWorkers()} ${trx("Direct at once")}",
+            "${repo.effectivePingParallelism()} ${trx("Direct at once")}",
         color = Aether.InkFaint,
         style = settingsBodyStyle()
     )
+}
+
+/**
+ * MARBLE_AUTO_SERVER_SELECTOR_V202 — Settings › Tests › Automatic server selector.
+ *
+ * The page is built so the switch that hands over the route is never the only thing on it:
+ * the strategy, the three moments it may act, the width of its pool and the margin that stops
+ * it flapping are all separate and all visible, because "the app moved my connection" is only
+ * acceptable to a user who can see exactly why.
+ */
+@Composable
+private fun AutoServerSelectorSettings(repo: AppRepository) {
+    val s = repo.settings
+    val strategy = s.autoServerStrategyEnum
+    val scope = s.autoServerScopeEnum
+
+    Text(
+        trx("Let MarbleNG pick the server for you. Everything it knows — latency, congestion, jitter, loss, throughput and how old the evidence is — goes into the choice, and you decide which question it asks."),
+        color = Aether.InkMuted,
+        style = settingsBodyStyle()
+    )
+
+    SettingSwitch(
+        title = "Automatic server selector",
+        subtitle = if (s.autoServerSelectorEnabled) {
+            trx("On") + " • " + trx(AutoServerSelector.shortLabel(strategy))
+        } else {
+            trx("Off") + " • " + trx("you choose the server")
+        },
+        checked = s.autoServerSelectorEnabled
+    ) { enabled ->
+        repo.updateSettings(repo.settings.copy(autoServerSelectorEnabled = enabled))
+    }
+
+    AnimatedVisibility(s.autoServerSelectorEnabled) {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+            Text(trx("How it chooses"), color = Aether.Ink, style = settingsRowTitleStyle())
+            // Five strategies is too many for one row of chips and too few for a list; two rows
+            // keep every name readable at both language widths.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                listOf(
+                    AutoServerStrategy.SMART,
+                    AutoServerStrategy.LEAST_PING,
+                    AutoServerStrategy.LEAST_LOAD
+                ).forEach { candidate ->
+                    CyberChoiceChip(
+                        text = trx(AutoServerSelector.shortLabel(candidate)),
+                        selected = strategy == candidate,
+                        color = if (candidate == AutoServerStrategy.SMART) Aether.Cyan else Aether.Amethyst,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.updateSettings(repo.settings.copy(autoServerStrategy = candidate.id))
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                listOf(AutoServerStrategy.ROUND_ROBIN, AutoServerStrategy.RANDOM).forEach { candidate ->
+                    CyberChoiceChip(
+                        text = trx(AutoServerSelector.shortLabel(candidate)),
+                        selected = strategy == candidate,
+                        color = Aether.Amethyst,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.updateSettings(repo.settings.copy(autoServerStrategy = candidate.id))
+                    }
+                }
+            }
+            Text(
+                trx(AutoServerSelector.describe(strategy)),
+                color = Aether.InkFaint,
+                style = settingsBodyStyle()
+            )
+
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+            Text(trx("When it may act"), color = Aether.Ink, style = settingsRowTitleStyle())
+            SettingSwitch(
+                title = "After a ping sweep",
+                subtitle = "The one moment every server has fresh evidence",
+                checked = s.autoServerOnScan
+            ) { repo.updateSettings(repo.settings.copy(autoServerOnScan = it)) }
+            SettingSwitch(
+                title = "When I press connect",
+                subtitle = "Pick a route instead of using the last one",
+                checked = s.autoServerOnConnect
+            ) { repo.updateSettings(repo.settings.copy(autoServerOnConnect = it)) }
+            SettingSwitch(
+                title = "When the route goes bad",
+                subtitle = "Move off a server that stopped working",
+                checked = s.autoServerOnFailure
+            ) { repo.updateSettings(repo.settings.copy(autoServerOnFailure = it)) }
+
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+            Text(trx("Where it looks"), color = Aether.Ink, style = settingsRowTitleStyle())
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                AutoServerScope.entries.forEach { candidate ->
+                    CyberChoiceChip(
+                        text = trx(if (candidate == AutoServerScope.SOURCE) "This source" else "Whole library"),
+                        selected = scope == candidate,
+                        color = Aether.Emerald,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.updateSettings(repo.settings.copy(autoServerScope = candidate.id))
+                    }
+                }
+            }
+            Text(
+                trx("Load only means something inside one provider, so scoping to the current source keeps the comparison honest."),
+                color = Aether.InkFaint,
+                style = settingsBodyStyle()
+            )
+
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+            Text(trx("Switch margin"), color = Aether.Ink, style = settingsRowTitleStyle())
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                listOf(5, 10, 15, 25, 40).forEach { percent ->
+                    CyberChoiceChip(
+                        text = "$percent%",
+                        selected = s.autoServerSwitchMarginPercent == percent,
+                        color = Aether.Amber
+                    ) {
+                        repo.updateSettings(
+                            repo.settings.copy(autoServerSwitchMarginPercent = percent)
+                        )
+                    }
+                }
+            }
+            Text(
+                trx("A challenger must beat the current route by this much before it moves. Raise it to stop the route wandering between two servers that measure the same."),
+                color = Aether.InkFaint,
+                style = settingsBodyStyle()
+            )
+
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+            val preview = repo.previewAutoServerChoice()
+            Text(
+                trx("Right now it would pick") + ": " +
+                    (preview.profile?.let { stripLeadingFlag(it.name) } ?: trx("nothing yet")),
+                color = Aether.Cyan,
+                style = settingsRowTitleStyle()
+            )
+            Text(
+                preview.reason,
+                color = Aether.InkFaint,
+                style = settingsBodyStyle()
+            )
+            CyberButton(
+                label = trx("Pick a server now"),
+                color = Aether.Cyan,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !repo.busy && preview.profile != null
+            ) {
+                repo.runAutoServerSelection(reason = "manual", connect = false)
+            }
+        }
+    }
+}
+
+/**
+ * MARBLE_TRANSPORT_ADAPTATION_V203 — Settings › Engine › Fragment & Mux.
+ *
+ * The memory is shown, not hidden behind the switch: a user who can see that the product has
+ * learned "MCI, evenings, skip-fragment chain" is a user who trusts it when it changes the
+ * shape of their packets.
+ */
+@Composable
+private fun TransportAdaptationSettings(repo: AppRepository) {
+    val s = repo.settings
+    val mode = s.transportProfileModeEnum
+    val memory = repo.transportMemory
+
+    Text(
+        trx("Filtering is not a constant: it belongs to one operator, at one hour, on one link. MarbleNG measures what each one does to fragmented and multiplexed traffic and remembers it."),
+        color = Aether.InkMuted,
+        style = settingsBodyStyle()
+    )
+
+    SettingSwitch(
+        title = "Learn from this operator",
+        subtitle = if (s.transportAdaptationEnabled) {
+            trx("On") + " • " + "${memory.size} " + trx("remembered")
+        } else {
+            trx("Off") + " • " + trx("fragment and Mux stay as you set them")
+        },
+        checked = s.transportAdaptationEnabled
+    ) { enabled ->
+        repo.updateSettings(repo.settings.copy(transportAdaptationEnabled = enabled))
+    }
+
+    AnimatedVisibility(s.transportAdaptationEnabled) {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+            Text(trx("Who decides"), color = Aether.Ink, style = settingsRowTitleStyle())
+            // Two chips, not three: the switch above already *is* "off". A third chip saying
+            // the same thing is a control that asks the user to answer one question twice, and
+            // the two answers can disagree.
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf(TransportProfileMode.AUTO, TransportProfileMode.MANUAL).forEach { candidate ->
+                    CyberChoiceChip(
+                        text = trx(
+                            if (candidate == TransportProfileMode.AUTO) "Automatic" else "Manual"
+                        ),
+                        selected = mode == candidate,
+                        color = if (candidate == TransportProfileMode.AUTO) {
+                            Aether.Cyan
+                        } else {
+                            Aether.Amethyst
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        repo.updateSettings(repo.settings.copy(transportProfileMode = candidate.id))
+                    }
+                }
+            }
+            Text(
+                trx(
+                    when (mode) {
+                        TransportProfileMode.OFF -> "Fragment and Mux stay exactly as you set them."
+                        TransportProfileMode.AUTO -> "The learned profile for this operator and hour wins; your values are the starting point it improves on."
+                        TransportProfileMode.MANUAL -> "Your values go on the wire. Marble keeps observing, so switching back to Automatic is informed from the first connection."
+                    }
+                ),
+                color = Aether.InkFaint,
+                style = settingsBodyStyle()
+            )
+
+            SettingSwitch(
+                title = "Keep exploring",
+                subtitle = "Spend a few connections on an unproven profile so a filter that changed gets found",
+                checked = s.transportAdaptationExplore
+            ) { repo.updateSettings(repo.settings.copy(transportAdaptationExplore = it)) }
+
+            repo.lastTransportDecision?.let { decision ->
+                HorizontalDivider(color = Aether.GlassBorderSoft)
+                Text(
+                    trx("On the wire now") + ": " + decision.pair.fragment.label + " + " +
+                        decision.pair.mux.label,
+                    color = Aether.Cyan,
+                    style = settingsRowTitleStyle()
+                )
+                Text(decision.reason, color = Aether.InkFaint, style = settingsBodyStyle())
+            }
+
+            HorizontalDivider(color = Aether.GlassBorderSoft)
+            Text(
+                trx("What it remembers") + " (${memory.size})",
+                color = Aether.Ink,
+                style = settingsRowTitleStyle()
+            )
+            if (memory.isEmpty()) {
+                Text(
+                    trx("Nothing yet • it learns one line per operator and time of day, after the first connection on each."),
+                    color = Aether.InkFaint,
+                    style = settingsBodyStyle()
+                )
+            } else {
+                memory.values.sortedByDescending { it.updatedAtMs }.take(8).forEach { record ->
+                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(
+                            "${record.carrierId} • ${trx(record.dayPart.name.lowercase().replaceFirstChar { it.uppercase() })}",
+                            color = Aether.Ink,
+                            style = settingsBodyStyle()
+                        )
+                        Text(
+                            "${record.pair.fragment.label} + ${record.pair.mux.label} • " +
+                                "${record.observations} " + trx("connections") +
+                                " • " + String.format(
+                                    java.util.Locale.US, "%.0f", record.scoreEwma * 100
+                                ) + "% " + trx("quality") +
+                                if (record.drift >= TransportAdaptation.DRIFT_THRESHOLD) {
+                                    " • " + trx("behaviour changed")
+                                } else {
+                                    ""
+                                },
+                            color = if (record.drift >= TransportAdaptation.DRIFT_THRESHOLD) {
+                                Aether.Amber
+                            } else {
+                                Aether.InkFaint
+                            },
+                            style = settingsBodyStyle()
+                        )
+                    }
+                }
+                CyberButton(
+                    label = trx("Forget everything it learned"),
+                    color = Aether.Danger,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !repo.busy
+                ) {
+                    repo.forgetTransportMemory()
+                }
+            }
+        }
+    }
 }
 
 /** One budget row: a title, its consequence in one line, and the exact values as chips. */
