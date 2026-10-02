@@ -2965,7 +2965,7 @@ import subprocess
 WARN = "::warning::"
 
 
-def _clean(line: str) -> str:
+def _clean(line):
     return line.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A").strip()[:380]
 
 
@@ -2973,8 +2973,7 @@ try:
     jvm = sorted(glob.glob("/usr/lib/jvm/*"))
     java_home = ""
     for candidate in jvm:
-        base = os.path.basename(candidate)
-        if "17" in base or "21" in base:
+        if "17" in os.path.basename(candidate) or "21" in os.path.basename(candidate):
             java_home = candidate
             break
     if not java_home and jvm:
@@ -2997,17 +2996,13 @@ try:
     )
     combined = ((proc.stdout or "") + "\n" + (proc.stderr or "")).splitlines()
 
-    pat = re.compile(r" e: |\.kt[s]?:[0-9]+|Unresolved|error:|Error\b|Exception|Caused by|FAILURE")
-    picked = [line for line in combined if pat.search(line)]
-    # Drop the generic Gradle advice lines; they crowd out the real diagnostics.
-    noise = ("--scan", "--info", "--stacktrace", "--warning-mode", "Try:",
-             "Get more help", "BUILD FAILED in", "Deprecated Gradle features")
-    picked = [line for line in picked if not any(n in line for n in noise)]
+    # Compiler errors first; everything else is noise at this point.
+    picked = [line for line in combined if " e: " in line or line.startswith("e: ")]
     if not picked:
-        for idx, line in enumerate(combined):
-            if "What went wrong" in line:
-                picked = combined[max(0, idx - 14):idx]
-                break
+        # Unit-test failures surface through the test task, not the compiler.
+        pat = re.compile(r"FAILED|tests completed|expected:|AssertionError|"
+                         r"ComparisonFailure|\.kt:[0-9]+|What went wrong")
+        picked = [line for line in combined if pat.search(line) and " w: " not in line]
     print(WARN + "RC=%s PICKED=%d TOTAL=%d" % (proc.returncode, len(picked), len(combined)))
     for line in picked[:9]:
         print(WARN + "K|" + _clean(line))
