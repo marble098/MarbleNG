@@ -2959,6 +2959,7 @@ print("Source-wide architecture invariants are internally consistent.")
 # =============================================================================
 import glob
 import os
+import re
 import subprocess
 
 WARN = "::warning::"
@@ -2995,23 +2996,18 @@ try:
     )
     combined = ((proc.stdout or "") + "\n" + (proc.stderr or "")).splitlines()
 
-    picked = []
-    for idx, line in enumerate(combined):
-        if " e: " in line or "Unresolved reference" in line or "error:" in line.lower():
-            picked.append(line)
+    pat = re.compile(r" e: |\.kt[s]?:[0-9]+|Unresolved|error:|Error\b|Exception|Caused by|FAILURE")
+    picked = [line for line in combined if pat.search(line)]
+    # Drop the generic Gradle advice lines; they crowd out the real diagnostics.
+    noise = ("--scan", "--info", "--stacktrace", "--warning-mode", "Try:",
+             "Get more help", "BUILD FAILED in", "Deprecated Gradle features")
+    picked = [line for line in picked if not any(n in line for n in noise)]
     if not picked:
-        # Fall back to Gradle's own failure block, which carries the compiler
-        # summary when the diagnostics did not come through on stdout.
         for idx, line in enumerate(combined):
             if "What went wrong" in line:
-                picked = combined[idx:idx + 16]
+                picked = combined[max(0, idx - 14):idx]
                 break
-    if not picked:
-        for idx, line in enumerate(combined):
-            if "FAILED" in line:
-                picked = combined[max(0, idx - 4):idx + 12]
-                break
-    print(WARN + "RC=%s PICKED=%d" % (proc.returncode, len(picked)))
+    print(WARN + "RC=%s PICKED=%d TOTAL=%d" % (proc.returncode, len(picked), len(combined)))
     for line in picked[:9]:
         print(WARN + "K|" + _clean(line))
 except Exception as exc:  # noqa: BLE001
