@@ -1,7 +1,6 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
-import com.marbleng.app.model.FilterSeverity
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.TransportProfileMode
 import org.json.JSONObject

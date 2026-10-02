@@ -2,7 +2,6 @@ package com.marbleng.app.ui
 
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.pow
 
 // =============================================================================
 // MARBLE_FLOATING_CHROME_V201 — the contrast engine, without Compose.
@@ -24,7 +23,9 @@ fun marbleLuminanceArgb(argb: Int): Float {
         val linear = if (normalised <= 0.04045f) {
             normalised / 12.92f
         } else {
-            pow((normalised + 0.055f) / 1.055f, 2.4f)
+            // java.lang.Math.pow, not kotlin.math.pow: the Float overload is not present in
+            // this Kotlin version, and this file must stay JVM-testable without Compose.
+            Math.pow(((normalised + 0.055f) / 1.055f).toDouble(), 2.4).toFloat()
         }
         return linear.coerceIn(0f, 1f)
     }
