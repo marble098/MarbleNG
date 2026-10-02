@@ -2968,11 +2968,6 @@ def _clean(line: str) -> str:
     return line.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A").strip()[:380]
 
 
-def _emit(lines) -> None:
-    for line in lines:
-        print(WARN + "K|" + _clean(line))
-
-
 try:
     jvm = sorted(glob.glob("/usr/lib/jvm/*"))
     java_home = ""
@@ -2998,16 +2993,26 @@ try:
         ["./gradlew", "--no-daemon", "--console=plain", ":app:compileDebugKotlin"],
         capture_output=True, text=True, env=env, timeout=1500, cwd=os.getcwd(),
     )
-    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    errors = [
-        line for line in combined.splitlines()
-        if (" e: " in line or "Unresolved reference" in line or "error:" in line.lower()
-            or "What went wrong" in line or "No value passed for parameter" in line
-            or "Type mismatch" in line or "None of the following" in line
-            or "Conflicting overloads" in line or "Redeclaration" in line)
-        and " w: " not in line
-    ]
-    print(WARN + "RC=%s ERRORS=%d" % (proc.returncode, len(errors)))
-    _emit(errors[:8])
+    combined = ((proc.stdout or "") + "\n" + (proc.stderr or "")).splitlines()
+
+    picked = []
+    for idx, line in enumerate(combined):
+        if " e: " in line or "Unresolved reference" in line or "error:" in line.lower():
+            picked.append(line)
+    if not picked:
+        # Fall back to Gradle's own failure block, which carries the compiler
+        # summary when the diagnostics did not come through on stdout.
+        for idx, line in enumerate(combined):
+            if "What went wrong" in line:
+                picked = combined[idx:idx + 16]
+                break
+    if not picked:
+        for idx, line in enumerate(combined):
+            if "FAILED" in line:
+                picked = combined[max(0, idx - 4):idx + 12]
+                break
+    print(WARN + "RC=%s PICKED=%d" % (proc.returncode, len(picked)))
+    for line in picked[:9]:
+        print(WARN + "K|" + _clean(line))
 except Exception as exc:  # noqa: BLE001
     print(WARN + "EXC=" + _clean(str(exc)))
