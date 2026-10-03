@@ -140,6 +140,59 @@ class MarbleFloatingChromeTest {
         assertNotBlackOrWhite(repaired)
     }
 
+    // MARBLE_DOCK_LIGHT_PRESENCE_V205 — the selected pill must be a visibly lit container on
+    // the light bar, not a wash that disappears into it. The dock paints the fill as the
+    // accent at [fillAlpha] composited over the bar's own body, so the test reproduces that
+    // exact recipe with the shipped tokens.
+    private val lightBar = 0xFFEDF3FB.toInt()
+    private val darkBar = 0xFF090D14.toInt()
+
+    private fun dockFill(accent: Int, bar: Int, fillAlpha: Float): Int =
+        marbleCompositeArgb(marbleWithAlphaArgb(accent, fillAlpha), bar)
+
+    @Test
+    fun `the selected pill is visibly distinct from the light bar`() {
+        // Every accent the dock can be configured with, at the light-theme fill strength.
+        for (accent in listOf(electricBlue, brightBlue, emerald, amber)) {
+            val fill = dockFill(accent, lightBar, 0.36f)
+            val separation = marbleContrastRatioArgb(fill, lightBar)
+            assertTrue(
+                "accent #${Integer.toHexString(accent).uppercase()} fills only $separation:1 apart from the bar",
+                separation >= 1.12f
+            )
+            val ink = marbleReadableOnArgb(accent, fill, 4.5f)
+            assertTrue(
+                "the caption ink on that pill reaches only ${marbleContrastRatioArgb(ink, fill)}:1",
+                marbleContrastRatioArgb(ink, fill) >= 4.5f
+            )
+        }
+    }
+
+    @Test
+    fun `the AMOLED pill keeps its tuned quieter presence`() {
+        // The dark bar was already right; the fix must not over-lighten it.
+        val fill = dockFill(brightBlue, darkBar, 0.24f)
+        val separation = marbleContrastRatioArgb(fill, darkBar)
+        assertTrue("dark pill separation $separation:1", separation >= 1.10f)
+        assertTrue(
+            marbleContrastRatioArgb(marbleReadableOnArgb(brightBlue, fill, 4.5f), fill) >= 4.5f
+        )
+    }
+
+    @Test
+    fun `the fade-off endpoint keeps the hue and drops only the alpha`() {
+        // MARBLE_DOCK_ALPHA_PATH_V205 — a colour fade toward "invisible" must hold its RGB and
+        // animate alpha alone. A tween toward black-at-zero-alpha drags the midpoint grey,
+        // which is the defect this invariant replaced.
+        for (colour in listOf(electricBlue, brightBlue, emerald, amber)) {
+            val off = marbleWithAlphaArgb(colour, 0f)
+            assertEquals("red drifted", (colour ushr 16) and 0xFF, (off ushr 16) and 0xFF)
+            assertEquals("green drifted", (colour ushr 8) and 0xFF, (off ushr 8) and 0xFF)
+            assertEquals("blue drifted", colour and 0xFF, off and 0xFF)
+            assertEquals(0f, marbleAlphaOf(off), 0.001f)
+        }
+    }
+
     @Test
     fun `shadow alpha rises with elevation and stays inside the system range`() {
         var previous = 0f

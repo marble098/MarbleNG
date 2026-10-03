@@ -22,6 +22,14 @@ package com.marbleng.app.ui
 // opacity-only reveal contract survives untouched, only its easing changed), the stream bar's
 // travelling ribbon became a stretching blob, the floating shutter's securing arc breathes,
 // glyphs roll instead of snapping, and every press releases on the bouncy expressive spring.
+//
+// MARBLE_FLOATING_CHROME_OPAQUE_V205 — every surface in this file stopped paying its fill with
+// `VoidElevated.copy(alpha = .74f … .97f)`. The Home page sits on a breathing aurora, so a
+// translucent widget never had one colour: it had the aurora's colour bleeding through it,
+// unevenly, brighter at the top of the box than at the bottom — the exact compositing defect
+// MARBLE_HOME_CLOUD_V141 removed from the cards. The shortcut buttons, the selected-route card,
+// the stream bar, the floating shutter and the floor dock are now the same opaque surface the
+// cards are, in every theme.
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -129,7 +137,7 @@ internal fun HomeSelectedRouteCard(
     Row(
         modifier = modifier
             .clip(shape)
-            .background(Aether.VoidElevated.copy(alpha = .93f))
+            .background(Aether.VoidElevated)
             .border(1.dp, borderTone, shape)
             .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onLibrary)
             .semantics { contentDescription = "${t.selectedRoute}: $node" }
@@ -322,7 +330,7 @@ internal fun HomeLivePingMeter(
             .clip(shape)
             // Companion chrome of the connect control: the same elevated glass as the power
             // dock, washed and hairlined with the control's own state tone.
-            .background(Aether.VoidElevated.copy(alpha = .88f))
+            .background(Aether.VoidElevated)
             .background(
                 Brush.verticalGradient(
                     listOf(tone.copy(alpha = .12f), Color.Transparent)
@@ -595,7 +603,7 @@ internal fun HomeShortcutDeck(
                 .weight(1f)
                 .height(38.dp)
                 .clip(pingShape)
-                .background(Aether.VoidElevated.copy(alpha = .92f))
+                .background(Aether.VoidElevated)
                 .border(1.dp, pingTone.copy(alpha = .34f), pingShape)
                 .kineticClickable(
                     enabled = homePingTappable(evidence),
@@ -648,7 +656,7 @@ private fun HomeDeckButton(
         modifier = Modifier
             .size(38.dp)
             .clip(shape)
-            .background(Aether.VoidElevated.copy(alpha = .92f))
+            .background(Aether.VoidElevated)
             .border(1.dp, tone.copy(alpha = .30f), shape)
             .semantics { contentDescription = label }
             .kineticClickable(
@@ -711,7 +719,7 @@ internal fun ConnectButtonStream(
                     spotColor = animatedTone.copy(alpha = .26f)
                 )
                 .clip(shape)
-                .background(Aether.VoidElevated.copy(alpha = .96f))
+                .background(Aether.VoidElevated)
                 .background(
                     Brush.horizontalGradient(
                         listOf(
@@ -881,7 +889,7 @@ internal fun ConnectButtonFloating(
                     spotColor = animatedTone.copy(alpha = .34f)
                 )
                 .clip(CircleShape)
-                .background(Aether.VoidElevated.copy(alpha = .97f))
+                .background(Aether.VoidElevated)
                 .background(
                     Brush.radialGradient(
                         listOf(
@@ -992,7 +1000,7 @@ internal fun HomeFloorDock(
     Box(
         modifier = modifier
             .clip(shape)
-            .background(Aether.VoidElevated.copy(alpha = .74f))
+            .background(Aether.VoidElevated)
             .background(
                 Brush.verticalGradient(
                     listOf(tone.copy(alpha = .10f), Color.Transparent)

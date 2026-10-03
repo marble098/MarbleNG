@@ -198,9 +198,13 @@ fun ProtocolTile(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                // MARBLE_SLIDE_SHEEN_THEMED_V205 — both shadow channels in the rim's own hue;
+                // the default black ambient smeared a grey ring under the tile on light cards.
                 .shadow(
                     elevation = if (lifted || stateTone != null) 6.dp else 0.dp,
                     shape = CircleShape,
+                    clip = false,
+                    ambientColor = rim.copy(alpha = .18f),
                     spotColor = rim.copy(alpha = .30f)
                 )
                 .clip(CircleShape)
