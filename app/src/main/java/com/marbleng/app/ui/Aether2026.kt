@@ -119,6 +119,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -263,7 +264,12 @@ private data class DockSlotChrome(
 private fun dockSlotAccentTone(accent: DockSlotAccent): Color = when (accent) {
     DockSlotAccent.OCEAN -> Aether.Cyan
     DockSlotAccent.MINT -> Aether.Emerald
-    DockSlotAccent.VIOLET -> Aether.AmethystBright
+    // MARBLE_DOCK_VIOLET_REAL_V205 — "Violet" used to resolve to `Aether.AmethystBright`,
+    // which in BOTH the light and the dark brand palettes is the exact same colour as
+    // `Aether.Cyan` — so choosing Violet over Ocean changed literally nothing, in every theme.
+    // The dock now carries a true violet, tuned per brightness: deep enough to hold 4.5:1 ink
+    // on the light bar, lifted to a readable pastel on the AMOLED bar.
+    DockSlotAccent.VIOLET -> if (homeCloudDark()) Color(0xFFB08CFF) else Color(0xFF7A5CD6)
     DockSlotAccent.AMBER -> Aether.Amber
 }
 
@@ -1270,7 +1276,23 @@ private fun FloatingSpatialDock(
                 // i.e. the same hue at 100 % over the same hue at 24 %, which is a legible
                 // caption only when the accent happens to be dark: with Material You the primary
                 // is routinely a pastel, and two strengths of one pastel is not a contrast.
-                val pillFill = marblePillFill(slotAccent, dockSurface)
+                //
+                // MARBLE_DOCK_LIGHT_PRESENCE_V205 — the fill and rim strengths are now
+                // theme-aware. One fixed .22 wash was tuned on the AMOLED bar, where a bright
+                // accent needs very little of itself to read; over the light ice bar the same
+                // wash disappeared into the surface and the selected tab looked unselected.
+                // Light keeps a clearly lit container and a rim that actually frames it.
+                val dockDark = homeCloudDark()
+                val pillFill = marblePillFill(
+                    accent = slotAccent,
+                    surface = dockSurface,
+                    fillAlpha = if (dockDark) 0.24f else 0.36f
+                )
+                val pillRim = marblePillRim(
+                    accent = slotAccent,
+                    surface = dockSurface,
+                    rimAlpha = if (dockDark) 0.42f else 0.60f
+                )
                 val inkTone by animateColorAsState(
                     targetValue = if (active) {
                         marbleReadableOn(slotAccent, pillFill, 4.5f)
@@ -1289,17 +1311,20 @@ private fun FloatingSpatialDock(
                 // rather than laid over nothing, so a selected tab is a lit *container* (and
                 // therefore has a computable contrast) instead of a translucent film whose
                 // apparent colour changes with whatever scrolls behind the bar.
+                // MARBLE_DOCK_ALPHA_PATH_V205 — the off state is the SAME colour at zero alpha,
+                // never `Color.Transparent`. Compose interpolates every channel of a colour, and
+                // Transparent is black at alpha zero — so a tween toward it drags the pill's RGB
+                // toward black while the alpha falls. Mid-flight the pill composited as a dull
+                // grey wash: on the AMOLED bar that grey is invisible, but on the light system
+                // bar every tab change flashed a dirty grey box and the colour appeared broken.
+                // Holding the hue constant makes the tween a pure fade, identical in both themes.
                 val pillBg by animateColorAsState(
-                    targetValue = if (active) pillFill else Color.Transparent,
+                    targetValue = if (active) pillFill else pillFill.copy(alpha = 0f),
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-pill-${item.name}"
                 )
                 val indicatorTone by animateColorAsState(
-                    targetValue = if (active) {
-                        marblePillRim(slotAccent, dockSurface)
-                    } else {
-                        Color.Transparent
-                    },
+                    targetValue = if (active) pillRim else pillRim.copy(alpha = 0f),
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-indicator-${item.name}"
                 )
@@ -2363,6 +2388,11 @@ private fun MarbleMenuPanel(
     content: @Composable ColumnScope.() -> Unit
 ) {
     BackHandler(enabled = open) { onClose() }
+    // MARBLE_MENU_PANEL_SHADOW_V205 — the sheet's lift is cast in the palette's own shadow hue.
+    // The hard-coded black pair was the exact defect MARBLE_FLOATING_CHROME_V201 removed from
+    // every other floating surface: a grey-brown smudge under an ice-blue sheet in the light
+    // theme.
+    val chrome = rememberMarbleFloatChrome()
     AnimatedVisibility(
         visible = open,
         modifier = modifier.fillMaxSize(),
@@ -2388,8 +2418,8 @@ private fun MarbleMenuPanel(
                     .shadow(
                         elevation = 22.dp,
                         shape = RoundedCornerShape(22.dp),
-                        ambientColor = Color.Black.copy(alpha = .28f),
-                        spotColor = Color.Black.copy(alpha = .34f)
+                        ambientColor = chrome.shadow.copy(alpha = .26f),
+                        spotColor = chrome.shadow.copy(alpha = .34f)
                     )
                     .clip(RoundedCornerShape(22.dp))
                     .background(Aether.VoidElevated)
@@ -2552,9 +2582,20 @@ private fun MarbleConnectionQualityRing(
 /**
  * MARBLE_IRAN_AWARE_PING_L3_UI — the national-filtering banner. Shown only while a confident
  * [CausalAttribution.AttributedCause.NATIONAL_FILTERING_EVENT] is active, and only on Home.
+ *
+ * MARBLE_BANNER_IN_FLOW_V205 — the banner lives IN the page flow, one slot under the header,
+ * where every Home theme composes it. It used to be a TopCenter overlay of the whole page,
+ * which painted a box straight over the wordmark and the header actions — the floating
+ * "pop-up box in the header" users reported on the first page. An alert about the network is
+ * content of the page, not a layer above its chrome.
+ *
+ * The same pass ended the translucent-film skin. A 14 % danger wash with no surface, no rim and
+ * no shadow read as a stray red rectangle, especially on the light theme where the aurora shone
+ * straight through it. The banner is now a proper product card: an opaque float surface, a
+ * danger-tinted wash and hairline, and the palette's own shadow hue.
  */
 @Composable
-private fun NationalEventBanner(repo: AppRepository, modifier: Modifier = Modifier) {
+internal fun NationalEventBanner(repo: AppRepository, modifier: Modifier = Modifier) {
     AnimatedVisibility(
         visible = repo.nationalEventCause.isNotEmpty(),
         modifier = modifier,
@@ -2565,20 +2606,36 @@ private fun NationalEventBanner(repo: AppRepository, modifier: Modifier = Modifi
         exit = fadeOut(tween(MarbleExpressiveMotion.Short4, easing = MarbleExpressiveMotion.EmphasizedAccelerate)) +
             slideOutVertically(MarbleExpressiveSpecs.RollOutSpatial) { height -> -height }
     ) {
+        val chrome = rememberMarbleFloatChrome()
+        val shape = RoundedCornerShape(16.dp)
         Row(
             modifier = Modifier
-                .padding(horizontal = 20.dp, vertical = 6.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Aether.Danger.copy(alpha = 0.14f))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .fillMaxWidth()
+                .shadow(
+                    elevation = 4.dp,
+                    shape = shape,
+                    clip = false,
+                    ambientColor = chrome.shadow.copy(alpha = .16f),
+                    spotColor = Aether.Danger.copy(alpha = .22f)
+                )
+                .clip(shape)
+                .background(chrome.surface)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Aether.Danger.copy(alpha = .12f), Color.Transparent)
+                    )
+                )
+                .border(1.dp, Aether.Danger.copy(alpha = .38f), shape)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("🚩", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.width(8.dp))
             Text(
                 "National filtering detected • ranking frozen • ${repo.nationalEventCause.replace("-", " ")}",
-                color = Aether.Danger,
+                color = marbleReadableOn(Aether.Danger, chrome.surface, 4.5f),
                 style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -2851,10 +2908,11 @@ private fun CyberDeck(
             )
         }
 
-        // MARBLE_PING_METHODS_V148 — the only top-of-page overlay is the Layer 3 national-filtering
-        // banner. Ping results are read from the in-place meter / shortcut deck, never from a panel
-        // that appears at the top while a ping is running.
-        NationalEventBanner(repo = repo, modifier = Modifier.align(Alignment.TopCenter))
+        // MARBLE_PING_METHODS_V148 / MARBLE_BANNER_IN_FLOW_V205 — no top-of-page overlay any
+        // more. The Layer 3 national-filtering banner is composed by each Home theme directly
+        // under its header row (see HomeTopActionBar call sites), so it can never paint a box
+        // over the wordmark and the header actions. Ping results are read from the in-place
+        // meter / shortcut deck, never from a panel that appears at the top while a ping runs.
 
         // MARBLE_HOME_TELEMETRY_GRID_V187 — optional down/up throughput now lives in the status
         // card's animated two-cell grid. Keeping it in that card avoids a second floating box
@@ -6271,12 +6329,16 @@ private fun ServersNodeCard(
         else -> ServersListBodyShape
     }
     val rowShape = if (lastInGroup) ServersGroupTailShape else ServersGroupBodyShape
+    // MARBLE_DOCK_ALPHA_PATH_V205 — the resting state is the neutral hue at zero alpha, never
+    // `Color.Transparent`. A tween toward Transparent interpolates the RGB channels toward
+    // black, so on the light page every select/activate flashed a grey wash mid-flight while
+    // the AMOLED page hid the same artifact; a constant hue makes the fade theme-identical.
     val rowFill by animateColorAsState(
         targetValue = when {
             active -> Aether.Emerald.copy(alpha = .10f)
             securing -> Aether.Amethyst.copy(alpha = .10f)
             selected -> Aether.Cyan.copy(alpha = .08f)
-            else -> Color.Transparent
+            else -> Aether.Cyan.copy(alpha = 0f)
         },
         animationSpec = MarbleMotionSpecs.Color,
         label = "servers-row-state"
@@ -16398,8 +16460,15 @@ private fun DockSlotKindChoice(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(15.dp)
+    // MARBLE_FLOATING_CHROME_OPAQUE_V205 — the selected wash is flattened onto the resting
+    // fill so the tween runs between two solid colours; a half-alpha midpoint let the page
+    // bleed through the tile while the selection moved.
     val fill by animateColorAsState(
-        targetValue = if (selected) tone.copy(alpha = .12f) else homeCloudInsetFill(),
+        targetValue = if (selected) {
+            tone.copy(alpha = .12f).compositeOver(homeCloudInsetFill())
+        } else {
+            homeCloudInsetFill()
+        },
         animationSpec = MarbleMotionSpecs.Color,
         label = "dock-kind-fill-${kind.id}"
     )
@@ -17136,8 +17205,11 @@ private fun CyberChoiceChip(
     // start; the label stays centred by the Box below in both cases.
     val tone = if (selectionTone == Color.Unspecified) color else selectionTone
     val shape = RoundedCornerShape(12.dp)
+    // MARBLE_DOCK_ALPHA_PATH_V205 — rest at this chip's own hue with zero alpha, never
+    // `Color.Transparent`: a tween toward Transparent ramps the RGB toward black and paints a
+    // grey flash on the light page while the AMOLED page hides the same artifact.
     val fill by animateColorAsState(
-        if (selected) tone.copy(alpha = .14f) else Color.Transparent,
+        if (selected) tone.copy(alpha = .14f) else tone.copy(alpha = 0f),
         MarbleMotionSpecs.Color,
         label = "choice-chip-fill"
     )

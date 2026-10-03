@@ -86,6 +86,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -2391,6 +2392,13 @@ private fun HomeBareAction(
     busy: Boolean = false,
     onClick: () -> Unit
 ) {
+    // MARBLE_HEADER_ICON_CONTRAST_V205 — the header actions sit bare on the page, so their ink
+    // is measured against the page itself. The bright sky the dark theme needs (#3399FF) is
+    // only 2.8:1 on the light page — under the 3:1 floor a graphical object must clear, which
+    // is exactly how the + / pulse / info icons read as washed-out in the System theme while
+    // looking perfect on AMOLED. Pushing the tone toward the readable endpoint keeps its hue
+    // and restores the floor in every palette.
+    val pageTone = marbleReadableOn(tone, Aether.Void, 3.0f)
     Box(
         modifier = Modifier
             .size(36.dp)
@@ -2412,14 +2420,14 @@ private fun HomeBareAction(
             // shared clock instead of a rigid stock spinner.
             MarbleExpressiveCircularIndicator(
                 modifier = Modifier.size(17.dp),
-                color = tone,
+                color = pageTone,
                 strokeWidth = 2.dp,
                 arcCount = 3
             )
         } else {
             HomeGlyphIcon(
                 glyph,
-                if (enabled) tone else tone.copy(alpha = .40f),
+                if (enabled) pageTone else pageTone.copy(alpha = .40f),
                 Modifier.size(18.dp)
             )
         }
@@ -2847,9 +2855,15 @@ private fun IosServerItemRow(
     onClick: () -> Unit
 ) {
     val rowShape = RoundedCornerShape(16.dp)
+    // MARBLE_FLOATING_CHROME_OPAQUE_V205 — the connected wash is composited onto the resting
+    // fill instead of being painted translucent. Animating between a translucent wash and an
+    // opaque fill passed through half-alpha frames that let the page aurora bleed through the
+    // row mid-transition; every endpoint of the tween is now a solid colour.
     val itemBg by animateColorAsState(
         targetValue = when {
-            isConnected -> Aether.Emerald.copy(alpha = if (homeCloudDark()) .12f else .09f)
+            isConnected -> Aether.Emerald
+                .copy(alpha = if (homeCloudDark()) .12f else .09f)
+                .compositeOver(homeCloudInsetFill())
             isSelected -> homeCloudSelectedFill()
             else -> homeCloudInsetFill()
         },
@@ -3077,6 +3091,12 @@ internal fun IosSlideToConnect(
         // Ambient sheen: a single light band on the shared motion clock — slow when armed,
         // fast while the tunnel negotiates, invisible once the user owns the gesture. The clock
         // is read inside the draw lambda, so the sweep costs zero recompositions.
+        //
+        // MARBLE_SLIDE_SHEEN_THEMED_V205 — the band used to be hard-coded white. Over the dark
+        // track that reads as light; over the light theme's white track it is literally
+        // invisible, so the invitation the control advertises only ever existed in dark mode.
+        // The sheen now paints with the state tone on light pages and stays white on dark ones.
+        val sheenTint = if (homeCloudDark()) Color.White else tone
         Canvas(modifier = Modifier.matchParentSize()) {
             val sheenPhase = motion.loop(if (busy) 1100 else 3000)
             val sheenAlpha = (if (busy) 0.30f else 0.20f) * (1f - progress)
@@ -3091,9 +3111,9 @@ internal fun IosSlideToConnect(
                     size = Size(band, size.height),
                     brush = Brush.horizontalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0f),
-                            Color.White.copy(alpha = sheenAlpha),
-                            Color.White.copy(alpha = 0f)
+                            sheenTint.copy(alpha = 0f),
+                            sheenTint.copy(alpha = sheenAlpha),
+                            sheenTint.copy(alpha = 0f)
                         ),
                         startX = x,
                         endX = x + band
@@ -3135,7 +3155,17 @@ internal fun IosSlideToConnect(
                     scaleX = lift
                     scaleY = lift
                 }
-                .shadow(6.dp, CircleShape, spotColor = tone)
+                // MARBLE_SLIDE_SHEEN_THEMED_V205 — the knob's lift is cast in the track's own
+                // hue family. The stock shadow pair (a black ambient under a full-strength spot)
+                // painted a grey smudge under the thumb on the ice page and an over-saturated
+                // ring on the AMOLED page.
+                .shadow(
+                    elevation = 6.dp,
+                    shape = CircleShape,
+                    clip = false,
+                    ambientColor = tone.copy(alpha = .22f),
+                    spotColor = tone.copy(alpha = .40f)
+                )
                 .clip(CircleShape)
                 .background(tone)
                 .pointerInput(evidence.connected, busy, maxDragPx) {
@@ -3220,6 +3250,9 @@ internal fun HomeThemeSlider(
     ) {
         // Top actions (outside the banner) + Wide Status Bar
         HomeTopActionBar(evidence, actions, repo)
+        // MARBLE_BANNER_IN_FLOW_V205 — the national-filtering alert occupies its own slot under
+        // the header instead of floating over it.
+        NationalEventBanner(repo = repo)
         // MARBLE_EXPRESSIVE_MOTION_V186 — Theme 1 arrives in a cascade: banner, server card,
         // then the slide control, one stagger step apart on the emphasized entrance pair.
         IosStatusWideCard(evidence, actions, modifier = Modifier.marbleStaggerIn(1))
@@ -3255,26 +3288,42 @@ internal fun HomeThemeSlider(
 /**
  * MARBLE_HOME_CONNECT_CONTROLS_V141 — the Theme 2 floating control, redrawn flat.
  *
- * Armed: a solid ice-blue disc with a breathing halo ring. Busy: the halo becomes a spinning
- * arc that orbits the disc. Connected: the whole control morphs into the split pair — a flat
- * danger pause and a flat emerald ping. Every ambient phase runs on Marble's one shared frame
- * clock, and press feedback is the product-standard kinetic scale.
+ * Armed: a solid state-coloured disc with a breathing halo ring. Busy: the halo becomes a
+ * spinning arc that orbits the disc. Connected: the whole control morphs into the split pair —
+ * a flat danger pause and a flat emerald ping. Every ambient phase runs on Marble's one shared
+ * frame clock, and press feedback is the product-standard kinetic scale.
+ *
+ * MARBLE_FLOATING_BUTTONS_V205 — the critique that reshaped this control:
+ *  1. **It was a doughnut, not a button.** The V202 pass wrapped the coloured face in a
+ *     neutral chrome bezel — a 76 dp pale disc, a 1 dp hairline and a 60 dp colour inside it.
+ *     Three concentric rings around one action: on the light page the pale bezel read as a
+ *     dirty halo and the seam between bezel and face read as a defect. The floating-action
+ *     grammar every platform ships is ONE filled disc in the action's own colour; that is what
+ *     this is now.
+ *  2. **The busy state never changed colour.** The tone was `if (busy) AmethystBright else
+ *     Cyan` — and in BOTH the light and the dark brand palettes those two tokens hold the very
+ *     same value, so the "colour" branch was dead. The face now follows the product's one
+ *     semantic connect ramp ([connectButtonTone]): armed cyan, securing amethyst, closing
+ *     amber, exactly like every other connect control on the page.
+ *  3. **The glyph ink is measured, not assumed** — [marbleOnColor] scores white against the
+ *     palette's dark ink on the live face and takes whichever clears 3:1.
  */
 @Composable
 private fun FloatingConnectFab(
     evidence: HomeEvidence,
     onToggle: () -> Unit
 ) {
-    // MARBLE_FLOATING_CONNECT_V202 — the disconnected action now uses the same floating-chrome
-    // shell as the connected split actions. It no longer looks like an unrelated blue orb when
-    // the tunnel is down: one quiet surface body, one semantic inner action, one fixed footprint.
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
-    val chrome = rememberMarbleFloatChrome()
     val tone by animateColorAsState(
-        targetValue = if (busy) Aether.AmethystBright else Aether.Cyan,
+        targetValue = connectButtonTone(evidence),
         animationSpec = MarbleMotionSpecs.DockColor,
         label = "fab-tone"
+    )
+    val ink by animateColorAsState(
+        targetValue = marbleOnColor(tone),
+        animationSpec = MarbleMotionSpecs.DockColor,
+        label = "fab-ink"
     )
 
     Box(
@@ -3310,42 +3359,48 @@ private fun FloatingConnectFab(
             }
         }
 
-        // Neutral outer body ties the idle control to the connected split pair in every palette.
+        // One solid face in the semantic state colour. Depth comes from a shadow cast in the
+        // face's own hue — never a grey or black smudge under a blue button — plus the faint
+        // top-light wash every raised Marble surface carries.
         Box(
             modifier = Modifier
-                .size(76.dp)
+                .size(68.dp)
+                .marblePopWhen(busy, peak = 1.05f)
                 .shadow(
-                    elevation = 10.dp,
+                    elevation = 12.dp,
                     shape = CircleShape,
-                    ambientColor = chrome.shadow.copy(alpha = .16f),
-                    spotColor = chrome.shadow.copy(alpha = .24f)
+                    clip = false,
+                    ambientColor = tone.copy(alpha = .26f),
+                    spotColor = tone.copy(alpha = .38f)
                 )
                 .clip(CircleShape)
-                .background(chrome.surface)
-                .border(1.dp, chrome.border, CircleShape),
+                .background(tone)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.White.copy(alpha = .14f), Color.Transparent)
+                    )
+                )
+                .kineticClickable(
+                    pressScale = .94f,
+                    boundedShape = CircleShape,
+                    // The FAB is a direct manipulation control; its release is quick and
+                    // damped so it never rebounds into the dock underneath it.
+                    releaseSpec = MarbleMotionSpecs.ExitFloat
+                ) { onToggle() },
             contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(60.dp)
-                    .clip(CircleShape)
-                    .background(tone)
-                    .kineticClickable(
-                        pressScale = .95f,
-                        boundedShape = CircleShape,
-                        // The FAB is a direct manipulation control; its release is quick and
-                        // damped so it never rebounds into the dock underneath it.
-                        releaseSpec = MarbleMotionSpecs.ExitFloat
-                    ) { onToggle() },
-                contentAlignment = Alignment.Center
-            ) {
-                HomeGlyphIcon(HomeGlyph.POWER, marbleOnColor(tone), Modifier.size(28.dp))
-            }
+            HomeGlyphIcon(HomeGlyph.POWER, ink, Modifier.size(30.dp))
         }
     }
 }
 
-/** One flat circular secondary action of the Theme 2 split pair. */
+/**
+ * One circular secondary action of the Theme 2 split pair.
+ *
+ * MARBLE_FLOATING_BUTTONS_V205 — the same doughnut critique as the FAB: the chrome bezel around
+ * a smaller colour disc is gone, the action is one filled disc in its own tone with its hue-cast
+ * shadow, and the glyph ink is computed against that exact fill.
+ */
 @Composable
 private fun FloatingSplitAction(
     tone: Color,
@@ -3354,22 +3409,26 @@ private fun FloatingSplitAction(
     onClick: () -> Unit,
     content: @Composable () -> Unit
 ) {
-    val chrome = rememberMarbleFloatChrome()
     Box(
         modifier = Modifier
-            .size(54.dp)
+            .size(52.dp)
             .shadow(
-                elevation = 6.dp,
+                elevation = 8.dp,
                 shape = CircleShape,
-                ambientColor = chrome.shadow.copy(alpha = .16f),
-                spotColor = chrome.shadow.copy(alpha = .22f)
+                clip = false,
+                ambientColor = tone.copy(alpha = .24f),
+                spotColor = tone.copy(alpha = .34f)
             )
             .clip(CircleShape)
-            .background(chrome.surface)
-            .border(1.dp, chrome.border, CircleShape)
+            .background(if (enabled) tone else tone.copy(alpha = .55f))
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = .12f), Color.Transparent)
+                )
+            )
             .kineticClickable(
                 enabled = enabled,
-                pressScale = .95f,
+                pressScale = .94f,
                 boundedShape = CircleShape,
                 releaseSpec = MarbleMotionSpecs.ExitFloat,
                 onClick = onClick
@@ -3377,15 +3436,7 @@ private fun FloatingSplitAction(
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(tone),
-            contentAlignment = Alignment.Center
-        ) {
-            content()
-        }
+        content()
     }
 }
 
@@ -3408,6 +3459,9 @@ internal fun HomeThemeFloating(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             HomeTopActionBar(evidence, actions, repo)
+            // MARBLE_BANNER_IN_FLOW_V205 — the national-filtering alert occupies its own slot
+            // under the header instead of floating over it.
+            NationalEventBanner(repo = repo)
             // MARBLE_EXPRESSIVE_MOTION_V186 — Theme 2 arrives in a cascade: banner first,
             // then the expanded server card one stagger step behind it.
             IosStatusWideCard(evidence, actions, modifier = Modifier.marbleStaggerIn(1))
@@ -3625,7 +3679,15 @@ internal fun OrbitalConnectControl(
                 .size(86.dp)
                 // MARBLE_EXPRESSIVE_MOTION_V186 — acknowledgement beat on the session flip.
                 .marblePopWhen(connected, peak = 1.05f)
-                .shadow(5.dp, CircleShape, spotColor = tone)
+                // MARBLE_SLIDE_SHEEN_THEMED_V205 — the lift is cast in the disc's own hue; the
+                // default black ambient read as a grey smudge under the core on the light page.
+                .shadow(
+                    elevation = 5.dp,
+                    shape = CircleShape,
+                    clip = false,
+                    ambientColor = tone.copy(alpha = .24f),
+                    spotColor = tone.copy(alpha = .40f)
+                )
                 .clip(CircleShape)
                 .background(tone)
                 .kineticClickable(
@@ -3658,6 +3720,9 @@ internal fun HomeThemeEmbossed(
     ) {
         // Top actions (outside the banner) + Status Bar
         HomeTopActionBar(evidence, actions, repo)
+        // MARBLE_BANNER_IN_FLOW_V205 — the national-filtering alert occupies its own slot under
+        // the header instead of floating over it.
+        NationalEventBanner(repo = repo)
         // MARBLE_EXPRESSIVE_MOTION_V186 — Theme 3 arrives in a cascade: banner, orbital core,
         // caption, server card — one stagger step apart on the emphasized entrance pair.
         IosStatusWideCard(evidence, actions, modifier = Modifier.marbleStaggerIn(1))
@@ -3756,6 +3821,9 @@ internal fun HomeThemeModular(
         ) {
             // Top actions (outside the banner) + Top Bar with Customize Layout Button
             HomeTopActionBar(evidence, actions, repo)
+            // MARBLE_BANNER_IN_FLOW_V205 — the national-filtering alert occupies its own slot
+            // under the header instead of floating over it.
+            NationalEventBanner(repo = repo)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
