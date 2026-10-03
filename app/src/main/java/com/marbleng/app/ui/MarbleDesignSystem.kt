@@ -965,7 +965,7 @@ internal fun PrismButton(
     }
 }
 
-''/** Pressable circular control: overflow menus, sheet closers, stepper buttons.
+/** Pressable circular control: overflow menus, sheet closers, stepper buttons.
  *
  * MARBLE_ROUTE_ATELIER_V207 — two things this control used to be allowed to do, and no longer is:
  *  • ship unnamed. `descriptiveLabel` had a `""` default, which meant the design system permitted an

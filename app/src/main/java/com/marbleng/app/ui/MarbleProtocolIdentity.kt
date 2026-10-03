@@ -146,7 +146,7 @@ fun ProtocolBadge(
     )
 }
 
-''/**
+/**
  * The circular server avatar of a row.
  *
  * MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the flag IS the circle, always. The hand-drawn protocol

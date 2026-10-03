@@ -301,7 +301,11 @@ private fun RoutePathSignet(
                     RouteLink(
                         state = next,
                         tone = tone,
-                        proven = next == MarbleNodeState.PROVEN
+                        proven = next == MarbleNodeState.PROVEN,
+                        // How much of the row a connector may claim is the Row's business, so it is
+                        // measured at the call site: `weight` is a `RowScope` extension and cannot be
+                        // named from inside [RouteLink]'s own body.
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -393,7 +397,12 @@ private fun RouteNodeCell(label: String, state: MarbleNodeState, tone: Color) {
 
 /** The line between two stages: solid when the stage it leads into is proven, hairline when it is not. */
 @Composable
-private fun RouteLink(state: MarbleNodeState, tone: Color, proven: Boolean) {
+private fun RouteLink(
+    state: MarbleNodeState,
+    tone: Color,
+    proven: Boolean,
+    modifier: Modifier = Modifier
+) {
     val color = when (state) {
         MarbleNodeState.PROVEN -> tone
         MarbleNodeState.FAILED -> Aether.Danger
@@ -401,8 +410,7 @@ private fun RouteLink(state: MarbleNodeState, tone: Color, proven: Boolean) {
         MarbleNodeState.UNKNOWN -> Aether.InkFaint.copy(alpha = .25f)
     }
     Box(
-        modifier = Modifier
-            .weight(1f)
+        modifier = modifier
             .height(if (proven) 2.dp else 1.dp)
             .background(color, RoundedCornerShape(1.dp))
     )
@@ -574,7 +582,8 @@ private fun RouteQualityCard(repo: AppRepository, evidence: HomeEvidence) {
                 value = latency,
                 unit = "",
                 tone = latencyTone,
-                missing = evidence.pingMs <= 0
+                missing = evidence.pingMs <= 0,
+                modifier = Modifier.weight(1f)
             )
             AtelierMetricDivider()
             AtelierMetric(
@@ -582,7 +591,8 @@ private fun RouteQualityCard(repo: AppRepository, evidence: HomeEvidence) {
                 value = if (jitter > 0) jitter.toString() else "—",
                 unit = if (jitter > 0) "ms" else "",
                 tone = Aether.Amethyst,
-                missing = jitter <= 0
+                missing = jitter <= 0,
+                modifier = Modifier.weight(1f)
             )
             AtelierMetricDivider()
             AtelierMetric(
@@ -590,7 +600,8 @@ private fun RouteQualityCard(repo: AppRepository, evidence: HomeEvidence) {
                 value = evidence.stabilityClass.ifBlank { "—" },
                 unit = "",
                 tone = marbleRouteTone(evidence.routeState),
-                missing = evidence.stabilityClass.isBlank()
+                missing = evidence.stabilityClass.isBlank(),
+                modifier = Modifier.weight(1f)
             )
         }
     }
@@ -612,11 +623,11 @@ private fun AtelierMetric(
     value: String,
     unit: String,
     tone: Color,
-    missing: Boolean
+    missing: Boolean,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
-            .weight(1f)
+        modifier = modifier
             .heightIn(min = 44.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
