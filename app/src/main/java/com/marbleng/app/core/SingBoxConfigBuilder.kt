@@ -44,6 +44,17 @@ object SingBoxConfigBuilder {
     const val DNS_HOSTS_TAG = "dns-hosts"
 
     /**
+     * MARBLE_FRAGMENT_PROFILES_V208 — the outbound protocols the pinned extended core accepts a
+     * `multiplex` object on: exactly the four whose `*OutboundOptions` embed
+     * `OutboundMultiplexOptions` in its own `option` files (vless, vmess, trojan, shadowsocks).
+     *
+     * This is a correctness gate, not a preference. sing-box decodes strictly: a `multiplex`
+     * object on an http, socks, hysteria2 or tuic outbound is `json: unknown field`, and one
+     * unknown field is a rejected config, which is a dead session rather than a ignored option.
+     */
+    val MARBLE_SMUX_PROTOCOLS: Set<String> = setOf("vless", "vmess", "trojan", "shadowsocks")
+
+    /**
      * MARBLE_FAKE_IP_V184 — the sing-box `fakeip` DNS server (1.14 server form; the legacy
      * `dns.fakeip` object was removed in 1.14.0). In-process fake addresses for the app's A/AAAA
      * questions; the router restores the original domain per flow (`route/route.go`
@@ -1081,9 +1092,30 @@ private fun removeKeys(
                 throw ConfigTranslationException("streamSettings.finalmask", "this mask has no lossless mapping to sing-box")
             }
         }
-        if (outbound.optJSONObject("mux")?.optBoolean("enabled", false) == true ||
-            outbound.optJSONObject("muxSettings")?.optBoolean("enabled", false) == true || settings.muxEnabled) {
-            notes += "Xray Mux.Cool is not sing-box smux; optional Xray mux is disabled, not replaced with an incompatible wire protocol."
+        /*
+         * MARBLE_FRAGMENT_PROFILES_V208 — Mux on this engine.
+         *
+         * This block used to write *nothing*: it only appended a note saying Xray Mux.Cool is
+         * not sing-box smux, so the Mux switch in Settings was a dead control on this engine.
+         * The two are indeed different wire protocols and the numbers cannot be copied across —
+         * but they can be mapped, which is what [SingBoxTransportPolicy.multiplex] does.
+         *
+         * The pinned core accepts `multiplex` on exactly four outbound protocols (vless, vmess,
+         * trojan, shadowsocks — `OutboundMultiplexOptions` in its own option files). Writing it
+         * anywhere else is a config the core rejects at `sing-box check`, which kills the whole
+         * session rather than ignoring the field, so the protocol set below is a correctness
+         * gate and not a preference.
+         */
+        val marbleMultiplex = SingBoxTransportPolicy.multiplex(settings)
+        if (marbleMultiplex != null && protocol in MARBLE_SMUX_PROTOCOLS) {
+            result.put(SingBoxTransportPolicy.MultiplexField, marbleMultiplex)
+            notes += "Mux mapped to sing-box smux (${marbleMultiplex.optString("protocol")}, ${settings.muxConcurrency} streams)."
+        } else if (
+            outbound.optJSONObject("mux")?.optBoolean("enabled", false) == true ||
+            outbound.optJSONObject("muxSettings")?.optBoolean("enabled", false) == true ||
+            settings.muxEnabled
+        ) {
+            notes += "Xray Mux.Cool is not sing-box smux and this protocol carries no smux at all, so multiplexing stays off."
         }
         if (protocol !in setOf("freedom", "direct")) {
             require(result.optString("server").isNotBlank()) { "config-unsupported: settings.address: missing server" }

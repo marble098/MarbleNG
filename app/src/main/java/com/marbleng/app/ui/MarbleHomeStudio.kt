@@ -337,13 +337,9 @@ internal fun HomeLivePingMeter(
                 )
             )
             .border(1.dp, tone.copy(alpha = .30f), shape)
-            .kineticClickable(
-                enabled = visible && homePingTappable(evidence),
-                role = Role.Button,
-                boundedShape = shape,
-                releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
-                onClick = actions.onTestPing
-            )
+            // MARBLE_HOME_ONE_PING_V208 — a gauge that also happens to be a button is two
+            // controls in one silhouette. This one is the gauge; the header's ping button is the
+            // button, and it measures the group the route belongs to.
             .semantics { contentDescription = "${t.livePing}: $spokenPing" }
             .padding(horizontal = 11.dp, vertical = 9.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -597,6 +593,8 @@ internal fun HomeShortcutDeck(
         }
 
         // Ping is a permanent member of the deck — always visible, always labelled.
+        // MARBLE_HOME_ONE_PING_V208 — and it is a *member of the deck*, not a second ping
+        // button: it reports the measurement, the header's one control takes it.
         val pingShape = RoundedCornerShape(13.dp)
         Row(
             modifier = Modifier
@@ -605,12 +603,6 @@ internal fun HomeShortcutDeck(
                 .clip(pingShape)
                 .background(Aether.VoidElevated)
                 .border(1.dp, pingTone.copy(alpha = .34f), pingShape)
-                .kineticClickable(
-                    enabled = homePingTappable(evidence),
-                    role = Role.Button,
-                    boundedShape = pingShape,
-                    onClick = actions.onTestPing
-                )
                 .semantics { contentDescription = "${t.livePing} $pingValue" }
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,

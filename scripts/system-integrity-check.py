@@ -215,6 +215,26 @@ files = {
     "diag": read("app/src/main/java/com/marbleng/app/core/RuntimeDiagnostics.kt"),
     "ui": read("app/src/main/java/com/marbleng/app/ui/Aether2026.kt"),
     "homeStyles": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStyles.kt"),
+    "atelier": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeAtelier.kt"),
+    "studio": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
+    "adaptation": read("app/src/main/java/com/marbleng/app/core/TransportAdaptation.kt"),
+    # MARBLE_SERVER_TILE_LAYOUT_V208 — the compact server grid, its policy and its test.
+    "serverTiles": read("app/src/main/java/com/marbleng/app/ui/MarbleServerTiles.kt"),
+    "serverTilesTest": read("app/src/test/java/com/marbleng/app/ui/ServerTileLayoutV208Test.kt"),
+    # MARBLE_FRAGMENT_PROFILES_V208 — the rewritten Fragment & Mux stack: the wire policy, the
+    # profile ladder and the tests that pin both.
+    "singBoxWirePolicy": read("app/src/main/java/com/marbleng/app/core/SingBoxTransportPolicy.kt"),
+    "fragmentProfileTest": read(
+        "app/src/test/java/com/marbleng/app/core/FragmentProfileLadderV208Test.kt"
+    ),
+    "singBoxWireTest": read(
+        "app/src/test/java/com/marbleng/app/core/SingBoxTransportPolicyV208Test.kt"
+    ),
+    "copyTest": read("app/src/test/java/com/marbleng/app/ui/MarbleCopyV208Test.kt"),
+    "fragmentProfileDoc": read("docs/FRAGMENT_PROFILES_V208.md"),
+    "serverTileDoc": read("docs/SERVER_TILE_LAYOUT_V208.md"),
+    "homeOnePingDoc": read("docs/HOME_ONE_PING_V208.md"),
+    "settingsCopyDoc": read("docs/SETTINGS_ONE_LINE_COPY_V208.md"),
     "protocolIdentity": read("app/src/main/java/com/marbleng/app/ui/MarbleProtocolIdentity.kt"),
     # MARBLE_ROUTE_ATELIER_V207 — the design grammar and the presentation built against it. They are
     # required files now: a build that drops either one turns Home's default presentation into a page
@@ -3134,22 +3154,136 @@ check(
 )
 
 # ---------------------------------------------------------------------------
-# MARBLE_HOME_HEARTBEAT_PING_V206
+# MARBLE_HOME_ONE_PING_V208
 # ---------------------------------------------------------------------------
-# The header ping was a static zigzag that never changed with the measurement, coloured by the
-# bento's *ranking* band — which paints a perfectly usable 130 ms mobile link amber.
+# The header ping is gone, and so is every second way to start a measurement. What remains is one
+# button that pings the current group; the fixed-size notice slot is what stopped the top box from
+# blinking while that measurement runs.
 check(
-    "V206 the Home header's ping is a heartbeat with its own green ceiling",
-    "HOME_HEARTBEAT_GREEN_MAX_MS" in files["design"]
-    and "fun homeHeartbeatTone(" in files["design"]
-    and "private fun HomeHeartbeatPingAction(" in files["homeStyles"]
-    and "private fun HomeHeartbeatTrace(" in files["homeStyles"]
-    and "fun heartbeatWave(" in files["homeStyles"]
-    # The animation rides the one shared frame clock the product already runs: no
-    # InfiniteTransition, no coroutine, no frame callback of its own.
-    and "val motion = MarbleMotion.current" in files["homeStyles"]
-    and "motion.loop(periodMs)" in files["homeStyles"]
-    and files["homeStyles"].count("MarbleMotion.current") >= 2,
+    "V208 the Home header has no ping and exactly one ping button",
+    "HomeGroupPingButton(" in files["homeStyles"]
+    and "val HomePingButtonSize" in files["homeStyles"]
+    and "onTestPing" not in files["homeStyles"].split("fun HomeTopActionBar(")[1]
+    # The notice slot has a fixed height and is driven by busy-OR-outcome, so a tap cannot make it
+    # appear, disappear and reappear inside the same second.
+    and "val MarbleNoticeHeight" in files["homeStyles"]
+    and ".height(MarbleNoticeHeight)" in files["homeStyles"]
+    and "if (!MarbleFeedbackPolicy.isOutcome(raw) && !working) return" in files["homeStyles"]
+    # One verb: the group ping. The per-profile test has no tap surface left in the product.
+    and "onPingGroup()" in files["atelier"]
+    # The two live-ping surfaces on the Studio presentations are gauges now: no tap, no second
+    # way to start a measurement from the header area.
+    and "kineticClickable" not in files["studio"].split("fun HomeLivePingSlab(")[1].split("\nprivate fun ")[0]
+    and "kineticClickable"
+    not in files["studio"].split("fun HomeLivePingMeter(")[1].split("\ninternal fun ")[0],
+)
+
+check(
+    "V208 the group ping writes its result into the route's own evidence",
+    "private fun publishHomeRoutePing(" in files["repo"]
+    and "publishHomeRoutePing(expanded)" in files["repo"]
+    and "pingHomeGroup()" in files["repo"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_SETTINGS_ONE_LINE_COPY_V208
+# ---------------------------------------------------------------------------
+# Every settings description is one sentence. The rule is enforced where the text is drawn, so it
+# also holds for copy that has not been written yet.
+check(
+    "V208 settings descriptions are clamped to one sentence",
+    "object MarbleCopy" in files["designContract"]
+    and "fun oneSentence(" in files["designContract"]
+    and files["ui"].count("MarbleCopy.oneSentence(trx(subtitle))") >= 6
+    and "MARBLE_SETTINGS_ONE_LINE_COPY_V208" in files["ui"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_FRAGMENT_PROFILES_V208
+# ---------------------------------------------------------------------------
+check(
+    "V208 Fragment and Mux are selectable ladders, not two checkboxes",
+    "enum class FragmentProfile(" in files["adaptation"]
+    and "enum class MuxProfile(" in files["adaptation"]
+    and "fun withFragmentProfile(" in files["adaptation"]
+    and "fun withMuxProfile(" in files["adaptation"]
+    and "fun applyUserChoice(" in files["adaptation"]
+    and "fun muxIsUnsafeFor(" in files["adaptation"]
+    # Blank means "the policies decide", `custom` means "my numbers" — a recipe that cannot tell
+    # those two apart is the bug this chapter exists to fix.
+    and "object FragmentChoice" in files["models"]
+    and "object MuxChoice" in files["models"]
+    and "FragmentProfileChooser(" in files["ui"]
+    and "MuxProfileChooser(" in files["ui"],
+)
+
+check(
+    "V208 the user's recipe is applied after the policies, never overwritten by them",
+    # The order IS the fix: `DpiEvasionPolicy.heal` rewrites the fragment numbers on its way to the
+    # config builder, so a choice applied before it is an input and not a decision.
+    "TransportAdaptation.applyUserChoice(" in files["repo"]
+    and files["repo"].index("TransportAdaptation.applyUserChoice(")
+    > files["repo"].index("DpiEvasionPolicy.heal"),
+)
+
+check(
+    "V208 the Fragment & Mux wire mapping matches the pinned sing-box schema",
+    "object SingBoxTransportPolicy" in files["singBoxWirePolicy"]
+    and 'const val RecordFragmentKey: String = "record_fragment"' in files["singBoxWirePolicy"]
+    and 'const val FragmentKey: String = "fragment"' in files["singBoxWirePolicy"]
+    and 'const val FallbackDelayKey: String = "fragment_fallback_delay"'
+    in files["singBoxWirePolicy"]
+    and 'const val MultiplexField: String = "multiplex"' in files["singBoxWirePolicy"]
+    # A misspelt key is not a warning: the core refuses to decode the outbound.
+    and "tls.put(RecordFragmentKey, true)" in files["singBoxWirePolicy"]
+    and "tls.put(FragmentKey, true)" in files["singBoxWirePolicy"]
+    and "fun applyFragment(" in files["singBoxWirePolicy"]
+    and "fun multiplex(" in files["singBoxWirePolicy"]
+    # `multiplex` is a fatal decode error on an outbound that does not declare it.
+    and 'val MARBLE_SMUX_PROTOCOLS: Set<String> = setOf("vless", "vmess", "trojan", "shadowsocks")'
+    in files["singBoxBuilder"]
+    and "protocol in MARBLE_SMUX_PROTOCOLS" in files["singBoxBuilder"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_SERVER_TILE_LAYOUT_V208
+# ---------------------------------------------------------------------------
+check(
+    "V208 servers can be read as compact boxes on the page and on Home",
+    "object ServerTilePolicy" in files["serverTiles"]
+    and "fun rememberServerTileColumns(" in files["serverTiles"]
+    and "fun ServerTile(" in files["serverTiles"]
+    and "fun ServerTileRow(" in files["serverTiles"]
+    and "ServerTilePolicy.chunkRows(" in files["ui"]
+    and "ServerTilePolicy.chunkRows(" in files["homeStyles"]
+    and "ServerLayout.GRID" in files["ui"],
+)
+
+check(
+    "V208 the layout is a user choice in Settings",
+    "enum class ServerLayout" in files["models"]
+    and "val AppSettings.serversLayoutEnum" in files["models"]
+    and "fun parseServerLayout(" in files["models"]
+    and "serversLayout = layout.id" in files["ui"]
+    and "fun ServerLayoutChoice(" in files["ui"]
+    and "SERVER_TILE_LAYOUT_V208.md" in files["readme"],
+)
+
+check(
+    "V208 the four chapters of this pass are written down",
+    all(
+        marker in files["readme"]
+        for marker in (
+            "FRAGMENT_PROFILES_V208.md",
+            "SERVER_TILE_LAYOUT_V208.md",
+            "HOME_ONE_PING_V208.md",
+            "SETTINGS_ONE_LINE_COPY_V208.md",
+        )
+    )
+    and "MARBLE_FRAGMENT_PROFILES_V208" in files["fragmentProfileDoc"]
+    and "MARBLE_SERVER_TILE_LAYOUT_V208" in files["serverTileDoc"]
+    and "MARBLE_HOME_ONE_PING_V208" in files["homeOnePingDoc"]
+    and "MARBLE_SETTINGS_ONE_LINE_COPY_V208" in files["settingsCopyDoc"],
 )
 
 # ---------------------------------------------------------------------------
@@ -3249,7 +3383,11 @@ check(
     and "LocalMarbleAmbientField provides repo.settings.homeAmbientBackdrop" in files["ui"]
     and 'title = "Ambient page motion"' in files["ui"]
     and "LocalMarbleAmbientField.current" in files["design"]
-    and files["homeStyles"].count("LocalMarbleAmbientField.current") >= 2
+    # MARBLE_HOME_ONE_PING_V208 removed the second consumer (the header's heartbeat trace, deleted
+    # with the rest of the header ping), so the count this can demand here is one — the field is
+    # still provided once above the pages and asked in the design system, the Studio chrome and
+    # the Atelier cards rather than threaded through signatures.
+    and files["homeStyles"].count("LocalMarbleAmbientField.current") >= 1
     and "LocalMarbleAmbientField.current" in files["homeAtelier"],
 )
 check(

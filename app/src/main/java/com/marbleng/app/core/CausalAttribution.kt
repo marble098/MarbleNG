@@ -279,3 +279,45 @@ object CausalAttribution {
         AttributedCause.NORMAL_CONGESTION -> "normal-congestion"
     }
 }
+
+/**
+ * MARBLE_HOME_ONE_PING_V208 — when the national-filtering banner is allowed to go away.
+ *
+ * The finding: the banner's visibility was `nationalEventCause.isNotEmpty()`, and the only writer
+ * of that value was the completion of a connection ping, which set it to `""` whenever the new
+ * attribution did not name a national event. So the act of *measuring* — the ping button on the
+ * Home header — could delete the alert about the network: the user taps ping, the red box at the
+ * top of the page vanishes, and the next attribution brings it back. A warning that disappears
+ * because you asked a question is worse than no warning, and "the box went away and came back" is
+ * exactly what that looked like from the chair.
+ *
+ * The rule is hysteresis, and it is deliberately one-directional: a *positive* attribution always
+ * replaces the banner immediately (the alert must never be late), while an *absence* of evidence
+ * only clears it once the new measurement is confident enough to be believed. A single ping that
+ * happens to see nothing is not proof that a national filtering event ended.
+ */
+object NationalEventBannerPolicy {
+    /**
+     * How confident a "nothing is happening" measurement must be before it may retire the banner.
+     *
+     * [CausalAttribution] reports 0.6 for its weakest non-diverse attribution, so this sits just
+     * above it: a real measurement with a clear verdict retires the banner, and an inconclusive
+     * one leaves the warning standing.
+     */
+    const val ClearConfidence: Double = 0.6
+
+    /**
+     * The cause the banner shows next.
+     *
+     * @param previous the cause on screen now ("" when the banner is hidden)
+     * @param freeze true when the new attribution names a ranking-freezing cause
+     * @param cause the new attribution's short key ("" when there was no attribution)
+     * @param confidence the new attribution's confidence, 0..1
+     */
+    fun next(previous: String, freeze: Boolean, cause: String, confidence: Double): String = when {
+        freeze && cause.isNotBlank() -> cause
+        previous.isBlank() -> ""
+        confidence >= ClearConfidence && !freeze -> ""
+        else -> previous
+    }
+}

@@ -93,6 +93,18 @@ internal fun HomeThemeAtelier(
         NationalEventBanner(repo = repo)
         RouteConnectCard(evidence = evidence, actions = actions)
         RouteSelectedServerCard(evidence = evidence, actions = actions)
+        // MARBLE_SERVER_TILE_LAYOUT_V208 — the page that names the route also lets you change it.
+        // The route presentation had no server list at all, so choosing a different server meant
+        // leaving Home; the shared library box (rows or tiles, whichever the user picked in
+        // Settings) is composed here exactly as the other presentations compose it, so the
+        // presentation gains a feature without growing a private one.
+        IosServerListBox(
+            repo = repo,
+            evidence = evidence,
+            actions = actions,
+            modifier = Modifier.fillMaxWidth(),
+            maxListHeight = 340.dp
+        )
         if (repo.settings.homeShowLiveQuality) {
             RouteQualityCard(repo = repo, evidence = evidence)
         }
@@ -197,10 +209,11 @@ private fun RouteConnectCard(evidence: HomeEvidence, actions: HomeActions) {
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
-                    // The corrective action is the measurement again: this line only exists when the
-                    // last answer was a failure, so "retry" means "run the probe that just failed".
+                    // The corrective action is the measurement again: this line only exists when
+                    // the last answer was a failure, so "retry" means "measure again" — and on this
+                    // page that is exactly one verb, the header's group ping (MARBLE_HOME_ONE_PING_V208).
                     PrismIconButton(
-                        onClick = { actions.onTestPing() },
+                        onClick = { actions.onPingGroup() },
                         tone = Aether.Danger,
                         size = 30.dp,
                         descriptiveLabel = "Measure the route again"

@@ -593,6 +593,10 @@ class AppStore(context: Context) {
         serversOnlyReachable = prefs.getBoolean("serversOnlyReachable", false),
         serversMaxPingMs = prefs.getInt("serversMaxPingMs", 0).coerceAtLeast(0),
         serversGroupByCountry = prefs.getBoolean("serversGroupByCountry", false),
+        // MARBLE_SERVER_TILE_LAYOUT_V208 — rows are the shipped default, so an install that
+        // never chose opens on rows and an install that chose tiles keeps them.
+        serversLayout = prefs.getString("serversLayout", ServerLayout.DEFAULT.id)
+            ?: ServerLayout.DEFAULT.id,
 
         rememberLast = prefs.getBoolean("rememberLast", true),
         subscriptionAutoRefresh = prefs.getBoolean("subscriptionAutoRefresh", true),
@@ -681,6 +685,12 @@ class AppStore(context: Context) {
         fragmentInnerLength = prefs.getString("fragmentInnerLength", "1") ?: "1",
         fragmentInnerInterval = prefs.getString("fragmentInnerInterval", "4") ?: "4",
         fragmentInnerMaxSplit = prefs.getString("fragmentInnerMaxSplit", "517") ?: "517",
+        // MARBLE_FRAGMENT_PROFILES_V208 — the recipe behind those eight values. A build that
+        // never stored one resolves to "off", which is exactly what the fields it inherited say.
+        fragmentProfileId = prefs.getString("fragmentProfileId", FragmentChoice.NO_CHOICE)
+            ?: FragmentChoice.NO_CHOICE,
+        muxProfileId = prefs.getString("muxProfileId", MuxChoice.NO_CHOICE)
+            ?: MuxChoice.NO_CHOICE,
 
 
         // doh.sb is intentionally absent: its addresses are not stable enough to pin in Xray
@@ -882,6 +892,7 @@ class AppStore(context: Context) {
         .putBoolean("serversOnlyReachable", s.serversOnlyReachable)
         .putInt("serversMaxPingMs", s.serversMaxPingMs.coerceAtLeast(0))
         .putBoolean("serversGroupByCountry", s.serversGroupByCountry)
+        .putString("serversLayout", s.serversLayout)
 
         .putBoolean("rememberLast", s.rememberLast)
         .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)
@@ -959,6 +970,8 @@ class AppStore(context: Context) {
         .putString("fragmentInnerLength", s.fragmentInnerLength)
         .putString("fragmentInnerInterval", s.fragmentInnerInterval)
         .putString("fragmentInnerMaxSplit", s.fragmentInnerMaxSplit)
+        .putString("fragmentProfileId", s.fragmentProfileId)
+        .putString("muxProfileId", s.muxProfileId)
 
 
 
