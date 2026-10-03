@@ -192,6 +192,12 @@ import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.core.AutoServerSelector
 import com.marbleng.app.core.TransportAdaptation
+// MARBLE_FRAGMENT_PROFILES_V208 — the ready recipes the Fragment & Mux page now offers,
+// their ladder order, and the one-sentence summary each row prints.
+import com.marbleng.app.core.FragmentLadder
+import com.marbleng.app.core.FragmentProfile
+import com.marbleng.app.core.MuxProfile
+import com.marbleng.app.core.summary
 import com.marbleng.app.core.TransportPair
 import com.marbleng.app.core.TransportMemoryRecord
 import com.marbleng.app.core.dayPartOf
@@ -863,11 +869,11 @@ fun Aether2026App(
                                 val report = repo.privacy
                                 when {
                                     repo.state != "CONNECTED" ->
-                                        "Connect first. Privacy audit uses the active proxy path."
+                                        "Connect first — the audit runs through the active proxy path."
                                     repo.busy && report == null ->
                                         "Running IPv4/IPv6 privacy audit through the active proxy route…"
                                     report == null ->
-                                        "No privacy report yet. Tap Privacy after the tunnel is healthy."
+                                        "No privacy report yet — tap Privacy once the tunnel is healthy."
                                     else -> buildString {
                                         append("ANTI-IP LEAK SCORE\n")
                                         append("${report.ipLeakScore}%")
@@ -4312,6 +4318,12 @@ private fun CyberLibrary(
 
     // ------------------------------------------------------------------- page
 
+    // MARBLE_SERVER_TILE_LAYOUT_V208 — the one preference that decides how a server is drawn on
+    // this page, resolved once for the whole list: rows (one server per line) or tiles (a small
+    // box per server, as many per line as this window fits).
+    val tileLayout = settings.serversLayoutEnum == ServerLayout.GRID
+    val tileColumns = rememberServerTileColumns()
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         state = listState,
@@ -4468,8 +4480,10 @@ private fun CyberLibrary(
                 else -> group.profiles.size
             }
 
-            // The header is the top of the group's box; the rows below close it.
-            val stacked = !collapsed && group.profiles.isNotEmpty()
+            // The header is the top of the group's box; the rows below close it. In the tile
+            // presentation the servers are separate cards, so the header is a whole card on its
+            // own and must not round itself for a nested block that is not there.
+            val stacked = !tileLayout && !collapsed && group.profiles.isNotEmpty()
 
             item(key = "group-${group.key}") {
                 // MARBLE_EXPRESSIVE_MOTION_V186 — group boxes cascade on first open: each header
@@ -4544,7 +4558,56 @@ private fun CyberLibrary(
             // header already carries the exact count ("N servers • M shown"), so the old
             // "N servers hidden" line duplicated that fact in vaguer words and is gone for good:
             // no folded placeholder row, no hidden-count copy anywhere on this page.
-            if (!collapsed) {
+            if (tileLayout && !collapsed) {
+                /*
+                 * MARBLE_SERVER_TILE_LAYOUT_V208 — the box presentation of the same list.
+                 *
+                 * A LazyColumn cannot hand a grid its own cells, so the group's servers are
+                 * chunked into lines of [tileColumns] and each line is one item: the list keeps
+                 * its keys, its recycling and its `animateItem` glides, and a reorder still moves
+                 * one line instead of rebuilding the group. The tap is the row's tap — select,
+                 * and connect only when a tunnel is already up — so the two presentations cannot
+                 * disagree about what a server does.
+                 */
+                val tileRows = ServerTilePolicy.chunkRows(group.profiles, tileColumns)
+                itemsIndexed(
+                    items = tileRows,
+                    key = { rowIndex, row -> "${group.key}:tiles:${rowIndex}:${row.first().id}" }
+                ) { rowIndex, row ->
+                    Box(
+                        Modifier
+                            .animateItem()
+                            .marbleStaggerIn(rowIndex + 1, enabled = entranceArmed() && rowIndex < 6)
+                    ) {
+                        ServerTileRow(profiles = row, columns = tileColumns) { profile ->
+                            val location = repo.serverLocation(profile)
+                            ServerTile(
+                                profile = profile,
+                                result = benchmarks[profile.id],
+                                selected = repo.isSelectedProfile(profile),
+                                active = repo.isActiveProfile(profile),
+                                testing = repo.probeStateOf(profile.id) == ProbeState.TESTING,
+                                locationCode = location.code,
+                                locationProvisional = repo.serverLocationIsProvisional(profile),
+                                onClick = {
+                                    if (repo.probeActive || repo.probeCancelling) {
+                                        repo.setRuntimeMessage(
+                                            "Wait until ping finishes before changing server"
+                                        )
+                                    } else if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
+                                        onConnect(profile)
+                                    } else {
+                                        repo.selectProfile(profile)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // MARBLE_SERVERS_NO_HIDDEN_LINE_V144 — a folded group shows its header only.
+            if (!tileLayout && !collapsed) {
                 itemsIndexed(
                     items = group.profiles,
                     key = { _, profile -> "${group.key}:${profile.id}" }
@@ -7157,9 +7220,8 @@ private fun IpFamilyGroupDialog(summary: IpFamilySummary, onDismiss: () -> Unit)
                 Text(
                     if (summary.ipv6Capable == 0) {
                         trx(
-                            "No server in this group answered over IPv6. Force IPv6 will dial " +
-                                "them over IPv4 and keep IPv6 for destinations, so nothing is " +
-                                "blocked."
+                            "No server in this group answered over IPv6, so Force IPv6 dials " +
+                                "them over IPv4 and keeps IPv6 for destinations."
                         )
                     } else {
                         trx(
@@ -7534,7 +7596,7 @@ private fun ManualBucketCleanupDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    trx("Servers you added yourself live here. They are never replaced by a subscription refresh."),
+                    trx("Servers you added yourself live here and are never replaced by a subscription refresh."),
                     color = Aether.InkMuted,
                     style = settingsBodyStyle()
                 )
@@ -9572,6 +9634,8 @@ private fun DockPulseLiveCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            // MARBLE_HOME_ONE_PING_V208 — the fourth tab's ping pill runs the same single verb
+            // the Home header runs: measure the group the route on screen belongs to.
             Row(
                 modifier = Modifier
                     .clip(ServersPillShape)
@@ -9579,7 +9643,7 @@ private fun DockPulseLiveCard(
                     .kineticClickable(
                         role = Role.Button,
                         boundedShape = ServersPillShape,
-                        onClick = { actions.onTestPing() }
+                        onClick = { actions.onPingGroup() }
                     )
                     .padding(horizontal = 11.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -9716,8 +9780,8 @@ private fun DockPulseQualityCard(repo: AppRepository, deck: DeckEvidence) {
         }
         Text(
             trx(
-                "The score is the live route's own verdict — throughput, delay and steadiness " +
-                    "measured while you use it. Ping the route to refresh it."
+                "The score is the live route's own verdict — throughput, delay and steadiness "
+                    + "measured while you use it, refreshed by the next ping."
             ),
             color = Aether.InkFaint,
             style = MaterialTheme.typography.labelSmall
@@ -10530,7 +10594,8 @@ private fun SettingsSubPage(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        trx(subtitle),
+                        // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
+                        MarbleCopy.oneSentence(trx(subtitle)),
                         color = Aether.InkFaint,
                         style = settingsBodyStyle(),
                         maxLines = 2,
@@ -10625,7 +10690,8 @@ private fun SettingsHubCard(
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(
-                    trx(subtitle),
+                    // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
+                    MarbleCopy.oneSentence(trx(subtitle)),
                     color = Aether.InkFaint,
                     style = settingsBodyStyle(),
                     maxLines = 2,
@@ -10710,7 +10776,8 @@ private fun SettingsHubRow(
                 }
             }
             Text(
-                trx(subtitle),
+                // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
+                MarbleCopy.oneSentence(trx(subtitle)),
                 color = Aether.InkMuted,
                 style = settingsBodyStyle(),
                 maxLines = 2,
@@ -10767,7 +10834,8 @@ private fun SettingsHubSwitch(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                trx(subtitle),
+                // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
+                MarbleCopy.oneSentence(trx(subtitle)),
                 color = Aether.InkMuted,
                 style = settingsBodyStyle(),
                 maxLines = 2,
@@ -12213,9 +12281,9 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
 
     Text(
         if (isXray) {
-            trx("Marble builds a full Xray config from the server link, pins TLS when you asked for it, and hands the SOCKS port to hev-socks5-tunnel. These are the PattNG core options; switch the engine above to change this card.")
+            trx("PattNG core options — switch the engine above to change this card.")
         } else {
-            trx("The extended core speaks WARP, MASQUE, MTProxy, Mieru, TrustTunnel and the standard protocols. A node it cannot run is reported on the server with the reason, never silently dropped. These are the Exclave core options; switch the engine above to change this card.")
+            trx("Exclave core options for WARP, MASQUE, MTProxy, Mieru and TrustTunnel — switch the engine above to change this card.")
         },
         color = Aether.InkMuted,
         style = settingsBodyStyle()
@@ -12336,8 +12404,8 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
         ) { repo.updateSettings(repo.settings.copy(allowUnencryptedPublicOutbound = it)) }
         Text(
             trx(
-                "Unencrypted traffic is readable by your ISP. Marble labels it on the server row " +
-                    "and never rewrites your node."
+                "Unencrypted traffic is readable by your ISP, and Marble labels it on the " +
+                    "server row without rewriting your node."
             ),
             color = Aether.InkMuted,
             style = settingsBodyStyle()
@@ -12345,19 +12413,19 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     } else {
         SettingSwitch(
             title = trx("Prefer link parser"),
-            subtitle = trx("Hand the original vless://, trojan:// or ss:// link to the extended core's own parser. Turn this off if a node behaves differently through it."),
+            subtitle = trx("Hand the original link to the extended core's own parser."),
             checked = s.singBoxPreferParser,
             onChecked = { repo.updateSettings(repo.settings.copy(singBoxPreferParser = it)) }
         )
         SettingSwitch(
             title = trx("Unified delay"),
-            subtitle = trx("Measure a real round trip instead of trusting a cached handshake. Also what makes URL test comparable to Real delay."),
+            subtitle = trx("Measure a real round trip instead of trusting a cached handshake."),
             checked = s.singBoxUnifiedDelay,
             onChecked = { repo.updateSettings(repo.settings.copy(singBoxUnifiedDelay = it)) }
         )
         SettingSwitch(
             title = trx("Cache file"),
-            subtitle = trx("Remember resolved addresses and DNS answers between runs. Turn off to write nothing to disk."),
+            subtitle = trx("Remember resolved addresses and DNS answers between runs."),
             checked = s.singBoxCacheFile,
             onChecked = { repo.updateSettings(repo.settings.copy(singBoxCacheFile = it)) }
         )
@@ -12853,6 +12921,14 @@ private fun settingsSections(
             // MARBLE_MODULAR_CUSTOMIZER_V151 — Home style 4 can hide its Customize affordance.
             // The switch that hides it lives in the customizer itself, so the way back has to live
             // somewhere that is always reachable: here.
+            // MARBLE_SERVER_TILE_LAYOUT_V208 — one preference for both lists: how a single
+            // server is drawn on the Servers page and in the Home server box.
+            card(
+                "Server cards",
+                serverLayoutSubtitle(repo.settings),
+                HomeIcon.SERVER,
+                Aether.Amethyst
+            ) { ServerLayoutChoice(repo) },
             card(
                 "Home layout",
                 if (repo.settings.modularHideCustomizerButton) {
@@ -12865,7 +12941,7 @@ private fun settingsSections(
             ) {
                 SettingSwitch(
                     title = "Show the Customize button",
-                    subtitle = "Home style 4 keeps a Customize row at the top of the page. Turn this off for a clean page; this switch is how it comes back.",
+                    subtitle = "Show the Customize row at the top of Home style 4.",
                     checked = !repo.settings.modularHideCustomizerButton,
                     onChecked = { repo.updateSettings(repo.settings.copy(modularHideCustomizerButton = !it)) }
                 )
@@ -13019,7 +13095,7 @@ private fun settingsSections(
                         onValue = { repo.setDelayTestUrl(it) }
                     )
                     Text(
-                        trx("Real delay opens this address through the tunnel and times it. A small, always-reachable page gives the most comparable numbers; an https address is required because sing-box discards plain http."),
+                        trx("The https address Real delay opens through the tunnel and times."),
                         color = Aether.InkFaint,
                         style = settingsBodyStyle()
                     )
@@ -13138,7 +13214,8 @@ private fun SettingsSectionCard(
                 )
                 if(subtitle.isNotBlank()) {
                     Text(
-                        trx(subtitle),
+                        // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
+                        MarbleCopy.oneSentence(trx(subtitle)),
                         color=Aether.InkMuted,
                         style=MaterialTheme.typography.bodySmall,
                         maxLines=1,
@@ -13379,13 +13456,13 @@ private fun BackgroundAccessSettings(repo: AppRepository) {
 
     if (granted) {
         Text(
-            trx("MarbleNG already has unrestricted background activity. The tunnel is allowed to stay alive with the screen off, so background interruptions are not a battery-optimization problem."),
+            trx("Unrestricted background activity is already granted, so the tunnel may stay alive with the screen off."),
             color = Aether.InkMuted,
             style = MaterialTheme.typography.bodySmall
         )
     } else {
         Text(
-            trx("If your VPN is interrupted while the app is in the background, grant MarbleNG unrestricted background activity. One tap opens Android's own page and the exemption applies the moment you confirm."),
+            trx("One tap opens Android's own page to grant unrestricted background activity."),
             color = Aether.InkMuted,
             style = MaterialTheme.typography.bodySmall
         )
@@ -13895,6 +13972,24 @@ private fun SettingsTransportPage(
         // that opens with inputs instead of with the state those inputs produced makes the
         // user infer the state — which is exactly how the two old cards read as contradictory.
         FragmentMuxWireCard(repo)
+        // MARBLE_FRAGMENT_PROFILES_V208 — the recipes come before the learner and before the
+        // raw numbers, because that is the order the questions are actually asked: "which
+        // recipe?" is answerable from a list of named shapes, "which numbers?" is not. The raw
+        // fields still exist, one card down, as the Custom recipe.
+        SettingsHubCard(
+            title = trx("Fragment profile"),
+            subtitle = trx(fragmentProfileSubtitle(repo.settings)),
+            tone = Aether.Amber
+        ) {
+            FragmentProfileChooser(repo)
+        }
+        SettingsHubCard(
+            title = trx("Mux profile"),
+            subtitle = trx(muxProfileSubtitle(repo.settings)),
+            tone = Aether.CyanBright
+        ) {
+            MuxProfileChooser(repo)
+        }
         SettingsHubCard(
             title = trx("Learner"),
             subtitle = if (repo.settings.transportAdaptationEnabled) {
@@ -13906,17 +14001,338 @@ private fun SettingsTransportPage(
         ) {
             TransportAdaptationSettings(repo)
         }
-        SettingsHubCard(
-            title = trx("Values"),
-            subtitle = if (transportLearnerOwnsWire(repo.settings)) {
-                trx("Fallback when the learner has nothing yet")
-            } else {
-                trx("What goes on the wire")
-            },
-            tone = Aether.Amber
+        // The eight raw fields are the Custom recipe: reachable in one tap from either chooser,
+        // and shown only while Custom is what the wire is running, so the page is not a wall of
+        // numbers nobody can interpret.
+        if (FragmentChoice.isCustom(repo.settings.fragmentProfileId) ||
+            MuxChoice.isCustom(repo.settings.muxProfileId)
         ) {
-            FragmentMuxSettings(repo)
+            SettingsHubCard(
+                title = trx("Custom values"),
+                subtitle = if (transportLearnerOwnsWire(repo.settings)) {
+                    trx("Fallback when the learner has nothing yet")
+                } else {
+                    trx("What goes on the wire")
+                },
+                tone = Aether.Amber
+            ) {
+                FragmentMuxSettings(repo)
+            }
         }
+    }
+}
+
+/** MARBLE_FRAGMENT_PROFILES_V208 — the one line the fragment card answers before it is read. */
+private fun fragmentProfileSubtitle(settings: AppSettings): String {
+    val pair = TransportAdaptation.selectedFragment(settings)
+    return when {
+        transportLearnerOwnsWire(settings) -> "Learner is choosing • ${pair.label} is its fallback"
+        FragmentChoice.isNoChoice(settings.fragmentProfileId) ->
+            "Automatic • ${pair.label} is being applied"
+        FragmentChoice.isCustom(settings.fragmentProfileId) -> "Custom • ${pair.label}"
+        else -> pair.label
+    }
+}
+
+/** The Mux twin of [fragmentProfileSubtitle]. */
+private fun muxProfileSubtitle(settings: AppSettings): String {
+    val mux = TransportAdaptation.selectedMux(settings)
+    return when {
+        transportLearnerOwnsWire(settings) -> "Learner is choosing • ${mux.label} is its fallback"
+        MuxChoice.isNoChoice(settings.muxProfileId) -> "Automatic • ${mux.label} is being applied"
+        MuxChoice.isCustom(settings.muxProfileId) -> "Custom • ${mux.label}"
+        else -> mux.label
+    }
+}
+
+/**
+ * MARBLE_FRAGMENT_PROFILES_V208 — the ready recipes, as a list a person can choose from.
+ *
+ * What this replaces: eight `FragmentProfile` recipes existed in the core and *none* of them
+ * was reachable from the UI. The only controls were four raw core parameters — `tlshello`,
+ * `100-200`, `10-20`, `517` — which is a config file, not a settings page. So the feature read
+ * as broken: there was nothing to pick, and the numbers that were there get rewritten by the
+ * automatic policies on their way to the core anyway.
+ *
+ * The ladder is shown in its own order (mild → aggressive) with the cost of each rung stated in
+ * one sentence, and "Custom" is one entry in the same list rather than a separate mode — the
+ * user never has to understand that a chooser and a text field are the same setting.
+ */
+@Composable
+private fun FragmentProfileChooser(repo: AppRepository) {
+    val settings = repo.settings
+    val current = TransportAdaptation.selectedFragment(settings)
+    val custom = FragmentChoice.isCustom(settings.fragmentProfileId)
+    FragmentLadder.forEach { profile ->
+        TransportProfileRow(
+            title = profile.label,
+            summary = profile.summary,
+            selected = !custom && current == profile,
+            tone = Aether.Amber,
+            strength = profile.strength,
+            maxStrength = FragmentProfile.EXTREME.strength,
+            onClick = { repo.chooseFragmentProfile(profile.id) }
+        )
+    }
+    TransportProfileRow(
+        title = "Custom",
+        summary = "Set packets, length and interval yourself",
+        selected = custom,
+        tone = Aether.Amber,
+        strength = -1,
+        maxStrength = FragmentProfile.EXTREME.strength,
+        onClick = { repo.chooseFragmentProfile(FragmentChoice.CUSTOM) }
+    )
+}
+
+/** The Mux twin of [FragmentProfileChooser]. */
+@Composable
+private fun MuxProfileChooser(repo: AppRepository) {
+    val settings = repo.settings
+    val current = TransportAdaptation.selectedMux(settings)
+    val custom = MuxChoice.isCustom(settings.muxProfileId)
+    MuxProfile.entries.forEach { profile ->
+        TransportProfileRow(
+            title = profile.label,
+            summary = profile.summary,
+            selected = !custom && current == profile,
+            tone = Aether.CyanBright,
+            strength = profile.weight,
+            maxStrength = MuxProfile.entries.maxOf { it.weight },
+            onClick = { repo.chooseMuxProfile(profile.id) }
+        )
+    }
+    TransportProfileRow(
+        title = "Custom",
+        summary = "Set the stream counts yourself",
+        selected = custom,
+        tone = Aether.CyanBright,
+        strength = -1,
+        maxStrength = MuxProfile.entries.maxOf { it.weight },
+        onClick = { repo.chooseMuxProfile(MuxChoice.CUSTOM) }
+    )
+}
+
+/** MARBLE_SERVER_TILE_LAYOUT_V208 — the one line the Server cards card answers by itself. */
+private fun serverLayoutSubtitle(settings: AppSettings): String =
+    if (settings.serversLayoutEnum == ServerLayout.GRID) {
+        "Compact boxes • several servers per line"
+    } else {
+        "Rows • one server per line"
+    }
+
+/** The name of one server silhouette, as the chooser prints it. */
+@Composable
+private fun serverLayoutLabel(layout: ServerLayout): String = when (layout) {
+    ServerLayout.ROW -> trx("Rows")
+    ServerLayout.GRID -> trx("Compact boxes")
+}
+
+/**
+ * MARBLE_SERVER_TILE_LAYOUT_V208 — rows or boxes.
+ *
+ * Both choices are drawn here, at the size they will actually appear, because "row" and "grid"
+ * are words that mean nothing until you have seen the two: a chooser for a *shape* has to show
+ * the shape. The choice is one preference ([com.marbleng.app.model.AppSettings.serversLayout])
+ * read by both lists, so it cannot put the two pages in different layouts.
+ */
+@Composable
+private fun ServerLayoutChoice(repo: AppRepository) {
+    val current = repo.settings.serversLayoutEnum
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ServerLayout.entries.forEach { layout ->
+            val selected = current == layout
+            val shape = RoundedCornerShape(13.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(shape)
+                    .background(if (selected) Aether.Amethyst.copy(alpha = .10f) else homeCloudInsetFill())
+                    .border(
+                        1.dp,
+                        if (selected) Aether.Amethyst.copy(alpha = .40f) else homeCloudInsetBorder(),
+                        shape
+                    )
+                    .kineticClickable(role = Role.RadioButton, boundedShape = shape) {
+                        repo.updateSettings(repo.settings.copy(serversLayout = layout.id))
+                    }
+                    .padding(horizontal = 10.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ServerLayoutPreview(layout = layout, tone = Aether.Amethyst, active = selected)
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    Text(
+                        serverLayoutLabel(layout),
+                        color = if (selected) Aether.Amethyst else Aether.Ink,
+                        style = settingsRowTitleStyle(),
+                        maxLines = 1
+                    )
+                    Text(
+                        // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one choice, one sentence.
+                        MarbleCopy.oneSentence(
+                            trx(serverLayoutDetail(layout))
+                        ),
+                        color = Aether.InkMuted,
+                        style = settingsBodyStyle(),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Box(
+                    Modifier
+                        .size(9.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) Aether.Amethyst else Aether.InkFaint.copy(alpha = .30f))
+                )
+            }
+        }
+    }
+}
+
+/** The one sentence that tells the two silhouettes apart. */
+@Composable
+private fun serverLayoutDetail(layout: ServerLayout): String = when (layout) {
+    ServerLayout.ROW -> "One server per line, with its full address and actions"
+    ServerLayout.GRID -> "Small cards, as many per line as your screen fits"
+}
+
+/**
+ * The shape, drawn: two stacked bars for rows, four squares for boxes.
+ *
+ * It is deliberately crude — a preview that tries to look like the real list would have to be
+ * maintained beside it, and a chooser only has to make the two options distinguishable at a
+ * glance.
+ */
+@Composable
+private fun ServerLayoutPreview(layout: ServerLayout, tone: Color, active: Boolean) {
+    val ink = if (active) tone else Aether.InkFaint
+    val barShape = RoundedCornerShape(3.dp)
+    Box(
+        modifier = Modifier
+            .size(width = 34.dp, height = 30.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Aether.Glass.copy(alpha = .35f)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (layout == ServerLayout.ROW) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                repeat(3) { index ->
+                    Box(
+                        Modifier
+                            .width(if (index == 1) 20.dp else 24.dp)
+                            .height(3.dp)
+                            .clip(barShape)
+                            .background(ink.copy(alpha = if (index == 0) .9f else .45f))
+                    )
+                }
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                repeat(2) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        repeat(2) {
+                            Box(
+                                Modifier
+                                    .size(11.dp)
+                                    .clip(barShape)
+                                    .background(ink.copy(alpha = .55f))
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One recipe row: a name, the one sentence that says what it does, and a cost ladder.
+ *
+ * The ladder is the honest part — fragmentation is not free, and a chooser that hides the price
+ * of each rung invites the user to pick the most aggressive one "to be safe" and then pay for it
+ * in throughput on a link that needed nothing. A negative [strength] draws no ladder at all
+ * (that is the Custom row, whose cost is whatever the user typed).
+ */
+@Composable
+private fun TransportProfileRow(
+    title: String,
+    summary: String,
+    selected: Boolean,
+    tone: Color,
+    strength: Int,
+    maxStrength: Int,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(13.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) tone.copy(alpha = .10f) else homeCloudInsetFill())
+            .border(
+                1.dp,
+                if (selected) tone.copy(alpha = .40f) else homeCloudInsetBorder(),
+                shape
+            )
+            .kineticClickable(role = Role.RadioButton, boundedShape = shape, onClick = onClick)
+            .semantics {
+                contentDescription = "${trx(title)}، ${MarbleCopy.oneSentence(trx(summary))}"
+            }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Column(
+            Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Text(
+                trx(title),
+                color = if (selected) tone else Aether.Ink,
+                style = settingsRowTitleStyle(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one recipe, one sentence, enforced here
+                // rather than trusted to whoever writes the next summary.
+                MarbleCopy.oneSentence(trx(summary)),
+                color = Aether.InkMuted,
+                style = settingsBodyStyle(),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (strength >= 0 && maxStrength > 0) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                repeat(maxStrength) { index ->
+                    Box(
+                        Modifier
+                            .padding(top = 6.dp)
+                            .width(3.dp)
+                            .height((5 + index * 2).dp)
+                            .clip(RoundedCornerShape(1.dp))
+                            .background(
+                                if (index < strength) {
+                                    tone.copy(alpha = .85f)
+                                } else {
+                                    Aether.InkFaint.copy(alpha = .28f)
+                                }
+                            )
+                    )
+                }
+            }
+        }
+        Box(
+            Modifier
+                .size(9.dp)
+                .clip(CircleShape)
+                .background(if (selected) tone else Aether.InkFaint.copy(alpha = .30f))
+        )
     }
 }
 
@@ -14047,8 +14463,17 @@ private fun FragmentMuxSettings(repo: AppRepository) {
         title = "TLS ClientHello fragmentation",
         subtitle = "Split the first packet on dial",
         checked = repo.settings.fragmentEnabled
-    ) {
-        repo.updateSettings(repo.settings.copy(fragmentEnabled = it))
+    ) { enabled ->
+        // MARBLE_FRAGMENT_PROFILES_V208 — the switch and the chooser are one setting, so they
+        // must not be able to disagree: switching fragmentation off IS choosing the Off recipe,
+        // and switching it on with hand-typed numbers IS choosing Custom.
+        repo.updateSettings(
+            if (enabled) {
+                repo.settings.copy(fragmentEnabled = true, fragmentProfileId = FragmentChoice.CUSTOM)
+            } else {
+                TransportAdaptation.withFragmentProfile(repo.settings, FragmentProfile.OFF)
+            }
+        )
     }
 
     AnimatedVisibility(repo.settings.fragmentEnabled) {
@@ -14060,7 +14485,8 @@ private fun FragmentMuxSettings(repo: AppRepository) {
                     modifier = Modifier.weight(1f)
                 ) {
                     repo.updateSettings(
-                        repo.settings.copy(fragmentPackets = it),
+                        // Hand-editing a value is choosing Custom, whichever recipe was named.
+                        repo.settings.copy(fragmentPackets = it, fragmentProfileId = FragmentChoice.CUSTOM),
                         coalesceWrite = true
                     )
                 }
@@ -14070,7 +14496,8 @@ private fun FragmentMuxSettings(repo: AppRepository) {
                     modifier = Modifier.weight(1f)
                 ) {
                     repo.updateSettings(
-                        repo.settings.copy(fragmentLength = it),
+                        // Hand-editing a value is choosing Custom, whichever recipe was named.
+                        repo.settings.copy(fragmentLength = it, fragmentProfileId = FragmentChoice.CUSTOM),
                         coalesceWrite = true
                     )
                 }
@@ -14080,7 +14507,8 @@ private fun FragmentMuxSettings(repo: AppRepository) {
                     modifier = Modifier.weight(1f)
                 ) {
                     repo.updateSettings(
-                        repo.settings.copy(fragmentInterval = it),
+                        // Hand-editing a value is choosing Custom, whichever recipe was named.
+                        repo.settings.copy(fragmentInterval = it, fragmentProfileId = FragmentChoice.CUSTOM),
                         coalesceWrite = true
                     )
                 }
@@ -14108,21 +14536,27 @@ private fun FragmentMuxSettings(repo: AppRepository) {
         title = "Mux / XUDP",
         subtitle = "Reuse connections for small streams",
         checked = repo.settings.muxEnabled
-    ) {
-        repo.updateSettings(repo.settings.copy(muxEnabled = it))
+    ) { enabled ->
+        repo.updateSettings(
+            if (enabled) {
+                repo.settings.copy(muxEnabled = true, muxProfileId = MuxChoice.CUSTOM)
+            } else {
+                TransportAdaptation.withMuxProfile(repo.settings, MuxProfile.OFF)
+            }
+        )
     }
 
     AnimatedVisibility(repo.settings.muxEnabled) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            NumberSetting("TCP concurrency", repo.settings.muxConcurrency, 1..128) {
+            NumberSetting("TCP concurrency", repo.settings.muxConcurrency, 1..128) { value ->
                 repo.updateSettings(
-                    repo.settings.copy(muxConcurrency = it),
+                    repo.settings.copy(muxConcurrency = value, muxProfileId = MuxChoice.CUSTOM),
                     coalesceWrite = true
                 )
             }
-            NumberSetting("XUDP concurrency", repo.settings.muxXudpConcurrency, 1..1024) {
+            NumberSetting("XUDP concurrency", repo.settings.muxXudpConcurrency, 1..1024) { value ->
                 repo.updateSettings(
-                    repo.settings.copy(muxXudpConcurrency = it),
+                    repo.settings.copy(muxXudpConcurrency = value, muxProfileId = MuxChoice.CUSTOM),
                     coalesceWrite = true
                 )
             }
@@ -14138,7 +14572,9 @@ private fun FragmentMuxSettings(repo: AppRepository) {
                         selected = repo.settings.muxUdp443 == value,
                         color = Aether.Amethyst
                     ) {
-                        repo.updateSettings(repo.settings.copy(muxUdp443 = value))
+                        repo.updateSettings(
+                            repo.settings.copy(muxUdp443 = value, muxProfileId = MuxChoice.CUSTOM)
+                        )
                     }
                 }
             }
@@ -14218,7 +14654,7 @@ private fun DnsSettings(repo: AppRepository) {
 
     Text(trx("IP version"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     Text(
-        trx("IPv6 sites can use an IPv4-reachable proxy if its exit supports IPv6. Force IPv6 also requires an IPv6-reachable server and network. Changing modes reconnects; Full TUN stays blocked during the switch."),
+        trx("Changing the IPv6 mode reconnects, and Full TUN stays blocked during the switch."),
         color = Aether.InkMuted,
         style = MaterialTheme.typography.bodySmall
     )
@@ -14893,7 +15329,7 @@ private fun RoutingSettings(repo: AppRepository) {
             title = { Text(trx("Apply ${preset.title} preset?"), color = Aether.Ink) },
             text = {
                 Text(
-                    trx("This replaces your current rules with the preset list. Your mode, geo source and expert lists stay untouched."),
+                    trx("Replaces your current rules with the preset list, leaving your mode, geo source and expert lists untouched."),
                     color = Aether.InkMuted
                 )
             },
@@ -15893,7 +16329,7 @@ private fun ProbeSettings(repo: AppRepository) {
     )
 
     Text(
-        trx("Real delay uses your selected core. URL test is sing-box extended's own delay controller and is offered only while that core is selected. TCP ping checks only the endpoint, not the proxy account or tunnel."),
+        trx("URL test needs the extended core; TCP ping checks only the endpoint, not the account or tunnel."),
         color = Aether.InkFaint,
         style = settingsBodyStyle()
     )
@@ -16010,7 +16446,7 @@ private fun ProbeSettings(repo: AppRepository) {
         style = settingsRowTitleStyle()
     )
     Text(
-        trx("Default is about 50% faster sweeps for all three methods. Turn the dial on to choose the speed yourself — from gentler on a weak link to twice as fast."),
+        trx("The default pace is about 50% faster than the classic baseline for every method."),
         color = Aether.InkMuted,
         style = settingsBodyStyle()
     )
@@ -16148,7 +16584,7 @@ private fun ProbeSettings(repo: AppRepository) {
         style = settingsRowTitleStyle()
     )
     Text(
-        trx("Timeout and sample count apply to every method. Servers at once is the direct-method sweep concurrency; Real delay runs one throwaway core per server, so its pool is capped by what this device can carry — the speed dial widens it inside that bound."),
+        trx("Timeout and sample count apply to every method; the width below is the sweep's concurrency."),
         color = Aether.InkMuted,
         style = settingsBodyStyle()
     )
@@ -16177,7 +16613,7 @@ private fun ProbeSettings(repo: AppRepository) {
         style = settingsRowTitleStyle()
     )
     Text(
-        trx("How many servers are measured at the same time. More is faster and noisier: every parallel handshake raises the latency of the others, so a small phone running a wide sweep measures a link that does not exist."),
+        trx("More servers at once is faster but noisier, because parallel handshakes inflate each other."),
         color = Aether.InkMuted,
         style = settingsBodyStyle()
     )
@@ -16202,7 +16638,7 @@ private fun ProbeSettings(repo: AppRepository) {
             style = settingsBodyStyle()
         )
         Text(
-            trx("The number follows this device and is re-read every sweep, so it stays right if you change phones. Real delay spawns one core per server, so it runs narrower than the direct methods on the same device."),
+            trx("The number follows this device and is re-read on every sweep."),
             color = Aether.InkFaint,
             style = settingsBodyStyle()
         )
@@ -16261,7 +16697,7 @@ private fun AutoServerSelectorSettings(repo: AppRepository) {
     val scope = s.autoServerScopeEnum
 
     Text(
-        trx("Let MarbleNG pick the server for you. Everything it knows — latency, congestion, jitter, loss, throughput and how old the evidence is — goes into the choice, and you decide which question it asks."),
+        trx("Let MarbleNG pick the server, from latency, jitter, loss, throughput and how old the evidence is."),
         color = Aether.InkMuted,
         style = settingsBodyStyle()
     )
@@ -16384,7 +16820,7 @@ private fun AutoServerSelectorSettings(repo: AppRepository) {
                 }
             }
             Text(
-                trx("A challenger must beat the current route by this much before it moves. Raise it to stop the route wandering between two servers that measure the same."),
+                trx("How much better a challenger must measure before the selector leaves the current route."),
                 color = Aether.InkFaint,
                 style = settingsBodyStyle()
             )
@@ -16482,7 +16918,7 @@ private fun TransportAdaptationSettings(repo: AppRepository) {
     }
 
     Text(
-        trx("Filtering is not a constant: it belongs to one operator, at one hour, on one link. MarbleNG measures what each one does to fragmented and multiplexed traffic and remembers it."),
+        trx("Measures and remembers what your operator does to fragmented and multiplexed traffic."),
         color = Aether.InkMuted,
         style = settingsBodyStyle()
     )
@@ -16529,7 +16965,7 @@ private fun TransportAdaptationSettings(repo: AppRepository) {
                     when (mode) {
                         TransportProfileMode.OFF -> "Fragment and Mux stay exactly as you set them."
                         TransportProfileMode.AUTO -> "The learned profile for this operator and hour wins; your values are the starting point it improves on."
-                        TransportProfileMode.MANUAL -> "Your values go on the wire. Marble keeps observing, so switching back to Automatic is informed from the first connection."
+                        TransportProfileMode.MANUAL -> "Your values go on the wire while Marble keeps observing in the background."
                     }
                 ),
                 color = Aether.InkFaint,
@@ -16796,7 +17232,7 @@ private fun SettingsDockSlotPage(
                 if (settings.dockSlotEnabled) {
                     "${dockSlotKindLabel(kind)}  •  ${target.displayName.ifBlank { dockSlotKindDetail(kind) }}"
                 } else {
-                    "The fourth tab is hidden. Turn it back on whenever you want it in the bar."
+                    "The fourth tab is hidden — turn it back on to put it in the bar."
                 },
                 color = Aether.InkMuted,
                 style = settingsBodyStyle(),
@@ -17444,7 +17880,7 @@ private fun DockSlotSourcePicker(repo: AppRepository) {
 
         if (repo.subscriptions.isEmpty()) {
             Text(
-                trx("No subscriptions yet. Add one from the Servers page and it appears here."),
+                trx("No subscriptions yet — add one from the Servers page and it appears here."),
                 color = Aether.InkFaint,
                 style = settingsBodyStyle()
             )
@@ -17502,7 +17938,7 @@ private fun DockSlotConfigPicker(repo: AppRepository, target: DockSlotTarget) {
             if (matches.isEmpty()) {
                 Text(
                     if (repo.libraryProfiles.isEmpty()) {
-                        trx("The library is empty. Add a config from the Servers page first.")
+                        trx("The library is empty — add a config from the Servers page first.")
                     } else {
                         trx("No config matches this search.")
                     },
@@ -17872,7 +18308,8 @@ private fun SettingSwitch(
             )
             if (subtitle.isNotBlank()) {
                 Text(
-                    trx(subtitle),
+                    // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
+                    MarbleCopy.oneSentence(trx(subtitle)),
                     color = Aether.InkMuted,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,

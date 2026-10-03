@@ -1,6 +1,8 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.FragmentChoice
+import com.marbleng.app.model.MuxChoice
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.TransportProfileMode
 import org.json.JSONObject
@@ -167,6 +169,39 @@ enum class FragmentProfile(
             entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) } ?: DEFAULT
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARBLE_FRAGMENT_PROFILES_V208 — one sentence per recipe.
+//
+// The chooser in Settings prints these, and the copy rule for the whole product is one option,
+// one sentence (see `MarbleCopy`). A recipe the user cannot picture from its row is a recipe
+// they will never pick, which is how eight working recipes ended up unusable behind four raw
+// numeric fields.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** What turning this recipe on does to the bytes, in the one sentence a settings row allows. */
+val FragmentProfile.summary: String
+    get() = when (this) {
+        FragmentProfile.OFF -> "Packets go out exactly as the app wrote them."
+        FragmentProfile.TLSHELLO -> "Splits the TLS ClientHello across two packets."
+        FragmentProfile.RECORD_SPLIT -> "Splits the handshake into small TLS records."
+        FragmentProfile.GFW_KNOCKER -> "Shreds the first packets into one-to-three byte pieces."
+        FragmentProfile.OFFICIAL_SKIP_CHAIN -> "Splits on the first hop and shreds at 517 on the second."
+        FragmentProfile.FULL_FRAGMENT -> "Shreds every write to a single byte, capped at 517."
+        FragmentProfile.STEEL_CASCADE -> "Splits first, then shreds again on the inner hop."
+        FragmentProfile.EXTREME -> "One byte every two milliseconds, on both hops."
+    }
+
+/** What this multiplexing shape trades, in the one sentence a settings row allows. */
+val MuxProfile.summary: String
+    get() = when (this) {
+        MuxProfile.OFF -> "Every stream opens its own connection."
+        MuxProfile.LIGHT -> "Four streams share one connection."
+        MuxProfile.BALANCED -> "Eight streams share one connection."
+        MuxProfile.THROUGHPUT -> "Sixteen streams share one connection."
+        MuxProfile.UDP_HEAVY -> "Eight streams, and UDP on 443 is allowed through."
+        MuxProfile.STEALTH -> "Two streams, the smallest multiplexing footprint."
+    }
 
 /**
  * Monotonically ordered fragment ladder from mildest to most aggressive.
@@ -725,37 +760,198 @@ object TransportAdaptation {
             muxUdp443 = pair.mux.udp443
         )
 
-    /** Pair the user's own settings currently describe, for MANUAL mode bookkeeping. */
-    fun pairFromSettings(s: AppSettings): TransportPair {
-        val fragment = if (!s.fragmentEnabled) {
-            FragmentProfile.OFF
-        } else {
-            FragmentProfile.entries.firstOrNull { candidate ->
-                candidate.enabled &&
-                    candidate.packets == s.fragmentPackets &&
-                    candidate.length == s.fragmentLength &&
-                    candidate.interval == s.fragmentInterval &&
-                    candidate.maxSplit == s.fragmentMaxSplit &&
-                    candidate.innerEnabled == s.fragmentInnerEnabled
-            } ?: FragmentProfile.entries.firstOrNull { candidate ->
-                candidate.enabled && candidate.packets == s.fragmentPackets
-            } ?: FragmentProfile.TLSHELLO
-        }
-        val mux = if (!s.muxEnabled) {
-            MuxProfile.OFF
-        } else {
-            MuxProfile.entries.firstOrNull { candidate ->
-                candidate.enabled &&
-                    candidate.concurrency == s.muxConcurrency &&
-                    candidate.xudpConcurrency == s.muxXudpConcurrency &&
-                    candidate.udp443 == s.muxUdp443
-            } ?: MuxProfile.entries
-                .filter { it.enabled }
-                .minByOrNull { abs(it.concurrency - s.muxConcurrency) }
-                ?: MuxProfile.BALANCED
-        }
-        return TransportPair(fragment, mux)
+    /**
+     * Pair the user's own settings currently describe.
+     *
+     * MARBLE_FRAGMENT_PROFILES_V208 — the recipe the settings *name* wins over the recipe the
+     * fields happen to describe. The two can differ (a chosen profile whose fields an automatic
+     * policy later rewrote, or a hand-typed set that sits between two ready recipes), and the
+     * read-out that claims to say "what is on the wire" has to answer with the recipe the user
+     * picked, not with the nearest match to four strings.
+     */
+    fun pairFromSettings(s: AppSettings): TransportPair =
+        TransportPair(selectedFragment(s), selectedMux(s))
+
+    /** The fragment recipe these settings name, falling back to what the fields describe. */
+    fun selectedFragment(s: AppSettings): FragmentProfile {
+        if (!s.fragmentEnabled) return FragmentProfile.OFF
+        namedFragment(s.fragmentProfileId)?.let { return it }
+        return fragmentFromFields(s)
     }
+
+    /** The Mux recipe these settings name, falling back to what the fields describe. */
+    fun selectedMux(s: AppSettings): MuxProfile {
+        if (!s.muxEnabled) return MuxProfile.OFF
+        namedMux(s.muxProfileId)?.let { return it }
+        return muxFromFields(s)
+    }
+
+    /**
+     * True when the user has actually chosen a recipe.
+     *
+     * A blank id is not "off": it is *no opinion*, which is what an install that never opened the
+     * page has, and it is the only value under which the automatic policies (Iran Mode, the DPI
+     * ladder, the intelligence engine) are allowed to shape packets on their own. Without that
+     * distinction a shipped default of "off" would silently switch fragmentation off for every
+     * Iran Mode user on their next connection.
+     */
+    fun fragmentIsUserOwned(s: AppSettings): Boolean = s.fragmentProfileId.isNotBlank()
+
+    /** The Mux twin of [fragmentIsUserOwned]. */
+    fun muxIsUserOwned(s: AppSettings): Boolean = s.muxProfileId.isNotBlank()
+
+    /**
+     * The user's own choice, written over whatever the automatic policies produced.
+     *
+     * This is the whole of the V208 fix for "fragmentation does not work": the recipe the user
+     * picked in Settings is applied LAST, after Iran Mode, the DPI ladder and the intelligence
+     * engine have had their say, instead of being a starting value that any of them could
+     * overwrite on the way to the config builder. A choice that can be silently replaced by a
+     * policy is not a control, and a control that appears to do nothing is worse than no control.
+     *
+     * Mux keeps one exception, and it is the only one: multiplexing on top of XTLS Vision or
+     * REALITY is both slower and a stronger fingerprint, so [muxIsUnsafeFor] vetoes it — the
+     * same rule [IranShield] already applies, now stated where the choice is honoured rather than
+     * where it is silently undone.
+     */
+    fun applyUserChoice(base: AppSettings, user: AppSettings, profile: ProxyProfile?): AppSettings {
+        var next = base
+        // `custom` is checked first, and deliberately so: it is also non-blank, so letting the
+        // recipe branch see it would snap the user's own numbers to the nearest named recipe —
+        // a 1300-byte custom length silently becoming the 100-200 ClientHello split.
+        when {
+            FragmentChoice.isCustom(user.fragmentProfileId) -> next = withCustomFragment(next, user)
+            fragmentIsUserOwned(user) -> next = withFragmentProfile(next, selectedFragment(user))
+        }
+        // The one veto that survives a user choice, for both a recipe and hand-typed values.
+        val muxAllowed = profile == null || !muxIsUnsafeFor(profile)
+        when {
+            MuxChoice.isCustom(user.muxProfileId) -> next = withCustomMux(next, user, muxAllowed)
+            muxIsUserOwned(user) -> {
+                val mux = selectedMux(user)
+                val safe = mux == MuxProfile.OFF || muxAllowed
+                next = withMuxProfile(next, if (safe) mux else MuxProfile.OFF)
+            }
+        }
+        return next
+    }
+
+    /**
+     * The user's own numbers, copied onto the wire settings without being snapped to a recipe.
+     *
+     * This is the whole of the Custom option. Every other path in this file materialises a named
+     * recipe into the fields; this one exists so that a value no recipe describes still reaches
+     * the config builder as the user typed it, instead of being rounded to the nearest one on
+     * the way.
+     */
+    fun withCustomFragment(base: AppSettings, user: AppSettings): AppSettings =
+        base.copy(
+            fragmentProfileId = FragmentChoice.CUSTOM,
+            fragmentEnabled = user.fragmentEnabled,
+            fragmentPackets = user.fragmentPackets,
+            fragmentLength = user.fragmentLength,
+            fragmentInterval = user.fragmentInterval,
+            fragmentMaxSplit = user.fragmentMaxSplit,
+            fragmentInnerEnabled = user.fragmentInnerEnabled,
+            fragmentInnerPackets = user.fragmentInnerPackets,
+            fragmentInnerLength = user.fragmentInnerLength,
+            fragmentInnerInterval = user.fragmentInnerInterval,
+            fragmentInnerMaxSplit = user.fragmentInnerMaxSplit
+        )
+
+    /** The Mux twin of [withCustomFragment]; [allowed] is the Vision/REALITY veto. */
+    fun withCustomMux(base: AppSettings, user: AppSettings, allowed: Boolean): AppSettings =
+        base.copy(
+            muxProfileId = MuxChoice.CUSTOM,
+            muxEnabled = allowed && user.muxEnabled,
+            muxConcurrency = user.muxConcurrency,
+            muxXudpConcurrency = user.muxXudpConcurrency,
+            muxUdp443 = user.muxUdp443
+        )
+
+    /** A ready recipe by id, or null for the two values that are not recipes (blank, `custom`). */
+    fun namedFragment(raw: String): FragmentProfile? {
+        val id = raw.trim()
+        if (id.isBlank() || FragmentChoice.isCustom(id)) return null
+        return FragmentProfile.entries.firstOrNull { candidate ->
+            candidate.enabled && candidate.id.equals(id, ignoreCase = true)
+        }
+    }
+
+    /** The Mux twin of [namedFragment]. */
+    fun namedMux(raw: String): MuxProfile? {
+        val id = raw.trim()
+        if (id.isBlank() || MuxChoice.isCustom(id)) return null
+        return MuxProfile.entries.firstOrNull { candidate ->
+            candidate.enabled && candidate.id.equals(id, ignoreCase = true)
+        }
+    }
+
+    /**
+     * Write one fragment recipe into the fields every consumer already reads.
+     *
+     * Both cores, the benchmark engine, the connection tuner and the wire read-out read
+     * `fragmentPackets` / `fragmentLength` / … — never a recipe object. Materialising the recipe
+     * here is therefore what makes one chooser reach every consumer at once, with no second code
+     * path that could apply a different recipe to a different engine.
+     */
+    fun withFragmentProfile(base: AppSettings, profile: FragmentProfile): AppSettings =
+        base.copy(
+            fragmentProfileId = profile.id,
+            fragmentEnabled = profile.enabled,
+            fragmentPackets = profile.packets,
+            fragmentLength = profile.length,
+            fragmentInterval = profile.interval,
+            fragmentMaxSplit = profile.maxSplit,
+            fragmentInnerEnabled = profile.innerEnabled,
+            fragmentInnerPackets = profile.innerPackets,
+            fragmentInnerLength = profile.innerLength,
+            fragmentInnerInterval = profile.innerInterval,
+            fragmentInnerMaxSplit = profile.innerMaxSplit
+        )
+
+    /** The Mux twin of [withFragmentProfile]. */
+    fun withMuxProfile(base: AppSettings, profile: MuxProfile): AppSettings =
+        base.copy(
+            muxProfileId = profile.id,
+            muxEnabled = profile.enabled,
+            muxConcurrency = profile.concurrency,
+            muxXudpConcurrency = profile.xudpConcurrency,
+            muxUdp443 = profile.udp443
+        )
+
+    /**
+     * True for the two paths where multiplexing must never be turned on by a preference.
+     *
+     * XTLS Vision negotiates its own flow control and REALITY already carries a camouflage
+     * handshake; smux on top of either is a slower connection with a louder fingerprint.
+     */
+    fun muxIsUnsafeFor(profile: ProxyProfile): Boolean =
+        profile.security.lowercase().contains("reality") ||
+            profile.raw.lowercase().contains("flow=xtls-rprx-vision")
+
+    private fun fragmentFromFields(s: AppSettings): FragmentProfile =
+        FragmentProfile.entries.firstOrNull { candidate ->
+            candidate.enabled &&
+                candidate.packets == s.fragmentPackets &&
+                candidate.length == s.fragmentLength &&
+                candidate.interval == s.fragmentInterval &&
+                candidate.maxSplit == s.fragmentMaxSplit &&
+                candidate.innerEnabled == s.fragmentInnerEnabled
+        } ?: FragmentProfile.entries.firstOrNull { candidate ->
+            candidate.enabled && candidate.packets == s.fragmentPackets
+        } ?: FragmentProfile.TLSHELLO
+
+    private fun muxFromFields(s: AppSettings): MuxProfile =
+        MuxProfile.entries.firstOrNull { candidate ->
+            candidate.enabled &&
+                candidate.concurrency == s.muxConcurrency &&
+                candidate.xudpConcurrency == s.muxXudpConcurrency &&
+                candidate.udp443 == s.muxUdp443
+        } ?: MuxProfile.entries
+            .filter { it.enabled }
+            .minByOrNull { abs(it.concurrency - s.muxConcurrency) }
+            ?: MuxProfile.BALANCED
 
     /**
      * Stable operator identity for the memory key.

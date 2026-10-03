@@ -306,6 +306,71 @@ enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
 enum class NodeSortMode { DEFAULT, PING, SCORE, NAME, PROTOCOL, SOURCE, COUNTRY }
 
 /**
+ * MARBLE_SERVER_TILE_LAYOUT_V208 — how one server is drawn on a page.
+ *
+ * The Servers page and the Home server box have always had exactly one silhouette: a full-width
+ * row, one server per line. For a subscription with 200 nodes that is a wall of text where the
+ * only thing a user actually scans — the flag, the name and the latency — is spread across the
+ * full width of the screen, so the useful information is diluted by the empty middle of every row.
+ *
+ * [GRID] is the compact answer: a small tile per server, several per line, each tile carrying the
+ * same three facts and nothing else. It is a *presentation* choice and nothing more — the same
+ * filter, the same sort, the same measurement and the same tap-to-select semantics as [ROW], which
+ * is why both live behind one preference and one policy object
+ * ([com.marbleng.app.ui.ServerTilePolicy]) rather than being two features that can drift apart.
+ */
+enum class ServerLayout(val id: String) {
+    /** One server per line: the full-width row. */
+    ROW("row"),
+
+    /** Small server tiles, several per line. */
+    GRID("grid");
+
+    companion object {
+        val DEFAULT: ServerLayout get() = ROW
+    }
+}
+
+fun parseServerLayout(raw: String): ServerLayout =
+    ServerLayout.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().lowercase()) {
+            "list", "rows", "linear" -> ServerLayout.ROW
+            "tiles", "box", "boxes", "compact", "card", "cards" -> ServerLayout.GRID
+            else -> ServerLayout.DEFAULT
+        }
+
+/**
+ * MARBLE_FRAGMENT_PROFILES_V208 — the two values a fragment choice can hold that are *not* a
+ * recipe.
+ *
+ * The model layer owns the sentinels and the core layer owns the recipes, so `Models.kt` stays
+ * free of a dependency on `core` while both agree on one spelling of "no recipe" and "your own
+ * numbers". A blank stored value (a backup restored from an older build) reads as [OFF] — the
+ * honest answer for an install that never chose a recipe — and never as a guess.
+ */
+object FragmentChoice {
+    /** No recipe named yet: the automatic policies decide. Not the same as fragmentation off. */
+    const val NO_CHOICE: String = ""
+
+    /** The hand-typed values in the fragment fields are what goes on the wire. */
+    const val CUSTOM: String = "custom"
+
+    fun isCustom(raw: String): Boolean = raw.trim().equals(CUSTOM, ignoreCase = true)
+
+    fun isNoChoice(raw: String): Boolean = raw.isBlank()
+}
+
+/** The Mux twin of [FragmentChoice]. */
+object MuxChoice {
+    const val NO_CHOICE: String = ""
+    const val CUSTOM: String = "custom"
+
+    fun isCustom(raw: String): Boolean = raw.trim().equals(CUSTOM, ignoreCase = true)
+
+    fun isNoChoice(raw: String): Boolean = raw.isBlank()
+}
+
+/**
  * iOS-styled fixed Home Presentations.
  *
  * All 4 themes use iOS glass card styling, fixed screen height (no outer page scroll),
@@ -1345,6 +1410,10 @@ val AppSettings.autoServerScopeEnum: AutoServerScope
 val AppSettings.transportProfileModeEnum: TransportProfileMode
     get() = parseTransportProfileMode(transportProfileMode)
 
+/** MARBLE_SERVER_TILE_LAYOUT_V208 — the parsed server silhouette; the string is only storage. */
+val AppSettings.serversLayoutEnum: ServerLayout
+    get() = parseServerLayout(serversLayout)
+
 // MARBLE_SMART_DEFAULTS_V14
 // MARBLE_ULTIMATE_DEBUG_SETTING_V15
 // MARBLE_INTELLIGENCE_V24
@@ -1478,6 +1547,12 @@ data class AppSettings(
     val serversMaxPingMs: Int = 0,
     /** Bucket the Servers list by resolved country instead of by source. */
     val serversGroupByCountry: Boolean = false,
+    /**
+     * MARBLE_SERVER_TILE_LAYOUT_V208 — [ServerLayout] id: `row` (one server per line) or `grid`
+     * (small tiles, several per line). One preference answers for both the Servers page and the
+     * Home server box, so the two lists cannot disagree about how a server looks.
+     */
+    val serversLayout: String = ServerLayout.DEFAULT.id,
 
     val rememberLast: Boolean = true,
     val subscriptionAutoRefresh: Boolean = true,
@@ -1673,6 +1748,31 @@ data class AppSettings(
     val fragmentInnerLength: String = "1",
     val fragmentInnerInterval: String = "4",
     val fragmentInnerMaxSplit: String = "517",
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARBLE_FRAGMENT_PROFILES_V208 — the named recipe behind the eight fields above.
+    //
+    // The eight fragment values and the four Mux values were the *only* way to configure packet
+    // shaping, and they were raw core parameters: `tlshello`, `100-200`, `10-20`, `517`. Nobody
+    // knows what those numbers do on their own operator, so in practice nobody touched them, and
+    // the feature read as broken because it was never reachable in a form a person could choose.
+    //
+    // These two ids name the recipe the fields currently hold. `custom` means the fields are the
+    // user's own; anything else is one of the ready profiles in
+    // [com.marbleng.app.core.FragmentProfile] / [com.marbleng.app.core.MuxProfile], and picking
+    // one *writes* its wire values into the fields — so every consumer that already reads the
+    // fields (both cores, the benchmark engine, the tuner, the wire read-out) applies the recipe
+    // without a second code path that could disagree with the first.
+    // ─────────────────────────────────────────────────────────────────────────
+    /**
+     * [com.marbleng.app.core.FragmentProfile] id, `custom` for the hand-typed values, or blank
+     * for "no choice yet" — the only value under which the automatic policies may shape packets
+     * on their own. Blank is not "off": an install that never opened the page must not have
+     * fragmentation switched off behind its back.
+     */
+    val fragmentProfileId: String = FragmentChoice.NO_CHOICE,
+    /** The Mux twin of [fragmentProfileId]. */
+    val muxProfileId: String = MuxChoice.NO_CHOICE,
 
     val muxEnabled: Boolean = false,
     val muxConcurrency: Int = 8,

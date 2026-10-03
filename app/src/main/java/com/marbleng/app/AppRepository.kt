@@ -2396,15 +2396,29 @@ fun resetTelemetry() {
          * sets their own numbers and later flips to Automatic arrives with a month of evidence
          * about their operator instead of an empty table.
          */
-        val shaped = if (settings.transportAdaptationEnabled) {
-            val decision = decideTransportPair(profile)
-            if (settings.transportProfileModeEnum == TransportProfileMode.AUTO) {
-                TransportAdaptation.applyTo(tuned, decision.pair)
-            } else {
-                tuned
-            }
+        /*
+         * MARBLE_FRAGMENT_PROFILES_V208 — and this is the part that makes the Fragment & Mux
+         * page a control instead of a suggestion.
+         *
+         * Before V208 the user's own values were the *starting* settings: Iran Mode, the DPI
+         * ladder and the intelligence engine each rewrote `fragmentEnabled` / `fragmentPackets`
+         * on their way past, so a recipe chosen in Settings routinely never reached the config
+         * builder and the page read as broken — because on the wire it was. Now:
+         *
+         *   * the learner in Automatic mode still owns the wire (unchanged, and it is the one
+         *     case where something other than the user is meant to decide);
+         *   * otherwise the user's choice is applied LAST, over whatever the automatic policies
+         *     produced — and only when the user actually made one, because a blank choice means
+         *     "no opinion", not "off".
+         */
+        val shaped = if (
+            settings.transportAdaptationEnabled &&
+            settings.transportProfileModeEnum == TransportProfileMode.AUTO
+        ) {
+            TransportAdaptation.applyTo(tuned, decideTransportPair(profile).pair)
         } else {
-            tuned
+            if (settings.transportAdaptationEnabled) decideTransportPair(profile)
+            TransportAdaptation.applyUserChoice(tuned, settings, profile)
         }
         return IdentityGuard.apply(shaped)
     }
@@ -2876,11 +2890,15 @@ private fun postToMain(block: () -> Unit) {
                 connectionPingProvisional = false
                 homePingInjectedReset = probe?.injectedResetSuspected == true || measured < 20
                 homePingStabilityClass = stability?.stabilityClass?.name ?: ""
-                nationalEventCause = if (attribution?.rankingFreeze == true) {
-                    CausalAttribution.shortKey(attribution.cause)
-                } else {
-                    ""
-                }
+                // MARBLE_HOME_ONE_PING_V208 — a measurement may raise the banner immediately, but
+                // it may only retire it once it is confident: an inconclusive ping must not delete
+                // the alert, which is how the banner used to blink every time the ping ran.
+                nationalEventCause = NationalEventBannerPolicy.next(
+                    previous = nationalEventCause,
+                    freeze = attribution?.rankingFreeze == true,
+                    cause = attribution?.let { CausalAttribution.shortKey(it.cause) }.orEmpty(),
+                    confidence = attribution?.confidence ?: 0.0
+                )
                 nationalEventConfidence = (attribution?.confidence ?: 0.0).toFloat()
             }
         }
@@ -4735,6 +4753,34 @@ private fun postToMain(block: () -> Unit) {
     }
 
     /**
+     * MARBLE_HOME_ONE_PING_V208 — publish a sweep's sample for the route Home is showing.
+     *
+     * The page's one ping button measures a group, and the page still prints the latency of the
+     * one route on screen. Both are true at once only if the sweep's own result for that route
+     * becomes the route's reading — which is what this does. It never starts a measurement of
+     * its own, and it never touches the connected path: while a tunnel is up, `livePingMs` and
+     * the route monitor own that number and a stored probe is stale the moment it lands.
+     */
+    private fun publishHomeRoutePing(results: List<BenchmarkResult>) {
+        if (state == "CONNECTED") return
+        val route = homeRoute() ?: return
+        val result = results.firstOrNull { it.profileId == route.id } ?: return
+        val latency = result.latencyMs
+        val reachable = result.success > 0 && latency >= 20
+        postToMain {
+            if (reachable) {
+                selectedPingMs = latency.toInt()
+                selectedPingState = ConnectionPingState.MEASURED
+                selectedPingFailure = ""
+            } else {
+                selectedPingState = ConnectionPingState.FAILED
+                selectedPingFailure = "unreachable"
+            }
+            selectedPingProvisional = false
+        }
+    }
+
+    /**
      * The route the Home page is currently showing — the deck's own resolution, in one place.
      * While connected: the live tunnel. Otherwise: the exact server selected on Servers.
      */
@@ -4917,6 +4963,64 @@ private fun postToMain(block: () -> Unit) {
         activeTransportPair = decision.pair
         postToMain { lastTransportDecision = decision }
         return decision
+    }
+
+    /**
+     * MARBLE_FRAGMENT_PROFILES_V208 — pick a ready fragment recipe, or go back to your own
+     * numbers.
+     *
+     * The recipe is *materialised* into the eight fragment fields rather than stored beside
+     * them, so the one chooser reaches both cores, the benchmark engine and the connection tuner
+     * through the values they already read — there is no second path that could apply a
+     * different recipe to a different engine. Choosing "Custom" keeps the fields exactly as the
+     * user typed them and simply stops naming a recipe.
+     */
+    fun chooseFragmentProfile(profileId: String) {
+        val named = TransportAdaptation.namedFragment(profileId)
+        val next = if (named != null) {
+            TransportAdaptation.withFragmentProfile(settings, named)
+        } else {
+            settings.copy(
+                fragmentProfileId = if (FragmentChoice.isCustom(profileId)) {
+                    FragmentChoice.CUSTOM
+                } else {
+                    FragmentChoice.NO_CHOICE
+                }
+            )
+        }
+        updateSettings(next)
+        diagnostics.event("TRANSPORT", "fragment-profile-chosen", "id" to next.fragmentProfileId.take(24))
+        setRuntimeMessage(fragmentProfileMessage(next))
+    }
+
+    /** The Mux twin of [chooseFragmentProfile]. */
+    fun chooseMuxProfile(profileId: String) {
+        val named = TransportAdaptation.namedMux(profileId)
+        val next = if (named != null) {
+            TransportAdaptation.withMuxProfile(settings, named)
+        } else {
+            settings.copy(
+                muxProfileId = if (MuxChoice.isCustom(profileId)) {
+                    MuxChoice.CUSTOM
+                } else {
+                    MuxChoice.NO_CHOICE
+                }
+            )
+        }
+        updateSettings(next)
+        diagnostics.event("TRANSPORT", "mux-profile-chosen", "id" to next.muxProfileId.take(24))
+        // Packet shaping is read once, when the core starts: a recipe chosen under a live tunnel
+        // is on the wire from the next connection, and saying so beats a silent no-op.
+        if (state == "CONNECTED") setRuntimeMessage("Mux profile saved • reconnect to put it on the wire")
+    }
+
+    /** The one line the fragment chooser answers with. */
+    private fun fragmentProfileMessage(next: AppSettings): String {
+        val pair = TransportAdaptation.pairFromSettings(next)
+        return when {
+            state != "CONNECTED" -> "${pair.fragment.label} • applies on the next connection"
+            else -> "${pair.fragment.label} • reconnect to put it on the wire"
+        }
     }
 
     /**
@@ -5349,6 +5453,13 @@ private fun postToMain(block: () -> Unit) {
             }
 
             mergeBenchmarks(expanded)
+            // MARBLE_HOME_ONE_PING_V208 — Home has one ping button now and it measures the
+            // group, so the route latency the page prints has to come out of this sweep: the
+            // per-route button that used to refresh it is gone. Publishing the route's own
+            // sample here keeps the Latency cell honest without starting a second measurement,
+            // and it is skipped while a tunnel is up because there the live monitor owns that
+            // number and a stored probe must not overwrite a live one.
+            publishHomeRoutePing(expanded)
             /*
              * MARBLE_AUTO_SERVER_SELECTOR_V202 — the end of a sweep is the one moment the
              * selector has fresh evidence for every node in its pool, so it is the one moment
