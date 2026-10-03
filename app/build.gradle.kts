@@ -381,3 +381,62 @@ dependencies {
         "androidx.compose.ui:ui-tooling"
     )
 }
+
+// ---------------------------------------------------------------------------------------------
+// MARBLE_ROUTE_ATELIER_V207 — TEMPORARY DIAGNOSTIC PROBE. Delete as soon as the JVM step of PR #186
+// is green; it is not part of the product, and it does nothing unless the runner sets its variables.
+//
+// Why this shape: the only failing step on this branch is the JVM step, and the Actions log archive
+// that holds its output is not reachable from every review tool — while a check run's *annotations*
+// are. Task actions are out, because the configuration cache of this project cannot serialize a lambda
+// that refers to script state, and finalizers are out, because a build that fails on the compile never
+// reaches them. So the probe runs at configuration time, inline, and reads nothing but Providers: it
+// invokes the same compile once more in a nested build (recursion-guarded by an environment variable),
+// and forwards every `e: file:line:col` line into the log as an annotation command. It always succeeds
+// and never fails the build; the real step below still judges the branch.
+// ---------------------------------------------------------------------------------------------
+if (
+    providers.environmentVariable("GITHUB_ACTIONS").isPresent &&
+    providers.environmentVariable("MARBLE_PROBE").isPresent.not()
+) {
+    val probeSummary = runCatching {
+        val workspace = providers.environmentVariable("GITHUB_WORKSPACE").orNull
+            ?: error("no workspace")
+        val log = java.io.File(System.getProperty("java.io.tmpdir"), "marble-probe.log")
+        val builder = java.lang.ProcessBuilder(
+            listOf(
+                "gradle",
+                "--no-daemon",
+                "--console=plain",
+                "--project-cache-dir",
+                "$workspace/.marble-probe-cache",
+                ":app:compileDebugKotlin"
+            )
+        )
+        builder.directory(java.io.File(workspace))
+        builder.environment()["MARBLE_PROBE"] = "1"
+        builder.redirectErrorStream(true)
+        builder.redirectOutput(log)
+        val process = builder.start()
+        if (!process.waitFor(6, java.util.concurrent.TimeUnit.MINUTES)) {
+            process.destroyForcibly()
+            "timed out" to ""
+        } else {
+            "exit " + process.exitValue() to if (log.exists()) log.readText() else ""
+        }
+    }
+    val probeState = probeSummary.getOrNull()?.first ?: "probe failed: ${probeSummary.exceptionOrNull()}"
+    val probeText = probeSummary.getOrNull()?.second ?: ""
+    val probeErrors = probeText.lines()
+        .filter { it.startsWith("e: ") || it.contains(": error:") || it.contains(" FAILED") }
+        .distinct()
+    println("::error title=marble-probe::$probeState lines=${probeErrors.size} chars=${probeText.length}")
+    probeErrors.take(28).forEach { line ->
+        println("::error title=kotlin-error::" + line.trim().replace("%", "%25").take(240))
+    }
+    if (probeErrors.isEmpty()) {
+        probeText.lines().takeLast(14).forEach { line ->
+            println("::error title=probe-tail::" + line.trim().replace("%", "%25").take(240))
+        }
+    }
+}
