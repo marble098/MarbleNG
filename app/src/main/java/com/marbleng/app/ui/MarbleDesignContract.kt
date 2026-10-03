@@ -415,3 +415,128 @@ object MarbleFeedbackPolicy {
      */
     fun isOutcome(message: String): Boolean = message.isNotBlank()
 }
+
+// ---------------------------------------------------------------------------------------------
+// 8 — One setting, one sentence
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * MARBLE_SETTINGS_ONE_LINE_COPY_V208 — the copy rule for every explanation in Settings.
+ *
+ * The review's finding was that the option explanations had grown into documentation:
+ * "Real delay opens this address through the tunnel and times it. A small, always-reachable page
+ * gives the most comparable numbers; an https address is required because sing-box discards plain
+ * http." is three sentences on the row of a single text field, and a settings page whose rows each
+ * carry a paragraph stops being scannable — the user reads none of it and guesses instead.
+ *
+ * The rule is therefore a *guarantee*, not a style note: one option, at most one sentence. It is
+ * enforced here rather than at each call site for two reasons:
+ *
+ *  1. A row primitive that clamps its own subtitle cannot be outgrown by the next screen someone
+ *     writes, and the same clamp reaches the Persian lexicon's answers — a translation that reads
+ *     as two sentences is shortened too, so the rule is language-independent.
+ *  2. The clamp is a pure function of one string, so it is unit-testable off-device: the hard
+ *     cases (an abbreviation, a decimal, an ellipsis, a Persian separator, a URL) are pinned in
+ *     `MarbleSettingsCopyV208Test` instead of being rediscovered on a device.
+ *
+ * What it deliberately does **not** do is invent a summary. Truncating mid-clause would trade a
+ * long honest sentence for a short misleading one, so the copy itself is rewritten to one
+ * sentence at the call site and this object only *guarantees* the ceiling for whatever arrives —
+ * including copy that was written before the rule existed.
+ */
+object MarbleCopy {
+    /**
+     * The ceiling for one explanation, in characters.
+     *
+     * A sentence is the real limit; this only stops a single runaway sentence from wrapping past
+     * the two lines a settings row reserves. It is generous on purpose (a full two-line row is
+     * roughly 110 characters at bodySmall): the clamp should read as a rare safety net, not as
+     * the rule doing the summarising.
+     */
+    const val MaxDescriptionChars: Int = 140
+
+    /** The character that replaces a clamped tail, so a cut is visible as a cut. */
+    const val Ellipsis: String = "…"
+
+    private val WHITESPACE = Regex("\\s+")
+
+    /** A period that belongs to the token before it rather than to the sentence. */
+    private val Abbreviations: Set<String> = setOf(
+        "e.g", "i.e", "etc", "vs", "approx", "ca", "cf", "al", "Inc", "Ltd", "No", "Dr", "Mr", "Mrs"
+    )
+
+    /**
+     * Collapse whitespace and drop a trailing terminator-less gap, so "one\ntwo" and "one  two"
+     * are the same description and a literal that was wrapped in the source reads as one line.
+     */
+    fun flatten(raw: String): String = raw.replace(WHITESPACE, " ").trim()
+
+    /**
+     * True when [raw] already obeys the rule: one sentence, inside the ceiling.
+     *
+     * Used by the source-level invariants so a settings row cannot quietly go back to being a
+     * paragraph, and by the unit test that pins the rule itself.
+     */
+    fun isOneSentence(raw: String): Boolean {
+        val flat = flatten(raw)
+        if (flat.isEmpty()) return true
+        return flat.length <= MaxDescriptionChars && firstSentenceEnd(flat) >= flat.length
+    }
+
+    /**
+     * The rule applied: [raw] as at most one sentence, at most [MaxDescriptionChars] long.
+     *
+     * Blank in, blank out — an empty subtitle stays absent rather than becoming a spacer row.
+     */
+    fun oneSentence(raw: String): String {
+        val flat = flatten(raw)
+        if (flat.isEmpty()) return ""
+        val end = firstSentenceEnd(flat)
+        val sentence = flat.substring(0, end).trim()
+        return clamp(sentence)
+    }
+
+    /**
+     * The index just past the first sentence terminator, or the length of [text] when it holds
+     * none. A terminator only ends a sentence when a word precedes it and a space (or the end)
+     * follows it, and a period inside a token (`v1.2`, `3.5 GB`, `e.g.`) is never one.
+     */
+    fun firstSentenceEnd(text: String): Int {
+        var index = 0
+        while (index < text.length) {
+            val char = text[index]
+            if (char == '.' || char == '!' || char == '?' || char == '؛' || char == '؟' || char == '。') {
+                val followsWord = index > 0 && text[index - 1].isLetterOrDigit()
+                val precedesSpace = index + 1 >= text.length || text[index + 1].isWhitespace()
+                if (char == '.') {
+                    // A decimal or a dotted version: the next character is part of the number.
+                    if (index + 1 < text.length && text[index + 1].isLetterOrDigit()) {
+                        index++
+                        continue
+                    }
+                    if (endsWithAbbreviation(text, index)) {
+                        index++
+                        continue
+                    }
+                }
+                if (followsWord && precedesSpace) return index + 1
+            }
+            index++
+        }
+        return text.length
+    }
+
+    private fun endsWithAbbreviation(text: String, dotIndex: Int): Boolean {
+        var start = dotIndex
+        while (start > 0 && (text[start - 1].isLetterOrDigit() || text[start - 1] == '.')) start--
+        return text.substring(start, dotIndex) in Abbreviations
+    }
+
+    private fun clamp(sentence: String): String {
+        if (sentence.length <= MaxDescriptionChars) return sentence
+        val window = sentence.substring(0, MaxDescriptionChars)
+        val lastSpace = window.lastIndexOf(' ')
+        val cut = if (lastSpace > MaxDescriptionChars / 2) lastSpace else window.length
+        return window.substring(0, cut).trimEnd(' ', '.', ',', ';', ':') + Ellipsis
+    }
+}

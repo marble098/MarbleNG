@@ -133,6 +133,9 @@ import com.marbleng.app.model.HomeStyle
 import com.marbleng.app.model.ModularCardSize
 import com.marbleng.app.model.ModularLayout
 import com.marbleng.app.model.ProbeState
+// MARBLE_SERVER_TILE_LAYOUT_V208 — the row/tile preference this box reads.
+import com.marbleng.app.model.ServerLayout
+import com.marbleng.app.model.serversLayoutEnum
 import com.marbleng.app.model.parseConnectButtonStyle
 import com.marbleng.app.model.ProxyProfile
 import java.util.Locale
@@ -1739,10 +1742,11 @@ internal fun HomeSessionStats(
                 HomeStatValueText(uptime, tone, sizeScale = 1.1f)
             }
             Box(Modifier.width(1.dp).height(24.dp).background(homeCloudDivider()))
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.clickable(onClick = actions.onTestPing)
-            ) {
+            // MARBLE_HOME_ONE_PING_V208 — a latency read-out is not a ping button. This cell
+            // used to accept a tap that started a *second*, different measurement (one route
+            // instead of the group), so the page had two controls that both said "ping" and did
+            // different things. It is a display now; the header owns the only ping verb.
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(Tr.now.connectionPing, color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall)
                 HomeStatValueText(ping, pingTone, sizeScale = 1.1f)
             }
@@ -2036,16 +2040,12 @@ internal fun IosStatusWideCard(
                     }
                 }
 
+                // MARBLE_HOME_ONE_PING_V208 — the status card prints the route's latency; it no
+                // longer starts a measurement. Two controls on one page both labelled "ping" and
+                // measuring different scopes is how a user learns that neither does what it says.
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(14.dp))
-                        .kineticClickable(
-                            enabled = homePingTappable(evidence),
-                            role = Role.Button,
-                            boundedShape = RoundedCornerShape(14.dp),
-                            pressScale = .96f,
-                            releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat
-                        ) { actions.onTestPing() }
                         .semantics { contentDescription = pingSpoken }
                         .padding(start = 2.dp, end = 5.dp, top = 3.dp, bottom = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -2270,237 +2270,71 @@ internal fun MarbleWordmark(modifier: Modifier = Modifier) {
 }
 
 /**
- * One beat of an ECG, as a function of position in the beat (0..1).
+ * MARBLE_HOME_ONE_PING_V208 — the Home header's one ping control.
  *
- * P wave, Q, R, S, T: the shape a cardiologist reads, and the shape every user already knows
- * means "a heart is beating". It is built from five Gaussians rather than from a sampled
- * recording so that it costs five `exp` calls per point and nothing else — no bitmap, no path
- * asset, no allocation per frame.
- */
-private fun heartbeatWave(u: Float): Float =
-    .16f * heartbeatBump(u, .16f, .045f) -
-        .20f * heartbeatBump(u, .28f, .022f) +
-        1.00f * heartbeatBump(u, .32f, .016f) -
-        .38f * heartbeatBump(u, .37f, .026f) +
-        .30f * heartbeatBump(u, .56f, .070f)
-
-private fun heartbeatBump(u: Float, center: Float, width: Float): Float {
-    val d = u - center
-    return exp(-(d * d) / (2f * width * width))
-}
-
-/** Where in one beat the R spike sits — the instant the heart visibly contracts. */
-private const val HEARTBEAT_R_PHASE = .32f
-
-/**
- * MARBLE_HOME_HEARTBEAT_PING_V206 — the Home header's ping: a heart beating an ECG.
+ * What it replaces, and the two findings behind the replacement:
  *
- * What this replaces, and why a static pulse glyph was not enough:
+ *  1. **"The ping button should not show ping."** The control was a pill that printed the
+ *     route's latency — `♥ 132 ms` — next to the wordmark. That made the header a second
+ *     read-out of a number the page already shows twice (the status card's latency and the
+ *     quality card's Latency cell), and it made the *verb* ambiguous: a pill with a number on it
+ *     reads as a measurement, not as a button, so nobody could tell that tapping it measures the
+ *     whole subscription rather than the one route. It is now an icon and nothing else, and its
+ *     one meaning is stated in its accessibility label.
+ *  2. **"The box goes away and comes back."** The pill's *content* changed when a sweep started:
+ *     `pulse + number + "ms"` became `stop + "Cancel"`, so its measured width changed, the
+ *     header row re-laid out, and the pill visibly jumped and re-settled. A control that changes
+ *     size when you press it reads as a different control appearing. This one is a constant
+ *     [HomePingButtonSize] circle in both states: only the glyph and its hue change, so nothing
+ *     in the header moves when the sweep starts or ends.
  *
- *  • **A ping is a rhythm, and an icon is not.** The old control painted the same
- *    `HomeGlyph.PULSE` zigzag whether the route answered in 30 ms or in 900 ms. The only thing
- *    that changed was the colour of a number the header did not even show. A latency reading
- *    is the one measurement in the product that is *naturally* alive — it is a pulse — and
- *    rendering it as a frozen glyph threw away the only honest metaphor it has.
- *  • **Green meant "excellent", not "fine".** The header used the bento's ranking band, which
- *    turns amber at 100 ms. On the censored mobile links this product is built for, a stable
- *    130 ms route is a *good* connection being reported in the colour the product uses for
- *    warnings. The heartbeat answers "can I use this?", not "does this win a race?", so its
- *    green ceiling is [HOME_HEARTBEAT_GREEN_MAX_MS] (160 ms) — see the reasoning there.
- *  • **Animation, made cheap.** Every frame of this control comes from
- *    [MarbleMotionState.loop]: the one shared frame clock the whole product already runs. It
- *    owns no `InfiniteTransition`, starts no coroutine, and adds no frame callback — so an
- *    animated header costs the same as a static one on the frame budget, and it freezes
- *    automatically when the user turns off system animations.
- *
- * The beat rate is the measurement: a 40 ms link beats about twice a second, a 400 ms link
- * once every two and a half seconds. The animation is therefore information — the user can
- * *see* the link slow down before reading a digit.
- */
-/**
- * Modern, clean ping action button for the Home header.
- * Replaces the busy heartbeat ECG animation with a refined, tactile pill control.
+ * The verb is [HomeActions.onPingGroup] — the subscription the route on screen belongs to — which
+ * is the question the Home page is asking. It is the only ping button on the page: the per-route
+ * read-outs elsewhere are displays, not controls (see the V208 note on [IosStatusWideCard]).
  */
 @Composable
-private fun HomeModernPingAction(
-    pingMs: Int,
+private fun HomeGroupPingButton(
     sweeping: Boolean,
     description: String,
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val tone = homeHeartbeatTone(pingMs)
-    val pageTone = marbleReadableOn(tone, Aether.Void, 3.0f)
-    val shape = RoundedCornerShape(18.dp)
-    Surface(
-        shape = shape,
-        color = if (sweeping) Aether.Danger.copy(alpha = 0.14f) else Aether.FloatSurface.copy(alpha = 0.35f),
-        border = BorderStroke(
-            1.dp,
-            if (sweeping) Aether.Danger.copy(alpha = 0.40f) else pageTone.copy(alpha = 0.22f)
-        ),
+    // One hue per state, and neither is a latency colour: the header is a verb, not a meter.
+    val tone = if (sweeping) Aether.Danger else Aether.CyanBright
+    val shape = CircleShape
+    Box(
         modifier = Modifier
-            .height(36.dp)
+            .marbleTapTarget()
+            .size(HomePingButtonSize)
             .clip(shape)
+            .background(tone.copy(alpha = if (sweeping) .16f else .10f))
+            .border(1.dp, tone.copy(alpha = if (sweeping) .44f else .24f), shape)
             .kineticClickable(
                 enabled = enabled,
                 role = Role.Button,
-                pressScale = .94f,
+                pressScale = .92f,
                 boundedShape = shape,
                 releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
                 onClick = onClick
             )
-            .semantics { contentDescription = description }
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            if (sweeping) {
-                val stopTone = marbleReadableOn(Aether.Danger, Aether.Void, 3.0f)
-                HomeGlyphIcon(HomeGlyph.STOP, stopTone, Modifier.size(14.dp))
-                Text(
-                    text = trx("Cancel"),
-                    color = stopTone,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1
-                )
-            } else {
-                HomeGlyphIcon(HomeGlyph.PULSE, pageTone, Modifier.size(16.dp))
-                if (pingMs > 0) {
-                    Text(
-                        text = "$pingMs",
-                        color = pageTone,
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontFeatureSettings = "tnum"
-                        ),
-                        maxLines = 1
-                    )
-                    Text(
-                        text = "ms",
-                        color = pageTone.copy(alpha = .65f),
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                        maxLines = 1
-                    )
-                } else {
-                    Text(
-                        text = Tr.now.testPing,
-                        color = pageTone.copy(alpha = 0.85f),
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                        maxLines = 1
-                    )
-                }
-            }
-        }
+        HomeGlyphIcon(
+            if (sweeping) HomeGlyph.STOP else HomeGlyph.PULSE,
+            tone,
+            Modifier.size(if (sweeping) 12.dp else 16.dp)
+        )
     }
-}
-
-@Composable
-private fun HomeHeartbeatPingAction(
-    pingMs: Int,
-    sweeping: Boolean,
-    description: String,
-    enabled: Boolean = true,
-    onClick: () -> Unit
-) {
-    HomeModernPingAction(
-        pingMs = pingMs,
-        sweeping = sweeping,
-        description = description,
-        enabled = enabled,
-        onClick = onClick
-    )
 }
 
 /**
- * The heartbeat drawn: a heart that contracts on every R spike and an ECG trace that scrolls
- * through it, both on the shared frame clock.
+ * The constant footprint of the header's ping control.
  *
- * The whole control is one `Canvas` reading one float ([MarbleMotionState.loop]); the
- * expensive part — the path — is rebuilt per frame from 45 points, which is cheaper than the
- * text beside it. Nothing here is remembered, because nothing here needs to be: the phase is
- * the only state, and it lives in the draw phase where a change costs a redraw instead of a
- * recomposition.
+ * It is a named number because the whole point is that it never changes: the idle and the
+ * cancelling state are the same circle, so pressing the button cannot re-layout the header.
  */
-@Composable
-private fun HomeHeartbeatTrace(
-    color: Color,
-    pingMs: Int,
-    modifier: Modifier = Modifier
-) {
-    val motion = MarbleMotion.current
-    // The beat IS the ping: 520 ms for an impossibly fast link, ~2.6 s for a 400 ms one.
-    val periodMs = (520 + pingMs * 5).coerceIn(520, 2_600)
-    // MARBLE_ROUTE_ATELIER_V207 — with the ambient field off the trace holds its beat instead of
-    // scrolling: the ECG still reads the latency it is drawn from, it simply stops moving, so the
-    // instrument keeps its meaning and the page stops paying for a frame nobody asked for.
-    val ambient = LocalMarbleAmbientField.current
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val mid = h * .58f
-        val amp = h * .40f
-        val stroke = (h * .10f).coerceIn(1.2f, 2.1f)
-        val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        val phase = if (ambient) motion.loop(periodMs) else 0f
-        // How far the beat has travelled since the R spike: 1 at the spike, decaying after it.
-        val thump = exp(-4f * ExpressiveMath.wrap01(phase - HEARTBEAT_R_PHASE))
-        val x0 = w * .34f
-        val span = w - x0
-
-        // ── The heart ────────────────────────────────────────────────────────────────────
-        val hx = w * .13f
-        val hy = h * .55f
-        val hs = h * .22f * (1f + .18f * thump)
-        drawCircle(
-            color = color.copy(alpha = .18f * thump),
-            radius = hs * 1.9f,
-            center = Offset(hx, hy)
-        )
-        val heart = Path().apply {
-            moveTo(hx, hy + hs * .78f)
-            cubicTo(
-                hx - hs * 1.25f, hy + hs * .05f,
-                hx - hs * .62f, hy - hs * .95f,
-                hx, hy - hs * .34f
-            )
-            cubicTo(
-                hx + hs * .62f, hy - hs * .95f,
-                hx + hs * 1.25f, hy + hs * .05f,
-                hx, hy + hs * .78f
-            )
-            close()
-        }
-        drawPath(heart, color.copy(alpha = .80f + .20f * thump))
-
-        // ── The trace ────────────────────────────────────────────────────────────────────
-        drawLine(
-            color = color.copy(alpha = .16f),
-            start = Offset(x0, mid),
-            end = Offset(w, mid),
-            strokeWidth = stroke * .55f,
-            cap = StrokeCap.Round
-        )
-        val path = Path()
-        val steps = 44
-        for (index in 0..steps) {
-            val t = index.toFloat() / steps.toFloat()
-            val u = ExpressiveMath.wrap01(phase + t * 2f)
-            val x = x0 + span * t
-            val y = mid - heartbeatWave(u) * amp
-            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-        }
-        drawPath(path, color, style = line)
-
-        // The playhead: the dot riding the right edge of the trace, at the value the wave has
-        // *now*. Without it the scroll reads as a moving shape; with it, it reads as a signal
-        // arriving.
-        val headY = mid - heartbeatWave(ExpressiveMath.wrap01(phase + 2f)) * amp
-        drawCircle(color = color, radius = stroke * 1.2f, center = Offset(w, headY))
-    }
-}
+private val HomePingButtonSize = 38.dp
 
 /**
  * MARBLE_HOME_BANNER_V143 — the top actions (add, ping, IP details) live OUTSIDE the status
@@ -2573,21 +2407,21 @@ internal fun HomeTopActionBar(
                 actions = actions
             )
         }
-        // MARBLE_PING_CANCEL_V156 — the same icon that starts the group sweep ends it. While a
+        // MARBLE_PING_CANCEL_V156 — the same control that starts the group sweep ends it: while a
         // sweep is live the pulse becomes a filled STOP square, so the Home page can cancel a
         // bulk measurement without travelling to the Servers page.
-        // MARBLE_HOME_HEARTBEAT_PING_V206 — the header's ping is a heartbeat, not an icon.
-        // The number the heart beats for is the live route measurement while a session is up,
-        // and the last measured ping of the route the page is showing when it is not.
-        val heartbeatPingMs = if (evidence.connected) {
-            repo.livePingMs.takeIf { it > 0 } ?: evidence.pingMs
-        } else {
-            evidence.pingMs
-        }
-        HomeModernPingAction(
-            pingMs = heartbeatPingMs,
+        //
+        // MARBLE_HOME_ONE_PING_V208 — and this is the ONLY ping button on the Home page. It shows
+        // no number: the header is a verb ("measure this group"), not a meter, and the two places
+        // that do report latency (the status card, the quality card) are displays that no longer
+        // accept a tap. One verb, one destination, nothing to confuse the two with.
+        HomeGroupPingButton(
             sweeping = sweeping,
-            description = if (sweeping) trx("Cancel measuring") else "${Tr.now.testPing} • $groupLabel",
+            description = if (sweeping) {
+                trx("Cancel measuring")
+            } else {
+                "${Tr.now.testPing} • $groupLabel"
+            },
             enabled = sweeping || !groupBusy,
             onClick = { if (sweeping) repo.cancelProbes() else actions.onPingGroup() }
         )
@@ -2606,6 +2440,15 @@ internal fun HomeTopActionBar(
 }
 
 /**
+ * MARBLE_HOME_ONE_PING_V208 — the fixed height of the runtime notice.
+ *
+ * The bar's text changes several times a second during a sweep ("3/20 endpoints • NL-07"), and a
+ * two-line-tall bar that grows and shrinks with it makes the entire page move under the header.
+ * One line at a fixed height means the page never re-lays out because a message got longer.
+ */
+private val MarbleNoticeHeight = 38.dp
+
+/**
  * The one line that says what just happened, in the page's own flow.
  *
  * MARBLE_NO_IN_APP_NOTIFICATIONS_V121 was right about the interruption and wrong about the silence.
@@ -2622,11 +2465,32 @@ internal fun HomeTopActionBar(
  */
 @Composable
 internal fun HomeRuntimeNotice(repo: AppRepository, modifier: Modifier = Modifier) {
+    /*
+     * MARBLE_HOME_ONE_PING_V208 — the box that "went away and came back" when the ping button
+     * was pressed.
+     *
+     * The bar's presence used to be `message.isNotBlank()`, and a sweep rewrites `message` on
+     * every progress tick and again when it finishes. Between the tap and the task's own first
+     * write there is a frame where the old outcome has been cleared and the new label has not
+     * landed, so the bar left composition and re-entered it — and because its entrance is a
+     * spring, re-entering replays the whole rise from zero alpha. The page therefore showed a
+     * box, nothing, and the same box arriving again, in under a second.
+     *
+     * Two changes, one rule each:
+     *
+     *  1. **Presence is one boolean that cannot flap.** The bar is here while there is something
+     *     to say *or* while work is running, so a tap that starts a sweep can never remove it
+     *     mid-flight. It appears once and retires once, with the dwell.
+     *  2. **The slot is a fixed height.** The sweep's progress line changes every tick; a bar
+     *     whose height follows its text makes the whole page breathe with it. One line, one
+     *     height, and the text is compacted to fit.
+     */
     val raw = repo.message
+    val working = repo.busy
     // The bar is the policy's surface, not a second opinion about what deserves showing.
-    if (!MarbleFeedbackPolicy.isOutcome(raw)) return
+    if (!MarbleFeedbackPolicy.isOutcome(raw) && !working) return
     // Same compaction the removed snackbar used: a diagnostic sentence must not become a paragraph.
-    val text = remember(raw) { raw.replace(Regex("\\s+"), " ").trim().take(180) }
+    val text = remember(raw) { MarbleCopy.oneSentence(raw.replace(Regex("\\s+"), " ").trim()) }
     val shape = RoundedCornerShape(14.dp)
     val tone = Aether.Cyan
     // One spring on arrival (instant when reduced motion is on), and the line retires with the
@@ -2634,11 +2498,12 @@ internal fun HomeRuntimeNotice(repo: AppRepository, modifier: Modifier = Modifie
     // The engine's message is data, but the bar is product copy: a Persian reader hears the
     // transliteration like everyone else reads it. Resolved here because a semantics block is not a
     // composable scope.
-    val shown = trx(text)
+    val shown = if (text.isBlank()) trx("Working…") else trx(text)
     Row(
         modifier = modifier
             .marbleSpringIn()
             .fillMaxWidth()
+            .height(MarbleNoticeHeight)
             .padding(start = 4.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)
             .clip(shape)
             .background(homeCloudCardFill())
@@ -2658,7 +2523,7 @@ internal fun HomeRuntimeNotice(repo: AppRepository, modifier: Modifier = Modifie
             text = shown,
             color = Aether.Ink,
             style = MaterialTheme.typography.labelMedium,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .weight(1f)
@@ -3068,6 +2933,57 @@ internal fun IosServerListBox(
                         color = Aether.InkMuted,
                         style = MaterialTheme.typography.bodySmall
                     )
+                }
+            } else if (settings.serversLayoutEnum == ServerLayout.GRID) {
+                /*
+                 * MARBLE_SERVER_TILE_LAYOUT_V208 — the same list as the Servers page, in the same
+                 * compact boxes: one preference answers for both, so a user who chose tiles on
+                 * Servers does not get rows back on Home.
+                 */
+                val tileColumns = rememberServerTileColumns()
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight()
+                        .then(listHeightCap),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = bottomOverlayClearance)
+                ) {
+                    itemsIndexed(
+                        items = ServerTilePolicy.chunkRows(visibleServers, tileColumns),
+                        key = { rowIndex, row -> "tiles:$rowIndex:${row.first().id}" }
+                    ) { rowIndex, row ->
+                        Box(
+                            Modifier
+                                .animateItem()
+                                .marbleStaggerIn(rowIndex + 1, enabled = entranceArmed() && rowIndex < 6)
+                        ) {
+                            ServerTileRow(profiles = row, columns = tileColumns) { server ->
+                                val location = repo.serverLocation(server)
+                                ServerTile(
+                                    profile = server,
+                                    result = benchmarks[server.id],
+                                    selected = repo.isSelectedProfile(server),
+                                    active = repo.isActiveProfile(server),
+                                    testing = repo.probeStateOf(server.id) == ProbeState.TESTING,
+                                    locationCode = location.code,
+                                    locationProvisional = repo.serverLocationIsProvisional(server),
+                                    onClick = {
+                                        if (repo.probeActive || repo.probeCancelling) {
+                                            repo.setRuntimeMessage(
+                                                "Wait until ping finishes before changing server"
+                                            )
+                                        } else {
+                                            repo.selectProfile(server)
+                                            if (evidence.connected) {
+                                                actions.onConnectProfile(server)
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             } else {
                 LazyColumn(
@@ -3980,14 +3896,10 @@ internal fun HomeFloatingSplitControl(
                         }
                     }
 
-                    FloatingSplitAction(
-                        tone = Aether.Emerald,
-                        description = Tr.now.testPing,
-                        enabled = homePingTappable(evidence),
-                        onClick = { actions.onTestPing() }
-                    ) {
-                        HomeGlyphIcon(HomeGlyph.PULSE, marbleOnColor(Aether.Emerald), Modifier.size(24.dp))
-                    }
+                    // MARBLE_HOME_ONE_PING_V208 — the floating control keeps its pause half and
+                    // drops its ping half: the header's single ping button measures the group, and
+                    // a second pulse glyph in the corner that measured only one route was the
+                    // exact ambiguity this removes.
                     }
                 } else {
                     FloatingConnectFab(evidence = evidence, onToggle = { actions.onToggleConnection() })
@@ -4400,21 +4312,8 @@ private fun ModularConnectModule(
                 modifier = if (fullWidth) Modifier.fillMaxWidth() else Modifier
             )
         }
-        AnimatedVisibility(
-            visible = evidence.connected,
-            enter = fadeIn(MarbleMotionSpecs.ResponseFloat) +
-                scaleIn(MarbleMotionSpecs.ResponseFloat, initialScale = .80f),
-            exit = fadeOut(MarbleMotionSpecs.ExitFloat) +
-                scaleOut(MarbleMotionSpecs.ExitFloat, targetScale = .80f)
-        ) {
-            Row {
-                Spacer(Modifier.width(12.dp))
-                ModularPingAction(
-                    enabled = homePingTappable(evidence),
-                    onClick = actions.onTestPing
-                )
-            }
-        }
+        // MARBLE_HOME_ONE_PING_V208 — the modular theme's ping companion is gone: the connect
+        // control now owns the whole row and the header owns the page's one ping verb.
     }
 }
 

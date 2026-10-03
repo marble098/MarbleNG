@@ -553,6 +553,17 @@ class SingBoxCoreV151Test {
         )
     }
 
+    /**
+     * MARBLE_FRAGMENT_PROFILES_V208 — the pinned 1.14 core has three TLS-fragment fields, and
+     * which of them a recipe may ask for is the recipe's business.
+     *
+     * The default fields (`tlshello` / `100-200` / `10-20`) ARE the mildest recipe, so this used
+     * to assert `fragment: true` for every profile: the core documents that field as packet-level
+     * fragmentation with "poor performance", tells you to try `record_fragment` first, and — with
+     * no CAP_NET_RAW on Android — makes every handshake wait the fallback delay. The mapping now
+     * gives a mild recipe record fragmentation only, and pays for packet fragmentation from
+     * strength 3 up.
+     */
     @Test
     fun tlsFragmentUsesTheSupportedOneFourTlsField() {
         val profile = jsonProfile("vless").let {
@@ -564,14 +575,44 @@ class SingBoxCoreV151Test {
                 .put("tlsSettings", JSONObject().put("serverName", "example.com"))
             it.copy(configJson = root.toString())
         }
-        val config = JSONObject(
+
+        // The mild default recipe: the field the core says to try first, and nothing else.
+        val mild = JSONObject(
             build(profile, AppSettings(singBoxPreferParser = false, fragmentEnabled = true)).json
         )
-        val proxy = outbound(config, SingBoxConfigBuilder.PROXY_TAG)
-        val tls = proxy.optJSONObject("tls")
-        if (tls != null) {
-            assertTrue("TLS fragment is supported by the pinned 1.14 core", tls.getBoolean("fragment"))
-        }
+        val mildTls = outbound(mild, SingBoxConfigBuilder.PROXY_TAG).optJSONObject("tls")
+        requireNotNull(mildTls) { "a TLS node must carry TLS options" }
+        assertTrue("record fragmentation is supported by the pinned 1.14 core",
+            mildTls.getBoolean(SingBoxTransportPolicy.RecordFragmentKey))
+        assertFalse("a strength-1 recipe must not pay for packet fragmentation",
+            mildTls.has(SingBoxTransportPolicy.FragmentKey))
+
+        // An aggressive rung of the ladder additionally asks for the packet-level split.
+        val aggressive = JSONObject(
+            build(
+                profile,
+                TransportAdaptation.withFragmentProfile(
+                    AppSettings(singBoxPreferParser = false),
+                    FragmentProfile.GFW_KNOCKER
+                )
+            ).json
+        )
+        val hardTls = outbound(aggressive, SingBoxConfigBuilder.PROXY_TAG).optJSONObject("tls")
+        requireNotNull(hardTls) { "a TLS node must carry TLS options" }
+        assertTrue(hardTls.getBoolean(SingBoxTransportPolicy.RecordFragmentKey))
+        assertTrue(hardTls.getBoolean(SingBoxTransportPolicy.FragmentKey))
+        assertTrue(
+            "the packet path needs the core's fallback wait",
+            hardTls.getString(SingBoxTransportPolicy.FallbackDelayKey).endsWith("ms")
+        )
+
+        // And a node with no recipe at all writes none of the three.
+        val plain = JSONObject(build(profile, AppSettings(singBoxPreferParser = false)).json)
+        val plainTls = outbound(plain, SingBoxConfigBuilder.PROXY_TAG).optJSONObject("tls")
+        requireNotNull(plainTls) { "a TLS node must carry TLS options" }
+        assertFalse(plainTls.has(SingBoxTransportPolicy.RecordFragmentKey))
+        assertFalse(plainTls.has(SingBoxTransportPolicy.FragmentKey))
+        assertFalse(plainTls.has(SingBoxTransportPolicy.FallbackDelayKey))
     }
 
     /**

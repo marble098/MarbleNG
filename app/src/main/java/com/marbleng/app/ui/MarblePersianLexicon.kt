@@ -1287,8 +1287,10 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Every change below is applied to the bar immediately" to "هر تغییری در همین لحظه روی نوار اعمال می‌شود",
     "Build a shortcut for the route, source or live signal you reach for most" to
         "میان‌بر مسیر، منبع یا وضعیت زنده‌ای را بسازید که بیشتر استفاده می‌کنید",
-    "The fourth tab is hidden. Turn it back on whenever you want it in the bar." to
-        "تب چهارم مخفی است؛ هر زمان خواستید دوباره آن را به نوار برگردانید.",
+    // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — the key follows the shortened copy, so the Persian
+    // reader gets a real sentence instead of the word-level fallback.
+    "The fourth tab is hidden — turn it back on to put it in the bar." to
+        "تب چهارم مخفی است؛ برای برگرداندنش به نوار آن را روشن کنید.",
     "Availability" to "دسترس‌پذیری",
     "Keep four destinations, or return to the original three-tab bar" to "چهار مقصد را نگه دارید یا به نوار سه‌تبی قبلی برگردید",
     "Hide it without deleting your saved target, name or appearance." to "بدون حذف مقصد، نام یا ظاهر ذخیره‌شده مخفی‌اش کنید.",
@@ -1430,10 +1432,41 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Back up" to "تهیه پشتیبان",
     "Restore" to "بازیابی",
     "Theme, fourth tab, typeface and language" to "پوسته، تب چهارم، قلم و زبان",
+    // ------------------------------------------------------------------ V208: one-line settings
+    // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — every new row below is one sentence, because the rule
+    // is enforced in the product and the lexicon is where a Persian reader meets it.
+    "Fragment profile" to "پروفایل فرگمنت",
+    "Mux profile" to "پروفایل ماکس",
+    "Custom values" to "مقادیر سفارشی",
+    "Set packets, length and interval yourself" to "بسته‌ها، طول و فاصله را خودتان تعیین کنید",
+    "Set the stream counts yourself" to "تعداد جریان‌ها را خودتان تعیین کنید",
+    "Server cards" to "کارت سرورها",
+    "Rows" to "ردیفی",
+    "Compact boxes" to "باکس فشرده",
+    "Rows • one server per line" to "ردیفی • هر خط یک سرور",
+    "Compact boxes • several servers per line" to "باکس فشرده • چند سرور در هر خط",
+    "One server per line, with its full address and actions" to "هر خط یک سرور، با آدرس و عملیات کامل",
+    "Small cards, as many per line as your screen fits" to "کارت‌های کوچک، به تعدادی که صفحه جا دهد",
+    "Packets go out exactly as the app wrote them." to "بسته‌ها دقیقاً همان‌طور که برنامه نوشته ارسال می‌شوند.",
+    "Splits the TLS ClientHello across two packets." to "پیام ClientHello را در دو بسته تقسیم می‌کند.",
+    "Splits the handshake into small TLS records." to "دست‌دادن را به رکوردهای کوچک TLS تقسیم می‌کند.",
+    "Shreds the first packets into one-to-three byte pieces." to "بسته‌های اول را به قطعه‌های یک تا سه بایتی خرد می‌کند.",
+    "Splits on the first hop and shreds at 517 on the second." to "در هاپ اول تقسیم و در هاپ دوم با ۵۱۷ خرد می‌کند.",
+    "Shreds every write to a single byte, capped at 517." to "هر نوشتن را به یک بایت خرد می‌کند، تا سقف ۵۱۷.",
+    "Splits first, then shreds again on the inner hop." to "ابتدا تقسیم، سپس خردکردن دوباره در هاپ داخلی.",
+    "One byte every two milliseconds, on both hops." to "هر دو میلی‌ثانیه یک بایت، در هر دو هاپ.",
+    "Every stream opens its own connection." to "هر جریان اتصال خودش را باز می‌کند.",
+    "Four streams share one connection." to "چهار جریان از یک اتصال مشترک استفاده می‌کنند.",
+    "Eight streams share one connection." to "هشت جریان از یک اتصال مشترک استفاده می‌کنند.",
+    "Sixteen streams share one connection." to "شانزده جریان از یک اتصال مشترک استفاده می‌کنند.",
+    "Eight streams, and UDP on 443 is allowed through." to "هشت جریان و عبور UDP روی پورت ۴۴۳.",
+    "Two streams, the smallest multiplexing footprint." to "دو جریان، کمترین اثر Multiplex.",
+    "The https address Real delay opens through the tunnel and times it." to
+        "آدرس https که «تأخیر واقعی» آن را از تونل باز کرده و زمان‌گیری می‌کند.",
     "Notifications, general and information" to "اعلان‌ها، عمومی و اطلاعات",
     "Show the Customize button" to "نمایش دکمه شخصی‌سازی",
-    "Home style 4 keeps a Customize row at the top of the page. Turn this off for a clean page; this switch is how it comes back." to
-        "طرح چهارم صفحه اصلی یک ردیف شخصی‌سازی در بالای صفحه دارد. برای صفحه‌ای خلوت آن را خاموش کنید؛ با همین کلید دوباره برمی‌گردد.",
+    "Show the Customize row at the top of Home style 4." to
+        "نمایش ردیف شخصی‌سازی در بالای طرح چهارم صفحه اصلی.",
     "Automatic server selector" to "انتخاب‌گر خودکار سرور",
     "After a ping sweep" to "پس از پویش پینگ",
     "The one moment every server has fresh evidence" to "لحظه‌ای که همه سرورها داده تازه دارند",

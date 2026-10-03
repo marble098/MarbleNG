@@ -315,7 +315,7 @@ chapter covers `DnsDomainFaultPolicy`: two independent healthy resolvers timing 
 a fact about that name, not a resolver storm, and it no longer demotes providers or arms parallel
 racing.
 
-`docs/IPV6_TRUTH_LOCATION_AND_IME_V197.md` is the newest chapter, and it came from one logcat. A
+`docs/IPV6_TRUTH_LOCATION_AND_IME_V197.md` came from one logcat. A
 dual-stack server was being reported IPv4-only because a DoH race picked its winner before reading
 the answer, so one empty answer section deleted a whole family; the resolver now asks A and AAAA in
 parallel and keeps every independent witness, and the scan refuses to believe absence from a single
@@ -328,7 +328,31 @@ ever open (a surface that only looks like a text field was being handed an input
 field declared the event that ends one), and turns the probe's reactive target pivot into a race
 that hedges from the first sample of a cycle and lets a freshly cleared window earn its score back.
 
-`docs/HIGH_JITTER_SHIELD_V206.md` is the newest chapter. Very high jitter was being answered with
+Four chapters landed in the same pass, each from one report:
+
+`docs/SETTINGS_ONE_LINE_COPY_V208.md` — every settings description is now **one sentence**. Twenty-nine
+rows carried paragraphs that explained the feature behind the switch and pushed the switch itself
+below the fold; the copy was rewritten and the rule is enforced where the text is drawn
+(`MarbleCopy.oneSentence`), so a new row inherits it.
+
+`docs/HOME_ONE_PING_V208.md` — the home header's box no longer blinks when a ping starts (its
+presence was `message.isNotBlank()`, and a sweep rewrites the message several times a second, so the
+bar left composition and replayed its spring entrance), and there is **one** ping button again: it
+pings the current group, shows no latency number, and every other ping surface on the page is a
+display.
+
+`docs/FRAGMENT_PROFILES_V208.md` — Fragment & Mux, rewritten. The user's recipe used to be an
+*input* that the DPI ladder and Iran Mode overwrote on the way to the config builder, sing-box
+reduced it to one boolean (`fragment: true` — the expensive one, which costs a 500 ms handshake wait
+on Android) and never wrote multiplexing at all. There is now an eight-rung fragment ladder plus
+six multiplexing recipes, a blank/custom/recipe distinction, the choice applied last, and an honest
+mapping onto the three TLS-fragment fields and the `multiplex` object the pinned core actually has.
+
+`docs/SERVER_TILE_LAYOUT_V208.md` — servers can be read as **compact boxes** on the Servers page and
+in the Home server box, two-up on a phone and four-up on a tablet, or as the rows they have always
+been; Settings › General › Server cards chooses.
+
+`docs/HIGH_JITTER_SHIELD_V206.md` is the chapter before them. Very high jitter was being answered with
 a mean that one stalled packet destroys, a verdict that is a single bit, thresholds that ignore
 what is normal for the link in front of us, and a response whose cost grew with the severity. The
 shield replaces all four: dispersion is the interquartile range (robust to one packet, and — unlike
