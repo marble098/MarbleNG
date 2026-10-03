@@ -561,27 +561,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     val serverLocationVerdicts: MutableMap<String, ServerLocationVerdict> =
         java.util.concurrent.ConcurrentHashMap()
 
-    /**
-     * MARBLE_ROUTE_ATELIER_V207 — which learned locations are still a lone provider's answer.
-     *
-     * The resolver already writes this to the store (a thin verdict is re-queued on the next sweep)
-     * and the UI already reads it for Bug Finder, but nothing connected it to the tile a user looks
-     * at. A flag earned by three providers and a flag one provider guessed are different facts, and
-     * the surface that paints them must be able to tell them apart. Seeded from the durable store,
-     * so the answer survives a restart exactly as the code it qualifies does.
-     */
-    val serverLocationProvisional: MutableMap<String, Boolean> = initialServerLocationProvisional()
-
-    /** True when this endpoint's country rests on a single witness and is queued for re-testing. */
-    fun serverLocationIsProvisional(profile: ProxyProfile?): Boolean = profile?.let {
-        serverLocationProvisional[ServerLocationKey.of(it.host, it.port)] == true
-    } ?: false
-
-    private fun initialServerLocationProvisional(): MutableMap<String, Boolean> =
-        mutableStateMapOf<String, Boolean>().apply {
-            putAll(runCatching { store.loadServerLocationProvisional() }.getOrDefault(emptyMap()))
-        }
-
     /** How strong the learned location of one endpoint is, for the diagnostics surfaces. */
     fun serverLocationEvidence(profile: ProxyProfile): String =
         serverLocationVerdicts[ServerLocationKey.of(profile.host, profile.port)]?.evidence.orEmpty()
@@ -1057,9 +1036,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                     ServerCountry.flagFor(verdict.code)
                 )
                 serverLocationVerdicts[key] = verdict
-                // MARBLE_ROUTE_ATELIER_V207 — keep the strength next to the answer, so the tile
-                // can say "one source, not yet confirmed" while the sweep still works on it.
-                serverLocationProvisional[key] = verdict.provisional
             }
             diagnostics.event(
                 "GEO",

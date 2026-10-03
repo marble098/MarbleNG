@@ -329,15 +329,7 @@ enum class HomeStyle(val id: String) {
     IOS_EMBOSSED("ios_embossed"),
 
     /** Theme 4: Modular customizable dashboard allowing user to rearrange widgets and toggle components. */
-    IOS_MODULAR("ios_modular"),
-
-    /**
-     * MARBLE_ROUTE_ATELIER_V207 — the route presentation: one decision card, one verb resolved from
-     * the connection state, and a signet of the three stages between this device and its exit that
-     * paints a stage only when there is evidence for it. Every earlier presentation is untouched;
-     * this one exists because the four of them turned one grammar into four dialects.
-     */
-    ROUTE_ATELIER("route_atelier");
+    IOS_MODULAR("ios_modular");
 
     companion object {
         /**
@@ -345,10 +337,7 @@ enum class HomeStyle(val id: String) {
          * resolves to. One name, so the model, the store and the parser can never disagree
          * about which theme the product defaults to.
          */
-        // MARBLE_ROUTE_ATELIER_V207 — a fresh install opens on the route presentation. Every
-        // presentation before it stays selectable, and a stored choice is never rewritten by this:
-        // the default is what an app with no preference yet shows, nothing more.
-        val DEFAULT: HomeStyle get() = ROUTE_ATELIER
+        val DEFAULT: HomeStyle get() = IOS_FLOATING
     }
 }
 
@@ -370,7 +359,6 @@ fun parseHomeStyle(raw: String): HomeStyle = when (raw.trim().lowercase()) {
     "ios_floating", "floating", "theme_2", "cosmic_orbit" -> HomeStyle.IOS_FLOATING
     "ios_embossed", "embossed", "circle", "theme_3", "cosmic_immersion" -> HomeStyle.IOS_EMBOSSED
     "ios_modular", "modular", "custom", "theme_4" -> HomeStyle.IOS_MODULAR
-    "route_atelier", "route", "atelier", "theme_5" -> HomeStyle.ROUTE_ATELIER
     // MARBLE_HOME_THEME_TWO_DEFAULT_V160 — a retired or unreadable id opens on the presentation
     // a fresh install gets, not on a face the product no longer defaults to.
     else -> HomeStyle.DEFAULT
@@ -1523,17 +1511,6 @@ data class AppSettings(
      * still records nothing extra to disk beyond the bounded session history.
      */
     val homeShowDataUsage: Boolean = false,
-
-    /**
-     * MARBLE_ROUTE_ATELIER_V207 — the page backdrop's breathing light, and every ambient pulse that
-     * shares its clock (the status pip, the heartbeat trace), may be switched off.
-     *
-     * A full-screen glow says nothing about whether the tunnel is up, and it is the one animation in
-     * the product that never answers a question. The design review asked for that cost to be a choice
-     * rather than a personality, so it is: off keeps every gradient, colour and hairline and drops the
-     * redraw, which is the whole difference between an instrument and a screensaver.
-     */
-    val homeAmbientBackdrop: Boolean = true,
 
     // Optional smart alerts. Foreground-service status is managed separately while connected.
     val smartNotificationsEnabled: Boolean = true,

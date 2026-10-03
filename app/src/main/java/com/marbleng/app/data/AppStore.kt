@@ -612,8 +612,6 @@ class AppStore(context: Context) {
         // MARBLE_SERVER_LOCATION_V192 / MARBLE_SESSION_USAGE_V192
         serverLocationAutoDetect = prefs.getBoolean("serverLocationAutoDetect", true),
         homeShowDataUsage = prefs.getBoolean("homeShowDataUsage", false),
-        // MARBLE_ROUTE_ATELIER_V207 — the ambient field, on by default, off by preference.
-        homeAmbientBackdrop = prefs.getBoolean("homeAmbientBackdrop", true),
 
         smartNotificationsEnabled = prefs.getBoolean("smartNotificationsEnabled", true),
         notifyConnectionEvents = prefs.getBoolean("notifyConnectionEvents", false),
@@ -900,7 +898,6 @@ class AppStore(context: Context) {
         // MARBLE_SERVER_LOCATION_V192 / MARBLE_SESSION_USAGE_V192
         .putBoolean("serverLocationAutoDetect", s.serverLocationAutoDetect)
         .putBoolean("homeShowDataUsage", s.homeShowDataUsage)
-        .putBoolean("homeAmbientBackdrop", s.homeAmbientBackdrop)
 
         .putBoolean("smartNotificationsEnabled", s.smartNotificationsEnabled)
         .putBoolean("notifyConnectionEvents", s.notifyConnectionEvents)

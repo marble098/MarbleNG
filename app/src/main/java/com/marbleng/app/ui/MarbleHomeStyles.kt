@@ -105,7 +105,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
@@ -196,21 +195,9 @@ internal data class HomeEvidence(
     val lastSessionBytes: Long = 0L,
     val showDataUsage: Boolean = false,
     // MARBLE_SERVER_LOCATION_V192 — the ISO code the status card's flag circle should draw:
-    // the live server-intel geo, else the repository's once-tested location. A country an operator
-    // wrote into a node name is NOT part of this value any more — see [locationTrust].
-    val flagCode: String = "",
-    /**
-     * MARBLE_ROUTE_ATELIER_V207 — the one state this page is in, resolved from the same evidence
-     * every surface reads. Hue, copy and enabled-ness of the connect control all derive from it, so
-     * the five silhouettes cannot drift apart, and neither can the status card next to them.
-     */
-    val routeState: MarbleRouteState = MarbleRouteState.READY,
-    /** What the flag in this page's tile is allowed to claim: measured, lone, label, or nothing. */
-    val locationTrust: MarbleLocationTrust = MarbleLocationTrust.UNKNOWN
-) {
-    /** True when a national flag may be painted for this route at all. */
-    val mayPaintLocationFlag: Boolean get() = locationTrust.mayDrawFlag()
-}
+    // the live server-intel geo, else the repository's once-tested/label-resolved location.
+    val flagCode: String = ""
+)
 
 internal fun buildHomeEvidence(
     repo: AppRepository,
@@ -220,27 +207,6 @@ internal fun buildHomeEvidence(
     fallbackFlag: String?
 ): HomeEvidence {
     val connected = repo.state == "CONNECTED"
-    val connecting = repo.state == "CONNECTING"
-    val disconnecting = repo.state == "DISCONNECTING"
-    val blocked = repo.state == "BLOCKED"
-    // MARBLE_ROUTE_ATELIER_V207 — the location answer and its strength travel together.
-    //
-    // Three sources can name a country here and they are not three versions of one fact: the exit
-    // report of a running session is data about the tunnel, the resolver's measured code is data
-    // about the endpoint, and an emoji inside a node's own name is marketing copy. The flag circle
-    // used to read them as one fallback chain, which let a label claim a measurement's authority.
-    // The chain stays — a page should still use the best code it has — but the label tier is no
-    // longer a flag, and a lone witness is no longer a confirmed one.
-    val intelCode = info?.countryCode?.takeIf { it.isNotBlank() }.orEmpty()
-    val measuredCode = profile?.let { repo.serverLocation(it).code }.orEmpty()
-    val labelCode = leadingFlagCodeOf(profile?.name.orEmpty())
-    val locationTrust = marbleLocationTrustOf(
-        hasSessionReport = intelCode.isNotBlank(),
-        hasMeasuredCode = measuredCode.isNotBlank(),
-        measuredIsProvisional = repo.serverLocationIsProvisional(profile),
-        hasLabelGlyph = labelCode.isNotBlank()
-    )
-    val flagCode = if (intelCode.isNotBlank()) intelCode else measuredCode
     return HomeEvidence(
         profile = profile,
         nodeName = displayName,
@@ -269,17 +235,9 @@ internal fun buildHomeEvidence(
         ipLoading = repo.serverIntelLoading,
         ipError = repo.serverIntelError.isNotBlank() && info == null,
         connected = connected,
-        connecting = connecting,
-        disconnecting = disconnecting,
-        blocked = blocked,
-        routeState = marbleRouteStateOf(
-            hasRoute = profile != null,
-            connected = connected,
-            connecting = connecting,
-            disconnecting = disconnecting,
-            blocked = blocked
-        ),
-        locationTrust = locationTrust,
+        connecting = repo.state == "CONNECTING",
+        disconnecting = repo.state == "DISCONNECTING",
+        blocked = repo.state == "BLOCKED",
         connectedSinceMs = repo.connectedSinceMs,
         pingMs = repo.connectionPingMs,
         pingState = repo.connectionPingState,
@@ -299,7 +257,11 @@ internal fun buildHomeEvidence(
         sessionBytes = if (repo.state == "CONNECTED") repo.sessionBytes else 0L,
         lastSessionBytes = repo.lastSessionBytes,
         showDataUsage = repo.settings.homeShowDataUsage,
-        flagCode = flagCode
+        // MARBLE_SERVER_LOCATION_V192 — the flag the status circle draws: the live intel geo
+        // wins, then the once-tested location, then whatever the label itself says.
+        flagCode = info?.countryCode?.takeIf { it.isNotBlank() }
+            ?: (profile?.let { repo.serverLocation(it).code }.orEmpty())
+            .ifBlank { leadingFlagCodeOf(profile?.name.orEmpty()) }
     )
 }
 
@@ -344,7 +306,7 @@ internal data class HomeActions(
 )
 
 /** The per-style skin every shared evidence widget renders through. */
-internal enum class HomeFlavor { IOS_SLIDER, IOS_FLOATING, IOS_EMBOSSED, IOS_MODULAR, ROUTE_ATELIER }
+internal enum class HomeFlavor { IOS_SLIDER, IOS_FLOATING, IOS_EMBOSSED, IOS_MODULAR }
 
 /** The single source of truth for which presentation skin a [HomeStyle] renders through. */
 internal fun homeFlavorFor(style: HomeStyle): HomeFlavor = when (style) {
@@ -352,48 +314,57 @@ internal fun homeFlavorFor(style: HomeStyle): HomeFlavor = when (style) {
     HomeStyle.IOS_FLOATING -> HomeFlavor.IOS_FLOATING
     HomeStyle.IOS_EMBOSSED -> HomeFlavor.IOS_EMBOSSED
     HomeStyle.IOS_MODULAR -> HomeFlavor.IOS_MODULAR
-    HomeStyle.ROUTE_ATELIER -> HomeFlavor.ROUTE_ATELIER
 }
 
-/**
- * The state word of every Home surface.
- *
- * MARBLE_ROUTE_ATELIER_V207 — the three per-style tone functions that used to sit here (`homeTone`,
- * `styleConnectedTone`, `styleStateTone`) are deleted rather than deprecated. They were the review's
- * complaint in miniature: four Home presentations holding four private opinions about what
- * "connected" looks like — one of them reading `Aether.AmethystBright`, a token that holds the very
- * value of `Cyan` in both brand palettes — and nothing was wired to them, so the drift cost nothing
- * to keep and everything to reason about. A state colour is one mapping now ([marbleRouteTone]); a
- * style may choose its accent, never its meaning.
- *
- * The copy follows the same table, and it closes a hole the button had: with no route selected the
- * page used to offer "Connect" for a connection that cannot be made. It offers the picker instead,
- * because that is the real next step, and the glyph on the face now agrees with the word.
- */
+@Composable
+internal fun homeTone(evidence: HomeEvidence): Color = when {
+    evidence.connected && evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs > 0 ->
+        marbleMetricTone(pingMetricBand(evidence.pingMs))
+    evidence.connected -> Aether.Emerald
+    evidence.connecting -> Aether.CyanBright
+    evidence.disconnecting -> Aether.Amber
+    evidence.blocked -> Aether.Danger
+    else -> Aether.Cyan
+}
+
+@Composable
+internal fun styleConnectedTone(flavor: HomeFlavor): Color = when (flavor) {
+    HomeFlavor.IOS_SLIDER -> Aether.Emerald
+    HomeFlavor.IOS_FLOATING -> Aether.CyanBright
+    HomeFlavor.IOS_EMBOSSED -> Aether.Emerald
+    HomeFlavor.IOS_MODULAR -> Aether.AmethystBright
+}
+
+@Composable
+internal fun styleStateTone(flavor: HomeFlavor, evidence: HomeEvidence): Color = when {
+    evidence.connected -> styleConnectedTone(flavor)
+    evidence.connecting -> Aether.CyanBright
+    evidence.disconnecting -> Aether.Amber
+    evidence.blocked -> Aether.Danger
+    else -> Aether.Cyan
+}
+
 @Composable
 internal fun homeStatusText(evidence: HomeEvidence): String {
     val t = Tr.now
-    return when (evidence.routeState) {
-        MarbleRouteState.NO_ROUTE -> t.chooseRoute
-        MarbleRouteState.READY -> t.readyToConnect
-        MarbleRouteState.SECURING -> t.securingRoute
-        MarbleRouteState.CONNECTED -> t.statusProtected
-        MarbleRouteState.CLOSING -> t.closingRoute
-        MarbleRouteState.BLOCKED -> t.connectionStopped
+    return when {
+        evidence.connected -> t.statusProtected
+        evidence.connecting -> t.securingRoute
+        evidence.disconnecting -> t.closingRoute
+        evidence.blocked -> t.connectionStopped
+        else -> t.socksStandby
     }
 }
 
-/** The verb of the connect control: one table for the five silhouettes and for the Atelier hero. */
 @Composable
 internal fun homeActionLabel(evidence: HomeEvidence): String {
     val t = Tr.now
-    return when (evidence.routeState.connectVerb()) {
-        MarbleConnectVerb.ADD_ROUTE -> t.proAddRoute
-        MarbleConnectVerb.CONNECT -> t.connect
-        MarbleConnectVerb.CANCEL -> t.cancel
-        MarbleConnectVerb.DISCONNECT -> t.disconnect
-        MarbleConnectVerb.WAIT -> t.disconnecting
-        MarbleConnectVerb.RESET -> t.reset
+    return when {
+        evidence.connected -> t.disconnect
+        evidence.connecting -> t.cancel
+        evidence.disconnecting -> t.disconnecting
+        evidence.blocked -> t.reset
+        else -> t.connect
     }
 }
 
@@ -511,7 +482,6 @@ internal val LocalConnectButtonStyle = staticCompositionLocalOf { ConnectButtonS
 internal fun connectButtonGlyph(evidence: HomeEvidence): HomeGlyph = when {
     evidence.connected -> HomeGlyph.CHECK
     evidence.blocked -> HomeGlyph.RESET
-    evidence.routeState == MarbleRouteState.NO_ROUTE -> HomeGlyph.PLUS
     else -> HomeGlyph.POWER
 }
 
@@ -590,7 +560,13 @@ internal fun HomePowerControl(
  * moves, floats, drifts or resizes.
  */
 @Composable
-internal fun connectButtonTone(evidence: HomeEvidence): Color = marbleRouteTone(evidence.routeState)
+internal fun connectButtonTone(evidence: HomeEvidence): Color = when {
+    evidence.blocked -> Aether.Danger
+    evidence.disconnecting -> Aether.Amber
+    evidence.connecting -> Aether.Amethyst
+    evidence.connected -> Aether.Emerald
+    else -> Aether.Cyan
+}
 
 /**
  * MARBLE_CONNECT_BUTTON_V121 — the one connection button of the product, in five silhouettes.
@@ -626,9 +602,7 @@ internal fun MarbleConnectionButton(
         label = "marble-connection-tone"
     )
     // The one action the control is busy with cannot be re-triggered by an impatient tap.
-    // MARBLE_ROUTE_ATELIER_V207 — the gate is the state table's own answer rather than a local
-    // reading of one flag, so the five silhouettes cannot disagree about what "wait" means.
-    val armed = evidence.routeState.isActionable()
+    val armed = !evidence.disconnecting
 
     when (style) {
         ConnectButtonStyle.ROUND -> ConnectButtonRound(
@@ -724,11 +698,9 @@ private fun ConnectButtonRound(
             modifier = Modifier
                 .size(diameter)
                 // MARBLE_EXPRESSIVE_MOTION_V186 — the acknowledgement beat: when the session
-                // flips, the whole face springs past rest once, then settles on the emphasized
-                // decelerate curve. MARBLE_ROUTE_ATELIER_V207 halves the travel and gates it: five
-                // percent of a 168 dp disc is a lurch, and a control that leaps for its own state
-                // change is competing with the status word directly above it for the same sentence.
-                .marblePopWhen(evidence.connected, peak = MarbleConnectMotion.statePopPeak)
+                // flips, the whole face springs up five percent past rest once, then settles
+                // on the emphasized decelerate curve.
+                .marblePopWhen(evidence.connected, peak = 1.05f)
                 .shadow(
                     elevation = 16.dp,
                     shape = CircleShape,
@@ -745,22 +717,24 @@ private fun ConnectButtonRound(
                         )
                     )
                 )
+                .background(
+                    Brush.radialGradient(
+                        listOf(Color.Transparent, accent.copy(alpha = .05f))
+                    )
+                )
                 .kineticClickable(
                     enabled = armed,
                     role = Role.Button,
-                    pressScale = MarbleControlKind.Primary.pressScale,
+                    pressScale = .94f,
                     boundedShape = CircleShape,
                     releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
                     onClick = {
                         // The acknowledgement ring expands outward once per tap, on the shared
                         // response spring, while the press scale (owned by kineticClickable)
-                        // compresses and releases the face. The ring is motion, so reduced motion
-                        // keeps the press and drops the echo instead of the whole conversation.
-                        if (motion.acknowledges(MarbleControlKind.Primary)) {
-                            rippleScope.launch {
-                                tapRipple.snapTo(0f)
-                                tapRipple.animateTo(1f, MarbleMotionSpecs.ResponseFloat)
-                            }
+                        // compresses and releases the face.
+                        rippleScope.launch {
+                            tapRipple.snapTo(0f)
+                            tapRipple.animateTo(1f, MarbleMotionSpecs.ResponseFloat)
                         }
                         onToggle()
                     }
@@ -775,17 +749,8 @@ private fun ConnectButtonRound(
                 val sweep = if (busy) motion.loop(1_150) * 360f else 0f
                 // The securing arc breathes while it rotates: width and alpha pulse on a shared clock.
                 val busyPulse = if (busy) motion.breathe(1_150) else 0f
-                // MARBLE_ROUTE_ATELIER_V207 — a connected tunnel used to breathe forever: a ring
-                // swelling on a 2.8 s loop that reported nothing, kept a frame callback alive on the
-                // single most-seen screen, and made "it is working" look like "something is happening".
-                // The face now holds still while a session is up and moves only for the two changes a
-                // user actually needs to see: the securing arc and the press echo. The ambient switch
-                // can bring the breathing back for whoever liked it.
-                val haloPulse = if (evidence.connected && motion.acknowledges(MarbleControlKind.Primary)) {
-                    motion.breathe(2_800)
-                } else {
-                    0f
-                }
+                // The connected halo breathes slowly; disconnected holds still.
+                val haloPulse = if (evidence.connected) motion.breathe(2_800) else 0f
                 // Outer rim — the calm resting statement of the current state.
                 drawCircle(
                     color = animatedTone.copy(alpha = .22f),
@@ -991,11 +956,9 @@ private fun ConnectButtonSlide(
     // replaces the old "always spring back to zero", which left a connected control still
     // reading "slide to connect".
     val restAtEnd = evidence.connected || evidence.connecting
-    val animates = motion.acknowledges(MarbleControlKind.Primary)
-    LaunchedEffect(restAtEnd, travelPx, animates) {
+    LaunchedEffect(restAtEnd, travelPx) {
         if (!dragging) {
-            val target = if (restAtEnd) travelPx else 0f
-            if (animates) knob.animateTo(target, MarbleMotionSpecs.QuickReveal) else knob.snapTo(target)
+            knob.animateTo(if (restAtEnd) travelPx else 0f, MarbleMotionSpecs.QuickReveal)
         }
     }
 
@@ -1027,18 +990,7 @@ private fun ConnectButtonSlide(
                         )
                     )
                     .border(1.4.dp, animatedTone.copy(alpha = .38f), shape)
-                    // MARBLE_ROUTE_ATELIER_V207 — a drag-only control has no accessibility path: a
-                    // TalkBack user heard "connect slider" and had nothing to activate. The drag stays
-                    // the touch gesture (it is the whole point of a slide-to-confirm: a pocket tap
-                    // must never close a tunnel) and the semantic action is offered next to it, so the
-                    // verb exists for everyone who cannot sweep a 54 dp knob across a track.
-                    .semantics {
-                        contentDescription = controlDescription
-                        onClick(label = controlDescription) {
-                            if (armed) onToggle()
-                            true
-                        }
-                    },
+                    .semantics { contentDescription = controlDescription },
                 contentAlignment = Alignment.CenterStart
             ) {
                 if (busy) {
@@ -1118,64 +1070,40 @@ private fun ConnectButtonSlide(
                                     // disconnect, disconnected drags to the end to connect. A
                                     // completed drag flies to the committed side and HOLDS there;
                                     // a short drag springs back to the state's own side.
-                                    val wasConnected = evidence.connected
-                                    val completed = if (wasConnected) {
+                                    val completed = if (evidence.connected) {
                                         knob.value <= travelPx * (1f - threshold)
                                     } else {
                                         knob.value >= travelPx * threshold
                                     }
-                                    if (completed) {
-                                        // MARBLE_ROUTE_ATELIER_V207 — the command leaves FIRST.
-                                        //
-                                        // The commit used to read `animateTo(…) then onToggle()`, so a
-                                        // network action sat behind a 120 ms decorative tween: on a
-                                        // dropped frame the haptic had promised a connection the
-                                        // engine had not been told about yet, and the whole control
-                                        // felt like a UI toy rather than a switch. Follow-through is
-                                        // worth keeping, so it now runs BESIDE the command, and with
-                                        // animations off it is an instant snap instead of a wait.
-                                        haptics.performHapticFeedback(
-                                            HapticFeedbackType.TextHandleMove
-                                        )
-                                        onToggle()
-                                        scope.launch {
-                                            val target = if (wasConnected) 0f else travelPx
-                                            if (animates) {
-                                                knob.animateTo(target, MarbleMotionSpecs.QuickReveal)
-                                            } else {
-                                                knob.snapTo(target)
-                                            }
-                                        }
-                                    } else {
-                                        scope.launch {
-                                            // MARBLE_EXPRESSIVE_MOTION_V186 — a short drag releases on
-                                            // the wave spring: the knob springs back to its resting
-                                            // side with one visible overshoot and squishes against the
-                                            // track's clip before settling.
-                                            val rest = if (wasConnected) travelPx else 0f
-                                            if (animates) {
-                                                knob.animateTo(
-                                                    rest,
-                                                    MarbleExpressiveSpecs.WaveSpringFloat
-                                                )
-                                            } else {
-                                                knob.snapTo(rest)
-                                            }
+                                    scope.launch {
+                                        if (completed) {
+                                            knob.animateTo(
+                                                if (evidence.connected) 0f else travelPx,
+                                                MarbleMotionSpecs.QuickReveal
+                                            )
+                                            haptics.performHapticFeedback(
+                                                HapticFeedbackType.TextHandleMove
+                                            )
+                                            onToggle()
+                                        } else {
+                                            // MARBLE_EXPRESSIVE_MOTION_V186 — a short drag
+                                            // releases on the wave spring: the knob springs back
+                                            // to its resting side with one visible overshoot and
+                                            // squishes against the track's clip before settling.
+                                            knob.animateTo(
+                                                if (evidence.connected) travelPx else 0f,
+                                                MarbleExpressiveSpecs.WaveSpringFloat
+                                            )
                                         }
                                     }
                                 },
                                 onDragCancel = {
                                     dragging = false
                                     scope.launch {
-                                        val rest = if (evidence.connected) travelPx else 0f
-                                        if (animates) {
-                                            knob.animateTo(
-                                                rest,
-                                                MarbleExpressiveSpecs.WaveSpringFloat
-                                            )
-                                        } else {
-                                            knob.snapTo(rest)
-                                        }
+                                        knob.animateTo(
+                                            if (evidence.connected) travelPx else 0f,
+                                            MarbleExpressiveSpecs.WaveSpringFloat
+                                        )
                                     }
                                 }
                             ) { change, amount ->
@@ -1202,12 +1130,8 @@ private fun ConnectButtonSlide(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            // MARBLE_ROUTE_ATELIER_V207 — the track is deliberately pinned left-to-right (it is a
-            // physical, screen-space control), which means the generic "slide to act" caption cannot
-            // tell a Persian reader which way to move, or that the direction does not flip with the
-            // page. The hint states the direction the verb needs instead.
             Text(
-                if (evidence.connected) trx("Slide left to disconnect") else trx("Slide right to connect"),
+                Tr.now.slideToAct,
                 color = Aether.InkFaint,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
@@ -1999,16 +1923,13 @@ internal fun IosStatusWideCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    // MARBLE_ROUTE_ATELIER_V207 — the circle is the route's PLACE, and it may only
-                    // claim a country the app measured or the session reported. What used to sit here
-                    // was a fallback chain that ended in the emoji an operator put in the node's own
-                    // name: a big official-looking flag, for a guess. An unconfirmed route now shows
-                    // the world glyph and says so in the caption under it — the emoji stays where it
-                    // was written, inside the name.
+                    // MARBLE_SERVER_LOCATION_V192 — the status card's location circle is the real
+                    // national flag, drawn to fill it edge to edge. The emoji is only the
+                    // fallback for a location the art library cannot yet name.
                     CountryFlagCircle(
-                        code = evidence.flagCode.ifBlank { null }?.takeIf { evidence.mayPaintLocationFlag },
+                        code = evidence.flagCode.ifBlank { null },
                         size = 34.dp,
-                        fallbackText = "🌐",
+                        fallbackText = evidence.flag.ifBlank { "🌐" },
                         fallbackFill = homeCloudInsetFill(),
                         fallbackTone = Aether.Ink
                     )
@@ -2433,10 +2354,6 @@ private fun HomeHeartbeatTrace(
     val motion = MarbleMotion.current
     // The beat IS the ping: 520 ms for an impossibly fast link, ~2.6 s for a 400 ms one.
     val periodMs = (520 + pingMs * 5).coerceIn(520, 2_600)
-    // MARBLE_ROUTE_ATELIER_V207 — with the ambient field off the trace holds its beat instead of
-    // scrolling: the ECG still reads the latency it is drawn from, it simply stops moving, so the
-    // instrument keeps its meaning and the page stops paying for a frame nobody asked for.
-    val ambient = LocalMarbleAmbientField.current
     Canvas(modifier) {
         val w = size.width
         val h = size.height
@@ -2444,7 +2361,7 @@ private fun HomeHeartbeatTrace(
         val amp = h * .40f
         val stroke = (h * .10f).coerceIn(1.2f, 2.1f)
         val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        val phase = if (ambient) motion.loop(periodMs) else 0f
+        val phase = motion.loop(periodMs)
         // How far the beat has travelled since the R spike: 1 at the spike, decaying after it.
         val thump = exp(-4f * ExpressiveMath.wrap01(phase - HEARTBEAT_R_PHASE))
         val x0 = w * .34f
@@ -2543,16 +2460,12 @@ internal fun HomeTopActionBar(
     // as information. The header is now the product signature and its three actions.
     val cancelling = repo.probeCancelling
     val sweeping = groupBusy || cancelling
-    // MARBLE_ROUTE_ATELIER_V207 — the notice line belongs to the header column, not to an overlay:
-    // every Home presentation composes this action bar, so one edit gives all of them the same
-    // in-flow feedback slot, and none of them can paint a box across the wordmark again.
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Row(
             modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically
@@ -2595,88 +2508,11 @@ internal fun HomeTopActionBar(
             glyph = HomeGlyph.INFO,
             tone = Aether.AmethystBright,
             description = Tr.now.ipDetails,
-                onClick = {
-                    if (repo.serverIntel == null) repo.refreshServerIntel(evidence.profile, force = true)
-                    actions.onIpDetails()
-                }
-            )
-        }
-        HomeRuntimeNotice(repo)
-    }
-}
-
-/**
- * The one line that says what just happened, in the page's own flow.
- *
- * MARBLE_NO_IN_APP_NOTIFICATIONS_V121 was right about the interruption and wrong about the silence.
- * It deleted the floating snackbar and, with it, the last surface that read `repo.message` at all:
- * the runtime message is recorded by the engine in ~40 places and — until this bar existed — painted
- * by none of them. "Clipboard is empty" after a tap on Paste, a manual source that has nothing
- * remote to refresh, a backup that finished: the action answered with nothing, so the user learned
- * only that the app had not crashed.
- *
- * The rule the review wrote, applied literally: no *repeated* or *interrupting* copy, not no copy.
- * One short line, under the header, on the surface the user is already looking at, expiring by
- * itself, dismissible, and never duplicated on top of a component that already states the same fact
- * (connection state and failures stay on the connect card, where they have always been).
- */
-@Composable
-internal fun HomeRuntimeNotice(repo: AppRepository, modifier: Modifier = Modifier) {
-    val raw = repo.message
-    // The bar is the policy's surface, not a second opinion about what deserves showing.
-    if (!MarbleFeedbackPolicy.isOutcome(raw)) return
-    // Same compaction the removed snackbar used: a diagnostic sentence must not become a paragraph.
-    val text = remember(raw) { raw.replace(Regex("\\s+"), " ").trim().take(180) }
-    val shape = RoundedCornerShape(14.dp)
-    val tone = Aether.Cyan
-    // One spring on arrival (instant when reduced motion is on), and the line retires with the
-    // message itself — no timer painting a box over content that has already moved on.
-    // The engine's message is data, but the bar is product copy: a Persian reader hears the
-    // transliteration like everyone else reads it. Resolved here because a semantics block is not a
-    // composable scope.
-    val shown = trx(text)
-    Row(
-        modifier = modifier
-            .marbleSpringIn()
-            .fillMaxWidth()
-            .padding(start = 4.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)
-            .clip(shape)
-            .background(homeCloudCardFill())
-            .border(1.dp, tone.copy(alpha = .28f), shape)
-            .semantics { contentDescription = shown },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .padding(start = 10.dp)
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(tone)
+            onClick = {
+                if (repo.serverIntel == null) repo.refreshServerIntel(evidence.profile, force = true)
+                actions.onIpDetails()
+            }
         )
-        Text(
-            text = shown,
-            color = Aether.Ink,
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f)
-                .padding(vertical = 9.dp)
-        )
-        PrismIconButton(
-            onClick = { repo.clearMessage() },
-            tone = Aether.InkMuted,
-            size = 26.dp,
-            descriptiveLabel = "Dismiss this message"
-        ) {
-            Text(
-                text = "×",
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1
-            )
-        }
     }
 }
 
@@ -2800,12 +2636,9 @@ private fun HomeBareAction(
     // looking perfect on AMOLED. Pushing the tone toward the readable endpoint keeps its hue
     // and restores the floor in every palette.
     val pageTone = marbleReadableOn(tone, Aether.Void, 3.0f)
-    // MARBLE_ROUTE_ATELIER_V207 — three 36 dp icons used to hang off the top of the product's main
-    // page: the smallest targets of the app, on the row a user taps before they have decided to
-    // trust it. The artwork keeps its 36 dp; the hit box takes the floor the grammar promises.
     Box(
         modifier = Modifier
-            .marbleTapTarget(MarbleTapTarget.Floor)
+            .size(36.dp)
             .clip(CircleShape)
             .kineticClickable(
                 enabled = enabled && !busy,
@@ -2818,31 +2651,35 @@ private fun HomeBareAction(
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-            if (busy) {
-                // MARBLE_EXPRESSIVE_MOTION_V186 — the bare action's busy beat is the wavy
-                // expressive indicator: three arcs stretching around the 17 dp slot on the
-                // shared clock instead of a rigid stock spinner.
-                MarbleExpressiveCircularIndicator(
-                    modifier = Modifier.size(17.dp),
-                    color = pageTone,
-                    strokeWidth = 2.dp,
-                    arcCount = 3
-                )
-            } else {
-                HomeGlyphIcon(
-                    glyph,
-                    if (enabled) pageTone else pageTone.copy(alpha = .40f),
-                    Modifier.size(18.dp)
-                )
-            }
+        if (busy) {
+            // MARBLE_EXPRESSIVE_MOTION_V186 — the bare action's busy beat is the wavy
+            // expressive indicator: three arcs stretching around the 17 dp slot on the
+            // shared clock instead of a rigid stock spinner.
+            MarbleExpressiveCircularIndicator(
+                modifier = Modifier.size(17.dp),
+                color = pageTone,
+                strokeWidth = 2.dp,
+                arcCount = 3
+            )
+        } else {
+            HomeGlyphIcon(
+                glyph,
+                if (enabled) pageTone else pageTone.copy(alpha = .40f),
+                Modifier.size(18.dp)
+            )
         }
     }
 }
 
 /** The semantic state colour of the Home instrument — one function, four themes, no drift. */
 @Composable
-internal fun homeStateTone(evidence: HomeEvidence): Color = marbleRouteTone(evidence.routeState)
+internal fun homeStateTone(evidence: HomeEvidence): Color = when {
+    evidence.connected -> Aether.Emerald
+    evidence.connecting -> Aether.CyanBright
+    evidence.disconnecting -> Aether.Amber
+    evidence.blocked -> Aether.Danger
+    else -> Aether.SlateBright
+}
 
 /**
  * Flat status pip with a soft halo; breathes only while a handshake is actually running.
@@ -2856,11 +2693,6 @@ internal fun homeStateTone(evidence: HomeEvidence): Color = marbleRouteTone(evid
 @Composable
 private fun StatusDot(stateColor: Color, busy: Boolean, size: Dp = 18.dp) {
     val motion = MarbleMotion.current
-    // MARBLE_ROUTE_ATELIER_V207 — while a session is *up*, nothing is happening: the rings used to
-    // leave the pip every 2.6 s forever, which read as "activity" on the one state that has no
-    // activity to report, and cost a permanent redraw on the most-looked-at screen in the product.
-    // The pulse now belongs to the ambient setting (and to a busy handshake, which is real work).
-    val ambient = LocalMarbleAmbientField.current
     Canvas(modifier = Modifier.size(size)) {
         // MARBLE_HOME_COMPACT_BANNER_V167 — the diameter is now a parameter, and a parameter named
         // `size` shadows DrawScope's own metric, so the pip's geometry reads it as a length.
@@ -2868,7 +2700,7 @@ private fun StatusDot(stateColor: Color, busy: Boolean, size: Dp = 18.dp) {
         // The shared clock is read in the draw phase: ambient motion costs zero recompositions.
         val breathe = motion.breathe(900)
         val haloAlpha = if (busy) 0.22f + 0.20f * breathe else 0.16f
-        if (!busy && motion.motionEnabled && ambient) {
+        if (!busy && motion.motionEnabled) {
             val phase = motion.loop(2_600)
             drawCircle(
                 color = stateColor.copy(alpha = 0.30f * (1f - phase)),
@@ -3111,7 +2943,6 @@ internal fun IosServerListBox(
                                 testing = repo.probeStateOf(server.id) == ProbeState.TESTING,
                                 countryCode = location.code,
                                 countryName = location.name,
-                                provisionalLocation = repo.serverLocationIsProvisional(server),
                                 onClick = {
                                     if (repo.probeActive || repo.probeCancelling) {
                                         repo.setRuntimeMessage("Wait until ping finishes before changing server")
@@ -3258,7 +3089,6 @@ private fun IosServerItemRow(
     testing: Boolean,
     countryCode: String = "",
     countryName: String = "",
-    provisionalLocation: Boolean = false,
     onClick: () -> Unit
 ) {
     val rowShape = RoundedCornerShape(16.dp)
@@ -3328,21 +3158,11 @@ private fun IosServerItemRow(
         // protocol: the tested country's flag fills the circle, and the protocol keeps its
         // identity in the small badge under the name. Without a known location the protocol
         // glyph returns to the circle, so the row never reads empty.
-        // MARBLE_ROUTE_ATELIER_V207 — the tile states the strength of its own answer (see
-        // [MarbleLocationTrust]): a measured country paints the flag, a name that merely contains a
-        // flag paints the world with a dashed rim.
-        val locationTrust = marbleLocationTrustOf(
-            hasSessionReport = false,
-            hasMeasuredCode = countryCode.isNotBlank(),
-            measuredIsProvisional = provisionalLocation,
-            hasLabelGlyph = flag != null
-        )
         ProtocolTile(
             scheme = server.scheme,
             size = 38.dp,
             flag = flag,
             flagCode = countryCode,
-            locationTrust = locationTrust,
             stateTone = when {
                 isConnected -> Aether.Emerald
                 isSelected -> HomeCloud.Accent
@@ -4935,14 +4755,6 @@ internal fun HomeStyleSurface(
             bottomClearance = bottomClearance
         )
         HomeStyle.IOS_MODULAR -> HomeThemeModular(
-            repo = repo,
-            evidence = evidence,
-            actions = actions,
-            bottomClearance = bottomClearance
-        )
-        // MARBLE_ROUTE_ATELIER_V207 — the route presentation lives in its own file, on the same
-        // evidence and the same shared widgets as the four above it.
-        HomeStyle.ROUTE_ATELIER -> HomeThemeAtelier(
             repo = repo,
             evidence = evidence,
             actions = actions,

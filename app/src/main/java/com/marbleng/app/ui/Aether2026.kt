@@ -86,6 +86,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -425,32 +426,21 @@ fun Aether2026App(
     // Routing focus from Home, and the fourth slot's own Customize entry: both are deep links
     // into a Settings page, so both turn the pager to Settings.
     LaunchedEffect(settingsFocus) {
-        if (
-            settingsFocus == "Routing" ||
-            settingsFocus == SettingsPages.DOCK_SLOT ||
-            settingsFocus == SettingsPages.TESTS
-        ) {
+        if (settingsFocus == "Routing" || settingsFocus == SettingsPages.DOCK_SLOT) {
             goToTab(pageOf(SpatialTab.SETTINGS))
         }
     }
 
-    // MARBLE_NO_IN_APP_NOTIFICATIONS_V121 — the product raises no in-app toasts, and that stays true.
+    // MARBLE_NO_IN_APP_NOTIFICATIONS_V121 — the product no longer raises in-app toasts.
     //
-    // What V121 also did, though, was delete the *reading* of the runtime message: this effect
-    // cleared it the moment the app went idle, and nothing in the UI ever displayed it, so the
-    // ~40 places the engine reports an outcome became writes to a value no one read. "Clipboard is
-    // empty", "manual source has nothing remote to refresh", a backup that finished — the action
-    // answered with silence, which is how a user learns only that the app did not crash.
-    //
-    // The corrected rule: no repeated or interrupting copy, not no copy. The message now lives long
-    // enough to be read, on a bar in the page's own flow (see [HomeRuntimeNotice]), and retires
-    // itself without a snackbar sliding over anything. While work is running its message stays put;
-    // the state that owns it keeps showing it. System notifications are, as before, untouched.
+    // Every runtime message the engine produces is already visible where it belongs: connection
+    // state on the connect button, failures under it, test outcomes on the node cards, import
+    // results in the Servers list. The floating snackbar duplicated all of that on top of the
+    // surface the user was already looking at, so it is gone. Messages are still recorded by the
+    // repository (diagnostics, Bug Finder), they simply never interrupt the UI. System
+    // notifications — the ongoing VPN notification and system alerts — are untouched.
     LaunchedEffect(repo.message, repo.busy) {
-        val shown = repo.message
-        if (shown.isBlank() || repo.busy) return@LaunchedEffect
-        delay(MarbleFeedbackPolicy.dwellMillis(actionRequired = false))
-        if (repo.message == shown) repo.clearMessage()
+        if (!repo.busy && repo.message.isNotBlank()) repo.clearMessage()
     }
 
     // MARBLE_HOME_DECK_V143 — one shared deck truth: every Home presentation (and the Servers
@@ -478,23 +468,16 @@ fun Aether2026App(
     // MARBLE_PING_METHODS_V148 — Home ping results live in the in-place meter / shortcut deck;
     // no separate top-of-page overlay is composed while a ping is running.
     val deckActions = HomeActions(
-        // MARBLE_ROUTE_ATELIER_V207 — the verb comes from the state table, and every verb has a
-        // destination. "Add a server" used to be a word on the button with "start a connection"
-        // behind it: with no route selected the button offered Connect for a connection that cannot
-        // be made, and tapping it ran the reconnect path. Now the label and the action are resolved
-        // from the same value, so they cannot disagree by construction.
         onToggleConnection = {
-            val ev = deck.evidence
-            when (ev.routeState.connectVerb()) {
-                // A tunnel that is already closing ignores the button until it has closed.
-                MarbleConnectVerb.WAIT -> Unit
-                MarbleConnectVerb.ADD_ROUTE -> goToTab(pageOf(SpatialTab.LIBRARY))
-                MarbleConnectVerb.CONNECT -> repo.reconnectLastOrAuto(onConnect)
-                // Cancelling a handshake, resetting a fail-closed session and ending a live one are
-                // all the engine's single teardown path, exactly as before.
-                MarbleConnectVerb.CANCEL,
-                MarbleConnectVerb.DISCONNECT,
-                MarbleConnectVerb.RESET -> repo.stopVpn()
+            with(deck.evidence) {
+                when {
+                    // A tunnel that is already closing ignores the button until it has closed.
+                    disconnecting -> Unit
+                    connected || connecting || blocked -> repo.stopVpn()
+                    // The selected server is the one the button acts on; reconnectLastOrAuto
+                    // resolves it (selection is persisted with the same reference).
+                    else -> repo.reconnectLastOrAuto(onConnect)
+                }
             }
         },
         onCopyIp = deckCopyIp,
@@ -520,14 +503,7 @@ fun Aether2026App(
             settingsFocus = "Routing"
             goToTab(pageOf(SpatialTab.SETTINGS))
         },
-        // MARBLE_ROUTE_ATELIER_V207 — the shortcut names a destination, so it goes there: the Tests
-        // workspace with its first card (Testing, the ping method the shortcut is about) on screen —
-        // not merely "the Settings tab", which is what the V143 wiring actually did while promising
-        // something more specific. Routing already had an exact target; now every shortcut has one.
-        onTests = {
-            settingsFocus = SettingsPages.TESTS
-            goToTab(pageOf(SpatialTab.SETTINGS))
-        },
+        onTests = { goToTab(pageOf(SpatialTab.SETTINGS)) },
         onPasteImport = {
             val pasted = deckClipboard.getText()?.text.orEmpty()
             if (pasted.isBlank()) {
@@ -565,14 +541,7 @@ fun Aether2026App(
 
     // MARBLE_DOCK_CUSTOM_V145 — the dock's chosen footprint is published once, so the bar and
     // every page's bottom clearance are always derived from the same value.
-    CompositionLocalProvider(
-        LocalDockMetrics provides DockMetrics.of(repo.settings),
-        // MARBLE_ROUTE_ATELIER_V207 — one switch answers for every ambient surface in the app: the
-        // page backdrop's breathing glow, the status pip's rings, the heartbeat trace. They are the
-        // same cost and the same question ("may this move when it is telling me nothing new?"), so
-        // they are the same preference, published once above every page.
-        LocalMarbleAmbientField provides repo.settings.homeAmbientBackdrop
-    ) {
+    CompositionLocalProvider(LocalDockMetrics provides DockMetrics.of(repo.settings)) {
     // MARBLE_EDGE_TO_EDGE_BACKDROP_V190 — the page gradient is painted under the WHOLE window,
     // status bar and gesture area included. It used to start inside the Scaffold padding, so the
     // strips behind the status bar and the gesture handle kept the flat Void tone and showed as
@@ -6496,16 +6465,6 @@ private fun ServersNodeCard(
                         size = ServersHierarchy.ROW_TILE_DP.dp,
                         flag = flag.takeIf { it.isNotBlank() && it != ServerCountry.UNKNOWN.flag },
                         flagCode = locationCode,
-                        // MARBLE_ROUTE_ATELIER_V207 — a flag is a claim about the world, so the tile
-                        // carries the strength of the evidence behind it: confirmed by a quorum, held
-                        // by one lone source, or nothing but a label (the world glyph, dashed rim).
-                        // The emoji an operator wrote in a name stays inside the name, where it lives.
-                        locationTrust = marbleLocationTrustOf(
-                            hasSessionReport = false,
-                            hasMeasuredCode = locationCode.isNotBlank(),
-                            measuredIsProvisional = repo.serverLocationIsProvisional(profile),
-                            hasLabelGlyph = false
-                        ),
                         stateTone = tileStateTone
                     )
                     Spacer(Modifier.width(9.dp))
@@ -6517,14 +6476,6 @@ private fun ServersNodeCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            // MARBLE_ROUTE_ATELIER_V207 — the marquee is off the list for good.
-                            //
-                            // V193 bounded an endless scroller to three passes, which fixed the frame
-                            // cost and kept the problem: a row whose name moves is a row a user cannot
-                            // compare, and a few of them starting two seconds apart turned the page into
-                            // signage. A list is a comparison surface. Two settled lines carry almost
-                            // every real node name; the remainder belongs to the detail sheet, where
-                            // the full name is also *copyable* — which a scrolling one-liner never was.
                             Text(
                                 name,
                                 color = Aether.Ink,
@@ -6532,9 +6483,18 @@ private fun ServersNodeCard(
                                     fontSize = ServersHierarchy.ROW_NAME_SP.sp,
                                     fontWeight = FontWeight.Bold
                                 ),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip,
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    // MARBLE_SMOOTH_CLOCK_V193 — three passes, not infinite: an
+                                    // overflowing name used to keep a marquee animation alive
+                                    // for as long as its row stayed composed, so a long list of
+                                    // long names held a permanent frame invalidation. Three
+                                    // passes still spell the whole name out, then the row is
+                                    // still — and scrolling stays smooth on big subscriptions.
+                                    .basicMarquee(iterations = 3, initialDelayMillis = 2000)
                             )
                             if (active) {
                                 ServerStateChip(trx("Connected"), Aether.Emerald)
@@ -10412,18 +10372,6 @@ private object SettingsPages {
     const val TRANSPORT = "transport"
 
     /**
-     * MARBLE_ROUTE_ATELIER_V207 — the Home "Tests" shortcut's destination.
-     *
-     * The shortcut used to open the Settings tab and stop, which is a general area rather than the
-     * thing the label names. The value is a focus key (not a page id), so it walks the same one-shot
-     * deep-link path the Routing entry uses and clears itself afterwards.
-     */
-    const val TESTS = "tests"
-
-    /** The card the Tests deep link names, matched against [SettingsSectionSpec.title]. */
-    const val TESTS_CARD = "Testing"
-
-    /**
      * MARBLE_DOCK_SLOT_V167 — the fourth tab's own customization page. It is a page rather than a
      * row of switches because the slot has a subject (which source, which config), a name its user
      * writes, and a glyph its user picks: that is a workspace, not a toggle.
@@ -10447,29 +10395,17 @@ private object SettingsPages {
  * The settings reading ramp: lighter and smaller than the product ramp on purpose. Settings is a
  * reading surface, so nothing here is Bold and nothing is larger than it needs to be.
  */
-/**
- * The settings reading ramp.
- *
- * V207's review named the exact trade this ramp had been making: "visual density was bought by
- * lowering legibility". What DNS does, when Fragment is needed and what a Mux mode costs is not
- * ornament — it is the material of the decision — and it had been set in `labelSmall`, the role for a
- * caption under somebody else's heading, on rows that cut the sentence off with an ellipsis.
- *
- * The reading role moves up to `bodySmall` (14/20, plainly body text one step under a row title), the
- * weights settle to Medium/Normal so nothing shouts, and titles grow by the half step they need to
- * stay a step above it. A settings page is allowed to be quiet. It is not allowed to be a puzzle.
- */
 @Composable
 private fun settingsTitleStyle(): TextStyle =
-    MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium)
+    MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium)
 
 @Composable
 private fun settingsRowTitleStyle(): TextStyle =
-    MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+    MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium)
 
 @Composable
 private fun settingsBodyStyle(): TextStyle =
-    MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Normal)
+    MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal)
 
 /** Opens a URL in the browser directly — no chooser sheet, no in-app page. */
 private fun openExternal(context: android.content.Context, url: String) {
@@ -10941,9 +10877,6 @@ private fun SettingsStyleMiniRow(repo: AppRepository) {
                     HomeStyle.IOS_FLOATING -> Aether.CyanBright
                     HomeStyle.IOS_EMBOSSED -> Aether.AmethystBright
                     HomeStyle.IOS_MODULAR -> Aether.Amber
-                    // MARBLE_ROUTE_ATELIER_V207 — the presentation's thumbnail carries the brand
-                    // hue, not a fifth category colour: the style is a way of saying the same thing.
-                    HomeStyle.ROUTE_ATELIER -> Aether.Cyan
                 }
                 val shape = RoundedCornerShape(11.dp)
                 Column(
@@ -11007,17 +10940,6 @@ private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier
                 drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.53f, h * 0.15f), Size(w * 0.32f, h * 0.32f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
                 drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.15f, h * 0.55f), Size(w * 0.32f, h * 0.32f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
                 drawRoundRect(tone, Offset(w * 0.53f, h * 0.55f), Size(w * 0.32f, h * 0.32f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
-            }
-            // Route: one card, a signet of three nodes, one full-width verb
-            HomeStyle.ROUTE_ATELIER -> {
-                drawRoundRect(tone.copy(alpha = 0.30f), Offset(w * 0.15f, h * 0.10f), Size(w * 0.70f, h * 0.30f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
-                val midY = h * 0.25f
-                drawCircle(tone, h * 0.055f, Offset(w * 0.28f, midY))
-                drawCircle(tone.copy(alpha = 0.55f), h * 0.055f, Offset(w * 0.50f, midY))
-                drawCircle(tone.copy(alpha = 0.25f), h * 0.055f, Offset(w * 0.72f, midY))
-                drawLine(tone.copy(alpha = 0.5f), Offset(w * 0.33f, midY), Offset(w * 0.45f, midY), strokeWidth = 1.2.dp.toPx())
-                drawRoundRect(tone, Offset(w * 0.15f, h * 0.52f), Size(w * 0.70f, h * 0.18f), CornerRadius(3.dp.toPx(), 3.dp.toPx()))
-                drawRoundRect(tone.copy(alpha = 0.22f), Offset(w * 0.15f, h * 0.78f), Size(w * 0.70f, h * 0.16f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
             }
         }
     }
@@ -11251,15 +11173,6 @@ private fun SettingsHub(
                     subtitle = "How much this connection has moved, and the last session's total",
                     checked = settings.homeShowDataUsage
                 ) { repo.updateSettings(repo.settings.copy(homeShowDataUsage = it)) }
-                // MARBLE_ROUTE_ATELIER_V207 — "a full-screen breathing glow says nothing about the
-                // connection, so its cost has to be a choice". One switch for every ambient surface:
-                // the backdrop, the status pip's rings and the heartbeat trace all hold still, and
-                // nothing they report changes. Colors, gradients and hairlines stay exactly as they are.
-                SettingSwitch(
-                    title = "Ambient page motion",
-                    subtitle = "Off keeps the page's look and stops its breathing: the backdrop glow, the status pulse and the heartbeat trace hold still.",
-                    checked = settings.homeAmbientBackdrop
-                ) { repo.updateSettings(repo.settings.copy(homeAmbientBackdrop = it)) }
                 // MARBLE_SERVER_LOCATION_V192 — each server's country is verified once, in the
                 // background, then remembered; the flags fill the circles on every surface.
                 SettingSwitch(
@@ -11739,56 +11652,6 @@ private fun ThemePreviewIllustration(
                     cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
                 )
             }
-
-            // MARBLE_ROUTE_ATELIER_V207 — the route presentation: one decision card holding the
-            // status, the three-node signet and the verb under them, then the server and the strip.
-            HomeStyle.ROUTE_ATELIER -> {
-                val cardY = pad + statusH + 3.dp.toPx()
-                val cardH = h * 0.40f
-                drawRoundRect(
-                    color = Color(0xFF181F2E),
-                    topLeft = Offset(pad, cardY),
-                    size = Size(contentW, cardH),
-                    cornerRadius = CornerRadius(5.dp.toPx(), 5.dp.toPx())
-                )
-                drawLine(
-                    color = Color.White.copy(alpha = 0.5f),
-                    start = Offset(pad + 4.dp.toPx(), cardY + 5.dp.toPx()),
-                    end = Offset(pad + contentW * 0.55f, cardY + 5.dp.toPx()),
-                    strokeWidth = 1.6.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-                val signetY = cardY + cardH * 0.52f
-                drawCircle(color = tone.copy(alpha = 0.35f), radius = 1.7.dp.toPx(), center = Offset(pad + 7.dp.toPx(), signetY))
-                drawCircle(color = tone, radius = 1.7.dp.toPx(), center = Offset(pad + contentW * 0.5f, signetY))
-                drawCircle(color = tone.copy(alpha = 0.35f), radius = 1.7.dp.toPx(), center = Offset(pad + contentW - 7.dp.toPx(), signetY))
-                drawLine(
-                    color = tone.copy(alpha = 0.6f),
-                    start = Offset(pad + 10.dp.toPx(), signetY),
-                    end = Offset(pad + contentW - 10.dp.toPx(), signetY),
-                    strokeWidth = 1.dp.toPx()
-                )
-                // The one verb, full width
-                drawRoundRect(
-                    color = tone,
-                    topLeft = Offset(pad + 4.dp.toPx(), cardY + cardH - 9.dp.toPx()),
-                    size = Size(contentW - 8.dp.toPx(), 6.dp.toPx()),
-                    cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
-                )
-                val lowerY = cardY + cardH + 3.dp.toPx()
-                drawRoundRect(
-                    color = Color(0xFF181F2E),
-                    topLeft = Offset(pad, lowerY),
-                    size = Size(contentW, (h - lowerY - pad) * 0.55f),
-                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
-                )
-                drawRoundRect(
-                    color = Color(0xFF181F2E).copy(alpha = 0.7f),
-                    topLeft = Offset(pad, lowerY + (h - lowerY - pad) * 0.6f),
-                    size = Size(contentW, (h - lowerY - pad) * 0.4f),
-                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
-                )
-            }
         }
     }
 }
@@ -11822,7 +11685,6 @@ private fun SettingsHomeStylePage(
                                 HomeStyle.IOS_FLOATING -> Aether.CyanBright
                                 HomeStyle.IOS_EMBOSSED -> Aether.AmethystBright
                                 HomeStyle.IOS_MODULAR -> Aether.Amber
-                                HomeStyle.ROUTE_ATELIER -> Aether.Cyan
                             }
                             val shape = RoundedCornerShape(16.dp)
                             Column(
@@ -12086,17 +11948,11 @@ private fun SettingsTypefacePage(
                             val selected = repo.settings.fontFamily.equals(font.id, true)
                             CyberSegment(
                                 label = font.label,
-                                // MARBLE_ROUTE_ATELIER_V207 — the detail line states what the app
-                                // actually resolves, because the name alone promised faces this build
-                                // does not carry. Choosing "Google Sans" and getting the platform sans
-                                // is a small lie in the one place where a user is trusting you with
-                                // the typography of the whole app; naming the fallback costs nothing
-                                // and buys the credibility back.
                                 detail = when (font) {
-                                    AppFont.VAZIR -> "Bundled, real face"
-                                    AppFont.SYSTEM -> "The OS default sans"
-                                    AppFont.GOOGLE_SANS -> "Renders as system sans"
-                                    AppFont.TIMES_NEW_ROMAN -> "Renders as system serif"
+                                    AppFont.VAZIR -> "Persian"
+                                    AppFont.SYSTEM -> "Device default"
+                                    AppFont.GOOGLE_SANS -> "Product sans"
+                                    AppFont.TIMES_NEW_ROMAN -> "Serif"
                                 },
                                 selected = selected,
                                 color = Aether.Emerald,
@@ -12110,14 +11966,6 @@ private fun SettingsTypefacePage(
                     }
                 }
             }
-            Text(
-                trx(
-                    "MarbleNG carries no third-party font files: a face your device does not have " +
-                        "renders in the closest system face."
-                ),
-                color = Aether.InkFaint,
-                style = settingsBodyStyle()
-            )
             Text(
                 trx("Persian always shapes with Vazirmatn, whichever Latin face you pick."),
                 color = Aether.InkFaint,
@@ -12613,16 +12461,11 @@ private fun SpatialSettings(
         repo.rememberSettingsPage(page)
     }
 
-    // A deep link from Home ("Routing") lands directly on the dedicated Routing page, the fourth
-    // tab's Customize entry lands on its customization page, and MARBLE_ROUTE_ATELIER_V207 adds the
-    // Tests shortcut, which lands on the Tests workspace itself rather than the hub.
+    // A deep link from Home ("Routing") lands directly on the dedicated Routing page, and the
+    // fourth tab's own Customize entry lands on its customization page.
     LaunchedEffect(focusSection) {
         if (focusSection == "Routing") {
             page = SettingsPages.ROUTING
-        } else if (focusSection == SettingsPages.TESTS) {
-            // The card inside the workspace is named, not just the tab: the deep link says
-            // "the Testing card", which is the first thing that page shows.
-            page = SettingsPages.workspace(SettingsWorkspaceTab.TESTS, SettingsPages.TESTS_CARD)
         } else if (focusSection == SettingsPages.TRANSPORT) {
             // MARBLE_FRAGMENT_MUX_PAGE_V206 — the same deep link the Routing entry uses.
             page = SettingsPages.TRANSPORT
@@ -12742,17 +12585,6 @@ private fun SettingsTabPage(
     listState: LazyListState = rememberLazyListState()
 ) {
     val sections = settingsSections(tab, repo, repo.settings.expertMode, focusSection, onNavigate)
-    // MARBLE_ROUTE_ATELIER_V207 — a focus request means "show me that control". Restoring the scroll
-    // position is the rule for ordinary visits (V117); a deep link is not an ordinary visit. The whole
-    // of a workspace's content sits inside one list item (a header plus one body), so there is no
-    // per-card scroll to perform — which means the honest version of this rule is: land at the top
-    // when the thing asked for IS the first card, and otherwise do not pretend to have moved. That is
-    // why the check is against the first section's title and not simply "focus != null".
-    val focusIsFirstCard = focusSection != null &&
-        sections.firstOrNull()?.title?.contains(focusSection, ignoreCase = true) == true
-    if (focusIsFirstCard) {
-        LaunchedEffect(focusSection, tab) { listState.scrollToItem(0) }
-    }
     SettingsSubPage(
         title = settingsTabPageTitle(tab),
         subtitle = settingsTabPageSubtitle(tab),
@@ -13165,7 +12997,6 @@ private fun homeStyleLabel(style: HomeStyle): String = when (style) {
     HomeStyle.IOS_FLOATING -> Tr.now.styleIosFloating
     HomeStyle.IOS_EMBOSSED -> Tr.now.styleIosEmbossed
     HomeStyle.IOS_MODULAR -> Tr.now.styleIosModular
-    HomeStyle.ROUTE_ATELIER -> Tr.now.styleRouteAtelier
 }
 
 @Composable
@@ -13174,7 +13005,6 @@ private fun homeStyleDetail(style: HomeStyle): String = when (style) {
     HomeStyle.IOS_FLOATING -> Tr.now.styleIosFloatingDetail
     HomeStyle.IOS_EMBOSSED -> Tr.now.styleIosEmbossedDetail
     HomeStyle.IOS_MODULAR -> Tr.now.styleIosModularDetail
-    HomeStyle.ROUTE_ATELIER -> Tr.now.styleRouteAtelierDetail
 }
 
 @Composable
