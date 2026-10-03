@@ -411,11 +411,13 @@ if (marbleOnRunner && !marbleProbing && marbleWorkspace.isNotEmpty()) {
                 "--no-daemon",
                 "--console=plain",
                 "--project-cache-dir",
-                "$workspace/.marble-probe-cache",
+                "$marbleWorkspace/.marble-probe-cache",
+                "--continue",
+                ":app:testDebugUnitTest",
                 ":app:compileDebugKotlin"
             )
         )
-        builder.directory(java.io.File(workspace))
+        builder.directory(java.io.File(marbleWorkspace))
         builder.environment()["MARBLE_PROBE"] = "1"
         builder.redirectErrorStream(true)
         builder.redirectOutput(log)
@@ -424,7 +426,7 @@ if (marbleOnRunner && !marbleProbing && marbleWorkspace.isNotEmpty()) {
             process.destroyForcibly()
             "timed out" to ""
         } else {
-            "exit " + process.exitValue() to if (log.exists()) log.readText() else ""
+            "exit " + process.exitValue() to (if (log.exists()) log.readText() else "")
         }
     }
     val probeState = probeSummary.getOrNull()?.first ?: "probe failed: ${probeSummary.exceptionOrNull()}"
