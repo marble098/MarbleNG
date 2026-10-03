@@ -76,7 +76,11 @@ class MarbleHomeStyleTest {
         // opens with, not a hard-coded face: there is one name for "the default theme".
         assertEquals(HomeStyle.DEFAULT, parseHomeStyle(""))
         assertEquals(HomeStyle.DEFAULT, parseHomeStyle("nebula"))
-        assertEquals(HomeStyle.IOS_FLOATING, HomeStyle.DEFAULT)
+        // MARBLE_ROUTE_ATELIER_V207 — a fresh install opens on the route presentation, and the
+        // presentation that held the default before it is still a selectable style with the same id
+        // on disk: adding a style may not silently move anyone off the one they chose.
+        assertEquals(HomeStyle.ROUTE_ATELIER, HomeStyle.DEFAULT)
+        assertEquals(HomeStyle.IOS_FLOATING, parseHomeStyle(HomeStyle.IOS_FLOATING.id))
     }
 
     @Test
@@ -124,8 +128,21 @@ class MarbleHomeStyleTest {
     }
 
     @Test
+    fun everyHomeStyleRendersThroughExactlyOneFlavor() {
+        // MARBLE_ROUTE_ATELIER_V207 — a new presentation is only real if the dispatcher routes it,
+        // so the count and the one-to-one mapping are pinned here: a style added to the enum without
+        // a page behind it would compile (the when is exhaustive over entries) and ship a blank Home.
+        assertEquals(5, HomeStyle.entries.size)
+        assertEquals(
+            "every presentation needs its own flavor",
+            HomeStyle.entries.size,
+            HomeStyle.entries.map(::homeFlavorFor).distinct().size
+        )
+    }
+
+    @Test
     fun retiredHomeStylesFallBackToTheDefaultPresentation() {
-        assertEquals(4, HomeStyle.entries.size)
+        assertEquals(5, HomeStyle.entries.size)
         listOf("parametric", "bioluminescent", "PARAMETRIC", "BIOLUMINESCENT").forEach { legacy ->
             assertEquals(
                 "retired style $legacy must fall back",
