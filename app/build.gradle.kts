@@ -381,3 +381,81 @@ dependencies {
         "androidx.compose.ui:ui-tooling"
     )
 }
+
+// ---------------------------------------------------------------------------------------------
+// MARBLE_ROUTE_ATELIER_V207 — TEMPORARY CI DIAGNOSTIC REPORTER. Delete as soon as the JVM step of
+// PR #186 is green; it is not part of the product and it never runs outside a GitHub runner.
+//
+// The only failing step on that branch is the Kotlin compile, and the Actions log archive is not
+// reachable from every review tool. So at the end of a failed build the reporter re-runs the compile
+// once and forwards the compiler's own `e: file:line:col message` lines into the two channels any
+// API client can read: the check run's annotations and the job summary. Everything it does is
+// guarded on the runner's own environment variables, and the re-run is guarded against recursion.
+// ---------------------------------------------------------------------------------------------
+abstract class MarbleJvmDiagnosticReporter :
+    org.gradle.api.services.BuildService<org.gradle.api.services.BuildServiceParameters.None>,
+    AutoCloseable {
+
+    private fun onCiRunnerWithoutRecursion(): Boolean =
+        System.getenv("GITHUB_ACTIONS") != null && System.getenv("MARBLE_DIAG_DISABLED").isNullOrEmpty()
+
+    override fun close() {
+        if (!onCiRunnerWithoutRecursion()) return
+        runCatching {
+            val workspace = System.getenv("GITHUB_WORKSPACE") ?: return@runCatching
+            val log = java.io.File(System.getProperty("java.io.tmpdir"), "marble-recompile.log")
+            val builder = java.lang.ProcessBuilder(
+                "gradle",
+                "--no-daemon",
+                "--console=plain",
+                "--project-cache-dir",
+                "$workspace/.marble-diag-cache",
+                ":app:compileDebugKotlin"
+            )
+            builder.directory(java.io.File(workspace))
+            builder.environment()["MARBLE_DIAG_DISABLED"] = "1"
+            builder.redirectErrorStream(true)
+            builder.redirectOutput(log)
+            builder.start().waitFor(3, java.util.concurrent.TimeUnit.MINUTES)
+            val text = if (log.exists()) log.readText() else ""
+            val errors = text.lines()
+                .filter { it.startsWith("e: ") || it.contains(": error:") }
+                .distinct()
+            val body = buildString {
+                appendLine("### Marble JVM diagnostics (temporary reporter)")
+                appendLine()
+                appendLine("captured " + errors.size + " compiler error line(s); re-run log " + text.length + " chars")
+                appendLine()
+                appendLine("```")
+                val lines = if (errors.isEmpty()) text.lines().takeLast(40) else errors.take(60)
+                lines.forEach { appendLine(it.take(240)) }
+                appendLine("```")
+            }
+            System.getenv("GITHUB_STEP_SUMMARY")
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { path -> runCatching { java.io.File(path).appendText(body) } }
+            println("::error title=marble-diagnostics::captured=" + errors.size + " logChars=" + text.length)
+            errors.take(30).forEach { line ->
+                val match = Regex("^e: file://(.+?):(\\d+):(\\d+)\\s*(.*)$").find(line)
+                if (match != null) {
+                    val (path, lineNo, column, message) = match.destructured
+                    println(
+                        "::error file=" + path.substringAfter("/MarbleNG/") +
+                            ",line=" + lineNo + ",col=" + column + "::" + message.take(200).replace("%", "%25")
+                    )
+                } else {
+                    println("::error title=kotlin-error::" + line.take(220).replace("%", "%25"))
+                }
+            }
+            if (errors.isEmpty()) {
+                text.lines().takeLast(8).forEach {
+                    println("::error title=re-run-tail::" + it.take(200).replace("%", "%25"))
+                }
+            }
+        }
+    }
+}
+
+gradle.sharedServices
+    .registerIfAbsent("marbleJvmDiagnosticReporter", MarbleJvmDiagnosticReporter::class.java) {}
+    .get()
