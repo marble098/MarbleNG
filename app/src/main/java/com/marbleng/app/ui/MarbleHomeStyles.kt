@@ -135,6 +135,7 @@ import com.marbleng.app.model.ModularLayout
 import com.marbleng.app.model.ProbeState
 // MARBLE_SERVER_TILE_LAYOUT_V208 — the row/tile preference this box reads.
 import com.marbleng.app.model.ServerLayout
+import com.marbleng.app.model.serversLayoutEnum
 import com.marbleng.app.model.parseConnectButtonStyle
 import com.marbleng.app.model.ProxyProfile
 import java.util.Locale

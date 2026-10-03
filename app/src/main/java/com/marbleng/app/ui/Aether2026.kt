@@ -14268,6 +14268,9 @@ private fun TransportProfileRow(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(13.dp)
+    // Resolved out here: a semantics block is not a composable scope, so `trx` cannot be called
+    // inside it. The row's own label is the same two strings, flattened into one announcement.
+    val rowLabel = "${trx(title)}، ${MarbleCopy.oneSentence(trx(summary))}"
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -14279,9 +14282,7 @@ private fun TransportProfileRow(
                 shape
             )
             .kineticClickable(role = Role.RadioButton, boundedShape = shape, onClick = onClick)
-            .semantics {
-                contentDescription = "${trx(title)}، ${MarbleCopy.oneSentence(trx(summary))}"
-            }
+            .semantics { contentDescription = rowLabel }
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp)

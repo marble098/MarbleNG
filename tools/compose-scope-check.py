@@ -90,6 +90,46 @@ def skip_interp(text, start):
     return j
 
 
+def interp_payloads(text):
+    """The `${...}` payload spans of every string in [text], as (start, end) offsets.
+
+    [mask] blanks a string *including* its interpolation payloads, so the scanner's brace walk
+    stays sane — but that also hides the one place a composable call can be smuggled in:
+    `contentDescription = "${trx(title)}"` inside `semantics { }` builds exactly like the
+    un-templated form, and V208 shipped it. The payloads are therefore scanned separately, in the
+    scope the surrounding code puts them in.
+    """
+    n = len(text)
+    spans = []
+    i = 0
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+        elif text.startswith('"""', i) or c == '"':
+            end = skip_string(text, i)
+            j = i + (3 if text.startswith('"""', i) else 1)
+            while j < end:
+                if text[j] == "$" and j + 1 < end:
+                    payload_end = skip_interp(text, j)
+                    inner = j + 2 if text[j + 1] == "{" else j + 1
+                    if inner < payload_end:
+                        spans.append((inner, payload_end - (1 if text[j + 1] == "{" else 0)))
+                    j = payload_end
+                    continue
+                j += 1
+            i = end
+        elif c == "'":
+            i = skip_char(text, i)
+        else:
+            i += 1
+    return spans
+
+
 def mask(text):
     n = len(text)
     out = list(text)
@@ -130,6 +170,11 @@ NON_COMPOSABLE = {
     # effects and state factories
     "LaunchedEffect", "SideEffect", "DisposableEffect", "remember", "rememberSaveable",
     "derivedStateOf", "snapshotFlow", "produceState",
+    # accessibility: `semantics { }` is a plain lambda over a SemanticsPropertyReceiver, so the
+    # usual move — announcing a row with its translated title — has to be resolved BEFORE the
+    # modifier chain. V208 shipped `contentDescription = "${trx(title)}…"` inside one and only CI
+    # caught it.
+    "semantics", "clearAndSetSemantics",
     # gesture + interaction callbacks
     "clickable", "combinedClickable", "kineticClickable", "toggleable", "selectable",
     "pointerInput", "detectTapGestures", "detectDragGestures", "awaitEachGesture",
@@ -185,7 +230,26 @@ def scan(path: Path, added=None):
                 return owner
         return None
 
+    payloads = {start: end for start, end in interp_payloads(text)}
+
     while i < n:
+        payload_end = payloads.get(i)
+        if payload_end is not None:
+            # Inside a string template: the payload runs in whatever scope the surrounding code
+            # is in, and the braces inside it were masked, so brace_stack is still the truth.
+            inner = text[i:payload_end]
+            for pat, label in BAD:
+                if pat.search(inner):
+                    chain = [o for o, _ in brace_stack]
+                    owner = innermost(chain)
+                    if owner in NON_COMPOSABLE:
+                        if added is None or line in added:
+                            hits.append((line, " > ".join(chain[-3:]) or "<top>",
+                                         label + " (inside a string template)",
+                                         raw_lines[line - 1].strip()[:100]))
+                    break
+            i = payload_end
+            continue
         c = src[i]
         if c == "\n":
             line += 1
