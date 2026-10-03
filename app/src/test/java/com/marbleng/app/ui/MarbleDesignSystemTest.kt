@@ -1,6 +1,8 @@
 package com.marbleng.app.ui
 
+import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -45,5 +47,18 @@ class MarbleDesignSystemTest {
     fun ordinaryNamesArePreserved() {
         assertNull(leadingFlagGlyph("Fast node"))
         assertEquals("Fast node",stripLeadingFlag("Fast node"))
+    }
+
+    @Test
+    fun amoledHomeBackdropUsesOnlyBlackBasePixels() {
+        assertEquals(Color.Black, HomeCloud.DarkBgTop)
+        assertEquals(Color.Black, HomeCloud.DarkBgBottom)
+    }
+
+    @Test
+    fun persianFallbackNeverLeaksAnUntranslatedLatinUiLabel() {
+        assertEquals("سرورهای ناموفق هوشمند حذف شوند؟", faTranslate("Remove failed Smart servers?"))
+        val translated = faTranslate("Fresh diagnostic panel")
+        assertFalse("Persian fallback leaked Latin text: $translated", translated.any { it in 'A'..'Z' || it in 'a'..'z' })
     }
 }

@@ -71,10 +71,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -166,7 +163,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import com.marbleng.app.AppRepository
 import com.marbleng.app.R
@@ -385,11 +381,6 @@ fun Aether2026App(
     var settingsFocus by remember { mutableStateOf<String?>(null) }
     var detailProfile by remember { mutableStateOf<ProxyProfile?>(null) }
     var ipDetailsOpen by remember { mutableStateOf(false) }
-    var contentScrolling by remember { mutableStateOf(false) }
-    // MARBLE_DOCK_SCROLL_ONLY_V123 — a programmatic page turn (tab tap, Home routing focus) is
-    // marked while it animates so the bottom dock never enters its glass state; only real
-    // finger scrolls make the bar translucent.
-    var tabTurn by remember { mutableStateOf(false) }
     BackHandler(enabled = detailProfile != null) { detailProfile = null }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -398,19 +389,11 @@ fun Aether2026App(
     // enum ordinal: the optional fourth slot rewrites that mapping the moment it is switched off.
     val pageOf: (SpatialTab) -> Int = { tab -> tabs.indexOf(tab).coerceAtLeast(0) }
 
-    // One suspension-safe page turn: the marker always clears — even when the animation is
-    // cancelled by a finger grab — so the dock can never get stuck translucent. Tapping the tab
-    // that is already on screen is a no-op: no marker, no scroll, no flicker of any kind.
+    // One bounded page turn. Tapping the tab already on screen is a true no-op; a running turn
+    // can be claimed by a finger without leaving behind a visual marker or a stale dock state.
     val goToTab: (Int) -> Unit = { page ->
         if (page != pagerState.currentPage) {
-            tabTurn = true
-            scope.launch {
-                try {
-                    pagerState.animateScrollToPage(page)
-                } finally {
-                    tabTurn = false
-                }
-            }
+            scope.launch { pagerState.animateScrollToPage(page) }
         }
     }
 
@@ -425,32 +408,14 @@ fun Aether2026App(
         if (pagerState.currentPage > tabs.lastIndex) pagerState.scrollToPage(tabs.lastIndex)
     }
 
-    // Sync pager → tab name for persistence and reset the content-scroll report when switching
-    // pages. Each scrollable page reports its own motion below.
-    //
-    // MARBLE_DOCK_NO_TAP_FADE — the turn marker deliberately does NOT clear here. The page flips
-    // at the middle of the programmatic turn, which is exactly when the animation is still in
-    // progress; clearing the marker at that moment is what let the dock fade to glass for the
-    // back half of every tab tap. The marker now survives until the turn actually settles, which
-    // the isScrollInProgress watch below owns.
+    // Sync pager → tab name for persistence and reset the visible page's scroll report. Each
+    // scrollable page reports its own motion below; the dock itself stays visually stable.
     LaunchedEffect(currentTab) {
-        contentScrolling = false
         onContentScrollChanged(false)
         repo.rememberAppTab(currentTab.name)
     }
 
-    // The settled pager is the ONLY thing that clears the turn marker now: a fast double-tap,
-    // an interrupted animation or a finger grab all end in a settled pager, so the dock can
-    // never get stuck translucent — and a tab tap can never fade it either, because the marker
-    // is already gone by the time the finger- or content-scroll glass rule could fire.
-    LaunchedEffect(pagerState.isScrollInProgress) {
-        if (!pagerState.isScrollInProgress) tabTurn = false
-    }
-
-    val reportContentScroll: (Boolean) -> Unit = { scrolling ->
-        contentScrolling = scrolling
-        onContentScrollChanged(scrolling)
-    }
+    val reportContentScroll: (Boolean) -> Unit = onContentScrollChanged
 
     // Routing focus from Home, and the fourth slot's own Customize entry: both are deep links
     // into a Settings page, so both turn the pager to Settings.
@@ -592,24 +557,25 @@ fun Aether2026App(
                 .padding(padding)
         ) {
 
-            // marble-page-transition-fast — the pager drives tab changes directly so swipes
-            // track the finger with physics (instant, no staged crossfade); dock taps stay
-            // snappy via animateScrollToPage's bounded page turn.
-            // MARBLE_EXPRESSIVE_MOTION_V186 — the turn itself keeps tracking the finger, but the
-            // travelling page now recedes: scale and alpha follow its distance from the settled
-            // slot (marblePageDepth), the depth transform the newest Android pagers use. The
-            // resting page renders at exactly scale 1 / alpha 1 — a still screen is pixel-identical
-            // to before — and the transform lives in the draw layer, so swiping recomposes nothing.
+            // marble-page-transition-fast — MARBLE_STABLE_NAVIGATION_V202 uses the pager's native
+            // translation only, so swipes track the finger and dock taps use a bounded page turn. There is no
+            // page scale/alpha layer: opaque page roots cannot reveal the backdrop or flash their
+            // headers on a slow frame. Keeping no extra viewport page also avoids a second page's
+            // animated cards and ambient canvases competing for each frame.
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
                 userScrollEnabled = true,
-                beyondViewportPageCount = 1
+                beyondViewportPageCount = 0
             ) { pageIndex ->
+                val reportThisPageScroll: (Boolean) -> Unit = { scrolling ->
+                    // A pager keeps neighbouring pages alive briefly. Their LazyLists may finish a
+                    // fling after they leave the screen; never let that stale event repaint the dock
+                    // belonging to the visible tab.
+                    if (pageIndex == pagerState.currentPage) reportContentScroll(scrolling)
+                }
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .marblePageDepth { marblePageOffset(pagerState, pageIndex) },
+                    modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.TopCenter
                 ) {
                     Box(
@@ -626,20 +592,20 @@ fun Aether2026App(
                         repo = repo,
                         deck = deck,
                         actions = deckActions,
-                        onContentScrollChanged = reportContentScroll
+                        onContentScrollChanged = reportThisPageScroll
                     )
                     SpatialTab.LIBRARY -> CyberLibrary(
                         repo = repo,
                         onConnect = onConnect,
                         onImportFile = onImportFile,
                         onDetails = { detailProfile = it },
-                        onContentScrollChanged = reportContentScroll
+                        onContentScrollChanged = reportThisPageScroll
                     )
                     SpatialTab.SETTINGS -> SpatialSettings(
                         repo = repo,
                         onDialog = { dialog = it },
                         focusSection = settingsFocus,
-                        onContentScrollChanged = reportContentScroll
+                        onContentScrollChanged = reportThisPageScroll
                     )
                     // The fourth slot: whatever the user made of it.
                     SpatialTab.CUSTOM -> CustomDockPage(
@@ -652,7 +618,7 @@ fun Aether2026App(
                         onDetails = { detailProfile = it },
                         onDialog = { dialog = it },
                         onCustomize = { settingsFocus = SettingsPages.DOCK_SLOT },
-                        onContentScrollChanged = reportContentScroll
+                        onContentScrollChanged = reportThisPageScroll
                     )
                         }
                     }
@@ -664,14 +630,14 @@ fun Aether2026App(
                 targetState = detailProfile,
                 modifier = Modifier.matchParentSize(),
                 transitionSpec = {
-                    // MARBLE_EXPRESSIVE_MOTION_V186 — the detail page opens on the Material
-                    // container transform with the expressive calibration: it decelerates in from
-                    // a slightly smaller scale while rising a twelfth of the screen, and closes
-                    // by accelerating away — fade resolved before slide on both legs, so the two
-                    // surfaces never cross at equal strength.
-                    expressiveContainerTransform(forward = true)
+                    // MARBLE_STABLE_NAVIGATION_V202 — a detail page is a complete opaque surface,
+                    // not a card-sized shared element. The former scale/slide transform exposed
+                    // the transparent pager and made its top edge appear to flash. Fade-through
+                    // is deterministic, keeps the header in its final position, and is cheaper
+                    // than compositing two scaled full-screen trees.
+                    expressiveFadeThrough()
                 },
-                label = "connection-detail-container-transform-v186"
+                label = "connection-detail-fade-through-v202"
             ) { profile ->
                 if (profile == null) {
                     Box(Modifier.size(0.dp))
@@ -707,17 +673,14 @@ fun Aether2026App(
                 )
             }
 
-            // MARBLE_FLOATING_DOCK_V117 — the dock is a true overlay: no Scaffold slot
-            // reserves space for it, so pages and the backdrop keep scrolling beneath the
-            // glass and shine through it (per-tab lists pad their last item past it).
-            // MARBLE_DOCK_SCROLL_ONLY_V123 — glass belongs to real scrolling only. A tap on a
-            // tab is a programmatic page turn, so the turn marker keeps the bar opaque for the
-            // whole tap animation; content scroll and finger-dragged turns still fade it.
-            val glass = contentScrolling || pagerState.isScrollInProgress
+            // MARBLE_STABLE_NAVIGATION_V202 — the dock is an opaque floating object. Switching
+            // between an opaque body and translucent glass for every drag gave the bar three
+            // independent alpha clocks (content fling, pager and tab turn), which is the source
+            // of the visible flash on real devices. Content still scrolls below its fixed overlay,
+            // but only the selected tab changes and it does so on the single dock colour tween.
             FloatingSpatialDock(
                 selected = currentTab,
                 slot = slotChrome,
-                glass = glass && !tabTurn,
                 onSelect = { next ->
                     detailProfile = null
                     settingsFocus = null
@@ -854,7 +817,7 @@ fun Aether2026App(
                     onClick={ dialog=null }
                 )
             },
-            title = { Text(what, color = Aether.Ink) },
+            title = { Text(trx(what), color = Aether.Ink) },
             text = {
                 SelectionContainer {
                     Text(
@@ -951,7 +914,7 @@ private fun IpDetailsDialog(
                 }
                 if (info == null) {
                     Text(
-                        if (error.isBlank()) "Resolving the public IP…" else compactInAppMessage(error),
+                        trx(if (error.isBlank()) "Resolving the public IP…" else compactInAppMessage(error)),
                         color = if (error.isBlank()) Aether.InkMuted else Aether.Amber,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -1216,15 +1179,6 @@ internal data class DockMetrics(
 
 internal val LocalDockMetrics = staticCompositionLocalOf { DockMetrics() }
 
-/**
- * MARBLE_EXPRESSIVE_MOTION_V186 — the signed distance, in pages, of one pager page from the
- * settled position: 0 while the page is home, ±1 while it sits one slot away, fractional for
- * every point in between. Read inside marblePageDepth's draw-phase lambda, so the pager's scroll
- * offset never enters composition: swiping drives the depth transform without recomposing a page.
- */
-private fun marblePageOffset(pagerState: PagerState, page: Int): Float =
-    (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
-
 @Composable
 private fun dockClearance(): Dp =
     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
@@ -1234,7 +1188,6 @@ private fun dockClearance(): Dp =
 private fun FloatingSpatialDock(
     selected: SpatialTab,
     slot: DockSlotChrome,
-    glass: Boolean,
     onSelect: (SpatialTab) -> Unit
 ) {
     // MARBLE_DOCK_CUSTOM_V145 — footprint and content come from Settings › General ›
@@ -1244,18 +1197,10 @@ private fun FloatingSpatialDock(
     // MARBLE_FLOATING_DOCK_V117 / MARBLE_DOCK_STILL_BAR_V132
     //  - rendered as an overlay (no Scaffold bottomBar slot), so pages scroll under it
     //  - never flush with the screen edge: side margins + a lift above the gesture bar
-    //  - THE BAR ITSELF NEVER MOVES. Earlier revisions breathed the whole dock up and down on
-    //    the shared frame clock and shrank it by 1.5% during a page turn. On a real screen that
-    //    read as a wobble under the thumb, so every ambient transform is gone: no translation,
-    //    no scale, no selection pulsation. Only colour, shadow depth and the selection wash
-    //    animate, and all three use overshoot-free tweens.
-    //  - MARBLE_DOCK_NIGHT_FLASH_V132 — the glass sheen used to be written as
-    //    `Aether.BarGlassHighlight.copy(alpha = highlightAlpha)`. `copy(alpha = …)` REPLACES the
-    //    token's own alpha with the raw 0..1 animation value, so the moment a tab was tapped
-    //    (a tap sets `pagerState.isScrollInProgress`, which switches glass on) the AMOLED bar
-    //    was painted with a full-opacity ice-blue #ADD8E6 band across its top — the "the bar
-    //    turns white when I tap it in night/AMOLED" bug. Every overlay now scales the token's
-    //    own alpha, exactly like the surface and the border already did.
+    //  - THE BAR ITSELF NEVER MOVES OR FADES. Earlier revisions breathed the whole dock,
+    //    blended it to glass during a fling, and shrank it during a page turn. On real screens
+    //    that read as a wobble under the thumb, so V202 keeps one fixed opaque body; only the
+    //    active tab's colour changes on an overshoot-free tween.
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1265,54 +1210,12 @@ private fun FloatingSpatialDock(
     ) {
         val barShape = RoundedCornerShape(metrics.corner)
 
-        val glassFraction by animateFloatAsState(
-            targetValue = if (glass) 1f else 0f,
-            animationSpec = MarbleMotionSpecs.DockFloat,
-            label = "dock-glass-fraction"
-        )
-
-        // MARBLE_FLOATING_CHROME_V201 — the bar is an object with its own body, not a film over
-        // whatever happens to scroll past. Idle it is the palette's floating step (a cool
-        // near-white above the light page, a navy-lifted step above AMOLED black), and while
-        // content moves it opens to the palette's glass tone so the list shows through. The
-        // previous pairing was `VoidElevated` → `BarGlass @ .90`: on the light theme both ends
-        // were effectively white over a white page, and on AMOLED both were effectively black,
-        // so the transition was invisible and the bar's own edges were the only thing defining
-        // it — which is why a scroll made it look like it disappeared.
+        // MARBLE_STABLE_NAVIGATION_V202 — one opaque body is deliberately cheaper and more
+        // predictable than blending to a scroll-driven glass state. Scrolling content still moves
+        // underneath, but the dock has no surface, alpha, border or elevation state to chase it.
         val chrome = rememberMarbleFloatChrome()
-        val idleSurface = chrome.surface
-        val glassSurface = Aether.BarGlass
-        val surfaceAlpha by animateFloatAsState(
-            targetValue = if (glass) 0.92f else 1f,
-            animationSpec = MarbleMotionSpecs.DockFloat,
-            label = "dock-surface-alpha"
-        )
-        // MARBLE_DOCK_SCROLL_ONLY_V123 — the idle<->glass surface is a continuous colour blend,
-        // not a 50% switch: the old midpoint jump was visible as a hard snap while the spring
-        // was still animating. Both endpoints and everything between now interpolate smoothly.
-        val dockSurface = lerp(
-            idleSurface,
-            glassSurface.copy(alpha = glassSurface.alpha * surfaceAlpha),
-            glassFraction
-        )
-
-        // MARBLE_DOCK_NO_WHITE_FLASH_V143 — the top sheen is completely gone. Even when the
-        // bar enters its glass state while scrolling, the AMOLED/light palettes no longer paint
-        // an ice-blue highlight edge across the dock, so no tap or scroll can ever flash white.
-
-        // Depth is the only thing that changes size-wise while scrolling, and a shadow does not
-        // move the surface itself, so the bar keeps its exact footprint on the screen.
-        val dockElevation by animateDpAsState(
-            targetValue = if (glass) 20.dp else 14.dp,
-            animationSpec = MarbleMotionSpecs.DockDp,
-            label = "dock-elevation"
-        )
-
-        val borderAlpha by animateFloatAsState(
-            targetValue = if (glass) 0.85f else 1f,
-            animationSpec = MarbleMotionSpecs.DockFloat,
-            label = "dock-border-alpha"
-        )
+        val dockSurface = chrome.surface
+        val dockElevation = 14.dp
 
         Row(
             modifier = Modifier
@@ -1337,10 +1240,8 @@ private fun FloatingSpatialDock(
                 .background(dockSurface)
                 .border(
                     1.dp,
-                    // The border belongs to the body it sits on, so it follows the same blend
-                    // instead of being a second, independent animation.
-                    lerp(chrome.border, Aether.BarGlassBorder, glassFraction)
-                        .copy(alpha = lerp(chrome.border, Aether.BarGlassBorder, glassFraction).alpha * borderAlpha),
+                    // The rim is part of the same stable body; it never fades on a fling.
+                    chrome.border,
                     barShape
                 )
                 .padding(horizontal = 8.dp, vertical = metrics.innerPadding),
@@ -1402,34 +1303,20 @@ private fun FloatingSpatialDock(
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-indicator-${item.name}"
                 )
-                // The wash fades on the same overshoot-free tween as the pill's colour, so the
-                // selection never pops on or off mid-turn.
-                val pillWashAlpha by animateFloatAsState(
-                    targetValue = if (active) 1f else 0f,
-                    animationSpec = MarbleMotionSpecs.DockFloat,
-                    label = "dock-wash-${item.name}"
-                )
-
+                // MARBLE_STABLE_NAVIGATION_V202 — selection has one fill and one rim. The old
+                // secondary gradient had its own alpha animation on top of the colour tween,
+                // which made an active tab look as though it blinked during a rapid page turn.
+                // A single opaque-looking container is cheaper to draw and has a stable contrast.
+                val spokenTab = if (item == SpatialTab.CUSTOM) slot.caption else trx(item.label)
+                val selectedState = trx("Selected")
+                val notSelectedState = trx("Not selected")
+                val tabDescription = "$spokenTab ${trx("tab") }"
                 Row(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
                         .clip(glassShape)
                         .background(pillBg)
-                        .then(
-                            if (pillWashAlpha < .01f) {
-                                Modifier
-                            } else {
-                                Modifier.background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            slotAccent.copy(alpha = .16f * pillWashAlpha),
-                                            Color.Transparent
-                                        )
-                                    )
-                                )
-                            }
-                        )
                         .border(1.dp, indicatorTone, glassShape)
                         .kineticClickable(
                             boundedShape = glassShape,
@@ -1441,29 +1328,24 @@ private fun FloatingSpatialDock(
                             this.selected = active
                             // MARBLE_DOCK_SLOT_V167 — a slot named by its reader is announced
                             // with that name: "Pulse tab", not "Custom tab".
-                            contentDescription = "${
-                                if (item == SpatialTab.CUSTOM) slot.caption else item.label
-                            } tab"
+                            contentDescription = tabDescription
                             stateDescription = when {
                                 active && isCustomSlot && slot.showStatusBadge ->
-                                    "Selected • ${slot.statusDescription}"
-                                active -> "Selected"
-                                else -> "Not selected"
+                                    "$selectedState • ${slot.statusDescription}"
+                                active -> selectedState
+                                else -> notSelectedState
                             }
                         },
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (metrics.showIcons) {
-                        // MARBLE_EXPRESSIVE_MOTION_V186 — the acknowledgement lives INSIDE the
-                        // pill: when a tab wakes, its glyph pops once (1 → 1.18 → 1 on the pop
-                        // spring) and is perfectly still again. THE BAR ITSELF STILL NEVER MOVES.
-                        // The custom slot's live state dot is pinned to the glyph's own box, so it
-                        // adds information without moving the icon, label or dock geometry.
+                        // MARBLE_STABLE_NAVIGATION_V202 — a tab acknowledgement is colour, not
+                        // geometry. Keeping the glyph at a fixed scale removes the last perceived
+                        // "jump" under the thumb; the custom slot's live dot stays pinned to this
+                        // fixed icon box.
                         Box(
-                            modifier = Modifier
-                                .size(metrics.iconSize)
-                                .marblePopWhen(active, peak = 1.18f),
+                            modifier = Modifier.size(metrics.iconSize),
                             contentAlignment = Alignment.Center
                         ) {
                             MarbleTabIcon(
@@ -3082,7 +2964,7 @@ private fun HomeStatusAnchor(
             .heightIn(min=titleBlock)
     ) { text ->
         Text(
-            text,
+            trx(text),
             color=Aether.Ink,
             style=titleStyle,
             fontWeight=FontWeight.Bold,
@@ -3616,7 +3498,7 @@ private fun MiniMetric(
             )
             if (unit.isNotBlank()) {
                 Spacer(Modifier.width(3.dp))
-                Text(unit, color = valueColor.copy(alpha = .72f), style = MaterialTheme.typography.labelSmall)
+                Text(trx(unit), color = valueColor.copy(alpha = .72f), style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -3893,11 +3775,12 @@ private fun usageTierTone(tier: SubscriptionUsageTier): Color = when (tier) {
     SubscriptionUsageTier.UNKNOWN -> Aether.InkFaint
 }
 
+@Composable
 private fun subscriptionExpiryText(sub: Subscription): String {
-    if (sub.expireAt <= 0L) return "Unlimited"
+    if (sub.expireAt <= 0L) return trx("Unlimited")
     val formatter = java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.US)
     val expired = sub.expireAt < System.currentTimeMillis()
-    return if (expired) "Expired" else formatter.format(java.util.Date(sub.expireAt))
+    return if (expired) trx("Expired") else formatter.format(java.util.Date(sub.expireAt))
 }
 
 @Composable
@@ -4206,7 +4089,7 @@ private fun CyberLibrary(
             onDismissRequest = { pruneFailedTarget = null },
             containerColor = Aether.VoidElevated,
             shape = ServersCardShape,
-            title = { Text("Remove failed $kind servers?", color = Aether.Danger) },
+            title = { Text(trx("Remove failed $kind servers?"), color = Aether.Danger) },
             text = {
                 Text(
                     "This removes $failedCount failed server" +
@@ -4298,7 +4181,7 @@ private fun CyberLibrary(
             onDismissRequest = { deleteSubscription = null },
             containerColor = Aether.VoidElevated,
             shape = ServersCardShape,
-            title = { Text("Delete ${target.name}?", color = Aether.Danger) },
+            title = { Text(trx("Delete ${target.name}?"), color = Aether.Danger) },
             text = {
                 Text(
                     "This removes the subscription and its " +
@@ -7721,7 +7604,7 @@ private fun ServersField(
     val hint: (@Composable () -> Unit)? = if (placeholder.isBlank()) {
         null
     } else {
-        { Text(placeholder) }
+        { Text(trx(placeholder)) }
     }
     val ime = rememberMarbleImeHider()
     OutlinedTextField(
@@ -8663,7 +8546,7 @@ private fun ManualChainEditor(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         ManualField("Chain name • optional", name, { name = it })
 
-        Text("ORDERED HOPS • ${hops.size}", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+        Text("${trx("ORDERED HOPS")} • ${hops.size}", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
         if (hops.isEmpty()) {
             Text(trx("Choose at least two servers below."), color = Aether.Amber, style = MaterialTheme.typography.bodySmall)
         }
@@ -8680,8 +8563,8 @@ private fun ManualChainEditor(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("${index + 1}. ${profile?.name ?: "Unavailable node"}", color = Aether.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(if (index == hops.lastIndex) "EXIT" else "HOP", color = if (index == hops.lastIndex) Aether.Emerald else Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                    Text("${index + 1}. ${profile?.name ?: trx("Unavailable node")}", color = Aether.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(trx(if (index == hops.lastIndex) "EXIT" else "HOP"), color = if (index == hops.lastIndex) Aether.Emerald else Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
                 }
                 PrismIconButton(
                     onClick = {
@@ -12522,14 +12405,12 @@ private fun SpatialSettings(
         targetState = page,
         modifier = Modifier.fillMaxSize(),
         transitionSpec = {
-            // Forward pages slide in from the trailing edge, back slides out to it: the direction of
-            // travel always matches the direction of the hierarchy.
-            // MARBLE_EXPRESSIVE_MOTION_V186 — that travel now rides the expressive shared axis:
-            // the arriving page decelerates in over the full Long1 curve while the departing page
-            // accelerates away on a shorter one, so the pair never crosses at equal strength and
-            // a hierarchy move reads as one deliberate gesture.
-            val direction = if (targetState == SettingsPages.HUB) -1 else 1
-            expressiveSharedAxisX(direction)
+            // MARBLE_STABLE_NAVIGATION_V202 — settings pages all own large scrolling headers.
+            // Translating two independently measured LazyColumns at once caused their headers to
+            // cross and briefly clip on slower GPUs. Fade-through keeps the hierarchy change clear
+            // without moving either page's geometry; the outgoing page is gone before the incoming
+            // header becomes fully visible.
+            expressiveFadeThrough()
         },
         label = "settings-page"
     ) { target ->
@@ -13670,7 +13551,7 @@ private fun SplitTunnelSettings(repo:AppRepository){
     SplitTunnelModeSelector(repo)
     if(repo.settings.splitTunnelMode!=SplitTunnelMode.ALL_APPS){
         TextField(search,{search=it},placeholder={Text(trx("Search installed apps"))},singleLine=true,modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp),colors=TextFieldDefaults.colors(focusedTextColor=Aether.Ink,unfocusedTextColor=Aether.Ink,cursorColor=Aether.Cyan,focusedContainerColor=Aether.GlassStrong,unfocusedContainerColor=Aether.GlassStrong,disabledContainerColor=Aether.GlassStrong,focusedIndicatorColor=Color.Transparent,unfocusedIndicatorColor=Color.Transparent))
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Text(if(apps.isEmpty())"Loading installed apps…" else "${visibleApps.size} apps",color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);HoloBadge("${selected.size} selected",Aether.Emerald,true)}
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Text(trx(if(apps.isEmpty())"Loading installed apps…" else "${visibleApps.size} apps"),color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall);HoloBadge("${selected.size} selected",Aether.Emerald,true)}
         LazyColumn(Modifier.fillMaxWidth().height(360.dp).clip(RoundedCornerShape(18.dp)).background(Aether.Glass.copy(alpha=.70f)),contentPadding=PaddingValues(vertical=6.dp),verticalArrangement=Arrangement.spacedBy(2.dp),userScrollEnabled=true){items(visibleApps,key={it.packageName}){app->SplitTunnelAppRow(app,app.packageName in selected){toggle(app.packageName)}}}
         Text(trx("Applies on next Full TUN connect."),color=Aether.InkFaint,style=MaterialTheme.typography.bodySmall)
     }
@@ -14060,22 +13941,26 @@ private fun RoutingAssetCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(7.dp).clip(CircleShape).background(color))
             Spacer(Modifier.width(7.dp))
-            Text(title, color = Aether.Ink, style = MaterialTheme.typography.labelMedium)
+            Text(trx(title), color = Aether.Ink, style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.weight(1f))
             Text(
-                when {
-                    !ready -> "Missing"
-                    stale -> "Stale"
-                    else -> "Ready"
-                },
+                trx(
+                    when {
+                        !ready -> "Missing"
+                        stale -> "Stale"
+                        else -> "Ready"
+                    }
+                ),
                 color = color,
                 style = MaterialTheme.typography.labelSmall
             )
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            if (!ready) "Tap Update to download"
-            else "${formatBytes(bytes)} • ${relativeTime(updatedAt)}",
+            trx(
+                if (!ready) "Tap Update to download"
+                else "${formatBytes(bytes)} • ${relativeTime(updatedAt)}"
+            ),
             color = Aether.InkFaint,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,
@@ -14345,7 +14230,7 @@ private fun RoutingSettings(repo: AppRepository) {
         DropdownMenu(expanded = sourceMenu, onDismissRequest = { sourceMenu = false }) {
             RoutingDefaults.SOURCES.forEach { source ->
                 DropdownMenuItem(
-                    text = { Text(source.label) },
+                    text = { Text(trx(source.label)) },
                     onClick = {
                         sourceMenu = false
                         repo.applyGeoAssetSource(source.id)
@@ -15406,7 +15291,7 @@ private fun BugFinderSettings(repo: AppRepository) {
                 if(current.warnings>0) HoloBadge("${current.warnings} warn",Aether.Amber,true)
                 if(current.failures>0) HoloBadge("${current.failures} fail",Aether.Danger,true)
             }
-            Text(current.headline,
+            Text(trx(current.headline),
                 color=if(current.failures>0)Aether.Danger else if(current.warnings>0)Aether.Amber else Aether.Emerald,
                 style=MaterialTheme.typography.titleMedium)
             CyberButton(
@@ -15423,11 +15308,11 @@ private fun BugFinderSettings(repo: AppRepository) {
                         .prismWell(shape=RoundedCornerShape(15.dp), tone=c, selected=c != Aether.Emerald)
                         .padding(11.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                         Row(verticalAlignment=Alignment.CenterVertically) {
-                            Text(check.title,color=Aether.Ink,style=MaterialTheme.typography.labelLarge,modifier=Modifier.weight(1f))
+                            Text(trx(check.title),color=Aether.Ink,style=MaterialTheme.typography.labelLarge,modifier=Modifier.weight(1f))
                             HoloBadge(check.severity.name,c,true)
                         }
-                        Text(check.detail,color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)
-                        if(check.action.isNotBlank()) Text("→ ${check.action}",color=c,style=MaterialTheme.typography.bodySmall)
+                        Text(trx(check.detail),color=Aether.InkMuted,style=MaterialTheme.typography.bodySmall)
+                        if(check.action.isNotBlank()) Text("→ ${trx(check.action)}",color=c,style=MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -16115,7 +16000,7 @@ private fun TransportAdaptationSettings(repo: AppRepository) {
                     color = Aether.Cyan,
                     style = settingsRowTitleStyle()
                 )
-                Text(decision.reason, color = Aether.InkFaint, style = settingsBodyStyle())
+                Text(trx(decision.reason), color = Aether.InkFaint, style = settingsBodyStyle())
             }
 
             HorizontalDivider(color = Aether.GlassBorderSoft)
@@ -17387,6 +17272,10 @@ private fun SettingSwitch(
     // before had no hierarchy — a page of switches read as one gray field.
     val tone = settingsSectionTone()
     val shape = RoundedCornerShape(13.dp)
+    val localizedTitle = trx(title)
+    val switchWord = trx("switch")
+    val localizedState = trx(if (checked) "on" else "off")
+    val accessibilityState = trx(if (checked) "Enabled" else "Disabled")
     var lastClickTime by remember { mutableLongStateOf(0L) }
 
     Row(
@@ -17411,8 +17300,8 @@ private fun SettingSwitch(
                 }
             }
             .semantics {
-                contentDescription = "$title, switch ${if (checked) "on" else "off"}"
-                stateDescription = if (checked) "Enabled" else "Disabled"
+                contentDescription = "$localizedTitle، $switchWord $localizedState"
+                stateDescription = accessibilityState
             }
             .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,

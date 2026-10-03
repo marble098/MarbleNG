@@ -189,8 +189,10 @@ internal object HomeCloud {
     val LightInsetBorder = Color(0xFFDDE7F2)
 
     // Dark surface set — same geometry, AMOLED tones lifted with a navy cast.
-    val DarkBgTop = Color(0xFF000000)
-    val DarkBgBottom = Color(0xFF060D18)
+    // AMOLED is a physical promise, not merely a dark blue gradient: every uncovered page pixel
+    // is off. Elevated components supply the hierarchy, never a glowing wallpaper behind them.
+    val DarkBgTop = Color.Black
+    val DarkBgBottom = Color.Black
     // MARBLE_HOME_CLOUD_V141 — opaque dark card fill, one uniform tone edge to edge.
     val DarkCardFill = Color(0xFF0F1727)
     val DarkCardBorder = Color(0xFF25344E)
@@ -333,8 +335,19 @@ internal fun HomeCloudCard(
         label = "home-cloud-card-lift"
     )
     val dark = homeCloudDark()
-    val shadowAmbient = if (dark) Color(0xFF001144).copy(alpha = .34f) else Color(0xFF0A2540).copy(alpha = .20f)
-    val shadowSpot = if (dark) HomeCloud.Accent.copy(alpha = .30f) else Color(0xFF1E5FAF).copy(alpha = .26f)
+    // MARBLE_THEME_COHERENCE_V202 — dynamic phone colours used to inherit fixed navy shadows
+    // and a sky-blue card wash. Those static pigments are an accidental fifth palette. All three
+    // elevation channels now derive from the active palette when Phone colours is selected.
+    val shadowAmbient = when {
+        Aether.IsDynamic -> Aether.FloatShadow.copy(alpha = if (dark) .28f else .18f)
+        dark -> Color(0xFF001144).copy(alpha = .34f)
+        else -> Color(0xFF0A2540).copy(alpha = .20f)
+    }
+    val shadowSpot = when {
+        Aether.IsDynamic -> Aether.Cyan.copy(alpha = if (dark) .28f else .22f)
+        dark -> HomeCloud.Accent.copy(alpha = .30f)
+        else -> Color(0xFF1E5FAF).copy(alpha = .26f)
+    }
     // The gradient rim catches the aurora at the top and fades to the plain hairline at the
     // bottom — light hitting an edge, not a second border. The top stop is theme-aware: lifted
     // towards white in Light (a highlight), lifted towards the brand accent in Dark (a cool rim).
@@ -349,7 +362,11 @@ internal fun HomeCloudCard(
     }
     // The whisper wash: a brand-tinted lightening at the top inside of the card, fading out over
     // the first ~130 dp. It breaks the perfect flatness of the fill without tinting content.
-    val washTop = if (dark) HomeCloud.Accent.copy(alpha = .055f) else Color(0xFF3399FF).copy(alpha = .035f)
+    val washTop = when {
+        Aether.IsDynamic -> Aether.Cyan.copy(alpha = if (dark) .055f else .035f)
+        dark -> HomeCloud.Accent.copy(alpha = .055f)
+        else -> Color(0xFF3399FF).copy(alpha = .035f)
+    }
     val washEndPx = with(LocalDensity.current) { 130.dp.toPx() }
     Box(
         modifier = modifier
@@ -402,18 +419,22 @@ internal fun PrismBackdrop(
     val dark = homeCloudDark()
     val motion = MarbleMotion.current
     val motionOn = motion.motionEnabled
+    val dynamicPalette = Aether.IsDynamic
     // MARBLE_THEME_COHERENCE_V191 — dynamic palettes aurora from the wallpaper ramp itself.
     val glowStart = Aether.Cyan
     val glowEnd = Aether.CyanBright
     // The floor pool is the deep end of the same hue the page is lit from: two steps toward
     // black under the brand palettes, the palette's own secondary under a wallpaper set.
-    val glowFloor = if (Aether.IsDynamic) Aether.Amethyst else lerp(glowStart, Color.Black, .55f)
+    val glowFloor = if (dynamicPalette) Aether.Amethyst else lerp(glowStart, Color.Black, .55f)
     val baseBrush = homeCloudBackgroundBrush()
     Canvas(modifier = modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
-        // Base vertical wash.
+        // Base vertical wash. In AMOLED, both stops are pure black and the canvas returns here:
+        // drawing a navy aurora even at a low alpha lights otherwise-off OLED pixels and defeats
+        // the selected theme's core promise.
         drawRect(brush = baseBrush)
+        if (dark && !dynamicPalette) return@Canvas
         // Breathing factors: 0..1 waves, out of phase; static 0.5 when motion is off.
         // MARBLE_SMOOTH_CLOCK_V193 — these waves have periods of 11 and 15 seconds; sampling
         // them on the coarse clock (~15 Hz) invalidates this full-screen canvas a fraction as
