@@ -140,9 +140,9 @@ object RouteProbe {
         host: String = "1.1.1.1",
         timeoutMs: Int = 8_000,
         minBytes: Long = 20_480L
-    ): SocksHttpClient.SurvivalVerdict {
+    ): SurvivalVerdict {
         if (tunnelPort <= 0) {
-            return SocksHttpClient.SurvivalVerdict(
+            return SurvivalVerdict(
                 survived = false,
                 handshakeOk = false,
                 ttfbMs = 0.0,
@@ -162,7 +162,7 @@ object RouteProbe {
                 minBytesRequired = minBytes
             )
         }.getOrElse {
-            SocksHttpClient.SurvivalVerdict(
+            SurvivalVerdict(
                 survived = false,
                 handshakeOk = false,
                 ttfbMs = 0.0,

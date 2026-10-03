@@ -55,6 +55,8 @@ data class SurvivalVerdict(
 )
 
 object SocksHttpClient {
+    typealias SurvivalVerdict = com.marbleng.app.core.SurvivalVerdict
+
     // MARBLE_LITERAL_SOCKS_V13
     // MARBLE_LOW_NOISE_PROBE_V18
     // MARBLE_VERIFIED_RTT_V19
