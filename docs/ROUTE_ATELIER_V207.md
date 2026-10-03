@@ -1,5 +1,12 @@
 # Route Atelier V207 — one grammar for the whole UI
 
+`MARBLE_ROUTE_ATELIER_V207` is a design chapter. It rebuilds the interface around one idea: **a
+product with plenty of effects and no grammar will spend those effects decorating its own
+inconsistencies.** Before this chapter, four Home presentations held four private opinions about what
+"connected" looks like, five silhouettes answered five different questions for one verb, a colour
+token meant the brand in one file and a state in another, and an animation switch stopped some loops
+while other code paths ignored it entirely.
+
 A written review of the app's interface, argued from the code at `main@d703584`, named eighteen
 defects and proposed a redesign ("Marble — Route Atelier"). This document is what was done about it,
 what was deliberately not done, and — because the review is right that a design claim nobody can test
@@ -219,6 +226,32 @@ The written tests (`MarbleDesignContractV207Test`, the updated `MarbleHomeStyleT
 tables above; treat them as claims to be run, not as a green bar. Equally: no statement in this
 document asserts anything about frame timings, on-device appearance, RTL layout of the new page, or
 how any transition feels, because none of that was observed — only what the code says.
+
+What *was* run beyond the parse gate is the repository's own preflight,
+`scripts/system-integrity-check.py`, which is pure Python and therefore executable here: **319
+invariants, 319 pass**. Four of its existing invariants pinned decisions this chapter deliberately
+changed, so they were re-pointed rather than deleted, each in the shape of the rule it actually
+guards:
+
+| Preflight invariant | Old pin | Now |
+|---|---|---|
+| product Home default | `DEFAULT = IOS_FLOATING` | `DEFAULT = ROUTE_ATELIER`, plus a new check that the *former* default keeps its id, its implementation and its dispatch arm — a default may move, a presentation may not be orphaned by the move |
+| Servers row name | `basicMarquee(` present in `Aether2026.kt` | `basicMarquee` absent from the file, and `ServersNodeCard` settles at two lines with an ellipsis |
+| `ProtocolTile` content rule | `fallbackText = nameFlag` | `fallbackText = "🌐"`, `nameFlag` gone from the tile, and `locationTrust.mayDrawFlag()` gating the art |
+| (unused import) | — | the now-dead `androidx.compose.foundation.basicMarquee` import was removed |
+
+Eleven V207 invariants were added to the same file, so the grammar cannot quietly rot: the contract is
+the only tone/verb/target/feedback owner; the three per-style tone functions stay deleted; the five
+silhouettes share one `armed` gate; the slide control dispatches before it animates (checked as an
+*order* inside its commit block, which is the actual defect); reduced motion removes travel and queues;
+the ambient field is one setting published once and asked in four files; a location answer is never
+upgraded from a node's name, all the way down to the resolver's persisted `provisional` flag; the route
+presentation reuses the shared feature widgets instead of forking them; the 48 dp floor is in use and
+`descriptiveLabel` has no default; and the chapter is pinned by a test class and written down here.
+
+The CI job runs the Gradle compile and the unit tests as its final step — that is the first time any
+of this code meets a Kotlin compiler, and its result is reported on the pull request, not claimed
+here.
 
 ## 6. Follow-ups this pass leaves open, named rather than hidden
 
