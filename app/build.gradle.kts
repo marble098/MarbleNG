@@ -384,85 +384,117 @@ dependencies {
 
 // ---------------------------------------------------------------------------------------------
 // MARBLE_ROUTE_ATELIER_V207 — TEMPORARY CI DIAGNOSTIC. Delete as soon as the JVM step of PR #186 is
-// green; it is not part of the product, and it does nothing outside a GitHub runner.
+// green; it is not part of the product and it does nothing outside a GitHub runner.
 //
-// The only failing step on that branch is the Kotlin compile, and the Actions log archive is not
-// reachable from every review tool, so this forwards the compiler's own `e: file:line:col` lines into
-// the two channels any API client can read: the check run's annotations and the job summary. The
-// report task is a *finalizer* of the compile/test tasks, which Gradle runs even when the task it
-// finalizes failed; it re-runs the compile once (recursion-guarded) and reads the text back. A
-// configuration-cache build never asks for it, so nothing here is serialized.
+// The only failing step on this branch is the JVM step, and the Actions log archive is not reachable
+// from every review tool. A finalizer did not run (the build stops on the first failure, and the
+// configuration cache serializes nothing of mine), so the probe runs *before* the real work instead:
+// it invokes the same Gradle targets once, on its own, reads the text back, and forwards the
+// compiler's `e: file:line:col` lines and the failing test names into the two channels any API client
+// can read — the check run's annotations and the job summary. It always succeeds, so the build that
+// follows is still the build that judges this branch; the recursion guard stops the inner invocation
+// from probing again.
 // ---------------------------------------------------------------------------------------------
-println("::notice title=diag-alive::marble jvm diagnostic block evaluated (app/build.gradle.kts)")
+private fun marbleNestedGradle(
+    workspace: String,
+    targets: List<String>,
+    minutes: Long
+): Pair<Int, String> {
+    val log = java.io.File(System.getProperty("java.io.tmpdir"), "marble-probe.log")
+    val builder = java.lang.ProcessBuilder(
+        mutableListOf(
+            "gradle",
+            "--no-daemon",
+            "--console=plain",
+            "--project-cache-dir",
+            "$workspace/.marble-probe-cache",
+            "--build-cache"
+        ) + targets
+    )
+    builder.directory(java.io.File(workspace))
+    builder.environment()["MARBLE_PROBE"] = "1"
+    builder.redirectErrorStream(true)
+    builder.redirectOutput(log)
+    val process = builder.start()
+    if (!process.waitFor(minutes, java.util.concurrent.TimeUnit.MINUTES)) {
+        process.destroyForcibly()
+        return -1 to "probe timed out after $minutes minutes"
+    }
+    return process.exitValue() to if (log.exists()) log.readText() else ""
+}
 
-val marbleJvmDiagnosticReport =
-    tasks.register("marbleJvmDiagnosticReport") {
+println("::error title=diag-alive::marble probe block evaluated in app/build.gradle.kts")
+
+val marbleJvmProbe =
+    tasks.register("marbleJvmDiagnosticProbe") {
         group = "verification"
-        description = "TEMPORARY: forward Kotlin compiler diagnostics into the CI annotations."
+        description = "TEMPORARY: read the JVM diagnostics back into the CI annotations."
         doLast {
             val runner = System.getenv("GITHUB_ACTIONS")
-            val recursionBlocked = System.getenv("MARBLE_DIAG_DISABLED")
-            if (runner.isNullOrEmpty() || !recursionBlocked.isNullOrEmpty()) return@doLast
+            val probing = System.getenv("MARBLE_PROBE")
+            if (runner.isNullOrEmpty() || !probing.isNullOrEmpty()) {
+                println("::error title=diag-skipped::runner=$runner probing=$probing")
+                return@doLast
+            }
             val workspace = System.getenv("GITHUB_WORKSPACE") ?: return@doLast
-            val log = java.io.File(System.getProperty("java.io.tmpdir"), "marble-recompile.log")
-            val report = runCatching {
-                val builder = java.lang.ProcessBuilder(
-                    "gradle",
-                    "--no-daemon",
-                    "--console=plain",
-                    "--project-cache-dir",
-                    "$workspace/.marble-diag-cache",
-                    ":app:compileDebugKotlin"
-                )
-                builder.directory(java.io.File(workspace))
-                builder.environment()["MARBLE_DIAG_DISABLED"] = "1"
-                builder.redirectErrorStream(true)
-                builder.redirectOutput(log)
-                builder.start().waitFor(3, java.util.concurrent.TimeUnit.MINUTES)
-                if (log.exists()) log.readText() else ""
-            }.getOrElse { "diagnostic re-run failed: ${it.javaClass.simpleName}" }
-
-            val errors = report.lines()
-                .filter { it.startsWith("e: ") || it.contains(": error:") }
-                .distinct()
+            val compile = runCatching {
+                marbleNestedGradle(workspace, listOf(":app:compileDebugKotlin"), 12L)
+            }.getOrElse { -2 to "probe could not run: ${it.javaClass.name}" }
+            var code = compile.first
+            var text = compile.second
+            if (code == 0) {
+                val rest = runCatching {
+                    marbleNestedGradle(workspace, listOf(":app:testDebugUnitTest", ":app:compileReleaseKotlin"), 12L)
+                }.getOrElse { -2 to "probe could not run: ${it.javaClass.name}" }
+                code = rest.first
+                text = text + "\n" + rest.second
+            }
+            val interesting = text.lines().filter { line ->
+                line.startsWith("e: ") ||
+                    line.contains(": error:") ||
+                    line.contains(" FAILED") ||
+                    line.startsWith("* What went wrong") ||
+                    line.startsWith("FAILURE:") ||
+                    line.startsWith("Caused by:") ||
+                    line.startsWith("Execution failed")
+            }.distinct()
             val body = buildString {
-                appendLine("### Marble JVM diagnostics (temporary reporter)")
+                appendLine("### Marble JVM diagnostics (temporary probe)")
                 appendLine()
-                appendLine("captured " + errors.size + " compiler error line(s); re-run log " + report.length + " chars")
+                appendLine("nested run exit code $code; ${interesting.size} interesting line(s) in ${text.length} chars")
                 appendLine()
                 appendLine("```")
-                val lines = if (errors.isEmpty()) report.lines().takeLast(40) else errors.take(60)
+                val lines = if (interesting.isEmpty()) text.lines().takeLast(50) else interesting.take(80)
                 lines.forEach { appendLine(it.take(240)) }
                 appendLine("```")
             }
             System.getenv("GITHUB_STEP_SUMMARY")
                 ?.takeIf { it.isNotEmpty() }
                 ?.let { path -> runCatching { java.io.File(path).appendText(body) } }
-            println("::error title=marble-diagnostics::captured=" + errors.size + " logChars=" + report.length)
-            errors.take(30).forEach { line ->
+            println("::error title=marble-diagnostics::exit=$code lines=${interesting.size} chars=${text.length}")
+            interesting.take(30).forEach { line ->
                 val match = Regex("^e: file://(.+?):(\\d+):(\\d+)\\s*(.*)$").find(line)
                 if (match != null) {
                     val (path, lineNo, column, message) = match.destructured
                     println(
-                        "::error file=" + path.substringAfter("/MarbleNG/") +
-                            ",line=" + lineNo + ",col=" + column + "::" + message.take(200).replace("%", "%25")
+                        "::error file=" + path.substringAfterLast("/") +
+                            ",line=" + lineNo + ",col=" + column + "::" +
+                            path.substringAfterLast("/MarbleNG/", path) + ": " + message.take(160).replace("%", "%25")
                     )
                 } else {
-                    println("::error title=kotlin-error::" + line.take(220).replace("%", "%25"))
+                    println("::error title=jvm-diagnostic::" + line.take(220).replace("%", "%25"))
                 }
             }
-            if (errors.isEmpty()) {
-                report.lines().takeLast(10).forEach {
-                    println("::error title=re-run-tail::" + it.take(200).replace("%", "%25"))
+            if (interesting.isEmpty()) {
+                text.lines().takeLast(12).forEach {
+                    println("::error title=probe-tail::" + it.take(200).replace("%", "%25"))
                 }
             }
         }
     }
 
-tasks.matching { it.name.startsWith("compile") && it.name.endsWith("Kotlin") }.configureEach {
-    finalizedBy(marbleJvmDiagnosticReport)
-}
-
-tasks.matching { it.name == "testDebugUnitTest" || it.name == "testReleaseUnitTest" }.configureEach {
-    finalizedBy(marbleJvmDiagnosticReport)
+tasks.matching { it.name.startsWith("compile") || it.name.startsWith("test") }.configureEach {
+    if (name != "marbleJvmDiagnosticProbe") {
+        dependsOn(marbleJvmProbe)
+    }
 }
