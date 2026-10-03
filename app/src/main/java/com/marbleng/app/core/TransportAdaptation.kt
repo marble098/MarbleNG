@@ -7,6 +7,7 @@ import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.sqrt
 
 // =============================================================================
@@ -166,6 +167,34 @@ enum class FragmentProfile(
             entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) } ?: DEFAULT
     }
 }
+
+/**
+ * Monotonically ordered fragment ladder from mildest to most aggressive.
+ * Under DPI, heavier fragmentation costs throughput, latency, and jitter.
+ * The ladder allows binary search or progression to find the minimal effective setting.
+ */
+val FragmentLadder: List<FragmentProfile> = listOf(
+    FragmentProfile.OFF,
+    FragmentProfile.TLSHELLO,
+    FragmentProfile.RECORD_SPLIT,
+    FragmentProfile.GFW_KNOCKER,
+    FragmentProfile.OFFICIAL_SKIP_CHAIN,
+    FragmentProfile.FULL_FRAGMENT,
+    FragmentProfile.STEEL_CASCADE,
+    FragmentProfile.EXTREME
+)
+
+val FragmentProfile.overheadPenalty: Double
+    get() = when (this) {
+        FragmentProfile.OFF -> 0.00
+        FragmentProfile.TLSHELLO -> 0.05
+        FragmentProfile.RECORD_SPLIT -> 0.10
+        FragmentProfile.GFW_KNOCKER -> 0.16
+        FragmentProfile.OFFICIAL_SKIP_CHAIN -> 0.22
+        FragmentProfile.FULL_FRAGMENT -> 0.30
+        FragmentProfile.STEEL_CASCADE -> 0.38
+        FragmentProfile.EXTREME -> 0.48
+    }
 
 /** One (fragment, Mux) pair the bandit can pick, and its stable identity on disk. */
 data class TransportPair(
@@ -753,4 +782,151 @@ object TransportAdaptation {
             .sortedByDescending { it.updatedAtMs }
             .take(MAX_CELLS)
             .associateBy { TransportMemoryRecord.keyOf(it.carrierId, it.dayPart) }
+
+    // ─── Ladder & Hierarchical Thompson Sampling ────────────────────────────────────────
+
+    /**
+     * Finds the minimal effective ladder rung: the lowest rung that satisfies survival and
+     * connectivity, ensuring minimal latency and jitter overhead.
+     */
+    fun minimalEffectiveRung(
+        candidates: List<FragmentProfile>,
+        scores: Map<String, Double>,
+        minScoreThreshold: Double = 0.45
+    ): FragmentProfile {
+        val sorted = candidates.sortedBy { it.strength }
+        for (rung in sorted) {
+            val score = scores[rung.id] ?: 0.0
+            if (score >= minScoreThreshold) {
+                return rung
+            }
+        }
+        return sorted.lastOrNull() ?: FragmentProfile.OFF
+    }
+
+    /**
+     * Real reward: requires handshake + survival (>= 15s or >= 20KB transfer) + TTFB,
+     * minus setting overhead (interval x packet count).
+     */
+    fun calculateRealReward(
+        success: Boolean,
+        survivalVerified: Boolean,
+        bytesTransferred: Long,
+        ttfbMs: Double,
+        durationMs: Long,
+        rung: FragmentProfile
+    ): Double {
+        if (!success || (!survivalVerified && bytesTransferred < 20_480L && durationMs < 15_000L)) {
+            return 0.0
+        }
+        val ttfbScore = 1.0 / (1.0 + (ttfbMs.coerceAtLeast(1.0) / 160.0))
+        val volumeScore = (bytesTransferred.coerceAtLeast(0L).toDouble() / 100_000.0).coerceIn(0.0, 1.0)
+        val durationScore = (durationMs.coerceAtLeast(0L).toDouble() / 30_000.0).coerceIn(0.0, 1.0)
+        val grossReward = ttfbScore * 0.40 + volumeScore * 0.35 + durationScore * 0.25
+        val netReward = grossReward - rung.overheadPenalty
+        return netReward.coerceIn(0.05, 1.0)
+    }
+
+    /**
+     * High jitter / loss mitigation: single-connection TCP Mux creates severe HOL blocking
+     * when packets drop or jitter spikes. Demote or turn Mux off to maintain responsive streams.
+     */
+    fun adaptForJitter(pair: TransportPair, jitterMs: Double, lossPercent: Double): TransportPair {
+        if (jitterMs > 60.0 || lossPercent > 5.0) {
+            val adjustedMux = if (pair.mux.enabled) {
+                if (pair.mux.concurrency > 4) MuxProfile.STEALTH else pair.mux
+            } else {
+                MuxProfile.OFF
+            }
+            return pair.copy(mux = adjustedMux)
+        }
+        return pair
+    }
+
+    /**
+     * Page-Hinkley change-point detector for rapid detection of DPI filtering rule shifts.
+     */
+    class PageHinkley(
+        val threshold: Double = 0.25,
+        val delta: Double = 0.05
+    ) {
+        private var mean = 0.0
+        private var count = 0
+        private var cumSum = 0.0
+        private var minCumSum = 0.0
+
+        fun update(sample: Double): Boolean {
+            count++
+            mean += (sample - mean) / count
+            cumSum += (mean - sample - delta)
+            if (cumSum < minCumSum) {
+                minCumSum = cumSum
+            }
+            val phValue = cumSum - minCumSum
+            return phValue > threshold
+        }
+
+        fun reset() {
+            mean = 0.0
+            count = 0
+            cumSum = 0.0
+            minCumSum = 0.0
+        }
+    }
+
+    /**
+     * Hierarchical Thompson Sampling with Beta distributions.
+     * Backs off from cell -> operator -> global prior to resolve cold start and data sparsity.
+     */
+    object HierarchicalThompson {
+        const val GLOBAL_PRIOR_ALPHA = 2.0
+        const val GLOBAL_PRIOR_BETA = 1.0
+
+        fun sampleBeta(alpha: Double, beta: Double, random: java.util.Random = java.util.Random()): Double {
+            val a = max(0.1, alpha)
+            val b = max(0.1, beta)
+            val x = sampleGamma(a, random)
+            val y = sampleGamma(b, random)
+            return if (x + y <= 0.0) a / (a + b) else x / (x + y)
+        }
+
+        private fun sampleGamma(k: Double, random: java.util.Random): Double {
+            if (k < 1.0) {
+                val u = max(1e-9, random.nextDouble())
+                return sampleGamma(k + 1.0, random) * u.pow(1.0 / k)
+            }
+            val d = k - 1.0 / 3.0
+            val c = 1.0 / sqrt(9.0 * d)
+            while (true) {
+                val z = random.nextGaussian()
+                val v = 1.0 + c * z
+                if (v <= 0.0) continue
+                val v3 = v * v * v
+                val u = random.nextDouble()
+                if (u < 1.0 - 0.0331 * (z * z) * (z * z)) return d * v3
+                if (ln(max(1e-9, u)) < 0.5 * z * z + d * (1.0 - v3 + ln(max(1e-9, v3)))) return d * v3
+            }
+        }
+
+        fun effectivePosterior(
+            cellTries: Int,
+            cellSuccess: Double,
+            operatorTries: Int,
+            operatorSuccess: Double,
+            rung: FragmentProfile
+        ): Pair<Double, Double> {
+            val cellAlpha = cellTries * cellSuccess
+            val cellBeta = cellTries * (1.0 - cellSuccess)
+
+            val opAlpha = operatorTries * operatorSuccess * 0.5
+            val opBeta = operatorTries * (1.0 - operatorSuccess) * 0.5
+
+            val globalAlpha = GLOBAL_PRIOR_ALPHA * (1.0 - rung.overheadPenalty)
+            val globalBeta = GLOBAL_PRIOR_BETA * (1.0 + rung.overheadPenalty)
+
+            val totalAlpha = max(0.5, cellAlpha + opAlpha + globalAlpha)
+            val totalBeta = max(0.5, cellBeta + opBeta + globalBeta)
+            return Pair(totalAlpha, totalBeta)
+        }
+    }
 }

@@ -42,6 +42,18 @@ data class SampledTransfer(
     val headers: Map<String, String> = emptyMap()
 )
 
+/** Verdict of an honest survival and transfer test under censorship. */
+data class SurvivalVerdict(
+    val survived: Boolean,
+    val handshakeOk: Boolean,
+    val ttfbMs: Double,
+    val bytesTransferred: Long,
+    val durationMs: Long,
+    val injectedResetSuspected: Boolean,
+    val silentTimeoutSuspected: Boolean,
+    val reason: String = ""
+)
+
 object SocksHttpClient {
     // MARBLE_LITERAL_SOCKS_V13
     // MARBLE_LOW_NOISE_PROBE_V18
@@ -296,6 +308,146 @@ object SocksHttpClient {
             runCatching { ssl?.close() }
             runCatching { tcp.close() }
         }
+    }
+
+    /**
+     * Honest survival + byte transfer test for censored networks.
+     * In filtered networks, fake SYN-ACK or early RST gives deceptively good ping numbers,
+     * but connections die after a few KB. This test requires:
+     * 1. Successful TCP + TLS handshake.
+     * 2. First byte arrival (TTFB).
+     * 3. Sustained transfer of >= minBytesRequired (default 20 KB) or living >= minDurationMs
+     *    without an injected RST or silent socket drop.
+     */
+    fun verifySurvivalAndTransfer(
+        port: Int,
+        host: String,
+        path: String = "/generate_204",
+        targetPort: Int = 443,
+        timeoutMs: Int = 10_000,
+        minBytesRequired: Long = 20_480L,
+        minDurationMs: Long = 15_000L,
+        tlsHost: String = host
+    ): SurvivalVerdict {
+        require(port in 1..65535)
+        require(targetPort in 1..65535)
+        require(host.isNotBlank())
+        require(tlsHost.isNotBlank())
+
+        val startedNs = System.nanoTime()
+        var handshakeOk = false
+        var ttfbMs = 0.0
+        var received = 0L
+        var injectedReset = false
+        var silentTimeout = false
+        var reason = ""
+
+        val tcp = Socket()
+        var ssl: SSLSocket? = null
+        try {
+            tcp.soTimeout = timeoutMs
+            tcp.tcpNoDelay = true
+            tcp.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)
+
+            val output = BufferedOutputStream(tcp.getOutputStream())
+            val input = BufferedInputStream(tcp.getInputStream())
+            output.write(byteArrayOf(5, 1, 0))
+            output.flush()
+            require(input.read() == 5 && input.read() == 0) { "SOCKS auth negotiation failed" }
+
+            val target = socksTarget(host)
+            output.write(buildSocks5Request(target.first, target.second, targetPort))
+            output.flush()
+
+            val reply = ByteArray(4)
+            readFully(input, reply)
+            require(reply[0].toInt() == 5 && reply[1].toInt() == 0) {
+                "SOCKS connect failed: ${reply[1].toInt() and 0xff}"
+            }
+            when (reply[3].toInt() and 0xff) {
+                1 -> skip(input, 4)
+                3 -> {
+                    val length = input.read()
+                    require(length >= 0)
+                    skip(input, length)
+                }
+                4 -> skip(input, 16)
+                else -> error("Invalid SOCKS address type")
+            }
+            skip(input, 2)
+
+            val secure = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                .createSocket(tcp, tlsHost, targetPort, true) as SSLSocket
+            ssl = secure
+            secure.soTimeout = timeoutMs
+            secure.tcpNoDelay = true
+            val parameters = secure.sslParameters
+            parameters.endpointIdentificationAlgorithm = "HTTPS"
+            secure.sslParameters = parameters
+            secure.startHandshake()
+            handshakeOk = true
+
+            val sslOut = BufferedOutputStream(secure.getOutputStream())
+            val sslIn = BufferedInputStream(secure.getInputStream())
+            val request = buildString {
+                append("GET $path HTTP/1.1\r\n")
+                append("Host: ${httpHostHeader(tlsHost, targetPort)}\r\n")
+                append("User-Agent: MarbleNG/1\r\n")
+                append("Accept-Encoding: identity\r\n")
+                append("Connection: close\r\n")
+                append("\r\n")
+            }.toByteArray(Charsets.ISO_8859_1)
+
+            val sendNs = System.nanoTime()
+            sslOut.write(request)
+            sslOut.flush()
+
+            val first = sslIn.read()
+            if (first >= 0) {
+                ttfbMs = (System.nanoTime() - sendNs) / 1e6
+                received = 1L
+                val buffer = ByteArray(4096)
+                while (true) {
+                    val read = try {
+                        sslIn.read(buffer)
+                    } catch (e: SSLException) {
+                        val msg = (e.message ?: "").lowercase()
+                        if (msg.contains("reset")) injectedReset = true
+                        break
+                    } catch (e: java.net.SocketTimeoutException) {
+                        silentTimeout = true
+                        break
+                    }
+                    if (read < 0) break
+                    received += read
+                    if (received >= minBytesRequired) break
+                }
+            } else {
+                reason = "peer closed before first byte"
+            }
+        } catch (t: Throwable) {
+            val msg = (t.message ?: "").lowercase()
+            if (msg.contains("reset")) injectedReset = true
+            if (t is java.net.SocketTimeoutException) silentTimeout = true
+            reason = t.message ?: t.javaClass.simpleName
+        } finally {
+            runCatching { ssl?.close() }
+            runCatching { tcp.close() }
+        }
+
+        val elapsedMs = (System.nanoTime() - startedNs) / 1_000_000L
+        val survived = handshakeOk && !injectedReset && (received >= minBytesRequired || elapsedMs >= minDurationMs)
+
+        return SurvivalVerdict(
+            survived = survived,
+            handshakeOk = handshakeOk,
+            ttfbMs = ttfbMs,
+            bytesTransferred = received,
+            durationMs = elapsedMs,
+            injectedResetSuspected = injectedReset,
+            silentTimeoutSuspected = silentTimeout,
+            reason = reason
+        )
     }
 
     /**

@@ -2238,8 +2238,12 @@ private const val HEARTBEAT_R_PHASE = .32f
  * once every two and a half seconds. The animation is therefore information — the user can
  * *see* the link slow down before reading a digit.
  */
+/**
+ * Modern, clean ping action button for the Home header.
+ * Replaces the busy heartbeat ECG animation with a refined, tactile pill control.
+ */
 @Composable
-private fun HomeHeartbeatPingAction(
+private fun HomeModernPingAction(
     pingMs: Int,
     sweeping: Boolean,
     description: String,
@@ -2247,12 +2251,15 @@ private fun HomeHeartbeatPingAction(
     onClick: () -> Unit
 ) {
     val tone = homeHeartbeatTone(pingMs)
-    // MARBLE_HEADER_ICON_CONTRAST_V205 — the header actions sit bare on the page, so their ink
-    // is measured against the page itself: the tone is pushed toward the readable endpoint
-    // before it is drawn, exactly like the other two bare actions in this row.
     val pageTone = marbleReadableOn(tone, Aether.Void, 3.0f)
     val shape = RoundedCornerShape(18.dp)
-    Row(
+    Surface(
+        shape = shape,
+        color = if (sweeping) Aether.Danger.copy(alpha = 0.14f) else Aether.Surface.copy(alpha = 0.35f),
+        border = BorderStroke(
+            1.dp,
+            if (sweeping) Aether.Danger.copy(alpha = 0.40f) else pageTone.copy(alpha = 0.22f)
+        ),
         modifier = Modifier
             .height(36.dp)
             .clip(shape)
@@ -2265,46 +2272,67 @@ private fun HomeHeartbeatPingAction(
                 onClick = onClick
             )
             .semantics { contentDescription = description }
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        if (sweeping) {
-            // MARBLE_PING_CANCEL_V156 — while a sweep is live the control that started it is
-            // the one that ends it. The heartbeat keeps beating underneath the stop square:
-            // cancelling a measurement is not the same as having no measurement.
-            val stopTone = marbleReadableOn(Aether.Danger, Aether.Void, 3.0f)
-            HomeHeartbeatTrace(
-                color = stopTone,
-                pingMs = pingMs,
-                modifier = Modifier.width(26.dp).height(20.dp)
-            )
-            HomeGlyphIcon(HomeGlyph.STOP, stopTone, Modifier.size(15.dp))
-        } else {
-            HomeHeartbeatTrace(
-                color = pageTone,
-                pingMs = pingMs,
-                modifier = Modifier.width(36.dp).height(20.dp)
-            )
-            if (pingMs > 0) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (sweeping) {
+                val stopTone = marbleReadableOn(Aether.Danger, Aether.Void, 3.0f)
+                HomeGlyphIcon(HomeGlyph.STOP, stopTone, Modifier.size(14.dp))
                 Text(
-                    "$pingMs",
-                    color = pageTone,
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontFeatureSettings = "tnum"
-                    ),
+                    text = trx("Cancel"),
+                    color = stopTone,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 1
                 )
-                Text(
-                    "ms",
-                    color = pageTone.copy(alpha = .55f),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
-                    maxLines = 1
-                )
+            } else {
+                HomeGlyphIcon(HomeGlyph.PULSE, pageTone, Modifier.size(16.dp))
+                if (pingMs > 0) {
+                    Text(
+                        text = "$pingMs",
+                        color = pageTone,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontFeatureSettings = "tnum"
+                        ),
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "ms",
+                        color = pageTone.copy(alpha = .65f),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                        maxLines = 1
+                    )
+                } else {
+                    Text(
+                        text = Tr.now.testPing,
+                        color = pageTone.copy(alpha = 0.85f),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                        maxLines = 1
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun HomeHeartbeatPingAction(
+    pingMs: Int,
+    sweeping: Boolean,
+    description: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    HomeModernPingAction(
+        pingMs = pingMs,
+        sweeping = sweeping,
+        description = description,
+        enabled = enabled,
+        onClick = onClick
+    )
 }
 
 /**
@@ -2469,7 +2497,7 @@ internal fun HomeTopActionBar(
         } else {
             evidence.pingMs
         }
-        HomeHeartbeatPingAction(
+        HomeModernPingAction(
             pingMs = heartbeatPingMs,
             sweeping = sweeping,
             description = if (sweeping) trx("Cancel measuring") else "${Tr.now.testPing} • $groupLabel",

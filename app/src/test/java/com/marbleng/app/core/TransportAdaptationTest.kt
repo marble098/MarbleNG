@@ -502,4 +502,109 @@ class TransportAdaptationTest {
             )
         )
     }
+
+    // ─── Ladder & Hierarchical Thompson Sampling ────────────────────────────────────────
+
+    @Test
+    fun `ladder is strictly ordered by strength from mild to aggressive`() {
+        for (i in 0 until FragmentLadder.size - 1) {
+            assertTrue(
+                "Ladder must be monotonic: ${FragmentLadder[i]} vs ${FragmentLadder[i + 1]}",
+                FragmentLadder[i].strength <= FragmentLadder[i + 1].strength
+            )
+        }
+    }
+
+    @Test
+    fun `overhead penalty strictly increases along the ladder`() {
+        for (i in 0 until FragmentLadder.size - 1) {
+            assertTrue(
+                "Overhead penalty must increase along ladder: ${FragmentLadder[i].overheadPenalty} <= ${FragmentLadder[i + 1].overheadPenalty}",
+                FragmentLadder[i].overheadPenalty <= FragmentLadder[i + 1].overheadPenalty
+            )
+        }
+    }
+
+    @Test
+    fun `minimal effective rung selects lowest rung meeting score threshold`() {
+        val scores = mapOf(
+            FragmentProfile.OFF.id to 0.10,
+            FragmentProfile.TLSHELLO.id to 0.55,
+            FragmentProfile.FULL_FRAGMENT.id to 0.90
+        )
+        val chosen = TransportAdaptation.minimalEffectiveRung(
+            listOf(FragmentProfile.OFF, FragmentProfile.TLSHELLO, FragmentProfile.FULL_FRAGMENT),
+            scores,
+            minScoreThreshold = 0.50
+        )
+        assertEquals("Minimal effective rung must be chosen to minimize latency", FragmentProfile.TLSHELLO, chosen)
+    }
+
+    @Test
+    fun `real reward requires survival and penalizes overhead`() {
+        val zero = TransportAdaptation.calculateRealReward(
+            success = false,
+            survivalVerified = false,
+            bytesTransferred = 0L,
+            ttfbMs = 100.0,
+            durationMs = 1_000L,
+            rung = FragmentProfile.OFF
+        )
+        assertEquals("Failed survival yields zero reward", 0.0, zero, 0.0)
+
+        val mildReward = TransportAdaptation.calculateRealReward(
+            success = true,
+            survivalVerified = true,
+            bytesTransferred = 30_000L,
+            ttfbMs = 120.0,
+            durationMs = 20_000L,
+            rung = FragmentProfile.TLSHELLO
+        )
+        val heavyReward = TransportAdaptation.calculateRealReward(
+            success = true,
+            survivalVerified = true,
+            bytesTransferred = 30_000L,
+            ttfbMs = 120.0,
+            durationMs = 20_000L,
+            rung = FragmentProfile.EXTREME
+        )
+        assertTrue("Mild rung must earn higher net reward due to lower overhead", mildReward > heavyReward)
+    }
+
+    @Test
+    fun `page hinkley detector detects sudden change in reward series`() {
+        val detector = TransportAdaptation.PageHinkley(threshold = 0.25, delta = 0.05)
+        var changeDetected = false
+        // Quiet high reward period
+        repeat(15) {
+            detector.update(0.85)
+        }
+        // Sudden drop (firewall rules changed)
+        repeat(10) {
+            if (detector.update(0.10)) changeDetected = true
+        }
+        assertTrue("Page-Hinkley must detect abrupt drop in quality", changeDetected)
+    }
+
+    @Test
+    fun `hierarchical thompson posterior backs off to parent on sparse data`() {
+        val posteriorSparse = TransportAdaptation.HierarchicalThompson.effectivePosterior(
+            cellTries = 0,
+            cellSuccess = 0.0,
+            operatorTries = 20,
+            operatorSuccess = 0.8,
+            rung = FragmentProfile.TLSHELLO
+        )
+        assertTrue("Sparse cell draws positive evidence from parent operator", posteriorSparse.first > posteriorSparse.second)
+
+        val sample = TransportAdaptation.HierarchicalThompson.sampleBeta(posteriorSparse.first, posteriorSparse.second)
+        assertTrue("Beta sample in valid probability range", sample >= 0.0 && sample <= 1.0)
+    }
+
+    @Test
+    fun `adapt for jitter demotes mux when loss or jitter is elevated to avoid hol blocking`() {
+        val pair = TransportPair(FragmentProfile.TLSHELLO, MuxProfile.THROUGHPUT)
+        val adapted = TransportAdaptation.adaptForJitter(pair, jitterMs = 85.0, lossPercent = 8.0)
+        assertTrue("Mux must be demoted or throttled under high jitter to prevent HOL blocking", adapted.mux.concurrency <= 4)
+    }
 }
