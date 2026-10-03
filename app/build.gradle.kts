@@ -381,3 +381,8 @@ dependencies {
         "androidx.compose.ui:ui-tooling"
     )
 }
+
+tasks.withType<Test>().configureEach {
+    testLogging.showStandardStreams = true
+}
+
