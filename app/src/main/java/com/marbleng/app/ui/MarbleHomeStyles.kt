@@ -138,6 +138,7 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
+import kotlin.math.exp
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -2190,6 +2191,207 @@ internal fun MarbleWordmark(modifier: Modifier = Modifier) {
 }
 
 /**
+ * One beat of an ECG, as a function of position in the beat (0..1).
+ *
+ * P wave, Q, R, S, T: the shape a cardiologist reads, and the shape every user already knows
+ * means "a heart is beating". It is built from five Gaussians rather than from a sampled
+ * recording so that it costs five `exp` calls per point and nothing else — no bitmap, no path
+ * asset, no allocation per frame.
+ */
+private fun heartbeatWave(u: Float): Float =
+    .16f * heartbeatBump(u, .16f, .045f) -
+        .20f * heartbeatBump(u, .28f, .022f) +
+        1.00f * heartbeatBump(u, .32f, .016f) -
+        .38f * heartbeatBump(u, .37f, .026f) +
+        .30f * heartbeatBump(u, .56f, .070f)
+
+private fun heartbeatBump(u: Float, center: Float, width: Float): Float {
+    val d = u - center
+    return exp(-(d * d) / (2f * width * width))
+}
+
+/** Where in one beat the R spike sits — the instant the heart visibly contracts. */
+private const val HEARTBEAT_R_PHASE = .32f
+
+/**
+ * MARBLE_HOME_HEARTBEAT_PING_V206 — the Home header's ping: a heart beating an ECG.
+ *
+ * What this replaces, and why a static pulse glyph was not enough:
+ *
+ *  • **A ping is a rhythm, and an icon is not.** The old control painted the same
+ *    `HomeGlyph.PULSE` zigzag whether the route answered in 30 ms or in 900 ms. The only thing
+ *    that changed was the colour of a number the header did not even show. A latency reading
+ *    is the one measurement in the product that is *naturally* alive — it is a pulse — and
+ *    rendering it as a frozen glyph threw away the only honest metaphor it has.
+ *  • **Green meant "excellent", not "fine".** The header used the bento's ranking band, which
+ *    turns amber at 100 ms. On the censored mobile links this product is built for, a stable
+ *    130 ms route is a *good* connection being reported in the colour the product uses for
+ *    warnings. The heartbeat answers "can I use this?", not "does this win a race?", so its
+ *    green ceiling is [HOME_HEARTBEAT_GREEN_MAX_MS] (160 ms) — see the reasoning there.
+ *  • **Animation, made cheap.** Every frame of this control comes from
+ *    [MarbleMotionState.loop]: the one shared frame clock the whole product already runs. It
+ *    owns no `InfiniteTransition`, starts no coroutine, and adds no frame callback — so an
+ *    animated header costs the same as a static one on the frame budget, and it freezes
+ *    automatically when the user turns off system animations.
+ *
+ * The beat rate is the measurement: a 40 ms link beats about twice a second, a 400 ms link
+ * once every two and a half seconds. The animation is therefore information — the user can
+ * *see* the link slow down before reading a digit.
+ */
+@Composable
+private fun HomeHeartbeatPingAction(
+    pingMs: Int,
+    sweeping: Boolean,
+    description: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val tone = homeHeartbeatTone(pingMs)
+    // MARBLE_HEADER_ICON_CONTRAST_V205 — the header actions sit bare on the page, so their ink
+    // is measured against the page itself: the tone is pushed toward the readable endpoint
+    // before it is drawn, exactly like the other two bare actions in this row.
+    val pageTone = marbleReadableOn(tone, Aether.Void, 3.0f)
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        modifier = Modifier
+            .height(36.dp)
+            .clip(shape)
+            .kineticClickable(
+                enabled = enabled,
+                role = Role.Button,
+                pressScale = .94f,
+                boundedShape = shape,
+                releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+                onClick = onClick
+            )
+            .semantics { contentDescription = description }
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        if (sweeping) {
+            // MARBLE_PING_CANCEL_V156 — while a sweep is live the control that started it is
+            // the one that ends it. The heartbeat keeps beating underneath the stop square:
+            // cancelling a measurement is not the same as having no measurement.
+            val stopTone = marbleReadableOn(Aether.Danger, Aether.Void, 3.0f)
+            HomeHeartbeatTrace(
+                color = stopTone,
+                pingMs = pingMs,
+                modifier = Modifier.width(26.dp).height(20.dp)
+            )
+            HomeGlyphIcon(HomeGlyph.STOP, stopTone, Modifier.size(15.dp))
+        } else {
+            HomeHeartbeatTrace(
+                color = pageTone,
+                pingMs = pingMs,
+                modifier = Modifier.width(36.dp).height(20.dp)
+            )
+            if (pingMs > 0) {
+                Text(
+                    "$pingMs",
+                    color = pageTone,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontFeatureSettings = "tnum"
+                    ),
+                    maxLines = 1
+                )
+                Text(
+                    "ms",
+                    color = pageTone.copy(alpha = .55f),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The heartbeat drawn: a heart that contracts on every R spike and an ECG trace that scrolls
+ * through it, both on the shared frame clock.
+ *
+ * The whole control is one `Canvas` reading one float ([MarbleMotionState.loop]); the
+ * expensive part — the path — is rebuilt per frame from 45 points, which is cheaper than the
+ * text beside it. Nothing here is remembered, because nothing here needs to be: the phase is
+ * the only state, and it lives in the draw phase where a change costs a redraw instead of a
+ * recomposition.
+ */
+@Composable
+private fun HomeHeartbeatTrace(
+    color: Color,
+    pingMs: Int,
+    modifier: Modifier = Modifier
+) {
+    val motion = MarbleMotion.current
+    // The beat IS the ping: 520 ms for an impossibly fast link, ~2.6 s for a 400 ms one.
+    val periodMs = (520 + pingMs * 5).coerceIn(520, 2_600)
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val mid = h * .58f
+        val amp = h * .40f
+        val stroke = (h * .10f).coerceIn(1.2f, 2.1f)
+        val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val phase = motion.loop(periodMs)
+        // How far the beat has travelled since the R spike: 1 at the spike, decaying after it.
+        val thump = exp(-4f * ExpressiveMath.wrap01(phase - HEARTBEAT_R_PHASE))
+        val x0 = w * .34f
+        val span = w - x0
+
+        // ── The heart ────────────────────────────────────────────────────────────────────
+        val hx = w * .13f
+        val hy = h * .55f
+        val hs = h * .22f * (1f + .18f * thump)
+        drawCircle(
+            color = color.copy(alpha = .18f * thump),
+            radius = hs * 1.9f,
+            center = Offset(hx, hy)
+        )
+        val heart = Path().apply {
+            moveTo(hx, hy + hs * .78f)
+            cubicTo(
+                hx - hs * 1.25f, hy + hs * .05f,
+                hx - hs * .62f, hy - hs * .95f,
+                hx, hy - hs * .34f
+            )
+            cubicTo(
+                hx + hs * .62f, hy - hs * .95f,
+                hx + hs * 1.25f, hy + hs * .05f,
+                hx, hy + hs * .78f
+            )
+            close()
+        }
+        drawPath(heart, color.copy(alpha = .80f + .20f * thump))
+
+        // ── The trace ────────────────────────────────────────────────────────────────────
+        drawLine(
+            color = color.copy(alpha = .16f),
+            start = Offset(x0, mid),
+            end = Offset(w, mid),
+            strokeWidth = stroke * .55f,
+            cap = StrokeCap.Round
+        )
+        val path = Path()
+        val steps = 44
+        for (index in 0..steps) {
+            val t = index.toFloat() / steps.toFloat()
+            val u = ExpressiveMath.wrap01(phase + t * 2f)
+            val x = x0 + span * t
+            val y = mid - heartbeatWave(u) * amp
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(path, color, style = line)
+
+        // The playhead: the dot riding the right edge of the trace, at the value the wave has
+        // *now*. Without it the scroll reads as a moving shape; with it, it reads as a signal
+        // arriving.
+        val headY = mid - heartbeatWave(ExpressiveMath.wrap01(phase + 2f)) * amp
+        drawCircle(color = color, radius = stroke * 1.2f, center = Offset(w, headY))
+    }
+}
+
+/**
  * MARBLE_HOME_BANNER_V143 — the top actions (add, ping, IP details) live OUTSIDE the status
  * banner: a transparent cluster above it. There is no background pill, no card frame, and every
  * icon is a true circle so a tap reads as an icon, not a button.
@@ -2259,12 +2461,19 @@ internal fun HomeTopActionBar(
         // MARBLE_PING_CANCEL_V156 — the same icon that starts the group sweep ends it. While a
         // sweep is live the pulse becomes a filled STOP square, so the Home page can cancel a
         // bulk measurement without travelling to the Servers page.
-        HomeBareAction(
-            glyph = if (sweeping) HomeGlyph.STOP else HomeGlyph.PULSE,
-            tone = if (sweeping) Aether.Danger else Aether.Emerald,
+        // MARBLE_HOME_HEARTBEAT_PING_V206 — the header's ping is a heartbeat, not an icon.
+        // The number the heart beats for is the live route measurement while a session is up,
+        // and the last measured ping of the route the page is showing when it is not.
+        val heartbeatPingMs = if (evidence.connected) {
+            repo.livePingMs.takeIf { it > 0 } ?: evidence.pingMs
+        } else {
+            evidence.pingMs
+        }
+        HomeHeartbeatPingAction(
+            pingMs = heartbeatPingMs,
+            sweeping = sweeping,
             description = if (sweeping) trx("Cancel measuring") else "${Tr.now.testPing} • $groupLabel",
             enabled = sweeping || !groupBusy,
-            busy = false,
             onClick = { if (sweeping) repo.cancelProbes() else actions.onPingGroup() }
         )
         HomeBareAction(

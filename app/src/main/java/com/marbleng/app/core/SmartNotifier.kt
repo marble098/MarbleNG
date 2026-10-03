@@ -38,8 +38,27 @@ enum class SmartNotificationKind {
 class SmartNotifier(private val context: Context) {
     private val manager = context.getSystemService(NotificationManager::class.java)
 
+    /**
+     * MARBLE_NOTIFICATION_CHANNELS_ONCE_V206 — the channel table is a constant of this build.
+     *
+     * It was rebuilt on *every* settings write. [AppRepository.updateSettings] ends with a call
+     * to this method, and `updateSettings` is what every control in Settings calls — so typing
+     * `100-200` into the Fragment length field performed, on the main thread, nine times in
+     * nine hundred milliseconds: three channel constructions, one group creation and one
+     * `createNotificationChannels` binder call into `system_server`, each of which makes the
+     * system process write its own XML. Dragging the Mux concurrency slider did the same at
+     * frame rate. None of it could ever have changed anything: the channel set is fixed at
+     * compile time, and re-creating an existing channel with identical parameters is a no-op
+     * the framework still has to parse, persist and re-sort.
+     *
+     * The flag is set only on success, so a call that threw (a wedged NotificationManager, a
+     * device still booting) is retried instead of being suppressed for the rest of the process.
+     */
+    private val channelsEnsured = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun ensureChannels() {
         if (Build.VERSION.SDK_INT < 26) return
+        if (channelsEnsured.get()) return
         runCatching {
             manager.createNotificationChannelGroup(
                 NotificationChannelGroup(GROUP_ID, "MarbleNG")
@@ -70,6 +89,7 @@ class SmartNotifier(private val context: Context) {
                 group = GROUP_ID
             }
             manager.createNotificationChannels(listOf(connection, smart, updates))
+            channelsEnsured.set(true)
         }
     }
 
