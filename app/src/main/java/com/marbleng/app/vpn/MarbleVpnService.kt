@@ -1,5 +1,6 @@
 package com.marbleng.app.vpn
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
@@ -364,6 +365,32 @@ class MarbleVpnService : VpnService() {
     private val highJitterWindow = HighJitterShield.RobustWindow()
     @Volatile private var highJitterShield = HighJitterShield.State()
     @Volatile private var highJitterPlan: HighJitterShield.Plan? = null
+    @Volatile private var lastRouteProbeMonotonicMs = 0L
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+
+    private fun acquireLowLatencyWifiLock() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && wifiLock == null) {
+            runCatching {
+                val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+                wifiLock = wifiManager?.createWifiLock(
+                    android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY,
+                    "MarbleNG:VpnLowLatency"
+                )?.apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }
+        }
+    }
+
+    private fun releaseLowLatencyWifiLock() {
+        runCatching {
+            wifiLock?.let {
+                if (it.isHeld) it.release()
+            }
+        }
+        wifiLock = null
+    }
 
     // MARBLE_JITTER_HYSTERESIS_V133 / MARBLE_TURBO_BACKOFF_V133 / MARBLE_EGRESS_EVIDENCE_V133 /
     // MARBLE_PATH_MTU_STABILITY_V133 — the four runtime state machines now live in pure policy
@@ -1116,6 +1143,7 @@ class MarbleVpnService : VpnService() {
         )
         app.repo.refreshIntelligenceStatus()
         updateSentinel(killSwitch = true)
+        acquireLowLatencyWifiLock()
         return true
     }
 
@@ -2306,6 +2334,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         highJitterWindow.clear()
         highJitterShield = HighJitterShield.State()
         highJitterPlan = null
+        lastRouteProbeMonotonicMs = 0L
     }
 
     /**
@@ -2329,12 +2358,20 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         // backwards jump would be a negative interval — which is precisely the failure the
         // shield refuses to take a clock for (see HighJitterShield, defect B).
         val nowMs = android.os.SystemClock.elapsedRealtime()
+        val isIdleWakeup = lastRouteProbeMonotonicMs > 0L &&
+            (nowMs - lastRouteProbeMonotonicMs) >= HighJitterShield.RRC_IDLE_GAP_MS
+        lastRouteProbeMonotonicMs = nowMs
+
         val previousVerdict = highJitterShield.verdict
         var state = highJitterShield
         var plan: HighJitterShield.Plan? = null
         for (sample in samples) {
             val decision = HighJitterShield.observe(
-                sample = HighJitterShield.Sample(rttMs = sample.toDouble(), nowMs = nowMs),
+                sample = HighJitterShield.Sample(
+                    rttMs = sample.toDouble(),
+                    nowMs = nowMs,
+                    isRadioWakeup = isIdleWakeup
+                ),
                 state = state,
                 window = highJitterWindow
             )
@@ -4008,6 +4045,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (::routeOptimizer.isInitialized) routeOptimizer.reset(System.currentTimeMillis())
         if (hevActive) runCatching { HevTunnel.quit() }
         hevActive = false
+        releaseLowLatencyWifiLock()
         coreStop()
         closeHevFd()
         if (!preserveTun) closeTun()

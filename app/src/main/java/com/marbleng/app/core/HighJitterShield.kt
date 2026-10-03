@@ -306,7 +306,9 @@ object HighJitterShield {
         /** Elapsed monotonic millis of the observation. */
         val nowMs: Long,
         /** A probe that produced no verified answer is a miss, never a fast sample. */
-        val verified: Boolean = true
+        val verified: Boolean = true,
+        /** True when this sample occurred after a cellular radio idle gap (RRC transition). */
+        val isRadioWakeup: Boolean = false
     )
 
     /** The shield's memory between samples. Immutable: the caller stores what [observe] returns. */
@@ -359,10 +361,15 @@ object HighJitterShield {
         /** True when the route optimizer should be asked for a different route. */
         val requestRerank: Boolean,
         /** One line for the diagnostics log: the verdict and the two numbers behind it. */
-        val reason: String
+        val reason: String,
+        /** True when the sample was tagged as a cellular radio wakeup after idle. */
+        val isRadioWakeup: Boolean = false
     )
 
     data class Decision(val state: State, val plan: Plan)
+
+    /** Cellular radio RRC dormancy gap threshold: probes after this duration are wakeups. */
+    const val RRC_IDLE_GAP_MS = 6_000L
 
     /** Samples in the rolling window. Bounded: the estimate is recent, and the cost is fixed. */
     const val DEFAULT_WINDOW = 24
@@ -476,7 +483,11 @@ object HighJitterShield {
         window: RobustWindow,
         nowMs: Long = sample.nowMs
     ): Decision {
-        window.add(if (sample.verified) sample.rttMs else 0.0)
+        val isIdleWakeup = sample.isRadioWakeup
+        // If this sample is an idle radio wakeup (RRC setup delay), do NOT pollute the steady-state jitter window
+        if (!isIdleWakeup) {
+            window.add(if (sample.verified) sample.rttMs else 0.0)
+        }
         val samples = window.size
         val jitter = window.robustJitterMs()
         val median = window.medianMs()
@@ -567,9 +578,14 @@ object HighJitterShield {
             probeEveryTicks = probeEveryTicks,
             bufferScale = 1.0 + BUFFER_SPAN * level,
             requestRerank = requestRerank,
-            reason = "${verdict.name.lowercase()} • jitter ${jitter.toInt()}ms of " +
-                "baseline ${baseline.toInt()}ms • spike ${(spikes * 100).toInt()}% • " +
-                "level ${(level * 100).toInt()}%"
+            reason = if (isIdleWakeup) {
+                "${verdict.name.lowercase()} • radio-wakeup sample after idle gap • level ${(level * 100).toInt()}%"
+            } else {
+                "${verdict.name.lowercase()} • jitter ${jitter.toInt()}ms of " +
+                    "baseline ${baseline.toInt()}ms • spike ${(spikes * 100).toInt()}% • " +
+                    "level ${(level * 100).toInt()}%"
+            },
+            isRadioWakeup = isIdleWakeup
         )
 
         val next = state.copy(

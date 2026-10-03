@@ -396,4 +396,30 @@ class HighJitterShieldTest {
         assertTrue(described.contains("buffer"))
         assertTrue(described.contains(decision.plan.verdict.name.lowercase()))
     }
+
+    @Test
+    fun `an idle radio wakeup sample is labeled and does not inflate robust jitter`() {
+        val window = HighJitterShield.RobustWindow()
+        var state = HighJitterShield.State()
+
+        // Link has calm, steady samples
+        repeat(8) {
+            val decision = HighJitterShield.observe(
+                sample = HighJitterShield.Sample(rttMs = 80.0, nowMs = t0 + it * 1_000L),
+                state = state,
+                window = window
+            )
+            state = decision.state
+        }
+        val calmJitter = window.robustJitterMs()
+
+        // Cellular radio was asleep for 10s and wakes up with a 650ms RRC setup delay
+        val decisionWakeup = HighJitterShield.observe(
+            sample = HighJitterShield.Sample(rttMs = 650.0, nowMs = t0 + 18_000L, isRadioWakeup = true),
+            state = state,
+            window = window
+        )
+        assertTrue("Radio wakeup must be recognized", decisionWakeup.plan.isRadioWakeup)
+        assertEquals("Radio wakeup must not pollute steady-state channel jitter", calmJitter, window.robustJitterMs(), 0.001)
+    }
 }

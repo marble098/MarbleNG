@@ -125,8 +125,55 @@ object RouteProbe {
         // MARBLE_IRAN_AWARE_PING_L0 — Layer 0 flags surface through the result so the caller
         // (ranking / Home / intelligence) can persist and cross-validate them.
         val injectedResetSuspected: Boolean = false,
-        val silentTimeoutSuspected: Boolean = false
+        val silentTimeoutSuspected: Boolean = false,
+        /** True when the connection proved survival and transferred >= 20 KB without injected RST. */
+        val survivalVerified: Boolean = false,
+        val bytesTransferred: Long = 0L
     )
+
+    /**
+     * Verifies that a route survives and transfers bytes under censorship,
+     * confirming that it is not fooled by fake SYN-ACK / early RST.
+     */
+    fun verifyRouteSurvival(
+        tunnelPort: Int,
+        host: String = "1.1.1.1",
+        timeoutMs: Int = 8_000,
+        minBytes: Long = 20_480L
+    ): SurvivalVerdict {
+        if (tunnelPort <= 0) {
+            return SurvivalVerdict(
+                survived = false,
+                handshakeOk = false,
+                ttfbMs = 0.0,
+                bytesTransferred = 0L,
+                durationMs = 0L,
+                injectedResetSuspected = false,
+                silentTimeoutSuspected = false,
+                reason = "no-live-tunnel"
+            )
+        }
+        return runCatching {
+            SocksHttpClient.verifySurvivalAndTransfer(
+                port = tunnelPort,
+                host = host,
+                path = "/cdn-cgi/trace",
+                timeoutMs = timeoutMs,
+                minBytesRequired = minBytes
+            )
+        }.getOrElse {
+            SurvivalVerdict(
+                survived = false,
+                handshakeOk = false,
+                ttfbMs = 0.0,
+                bytesTransferred = 0L,
+                durationMs = 0L,
+                injectedResetSuspected = it.message?.contains("reset", ignoreCase = true) == true,
+                silentTimeoutSuspected = it is java.net.SocketTimeoutException,
+                reason = it.message ?: it.javaClass.simpleName
+            )
+        }
+    }
 
     // ─── TCP Connect (Layer 0 multi-vector) ────────────────────────────────────
 
