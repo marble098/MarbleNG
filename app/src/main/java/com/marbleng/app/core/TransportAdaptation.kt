@@ -821,20 +821,38 @@ object TransportAdaptation {
         // a 1300-byte custom length silently becoming the 100-200 ClientHello split.
         when {
             FragmentChoice.isCustom(user.fragmentProfileId) -> next = withCustomFragment(next, user)
-            fragmentIsUserOwned(user) -> next = withFragmentProfile(next, selectedFragment(user))
+            fragmentIsUserOwned(user) -> next = withFragmentProfile(next, chosenFragment(user))
         }
         // The one veto that survives a user choice, for both a recipe and hand-typed values.
         val muxAllowed = profile == null || !muxIsUnsafeFor(profile)
         when {
             MuxChoice.isCustom(user.muxProfileId) -> next = withCustomMux(next, user, muxAllowed)
             muxIsUserOwned(user) -> {
-                val mux = selectedMux(user)
+                val mux = chosenMux(user)
                 val safe = mux == MuxProfile.OFF || muxAllowed
                 next = withMuxProfile(next, if (safe) mux else MuxProfile.OFF)
             }
         }
         return next
     }
+
+    /**
+     * The recipe the user named, where the id — not the derived boolean — is the authority.
+     *
+     * `selectedFragment` answers a different question ("what is on the wire"), and it gates on
+     * `fragmentEnabled` first. That gate is right for the wire and wrong here: the Settings switch
+     * and the chooser are one control — switching fragmentation off writes the Off *recipe*, it
+     * does not merely clear a boolean — so a settings object that names a recipe has said what the
+     * user wants, and a stale copy of the boolean must not be able to overrule it into Off.
+     */
+    fun chosenFragment(user: AppSettings): FragmentProfile =
+        namedFragment(user.fragmentProfileId)
+            ?: if (user.fragmentEnabled) fragmentFromFields(user) else FragmentProfile.OFF
+
+    /** The Mux twin of [chosenFragment]. */
+    fun chosenMux(user: AppSettings): MuxProfile =
+        namedMux(user.muxProfileId)
+            ?: if (user.muxEnabled) muxFromFields(user) else MuxProfile.OFF
 
     /**
      * The user's own numbers, copied onto the wire settings without being snapped to a recipe.

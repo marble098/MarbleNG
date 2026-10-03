@@ -86,8 +86,10 @@ class MarbleCopyV208Test {
         // The product ships in Persian, where ؛ and ؟ are the terminators; a rule that only knows
         // the Latin ones would let a Persian paragraph through untouched.
         assertFalse(MarbleCopy.isOneSentence("تب چهارم مخفی است؛ برای برگرداندنش آن را روشن کنید."))
+        // The cut keeps the terminator it cut on: the sentence is returned as the author wrote
+        // it, not re-punctuated into a Latin full stop.
         assertEquals(
-            "تب چهارم مخفی است.",
+            "تب چهارم مخفی است؛",
             MarbleCopy.oneSentence("تب چهارم مخفی است؛ برای برگرداندنش آن را روشن کنید.")
         )
     }
