@@ -395,11 +395,15 @@ dependencies {
 // and forwards every `e: file:line:col` line into the log as an annotation command. It always succeeds
 // and never fails the build; the real step below still judges the branch.
 // ---------------------------------------------------------------------------------------------
-val marbleProbeRequested: Boolean = System.getenv("GITHUB_ACTIONS") != null
-println("::error title=probe-alive::app/build.gradle.kts evaluated; probeRequested=" + marbleProbeRequested)
-if (marbleProbeRequested && System.getenv("MARBLE_PROBE") == null) {
+// Read through Providers, not System.getenv: the configuration cache of this project treats an
+// untracked environment read at configuration time as a build problem, and a probe must never add a
+// problem of its own to the one it is measuring.
+val marbleOnRunner: Boolean = providers.environmentVariable("GITHUB_ACTIONS").orNull != null
+val marbleProbing: Boolean = providers.environmentVariable("MARBLE_PROBE").orNull != null
+val marbleWorkspace: String = providers.environmentVariable("GITHUB_WORKSPACE").orNull ?: ""
+println("::error title=probe-alive::app/build.gradle.kts evaluated; runner=$marbleOnRunner workspace=$marbleWorkspace")
+if (marbleOnRunner && !marbleProbing && marbleWorkspace.isNotEmpty()) {
     val probeSummary = runCatching {
-        val workspace = System.getenv("GITHUB_WORKSPACE") ?: error("no workspace")
         val log = java.io.File(System.getProperty("java.io.tmpdir"), "marble-probe.log")
         val builder = java.lang.ProcessBuilder(
             listOf(
