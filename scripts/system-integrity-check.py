@@ -2764,6 +2764,34 @@ check(
     and "protocolTone(family)" in _fun_body(files["protocolIdentity"], "fun ProtocolBadge(")
     and "background(tone.copy(alpha = .14f))" in files["protocolIdentity"],
 )
+_scope_member_imports = [
+    f"{path.relative_to(ROOT)}: imports {name} — a scope member, so the name is not importable"
+    for path in sorted((ROOT / "app" / "src").rglob("*.kt"))
+    for name in re.findall(
+        r"^import (androidx\.compose\.foundation\.layout\.(?:matchParentSize|weight|align))$",
+        path.read_text(encoding="utf-8"),
+        re.M,
+    )
+]
+check(
+    "V207 no source imports a Row/Column/Box scope member as if it were top-level"
+    + (f" [first: {_scope_member_imports[0]}]" if _scope_member_imports else ""),
+    # Found by the first compile this branch met, and cheap to fall into: `matchParentSize` is a member
+    # of `BoxScope` and `weight`/`align` are members of `RowScope`/`ColumnScope`, so an `import` of
+    # them is an unresolved reference rather than a shortcut — while the modifier itself needs no
+    # import at all inside the container whose scope it lives in. No file on `main` imports any of the
+    # three, which is what makes banning the line (instead of listing valid imports) the safe shape.
+    not _scope_member_imports,
+)
+check(
+    "V207 the tile's unconfirmed-location ring measures the canvas",
+    # `size` inside a DrawScope lambda is the enclosing function's `Dp` parameter, not the draw scope's
+    # metric — a parameter of the outer function wins for an unqualified name. `StatusDot` documents the
+    # same trap; the dashed ring reads `this.size` so it cannot inherit it.
+    "val box = this.size" in files["protocolIdentity"]
+    and "size.minDimension" not in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
+    and "matchParentSize" in files["protocolIdentity"],
+)
 check(
     "V190 one colour source per theme",
     "val systemDynamicColor = false" in files["theme"]

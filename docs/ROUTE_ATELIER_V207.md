@@ -229,7 +229,7 @@ how any transition feels, because none of that was observed — only what the co
 
 What *was* run beyond the parse gate is the repository's own preflight,
 `scripts/system-integrity-check.py`, which is pure Python and therefore executable here: **319
-invariants, 319 pass**. Four of its existing invariants pinned decisions this chapter deliberately
+invariants, 319 pass** (now 321, with the two import/scope invariants below). Four of its existing invariants pinned decisions this chapter deliberately
 changed, so they were re-pointed rather than deleted, each in the shape of the rule it actually
 guards:
 
@@ -249,9 +249,32 @@ upgraded from a node's name, all the way down to the resolver's persisted `provi
 presentation reuses the shared feature widgets instead of forking them; the 48 dp floor is in use and
 `descriptiveLabel` has no default; and the chapter is pinned by a test class and written down here.
 
-The CI job runs the Gradle compile and the unit tests as its final step — that is the first time any
-of this code meets a Kotlin compiler, and its result is reported on the pull request, not claimed
-here.
+The CI job runs the Gradle compile and the unit tests as its final step, and that step is where this
+chapter's code first met a compiler. **It is green** (`Unit tests and Kotlin compilation`, 166 s, on
+`b17b324`), and it earned its keep: two defects survived every static review and only a compiler could
+see them, both inside the rim the location-evidence work added to `ProtocolTile`.
+
+- `import androidx.compose.foundation.layout.matchParentSize` — `matchParentSize` is a *member of
+  `BoxScope`* (`Box.kt:262`), not a top-level function in that package, so the import is an unresolved
+  reference; inside the `Box` the modifier needs no import at all.
+- `size.minDimension` / `size.width` / `size.height` inside the new `Canvas { }` — `size` there is the
+  tile's own `size: Dp` parameter, and a parameter of the enclosing function beats the draw scope's
+  metric of the same name, which has no `minDimension`. It reads `this.size` now. `StatusDot` already
+  carried a comment about this exact trap; the new code walked straight into it.
+
+Neither is visible to a parser (both files tokenize cleanly, `NEW 0`) nor to a reading of the diff's
+added lines (a wrong import is a line that looks fine alone, and the shadowing defect needs the enclosing
+signature in view). Both are now pinned: one invariant forbids importing a `Row`/`Column`/`Box` scope
+member anywhere in the tree — `main` imports none, so the ban cannot contradict existing code — and
+another requires the ring to read `this.size`, in `scripts/system-integrity-check.py` (321 invariants).
+
+How the two were found without ever seeing the compiler's text — the log archive of a job is not
+reachable from this side, pushes to `.github/workflows/*` are refused for this token, and five attempts
+to forward diagnostics from inside the build into a check-run annotation each died in the build script
+itself. So the step was bisected instead, using only the duration of its own conclusion: main plus the
+four hand-written files came back green in 156 s, the same tree plus `MarbleDesignSystem.kt` and
+`MarbleProtocolIdentity.kt` came back red in 70 s, and `DesignSystem` then read clean line by line —
+which left 76 lines to look at, and the two defects were in them.
 
 ## 6. Follow-ups this pass leaves open, named rather than hidden
 
