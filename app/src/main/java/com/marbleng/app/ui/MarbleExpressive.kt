@@ -72,6 +72,7 @@ import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -693,35 +694,45 @@ fun Modifier.marbleStaggerIn(
     riseStart: Dp = 18.dp,
     scaleStart: Float = .96f
 ): Modifier = composed {
-    var shown by remember { mutableStateOf(!enabled) }
-    LaunchedEffect(enabled) {
-        if (!enabled) {
+    // MARBLE_ROUTE_ATELIER_V207 — reduced motion has to reach the QUEUE, not only the effect. The
+    // V193 clock cap and the V186 entrance both stopped the moving; neither stopped the waiting,
+    // so a page with animations off still held every card back 45 ms per row for an animation that
+    // could never play. One policy call now answers both.
+    val motion = MarbleMotion.current
+    val animates = motion.animates()
+    var shown by remember { mutableStateOf(!enabled || !animates) }
+    LaunchedEffect(enabled, animates) {
+        if (!enabled || !animates) {
             shown = true
             return@LaunchedEffect
         }
-        delay(ExpressiveMath.staggerDelayMs(index))
+        delay(motion.entranceDelayFor(index))
         shown = true
     }
     val rise by animateDpAsState(
         targetValue = if (shown) 0.dp else riseStart,
-        animationSpec = MarbleExpressiveSpecs.EntranceRiseDp,
+        animationSpec = if (animates) MarbleExpressiveSpecs.EntranceRiseDp else snap(),
         label = "expressive-stagger-rise"
     )
     val fade by animateFloatAsState(
         targetValue = if (shown) 1f else 0f,
-        animationSpec = MarbleExpressiveSpecs.EntranceFadeFloat,
+        animationSpec = if (animates) MarbleExpressiveSpecs.EntranceFadeFloat else snap(),
         label = "expressive-stagger-fade"
     )
     val scale by animateFloatAsState(
         targetValue = if (shown) 1f else scaleStart,
-        animationSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+        animationSpec = if (animates) MarbleExpressiveSpecs.SpringReleaseFloat else snap(),
         label = "expressive-stagger-scale"
     )
-    this.graphicsLayer {
-        alpha = fade
-        translationY = rise.toPx()
-        scaleX = scale
-        scaleY = scale
+    if (!animates) {
+        this
+    } else {
+        this.graphicsLayer {
+            alpha = fade
+            translationY = rise.toPx()
+            scaleX = scale
+            scaleY = scale
+        }
     }
 }
 
@@ -822,7 +833,15 @@ fun Modifier.expressiveClickable(
 fun Modifier.marblePopWhen(trigger: Any?, peak: Float = 1.16f): Modifier = composed {
     val pop = remember { Animatable(1f) }
     var firstPass by remember { mutableStateOf(true) }
-    LaunchedEffect(trigger) {
+    // MARBLE_ROUTE_ATELIER_V207 — an acknowledgement pop is motion by definition, so the switch the
+    // user flipped in the system settings has to reach it. Reduced motion keeps the state change
+    // (colour, copy, icon) and drops the jump.
+    val animates = MarbleMotion.current.animates()
+    LaunchedEffect(trigger, animates) {
+        if (!animates) {
+            pop.snapTo(1f)
+            return@LaunchedEffect
+        }
         if (firstPass) {
             firstPass = false
             return@LaunchedEffect

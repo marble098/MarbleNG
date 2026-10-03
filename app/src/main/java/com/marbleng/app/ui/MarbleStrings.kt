@@ -46,9 +46,14 @@ data class MarbleStrings(
     val chooseRoute: String,
     // MARBLE_CONNECT_BUTTON_V121 — the tunnel takes real time to close, so the shutdown is a
     // first-class state of the connect control instead of an instant jump back to "ready".
+    //
+    // MARBLE_ROUTE_ATELIER_V207 — two retired pairs left the table with this pass: `slideToAct`
+    // ("Slide to act"), which the direction-specific "slide right to connect" / "slide left to
+    // disconnect" captions replaced, and `socksStandby` ("Waiting for connection"), whose last caller
+    // went away when the six-state table took over the status copy. A bilingual table is a promise
+    // that every pair on it reaches a user; a pair that reaches no one is the drift the review named.
     val disconnecting: String,
     val closingRoute: String,
-    val slideToAct: String,
 
     // Home evidence block
     val node: String,
@@ -136,6 +141,10 @@ data class MarbleStrings(
     val styleIosEmbossedDetail: String,
     val styleIosModular: String,
     val styleIosModularDetail: String,
+
+    // MARBLE_ROUTE_ATELIER_V207 — the fifth presentation's name and its one-line promise.
+    val styleRouteAtelier: String,
+    val styleRouteAtelierDetail: String,
     val styleCosmicOrbit: String,
     val styleCosmicOrbitDetail: String,
     val styleCosmicImmersion: String,
@@ -195,7 +204,6 @@ data class MarbleStrings(
     val homeAllServers: String,
     val homeManualGroup: String,
     val copyAction: String,
-    val socksStandby: String,
     val modularStudioTitle: String,
     // MARBLE_MODULAR_CUSTOMIZER_V151 — the customizer's hide switch. `customizeLayout` itself
     // already exists above; only the hide affordance is new.
@@ -219,7 +227,6 @@ private val EnglishStrings = MarbleStrings(
     chooseRoute = "Choose a route",
     disconnecting = "Disconnecting",
     closingRoute = "Closing the route",
-    slideToAct = "Slide to act",
     node = "Server",
     source = "Source",
     ipAddress = "IP address",
@@ -297,6 +304,8 @@ private val EnglishStrings = MarbleStrings(
     styleIosEmbossedDetail = "Bold embossed center circular connect button",
     styleIosModular = "Theme 4 (Modular)",
     styleIosModularDetail = "Customizable modular widgets with reorder & toggle",
+    styleRouteAtelier = "Route",
+    styleRouteAtelierDetail = "One card, one verb, and a path that draws only what it can prove",
     styleCosmicOrbit = "Cosmic orbit",
     styleCosmicOrbitDetail = "Dashboard",
     styleCosmicImmersion = "Cosmic immersion",
@@ -347,7 +356,6 @@ private val EnglishStrings = MarbleStrings(
     homeAllServers = "All servers",
     homeManualGroup = "Manual",
     copyAction = "Copy",
-    socksStandby = "Waiting for connection",
     modularStudioTitle = "Modular Studio",
     hideCustomizeButton = "Hide this button",
     hideCustomizeButtonHint = "Removes the Customize row from Home. Bring it back from Settings → General → Home layout."
@@ -369,7 +377,6 @@ private val PersianStrings = MarbleStrings(
     chooseRoute = "یک مسیر انتخاب کنید",
     disconnecting = "در حال قطع",
     closingRoute = "در حال بستن مسیر",
-    slideToAct = "برای اجرا بکشید",
     node = "سرور",
     source = "ساب",
     ipAddress = "آدرس آی‌پی",
@@ -449,6 +456,8 @@ private val PersianStrings = MarbleStrings(
     styleIosEmbossedDetail = "دکمه دایره‌ای بولد و برجسته در مرکز",
     styleIosModular = "تم شماره ۴ (ماژولار)",
     styleIosModularDetail = "چیدمان ماژولار و قابل شخصی‌سازی دلخواه",
+    styleRouteAtelier = "مسیر",
+    styleRouteAtelierDetail = "یک کارت، یک فرمان، و مسیری که فقط آنچه را اثبات کرده نشان می‌دهد",
     styleCosmicOrbit = "مدار کیهانی",
     styleCosmicOrbitDetail = "داشبورد",
     styleCosmicImmersion = "غرق کیهانی",
@@ -499,7 +508,6 @@ private val PersianStrings = MarbleStrings(
     homeAllServers = "همه سرورها",
     homeManualGroup = "دستی",
     copyAction = "کپی",
-    socksStandby = "در انتظار اتصال",
     modularStudioTitle = "استودیوی ماژولار",
     hideCustomizeButton = "پنهان کردن این دکمه",
     hideCustomizeButtonHint = "ردیف سفارشی‌سازی از خانه حذف می‌شود. برای بازگرداندن آن به تنظیمات ← عمومی ← چیدمان خانه بروید."

@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -45,6 +46,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -143,7 +146,7 @@ fun ProtocolBadge(
     )
 }
 
-/**
+''/**
  * The circular server avatar of a row.
  *
  * MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the flag IS the circle, always. The hand-drawn protocol
@@ -155,6 +158,17 @@ fun ProtocolBadge(
  *
  * [stateTone] — when the row is connected or selected — overrides the rim and casts the soft
  * shadow, so the connection state and the protocol identity never fight over the same pixel.
+ *
+ * MARBLE_ROUTE_ATELIER_V207 — the picture may only claim what was measured.
+ *
+ * A 32 dp national flag is not decoration: it is a sentence about the world ("this server is in
+ * Germany"), and the app can only say it when the resolver actually located the endpoint. The label
+ * an operator wrote in a node name — 🇩🇪 in front of "Frankfurt-03" — is a name, not a measurement,
+ * so [MarbleLocationTrust] now decides three things at once: whether flag art is drawn at all,
+ * whether the rim is solid (confirmed) or dashed (nothing but a label, or nothing at all), and what
+ * the control says out loud to TalkBack. An answer one lone provider produced is drawn and named
+ * as exactly that. The emoji never disappears from the row; it simply stays inside the name, where
+ * it was written.
  */
 @Composable
 fun ProtocolTile(
@@ -164,7 +178,8 @@ fun ProtocolTile(
     flag: String? = null,
     flagCode: String? = null,
     stateTone: Color? = null,
-    lifted: Boolean = false
+    lifted: Boolean = false,
+    locationTrust: MarbleLocationTrust = MarbleLocationTrust.LABEL_GUESS
 ) {
     val family = protocolFamilyOf(scheme)
     val tone = protocolTone(family)
@@ -179,18 +194,26 @@ fun ProtocolTile(
         animationSpec = tween(durationMillis = 180),
         label = "protocol-tile-fill"
     )
-    val flagArt = flagCode?.takeIf { it.isNotBlank() }?.takeIf { CountryFlagSupported(it) }
-    // The emoji a server's own name leads with (🇩🇪, 🇳🇱 …) is the stand-in while the tested
-    // location is still unknown — drawn large, centred, filling the well like a flag would.
-    val nameFlag = flag?.takeIf { it.isNotBlank() }
+    val mayPaintFlag = locationTrust.mayDrawFlag()
+    val flagArt = flagCode
+        ?.takeIf { it.isNotBlank() }
+        ?.takeIf { CountryFlagSupported(it) }
+        ?.takeIf { mayPaintFlag }
+    // An unconfirmed location is a globe, and the dashed rim is what says so without a sentence.
+    val unconfirmed = flagArt == null
+    // `flag` (the emoji inside the node's own name) is deliberately NOT painted any more: a label
+    // is a claim by whoever sold the server, and drawing it as an official-looking flag upgraded it
+    // to a measurement the engine never made. It stays visible in the row's name text instead.
     Box(
         modifier = modifier
             .size(size)
             .semantics {
-                contentDescription = if (flagArt != null) {
-                    "Server in ${ServerCountry.nameFor(flagArt)}"
-                } else {
-                    family.label
+                contentDescription = when {
+                    flagArt != null && locationTrust.isVerified() ->
+                        "Server in ${ServerCountry.nameFor(flagArt)}"
+                    flagArt != null ->
+                        "${ServerCountry.nameFor(flagArt)} • reported by one source, not yet confirmed"
+                    else -> "${family.label} • location not verified"
                 }
             },
         contentAlignment = Alignment.Center
@@ -212,21 +235,34 @@ fun ProtocolTile(
                 .border(1.dp, rim.copy(alpha = rimAlpha), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            // One content rule for every state: a real flag fills the circle when the location
-            // is known; the name's own flag glyph fills it otherwise. The wire scheme never
-            // draws inside this circle again.
+            // One content rule for every state: the measured flag fills the circle; everything
+            // else is the world glyph, so the tile never states more than the evidence does. The
+            // wire scheme never draws inside this circle again.
             CountryFlagCircle(
                 code = flagArt,
                 size = size - 2.dp,
-                fallbackText = nameFlag ?: "🌐",
-                fallbackTone = if (nameFlag != null) Aether.Ink else tone,
-                fallbackFill = Color.Transparent,
-                styleOverride = if (nameFlag != null) {
-                    TextStyle(fontSize = (size.value * .52f).sp)
-                } else {
-                    null
-                }
+                fallbackText = "🌐",
+                fallbackTone = tone,
+                fallbackFill = Color.Transparent
             )
+        }
+        if (unconfirmed) {
+            // The "not verified" mark: the same rim, broken into dashes. A picture that admits it
+            // is a guess is still a picture, and it costs the row no extra text to say so.
+            Canvas(Modifier.matchParentSize()) {
+                val strokeW = 1.dp.toPx()
+                drawCircle(
+                    color = rim.copy(alpha = .58f),
+                    radius = ((size.minDimension - strokeW) / 2f).coerceAtLeast(1f),
+                    center = Offset(size.width / 2f, size.height / 2f),
+                    style = Stroke(
+                        width = strokeW,
+                        pathEffect = PathEffect.dashPathEffect(
+                            floatArrayOf(2.4.dp.toPx(), 2.2.dp.toPx())
+                        )
+                    )
+                )
+            }
         }
     }
 }

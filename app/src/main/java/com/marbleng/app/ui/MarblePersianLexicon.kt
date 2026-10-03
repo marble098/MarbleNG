@@ -186,6 +186,35 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Local" to "محلی",
     "System" to "سیستم",
 
+    // ------------------------------------------------------------------ MARBLE_ROUTE_ATELIER_V207
+    //
+    // The route presentation's own vocabulary. Each of these is product copy that the page composes
+    // through trx(), and the Persian UI may not let the word-level fallback invent a reading for a
+    // whole sentence: an exact key is what keeps "the tunnel is up; the reading service did not
+    // answer" from arriving as transliterated Latin.
+    "Exit" to "خروج",
+    "stages with evidence" to "مرحلهٔ مبتنی بر اندازه‌گیری",
+    "location not verified" to "موقعیت تأیید نشده",
+    "Change server" to "تغییر سرور",
+    "Measure the route again" to "اندازه‌گیری دوبارهٔ مسیر",
+    "Cancel measuring" to "لغو اندازه‌گیری",
+    "Dismiss this message" to "بستن این پیام",
+    "Slide right to connect" to "برای اتصال به راست بکشید",
+    "Slide left to disconnect" to "برای قطع به چپ بکشید",
+    "connection button" to "دکمهٔ اتصال",
+    "slider" to "کشویی",
+    "The exit address could not be read. The tunnel is up; the reading service did not answer." to
+        "نشانی خروج خوانده نشد. تونل برقرار است؛ سرویس خواندن پاسخ نداد.",
+    "Ambient page motion" to "جنبش محیطی صفحه",
+    "Off keeps the page's look and stops its breathing: the backdrop glow, the status pulse and the heartbeat trace hold still." to
+        "خاموش، نگاه صفحه را نگه می‌دارد و نفس کشیدنش را می‌بندد: روشنایی پس‌زمینه، نبض وضعیت و نمودار ضربان بی‌حرکت می‌مانند.",
+    "Bundled, real face" to "فونت واقعیِ همراه برنامه",
+    "The OS default sans" to "سادهٔ پیش‌فرض سیستم‌عامل",
+    "Renders as system sans" to "با فونت سادهٔ سیستم نمایش داده می‌شود",
+    "Renders as system serif" to "با فونت سریفِ سیستم نمایش داده می‌شود",
+    "MarbleNG carries no third-party font files: a face your device does not have renders in the closest system face." to
+        "MarbleNG هیچ فایل فونت شخص ثالثی را همراه ندارد؛ فونتی که دستگاه شما نداشته باشد با نزدیک‌ترین فونتِ سیستم نمایش داده می‌شود.",
+
     // ------------------------------------------------------------------ MARBLE_SIGNATURE_HOME_V112
     "Home only" to "فقط خانه",
     "All pages" to "همه صفحه‌ها",
@@ -1429,6 +1458,17 @@ private val FaLexicon: Map<String, String> = mapOf(
 /** Lowercased view of the lexicon so `UPPERCASE` renders of the same keys still match. */
 private val FaLexiconLower: Map<String, String> =
     FaLexicon.entries.associate { it.key.lowercase() to it.value }
+
+/**
+ * MARBLE_ROUTE_ATELIER_V207 — is this exact string product copy the lexicon owns?
+ *
+ * Components that take a caller's label (an icon button's accessibility name, a sheet's close
+ * word) want to translate the product's own literals and to leave *composed* copy alone — a server
+ * name inside "More actions for Frankfurt-03" is data, and the word-level fallback would
+ * transliterate it into gibberish. This answers the difference, so a component can localize safely.
+ */
+internal fun isFaLexiconKey(text: String): Boolean =
+    FaLexicon.containsKey(text) || FaLexiconLower.containsKey(text.lowercase())
 
 /**
  * A Persian UI must never silently fall back to an English sentence when a new literal is added.

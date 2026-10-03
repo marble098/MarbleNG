@@ -454,7 +454,12 @@ internal fun PrismBackdrop(
 ) {
     val dark = homeCloudDark()
     val motion = MarbleMotion.current
-    val motionOn = motion.motionEnabled
+    // MARBLE_ROUTE_ATELIER_V207 — an ambient field costs frames and buys no fact about the route, so
+    // it is a preference, not a personality. When it is switched off the page keeps its gradient and
+    // its two glows at their calm midpoint and never schedules a redraw: the still frame the reduced
+    // -motion setting already produces, offered to everyone who simply prefers a quiet surface.
+    val ambient = LocalMarbleAmbientField.current
+    val motionOn = motion.motionEnabled && ambient
     val dynamicPalette = Aether.IsDynamic
     // MARBLE_THEME_COHERENCE_V191 — dynamic palettes aurora from the wallpaper ramp itself.
     val glowStart = Aether.Cyan
@@ -567,7 +572,11 @@ internal object PrismSurface {
     // Controls intentionally use a tighter radius than cards. The resulting soft squircle reads as
     // an action rather than another nested panel, while keeping Marble's rounded visual language.
     val ControlRadius = 15.dp
-    val ControlHeight = 46.dp
+    // MARBLE_ROUTE_ATELIER_V207 — a standard control now *is* the platform target (48 dp), so the
+    // floor is met by paint as well as by hit box. The compact ramp stays dense because it lives
+    // inside a row that reserves the rest; the hit floor is added around it by
+    // [marbleTapTarget], which is why these numbers no longer have to be argued per call site.
+    val ControlHeight = 48.dp
     val CompactControlHeight = 36.dp
     val IconControlSize = 42.dp
     val Hairline = 1.dp
@@ -871,6 +880,11 @@ internal fun PrismButton(
     CompositionLocalProvider(LocalContentColor provides content) {
         Row(
             modifier=modifier
+                // MARBLE_ROUTE_ATELIER_V207 — the 36 dp compact chip is a *paint* decision that had
+                // become a hit decision. The floor goes on the outer segment of the chain, before the
+                // size and shape modifiers: the pointer region belongs to that node, so the target
+                // reaches 48 dp while the fill, the radius and the label stay exactly as drawn.
+                .marbleTapTarget(MarbleTapTarget.Floor, enabled = compact)
                 .heightIn(
                     min=when {
                         detail.isNotBlank() && !compact -> 54.dp
@@ -903,7 +917,7 @@ internal fun PrismButton(
                     enabled=enabled,
                     role=Role.Button,
                     boundedShape=shape,
-                    pressScale=.965f,
+                    pressScale=(if (compact) MarbleControlKind.Compact else MarbleControlKind.Standard).pressScale,
                     interactionSource=interactionSource,
                     releaseSpec=MarbleExpressiveSpecs.SpringReleaseFloat,
                     onClick=onClick
@@ -951,7 +965,20 @@ internal fun PrismButton(
     }
 }
 
-/** Pressable circular control: overflow menus, sheet closers, stepper buttons. */
+''/** Pressable circular control: overflow menus, sheet closers, stepper buttons.
+ *
+ * MARBLE_ROUTE_ATELIER_V207 — two things this control used to be allowed to do, and no longer is:
+ *  • ship unnamed. `descriptiveLabel` had a `""` default, which meant the design system permitted an
+ *    action a screen reader announces as "button". It is a required parameter now — an icon-only
+ *    control must be given the verb it performs ("More actions for this server", not "three dots") —
+ *    and a literal the Persian lexicon owns is translated here, so a composed label (a name inside a
+ *    sentence) is passed through untouched instead of transliterated.
+ *  • be smaller than its target. The painted disc and the hit box were the same box, so 28 dp and
+ *    30 dp controls were elegant and unreliable. [marbleTapTarget] now grows the hit area to the
+ *    [MarbleTapTarget.Floor] without resizing the artwork, and the press travel comes from
+ *    [MarbleControlKind.Icon] instead of a per-call number: 7 % of shrink on a 30 dp stepper was
+ *    shouting, and everything springing means nothing means anything.
+ */
 @Composable
 internal fun PrismIconButton(
     onClick: () -> Unit,
@@ -960,9 +987,10 @@ internal fun PrismIconButton(
     selected: Boolean = false,
     enabled: Boolean = true,
     size: Dp = PrismSurface.IconControlSize,
-    descriptiveLabel: String = "",
+    descriptiveLabel: String,
     content: @Composable () -> Unit
 ) {
+    val label = if (isFaLexiconKey(descriptiveLabel)) trx(descriptiveLabel) else descriptiveLabel
     val shape=RoundedCornerShape(size * .36f)
     val fill by animateColorAsState(
         targetValue=if (selected) tone.copy(alpha=.18f) else Aether.GlassStrong.copy(alpha=.34f),
@@ -981,28 +1009,33 @@ internal fun PrismIconButton(
 
     Box(
         modifier=modifier
-            .size(size)
-            .clip(shape)
-            .background(fill)
-            .border(PrismSurface.Hairline,hairline,shape)
-            .then(
-                if (descriptiveLabel.isBlank()) Modifier
-                else Modifier.semantics { contentDescription=descriptiveLabel }
-            )
-            // MARBLE_EXPRESSIVE_MOTION_V186 — icon controls compress a touch deeper and spring
-            // back with the expressive overshoot: a round target under the thumb should feel
-            // like a physical key, not a dimmer.
+            // The hit box: floor-sized, clamped by whatever the row has left, and invisible to paint.
+            .marbleTapTarget(MarbleTapTarget.Floor)
+            .semantics { contentDescription=label }
+            // MARBLE_EXPRESSIVE_MOTION_V186 — icon controls compress and spring back with the
+            // expressive overshoot: a round target under the thumb should feel like a physical key,
+            // not a dimmer. MARBLE_ROUTE_ATELIER_V207 moved the amount into the control grammar.
             .kineticClickable(
                 enabled=enabled,
                 role=Role.Button,
-                pressScale=.93f,
+                pressScale=MarbleControlKind.Icon.pressScale,
                 boundedShape=shape,
                 releaseSpec=MarbleExpressiveSpecs.SpringReleaseFloat,
                 onClick=onClick
             ),
         contentAlignment=Alignment.Center
     ) {
-        content()
+        // The artwork keeps the size the caller asked for; only the box around it grew.
+        Box(
+            modifier=Modifier
+                .size(size)
+                .clip(shape)
+                .background(fill)
+                .border(PrismSurface.Hairline,hairline,shape),
+            contentAlignment=Alignment.Center
+        ) {
+            content()
+        }
     }
 }
 
