@@ -26,13 +26,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -682,6 +677,7 @@ private fun ConnectButtonRound(
     // MARBLE_SMOOTH_CLOCK_V193 — sweep/busyPulse/haloPulse moved into the draw lambda below;
     // this round button no longer recomposes at the frame rate while connected.
     val label = homeActionLabel(evidence)
+    val controlDescription = "${trx(label)} ${trx("connection button")}"
     // One-shot acknowledgement ring: 0 = rest, 1 = fully expanded and faded.
     val tapRipple = remember { Animatable(0f) }
     val rippleScope = rememberCoroutineScope()
@@ -741,7 +737,7 @@ private fun ConnectButtonRound(
                         onToggle()
                     }
                 )
-                .semantics { contentDescription = "$label connection button" },
+                .semantics { contentDescription = controlDescription },
             contentAlignment = Alignment.Center
         ) {
             Canvas(Modifier.matchParentSize().padding(10.dp)) {
@@ -942,6 +938,7 @@ private fun ConnectButtonSlide(
     val shape = RoundedCornerShape(trackHeight / 2)
     val busy = evidence.connecting || evidence.disconnecting
     val label = homeActionLabel(evidence)
+    val controlDescription = "${trx(label)} ${trx("slider")}"
     // Generous on purpose: the last fifth of the travel is all commitment.
     val threshold = .78f
 
@@ -991,7 +988,7 @@ private fun ConnectButtonSlide(
                         )
                     )
                     .border(1.4.dp, animatedTone.copy(alpha = .38f), shape)
-                    .semantics { contentDescription = "$label slider" },
+                    .semantics { contentDescription = controlDescription },
                 contentAlignment = Alignment.CenterStart
             ) {
                 if (busy) {
@@ -1161,6 +1158,7 @@ private fun ConnectButtonClassic(
     // MARBLE_SMOOTH_CLOCK_V193 — the securing sweep is read in the draw lambda below.
     val shape = RoundedCornerShape(14.dp)
     val label = homeActionLabel(evidence)
+    val controlDescription = "${trx(label)} ${trx("connection button")}"
 
     Column(
         modifier = modifier,
@@ -1192,7 +1190,7 @@ private fun ConnectButtonClassic(
                     boundedShape = shape,
                     onClick = onToggle
                 )
-                .semantics { contentDescription = "$label connection button" }
+                .semantics { contentDescription = controlDescription }
                 .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -2156,18 +2154,12 @@ private fun compactHomePingValue(evidence: HomeEvidence): String {
  */
 @Composable
 internal fun MarbleWordmark(modifier: Modifier = Modifier) {
-    // A slow reversible colour tide keeps the signature dynamic without turning it into another
-    // connection-status readout. Only this tiny text node observes the clock; layout never moves.
-    val transition = rememberInfiniteTransition(label = "marble-wordmark-prism")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(5_600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "marble-wordmark-prism-phase"
-    )
+    // MARBLE_STABLE_NAVIGATION_V202 — the wordmark joins the product's one shared clock instead
+    // of owning a second infinite transition. A coarse phase is ample for this decorative tide,
+    // avoids a permanent 60/120 Hz recomposition in the header, and freezes with every other
+    // ambient detail when the system animation scale is off.
+    val motion = MarbleMotion.current
+    val phase = if (motion.motionEnabled) motion.coarseBreathe(11_200) else .5f
     val ice = Aether.CyanBright
     val cyan = Aether.Cyan
     val amethyst = Aether.AmethystBright
@@ -3273,11 +3265,15 @@ private fun FloatingConnectFab(
     evidence: HomeEvidence,
     onToggle: () -> Unit
 ) {
+    // MARBLE_FLOATING_CONNECT_V202 — the disconnected action now uses the same floating-chrome
+    // shell as the connected split actions. It no longer looks like an unrelated blue orb when
+    // the tunnel is down: one quiet surface body, one semantic inner action, one fixed footprint.
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
+    val chrome = rememberMarbleFloatChrome()
     val tone by animateColorAsState(
-        targetValue = if (busy) Aether.CyanBright else Aether.Cyan,
-        animationSpec = MarbleMotionSpecs.Color,
+        targetValue = if (busy) Aether.AmethystBright else Aether.Cyan,
+        animationSpec = MarbleMotionSpecs.DockColor,
         label = "fab-tone"
     )
 
@@ -3285,24 +3281,20 @@ private fun FloatingConnectFab(
         modifier = Modifier.size(88.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Orbit ring: spinning arc while busy, breathing halo while armed. Both phases are read
-        // in the draw layer, so the orbit never recomposes the FAB.
+        // The only ambient signal is painted inside the stable 88 dp slot. It cannot resize or
+        // translate the button, and it freezes through MarbleMotion when the system disables motion.
         Canvas(modifier = Modifier.size(88.dp)) {
-            val spin = motion.loop(1150)
-            val breathe = motion.breathe(2400)
-            val stroke = 3.dp.toPx()
+            val spin = motion.loop(1_150)
+            val breathe = motion.breathe(2_400)
+            val stroke = 2.5.dp.toPx()
             val inset = stroke / 2f
             val ring = Size(size.width - inset * 2f, size.height - inset * 2f)
             if (busy) {
-                // MARBLE_EXPRESSIVE_MOTION_V186 — the securing orbit stretches: the sweep
-                // oscillates on a second clock while the arc rotates, so the busy ring
-                // breathes the way the newest Android loaders do.
-                val wobble = motion.loop(1_900)
                 rotate(degrees = spin * 360f) {
                     drawArc(
                         color = tone,
                         startAngle = -90f,
-                        sweepAngle = ExpressiveMath.arcSweep(wobble, 170f, 320f),
+                        sweepAngle = ExpressiveMath.arcSweep(motion.loop(1_900), 170f, 300f),
                         useCenter = false,
                         topLeft = Offset(inset, inset),
                         size = ring,
@@ -3311,40 +3303,44 @@ private fun FloatingConnectFab(
                 }
             } else {
                 drawCircle(
-                    color = tone.copy(alpha = 0.16f + 0.22f * breathe),
+                    color = tone.copy(alpha = .16f + .12f * breathe),
                     radius = (size.minDimension - stroke) / 2f,
                     style = Stroke(stroke)
                 )
             }
         }
 
-        // Core button — flat solid disc.
+        // Neutral outer body ties the idle control to the connected split pair in every palette.
         Box(
             modifier = Modifier
-                .size(68.dp)
-                // MARBLE_EXPRESSIVE_MOTION_V186 — acknowledgement beat on the session flip.
-                .marblePopWhen(evidence.connected, peak = 1.06f)
-                .graphicsLayer {
-                    val breathe = motion.breathe(2400)
-                    val scale = if (busy) 1f + 0.04f * breathe else 1f
-                    scaleX = scale
-                    scaleY = scale
-                }
-                .shadow(4.dp, CircleShape, spotColor = tone)
+                .size(76.dp)
+                .shadow(
+                    elevation = 10.dp,
+                    shape = CircleShape,
+                    ambientColor = chrome.shadow.copy(alpha = .16f),
+                    spotColor = chrome.shadow.copy(alpha = .24f)
+                )
                 .clip(CircleShape)
-                .background(tone)
-                .kineticClickable(
-                    pressScale = .93f,
-                    boundedShape = CircleShape,
-                    releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat
-                ) { onToggle() },
+                .background(chrome.surface)
+                .border(1.dp, chrome.border, CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            // MARBLE_FLOATING_CHROME_V201 — the glyph is chosen against the disc it sits on,
-            // not assumed white. White on the brand electric blue is 5.6:1, but the DARK
-            // theme's cyan is the bright blue and white on that is 2.94:1 — under the 3:1 floor
-            // for a graphical object, on the single most important control in the product.
-            HomeGlyphIcon(HomeGlyph.POWER, marbleOnColor(tone), Modifier.size(32.dp))
+            Box(
+                modifier = Modifier
+                    .size(60.dp)
+                    .clip(CircleShape)
+                    .background(tone)
+                    .kineticClickable(
+                        pressScale = .95f,
+                        boundedShape = CircleShape,
+                        // The FAB is a direct manipulation control; its release is quick and
+                        // damped so it never rebounds into the dock underneath it.
+                        releaseSpec = MarbleMotionSpecs.ExitFloat
+                    ) { onToggle() },
+                contentAlignment = Alignment.Center
+            ) {
+                HomeGlyphIcon(HomeGlyph.POWER, marbleOnColor(tone), Modifier.size(28.dp))
+            }
         }
     }
 }
@@ -3358,24 +3354,38 @@ private fun FloatingSplitAction(
     onClick: () -> Unit,
     content: @Composable () -> Unit
 ) {
+    val chrome = rememberMarbleFloatChrome()
     Box(
         modifier = Modifier
             .size(54.dp)
-            .shadow(3.dp, CircleShape, spotColor = tone)
+            .shadow(
+                elevation = 6.dp,
+                shape = CircleShape,
+                ambientColor = chrome.shadow.copy(alpha = .16f),
+                spotColor = chrome.shadow.copy(alpha = .22f)
+            )
             .clip(CircleShape)
-            .background(tone)
-            // MARBLE_EXPRESSIVE_MOTION_V186 — the split actions release on the bouncy spring.
+            .background(chrome.surface)
+            .border(1.dp, chrome.border, CircleShape)
             .kineticClickable(
                 enabled = enabled,
-                pressScale = .92f,
+                pressScale = .95f,
                 boundedShape = CircleShape,
-                releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+                releaseSpec = MarbleMotionSpecs.ExitFloat,
                 onClick = onClick
             )
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        content()
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(tone),
+            contentAlignment = Alignment.Center
+        ) {
+            content()
+        }
     }
 }
 
@@ -3442,42 +3452,33 @@ internal fun HomeFloatingSplitControl(
     actions: HomeActions,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier) {
+    // MARBLE_FLOATING_CONNECT_V202 — reserve the connected pair's full footprint even while
+    // disconnected. The bottom action therefore stays at the same physical coordinate when a
+    // connection completes; only an upper action fades in, never the whole control jumping.
+    Box(
+        modifier = modifier.size(width = 88.dp, height = 118.dp),
+        contentAlignment = Alignment.BottomCenter
+    ) {
         AnimatedContent(
             targetState = evidence.connected,
+            modifier = Modifier.matchParentSize(),
+            contentAlignment = Alignment.BottomCenter,
             transitionSpec = {
-                // MARBLE_EXPRESSIVE_MOTION_V186 — the split morph rides the expressive pair:
-                // the arriving control springs up past rest once on the release spring while
-                // the departing one accelerates away on the emphasized accelerate curve.
-                (
-                    fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat) +
-                        scaleIn(
-                            animationSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
-                            initialScale = .72f
-                        )
-                    ) togetherWith (
-                    fadeOut(
-                        tween(
-                            durationMillis = MarbleExpressiveMotion.Short4,
-                            easing = MarbleExpressiveMotion.EmphasizedAccelerate
-                        )
-                    ) + scaleOut(
-                        animationSpec = tween(
-                            durationMillis = MarbleExpressiveMotion.Short4,
-                            easing = MarbleExpressiveMotion.EmphasizedAccelerate
-                        ),
-                        targetScale = .72f
-                    )
-                    )
+                // Both states already occupy an identical, bottom-anchored box. A short
+                // fade-through is deliberately the whole transition: no size interpolation, no
+                // overshooting scale and no competing child measurements at connection time.
+                expressiveFadeThrough()
             },
             label = "floating-split-anim"
         ) { isConnected ->
-            if (isConnected) {
-                // Split into TWO buttons: Disconnect (pause) and Ping
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                if (isConnected) {
+                    // Split into TWO buttons: Disconnect (pause) and Ping. The lower action
+                    // shares the disconnected FAB's anchor exactly.
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                     FloatingSplitAction(
                         tone = Aether.Danger,
                         description = Tr.now.disconnect,
@@ -3516,9 +3517,10 @@ internal fun HomeFloatingSplitControl(
                     ) {
                         HomeGlyphIcon(HomeGlyph.PULSE, marbleOnColor(Aether.Emerald), Modifier.size(24.dp))
                     }
+                    }
+                } else {
+                    FloatingConnectFab(evidence = evidence, onToggle = { actions.onToggleConnection() })
                 }
-            } else {
-                FloatingConnectFab(evidence = evidence, onToggle = { actions.onToggleConnection() })
             }
         }
     }

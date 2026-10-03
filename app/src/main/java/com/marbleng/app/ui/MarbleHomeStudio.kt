@@ -694,6 +694,7 @@ internal fun ConnectButtonStream(
     // this button recomposes when the connection state changes, never at the frame rate.
     val shape = RoundedCornerShape(22.dp)
     val label = homeActionLabel(evidence)
+    val controlDescription = "${trx(label)} ${trx("connection button")}"
 
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalLayoutDirection provides
@@ -728,7 +729,7 @@ internal fun ConnectButtonStream(
                     releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
                     onClick = onToggle
                 )
-                .semantics { contentDescription = "$label connection button" }
+                .semantics { contentDescription = controlDescription }
         ) {
             // The travelling band sits under the content so the glyph and copy stay crisp.
             Canvas(Modifier.matchParentSize()) {
@@ -855,6 +856,7 @@ internal fun ConnectButtonFloating(
     // MARBLE_SMOOTH_CLOCK_V193 — breathe/sweep moved into the draw lambda below: this control
     // used to recompose at the frame rate the whole time it was connected.
     val label = homeActionLabel(evidence)
+    val controlDescription = "${trx(label)} ${trx("floating connection button")}"
     val iconFraction by animateFloatAsState(
         targetValue = if (evidence.connected) .30f else .36f,
         animationSpec = MarbleMotionSpecs.ResponseFloat,
@@ -897,7 +899,7 @@ internal fun ConnectButtonFloating(
                     releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
                     onClick = onToggle
                 )
-                .semantics { contentDescription = "$label floating connection button" },
+                .semantics { contentDescription = controlDescription },
             contentAlignment = Alignment.Center
         ) {
             Canvas(Modifier.matchParentSize().padding(7.dp)) {

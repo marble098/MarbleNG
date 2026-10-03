@@ -5,9 +5,9 @@ package com.marbleng.app.ui
 // MarbleStrings carries the strings that were designed bilingual from day one. The rest of the
 // product surface (settings titles, subtitles, buttons, dialogs, badges) renders through the
 // shared Prism components, and those components pass their visible copy through [trx] below.
-// When Persian is active the exact English literal is looked up here; a miss falls back to the
-// original English so a new string can never crash or blank a screen. Dynamic strings (counts,
-// rates, times) are handled by the pattern rules at the bottom.
+// When Persian is active the exact English literal is looked up here; a miss goes through a
+// Persian word fallback so newly introduced UI copy cannot leak English or blank a screen.
+// Dynamic strings (counts, rates, times) are handled by the pattern rules at the bottom.
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
@@ -35,7 +35,7 @@ internal fun faTranslate(text: String): String {
     // Case-tolerant match: many call sites render UPPERCASE variants of lexicon keys.
     FaLexiconLower[trimmed.lowercase()]?.let { return it }
     faPattern(trimmed)?.let { return it }
-    return text
+    return faFallback(text)
 }
 
 private val FaLexicon: Map<String, String> = mapOf(
@@ -1374,12 +1374,118 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Connect this config" to "اتصال این کانفیگ",
     "Change config" to "تغییر کانفیگ",
     "Selected: the connect button on Home and the dock's own Connect act on this config." to
-        "انتخاب‌شده: دکمه اتصال صفحه اصلی و دکمه اتصال همین تب روی این کانفیگ عمل می‌کنند."
+        "انتخاب‌شده: دکمه اتصال صفحه اصلی و دکمه اتصال همین تب روی این کانفیگ عمل می‌کنند.",
+
+    // MARBLE_PERSIAN_COMPLETE_V202 — Settings and destructive-action copy that was introduced
+    // after the first bilingual pass. These are exact UI literals, not a best-effort fallback.
+    "Remove failed Smart" to "حذف موارد ناموفق هوشمند",
+    "Remove failed tunnel" to "حذف موارد ناموفق تونل",
+    "Remove failed everywhere" to "حذف موارد ناموفق از همه‌جا",
+    "Remove failed" to "حذف موارد ناموفق",
+    "Confidence" to "اطمینان",
+    "Filtered" to "فیلترشده",
+    "Mode" to "حالت",
+    "What the Home screen shows and how it looks" to "محتوا و ظاهر صفحه اصلی",
+    "Live speed on Home" to "سرعت زنده در صفحه اصلی",
+    "Show real-time download and upload only while connected" to "دریافت و ارسال زنده را فقط هنگام اتصال نمایش بده",
+    "Show data usage" to "نمایش حجم مصرفی",
+    "How much this connection has moved, and the last session's total" to "حجم جابه‌جاشده در این اتصال و مجموع اتصال قبلی",
+    "Auto-detect server locations" to "تشخیص خودکار موقعیت سرورها",
+    "Each server's country is verified once, in the background, then remembered" to "کشور هر سرور یک‌بار در پس‌زمینه بررسی و ذخیره می‌شود",
+    "Routing, tests and what happens after a scan" to "مسیریابی، تست‌ها و رفتار پس از پویش",
+    "Connect to best after scan" to "اتصال به بهترین سرور پس از پویش",
+    "Automatically select and connect the fastest reachable server" to "سریع‌ترین سرور در دسترس را خودکار انتخاب و متصل کن",
+    "The cores and tunnel options under the route" to "هسته‌ها و گزینه‌های تونل زیر مسیر",
+    "Core switch, Xray, sing-box, fragment and mux" to "انتخاب هسته، ایکس‌ری، سینگ‌باکس، تکه‌تکه‌سازی و مالتی‌پلکس",
+    "Backups, restores and the app's data" to "پشتیبان‌ها، بازیابی‌ها و داده‌های برنامه",
+    "Back up" to "تهیه پشتیبان",
+    "Restore" to "بازیابی",
+    "Theme, fourth tab, typeface and language" to "پوسته، تب چهارم، قلم و زبان",
+    "Notifications, general and information" to "اعلان‌ها، عمومی و اطلاعات",
+    "Show the Customize button" to "نمایش دکمه شخصی‌سازی",
+    "Home style 4 keeps a Customize row at the top of the page. Turn this off for a clean page; this switch is how it comes back." to
+        "طرح چهارم صفحه اصلی یک ردیف شخصی‌سازی در بالای صفحه دارد. برای صفحه‌ای خلوت آن را خاموش کنید؛ با همین کلید دوباره برمی‌گردد.",
+    "Automatic server selector" to "انتخاب‌گر خودکار سرور",
+    "After a ping sweep" to "پس از پویش پینگ",
+    "The one moment every server has fresh evidence" to "لحظه‌ای که همه سرورها داده تازه دارند",
+    "When I press connect" to "هنگام لمس اتصال",
+    "Pick a route instead of using the last one" to "به‌جای استفاده از مسیر قبلی، یک مسیر انتخاب کن",
+    "When the route goes bad" to "وقتی مسیر خراب می‌شود",
+    "Move off a server that stopped working" to "از سروری که دیگر کار نمی‌کند عبور کن",
+    "Learn from this operator" to "یادگیری از این اپراتور",
+    "Keep exploring" to "ادامه بررسی",
+    "Spend a few connections on an unproven profile so a filter that changed gets found" to
+        "چند اتصال را روی پروفایل بررسی‌نشده امتحان کن تا تغییر فیلتر شناسایی شود",
+    "MTU" to "ام‌تی‌یو",
+    "GeoIP" to "جیوآی‌پی",
+    "GeoSite" to "جئوسایت",
+    "sing-box core" to "هسته سینگ‌باکس",
+    "ORDERED HOPS" to "گام‌های مرتب",
+    "Route details" to "جزئیات مسیر",
+    "Unlimited" to "نامحدود",
+    "Expired" to "منقضی‌شده"
 )
 
 /** Lowercased view of the lexicon so `UPPERCASE` renders of the same keys still match. */
 private val FaLexiconLower: Map<String, String> =
     FaLexicon.entries.associate { it.key.lowercase() to it.value }
+
+/**
+ * A Persian UI must never silently fall back to an English sentence when a new literal is added.
+ * Exact product copy belongs in [FaLexicon]; this final word-level layer protects dynamic labels
+ * assembled by the engine (for example a fresh diagnostic name) until their complete sentence is
+ * promoted to that table. Known technical terms use their Persian reading. Unknown Latin words
+ * are transliterated rather than shown as untranslated English.
+ */
+private val FaFallbackWords: Map<String, String> = mapOf(
+    "add" to "افزودن", "all" to "همه", "and" to "و", "app" to "برنامه", "auto" to "خودکار",
+    "best" to "بهترین", "button" to "دکمه", "cancel" to "لغو", "chain" to "زنجیره",
+    "config" to "کانفیگ", "connect" to "اتصال", "connection" to "اتصال", "core" to "هسته",
+    "custom" to "سفارشی", "data" to "داده", "delete" to "حذف", "details" to "جزئیات",
+    "disabled" to "غیرفعال", "download" to "دریافت", "enabled" to "فعال", "error" to "خطا",
+    "failed" to "ناموفق", "file" to "فایل", "group" to "گروه", "home" to "خانه",
+    "import" to "وارد کردن", "information" to "اطلاعات", "language" to "زبان", "light" to "روشن",
+    "manual" to "دستی", "mode" to "حالت", "network" to "شبکه", "new" to "جدید",
+    "off" to "خاموش", "on" to "روشن", "open" to "باز کردن", "page" to "صفحه",
+    "ping" to "پینگ", "profile" to "پروفایل", "remove" to "حذف", "reset" to "بازنشانی",
+    "route" to "مسیر", "save" to "ذخیره", "scan" to "پویش", "server" to "سرور",
+    "settings" to "تنظیمات", "show" to "نمایش", "smart" to "هوشمند", "source" to "منبع", "speed" to "سرعت",
+    "status" to "وضعیت", "subscription" to "اشتراک", "system" to "سیستم", "test" to "تست",
+    "theme" to "پوسته", "tunnel" to "تونل", "update" to "به‌روزرسانی", "upload" to "ارسال",
+    "use" to "استفاده", "visible" to "نمایان", "warning" to "هشدار", "tab" to "تب",
+    "switch" to "کلید", "slider" to "لغزنده", "floating" to "شناور",
+    "http" to "اچ‌تی‌تی‌پی", "https" to "اچ‌تی‌تی‌پی‌اس", "tcp" to "تی‌سی‌پی",
+    "udp" to "یو‌دی‌پی", "dns" to "دی‌ان‌اس", "ip" to "آی‌پی", "ipv4" to "آی‌پی‌نسخه۴",
+    "ipv6" to "آی‌پی‌نسخه۶", "json" to "جیسون", "mtu" to "ام‌تی‌یو", "xray" to "ایکس‌ری",
+    "vless" to "وی‌لس", "vmess" to "وی‌مس", "socks" to "ساکس", "ssh" to "اس‌اس‌اچ",
+    "wireguard" to "وایرگارد", "sing" to "سینگ", "box" to "باکس"
+)
+
+private val LatinUiToken = Regex("[A-Za-z][A-Za-z0-9_-]*")
+
+private fun faFallback(text: String): String {
+    // Endpoint URLs, imported names and code samples are data, not product copy. Their surrounding
+    // labels are translated by the exact table; preserving their payload prevents corrupting a link.
+    if ("://" in text || text.contains("@") || text.matches(Regex(".*\\d+\\.\\d+\\.\\d+\\.\\d+.*"))) return text
+    return LatinUiToken.replace(text) { match ->
+        val token = match.value
+        FaFallbackWords[token.lowercase()] ?: faTransliterate(token)
+    }
+}
+
+private fun faTransliterate(token: String): String = buildString {
+    token.forEach { char ->
+        append(
+            when (char.lowercaseChar()) {
+                'a' -> "ا"; 'b' -> "ب"; 'c' -> "ک"; 'd' -> "د"; 'e' -> "ی"; 'f' -> "ف"
+                'g' -> "گ"; 'h' -> "ه"; 'i' -> "ی"; 'j' -> "ج"; 'k' -> "ک"; 'l' -> "ل"
+                'm' -> "م"; 'n' -> "ن"; 'o' -> "و"; 'p' -> "پ"; 'q' -> "ک"; 'r' -> "ر"
+                's' -> "س"; 't' -> "ت"; 'u' -> "و"; 'v' -> "و"; 'w' -> "و"; 'x' -> "اکس"
+                'y' -> "ی"; 'z' -> "ز"; '-' -> "‌"; '_' -> "‌"; else -> char.toString()
+            }
+        )
+    }
+}
 
 // Compound runtime strings ("12 nodes", "3 visible • 40 total", "45 sec", …).
 private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
@@ -1411,6 +1517,16 @@ private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     },
     Regex("""^Remove failed ping \((\d+)\)$""") to { m -> "حذف پینگ ناموفق (${m.groupValues[1]})" },
     Regex("""^Remove failed tunnel \((\d+)\)$""") to { m -> "حذف تونل ناموفق (${m.groupValues[1]})" },
+    Regex("""^Remove failed (.+) servers\?$""") to { m ->
+        "سرورهای ناموفق ${faFallback(m.groupValues[1])} حذف شوند؟"
+    },
+    Regex("""^Delete (.+)\?$""") to { m -> "${faFallback(m.groupValues[1])} حذف شود؟" },
+    Regex("""^Remove failed everywhere \((\d+)\)$""") to { m ->
+        "حذف موارد ناموفق از همه‌جا (${m.groupValues[1]})"
+    },
+    Regex("""^Remove failed (Smart|tunnel) \((\d+)\)$""") to { m ->
+        "حذف ${faFallback(m.groupValues[1])} ناموفق (${m.groupValues[2]})"
+    },
     Regex("""^SAVE (\d+)-HOP CHAIN$""") to { m -> "ذخیره زنجیره ${m.groupValues[1]} گامه" },
     Regex("""^(\d+) ms$""") to { m -> "${m.groupValues[1]} میلی‌ثانیه" },
     Regex("""^(\d+) sec$""") to { m -> "${m.groupValues[1]} ثانیه" },

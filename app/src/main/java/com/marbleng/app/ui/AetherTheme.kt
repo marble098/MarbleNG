@@ -192,23 +192,24 @@ private val LightPalette = AetherPalette(
  * (#0B111C / #0E141F / #121A28) so cards, sheets and wells separate from the void the way the
  * newest Material dark themes do, and hairlines cool down to slate-blue strokes. */
 private val DarkPalette = AetherPalette(
-    void = Color(0xFF000000),          // pure AMOLED black
-    voidElevated = Color(0xFF0B111C),   // navy-lifted card step
-    glass = Color(0xFF0E141F),          // container step
-    glassStrong = Color(0xFF121A28),
-    glassBorder = Brand.Electric.copy(alpha = .30f).compositeOver(Color(0xFF0B111C)),
-    glassBorderSoft = Color(0xFF1E2836),
-    // The dock is opaque while idle. Its translucent value is used only while content is moving.
-    barGlass = Color(0xD9000000),
-    barGlassBorder = Brand.Ice.copy(alpha = .14f),
-    barGlassHighlight = Brand.Ice.copy(alpha = .08f),
-    // MARBLE_FLOATING_CHROME_V201 — on an AMOLED floor the old bar was pure #000 with an
-    // ice hairline, which is invisible against the page: the bar had no body at all and only
-    // its content told you where it was. It now takes the same navy-lifted step a card takes
-    // (#0B111C), so the floating layer is a surface the eye can find while the page behind it
-    // stays true black.
-    floatSurface = Color(0xFF0B111C),
-    floatBorder = Brand.Ice.copy(alpha = .18f).compositeOver(Color(0xFF0B111C)),
+    // MARBLE_AMOLED_V202 — black is the page and system-surface floor, not a near-black
+    // approximation. The three elevated tokens are deliberately very close together so cards
+    // remain legible without turning the entire theme into a navy rectangle.
+    void = Color.Black,
+    voidElevated = Color(0xFF090D14),
+    glass = Color(0xFF0C121B),
+    glassStrong = Color(0xFF101824),
+    glassBorder = Brand.Bright.copy(alpha = .28f).compositeOver(Color(0xFF090D14)),
+    glassBorderSoft = Color(0xFF202C3E),
+    // The dock is an opaque object in V202; this value remains for components that request a
+    // glass token, but is still flattened onto true black.
+    barGlass = Color(0xFF090D14),
+    barGlassBorder = Brand.Ice.copy(alpha = .18f).compositeOver(Color(0xFF090D14)),
+    barGlassHighlight = Color.Transparent,
+    // A floating object lifts one small step from the OLED floor. Its body is still near-black;
+    // only the object itself spends pixels, never the page behind it.
+    floatSurface = Color(0xFF090D14),
+    floatBorder = Brand.Ice.copy(alpha = .18f).compositeOver(Color(0xFF090D14)),
     floatShadow = Color.Black,
     amethyst = Brand.Electric,
     amethystBright = Brand.Bright,
@@ -609,10 +610,13 @@ fun AetherFlowTheme(
             primaryContainer=palette.cyan.copy(alpha=.10f),
             onPrimaryContainer=palette.ink,
             secondary=palette.emerald,
-            onSecondary=Color.White,
+            // #009A74 is intentionally bright enough for a dark on-colour, not white (3.57:1).
+            // Use Marble navy so every M3 semantic component meets the normal-text 4.5:1 target.
+            onSecondary=Brand.NavyDeep,
             secondaryContainer=palette.emerald.copy(alpha=.10f),
             onSecondaryContainer=palette.ink,
             tertiary=palette.amethyst,
+            onTertiary=Color.White,
             background=palette.void,
             onBackground=palette.ink,
             surface=palette.voidElevated,
@@ -621,6 +625,7 @@ fun AetherFlowTheme(
             onSurfaceVariant=palette.inkMuted,
             surfaceTint=Color.Transparent,
             error=palette.danger,
+            onError=Brand.NavyDeep,
             outline=palette.glassBorderSoft,
             outlineVariant=palette.glassBorderSoft.copy(alpha=.55f),
             // MARBLE_MATERIAL_YOU_REFRESH_V185 — the tonal container ladder Material components
@@ -649,6 +654,7 @@ fun AetherFlowTheme(
             secondaryContainer=palette.emerald.copy(alpha=.12f),
             onSecondaryContainer=palette.ink,
             tertiary=palette.amethyst,
+            onTertiary=Color.White,
             background=palette.void,
             onBackground=palette.ink,
             surface=palette.voidElevated,
@@ -657,6 +663,8 @@ fun AetherFlowTheme(
             onSurfaceVariant=palette.inkMuted,
             surfaceTint=Color.Transparent,
             error=palette.danger,
+            // Dark danger is a light rose; navy ink is the readable on-colour (7.6:1).
+            onError=Brand.NavyDeep,
             outline=palette.glassBorder,
             outlineVariant=palette.glassBorderSoft,
             // MARBLE_MATERIAL_YOU_REFRESH_V185 — the dark container ladder lifts from AMOLED black

@@ -457,7 +457,7 @@ private val PersianStrings = MarbleStrings(
     languageDetail = "به‌صورت پیش‌فرض از زبان گوشی پیروی می‌کند",
     languageSystem = "سیستم",
     languageSystemDetail = "زبان دستگاه",
-    languageEnglish = "English",
+    languageEnglish = "انگلیسی",
     languagePersian = "فارسی",
 
     socksProxyLabel = "پروکسی SOCKS5",

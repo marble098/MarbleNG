@@ -361,10 +361,11 @@ check(
     and "fontId" in files["theme"],
 )
 check(
-    "bottom dock glass is scroll-conditional",
-    "glass = contentScrolling || pagerState.isScrollInProgress" in files["ui"]
-    and "if (glass)" in files["ui"]
-    and "dockSurface" in files["ui"],
+    "bottom dock has a stable single-surface contract",
+    "MARBLE_STABLE_NAVIGATION_V202" in files["ui"]
+    and "val dockSurface = chrome.surface" in files["ui"]
+    and "glassFraction" not in files["ui"]
+    and "pillWashAlpha" not in files["ui"],
 )
 check(
     "connected Home exposes in-app IP details",
@@ -617,10 +618,26 @@ check(
     and "HomeStyle.entries.chunked(2)" in files["ui"],
 )
 check(
+    "Persian UI has a complete fallback rather than an English leak",
+    "return faFallback(text)" in files["persianLexicon"]
+    and "private fun faTransliterate" in files["persianLexicon"]
+    and 'languageEnglish = "انگلیسی"' in files["strings"]
+    and "persianFallbackNeverLeaksAnUntranslatedLatinUiLabel" in read(
+        "app/src/test/java/com/marbleng/app/ui/MarbleDesignSystemTest.kt"
+    ),
+)
+check(
     "AMOLED navigation surface is transparent",
     "Color.Transparent.toArgb()" in files["theme"]
     and "isNavigationBarContrastEnforced=false" in files["theme"]
     and "@android:color/transparent" in read("app/src/main/res/values/styles.xml"),
+)
+check(
+    "AMOLED page background leaves uncovered OLED pixels off",
+    "void = Color.Black" in files["theme"]
+    and "val DarkBgTop = Color.Black" in files["design"]
+    and "val DarkBgBottom = Color.Black" in files["design"]
+    and "return@Canvas" in files["design"],
 )
 check(
     "release packaging requires a stable signer",
@@ -2540,15 +2557,13 @@ check(
     and "fun expressiveFadeThrough(" in files["expressive"],
 )
 check(
-    "V186 the product UI actually runs on the expressive library",
+    "expressive motion is active without unstable full-page transforms",
     "MarbleExpressiveCircularIndicator(" in files["ui"]
     and "MarbleExpressiveLinearIndicator(" in files["ui"]
     and "MarbleExpressiveValueText(" in files["ui"]
     and "marbleStaggerIn(" in files["ui"]
-    and "marblePopWhen(" in files["ui"]
-    and "marblePageDepth" in files["ui"]
-    and "expressiveContainerTransform(" in files["ui"]
-    and "expressiveSharedAxisX(" in files["ui"]
+    and "expressiveFadeThrough(" in files["ui"]
+    and "MARBLE_STABLE_NAVIGATION_V202" in files["ui"]
     and "rememberMarbleEntranceWindow(" in files["ui"]
     and "marbleStaggerIn(" in files["homeStyles"]
     and "ExpressiveMath.arcSweep(" in files["homeStyles"]
@@ -2563,6 +2578,7 @@ check(
     and "MarbleExpressiveShapes" in files["theme"]
     and "MARBLE_EXPRESSIVE_MOTION_V186" in files["design"],
 )
+
 check(
     "V186 the elastic surface keeps the fixed-slot and determinism contracts",
     # The V135 reveal stays opacity-only: the meter column keeps its reserved 150 dp slot.
