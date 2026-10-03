@@ -4,10 +4,14 @@ package com.marbleng.app.ui
 // MARBLE_PRISM_MOTION_V54
 // MARBLE_BOUNDED_RIPPLE_MOTION_V62
 
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.LocalIndication
@@ -17,9 +21,11 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -156,6 +162,24 @@ class MarbleMotionState internal constructor(
         val phase = coarseLoop(periodMillis, offset)
         return .5f - .5f * cos(phase * 2f * PI.toFloat())
     }
+
+    // ---------------------------------------------------------------------------------------
+    // MARBLE_ROUTE_ATELIER_V207 — the three questions every animated surface asks the same way.
+    // A component that decides any of them locally is how the product ended up with a setting that
+    // stops the halos and keeps the waiting.
+    // ---------------------------------------------------------------------------------------
+
+    /** May this surface move at all? Reduced motion answers for entrance, ambient and press alike. */
+    fun animates(): Boolean = MarbleMotionPolicy.animates(motionEnabled)
+
+    /** How long a cascade row waits before it enters — zero under reduced motion, so nothing queues. */
+    fun entranceDelayFor(index: Int): Long = MarbleMotionPolicy.entranceDelayMs(index, motionEnabled)
+
+    /** The press travel of a control class, or 1f when the user asked for no motion. */
+    fun pressScaleFor(kind: MarbleControlKind): Float = MarbleMotionPolicy.pressScale(kind, motionEnabled)
+
+    /** May this control spend a frame on an acknowledgement beat? Reduced motion says no. */
+    fun acknowledges(kind: MarbleControlKind): Boolean = kind.acknowledgesPress(motionEnabled)
 }
 
 private val LocalMarbleMotion = staticCompositionLocalOf {
@@ -173,6 +197,11 @@ object MarbleMotion {
  * Android's global animator scale is honored: when the user disables animations, ambient motion
  * freezes and direct interactions resolve immediately to their resting state.
  *
+ * MARBLE_ROUTE_ATELIER_V207 — and it is honored *live*. The value is a ContentObserver-backed state
+ * now, so turning animations off in the system settings while MarbleNG is open settles every
+ * surface in the same frame: [MarbleMotionPolicy] is what the entrance cascade, the press travel
+ * and the ambient field all consult, and it can no longer be fed a stale reading.
+ *
  * MARBLE_SMOOTH_CLOCK_V193 — the clock also owns two anti-jank duties for the whole app:
  *  1. it never delivers ambient frames faster than [AMBIENT_FPS_CAP] — on a 90/120 Hz panel the
  *     old loop recomposed every ambient reader at the panel rate, doubling or quadrupling the
@@ -186,17 +215,39 @@ private const val COARSE_FPS = 15
 private const val AMBIENT_MIN_FRAME_NANOS = 1_000_000_000L / AMBIENT_FPS_CAP
 private const val COARSE_STEP_NANOS = 1_000_000_000L / COARSE_FPS
 
+/** The device's animation scale, read as "may anything move at all". */
+private fun animatorMotionEnabled(context: android.content.Context): Boolean = runCatching {
+    Settings.Global.getFloat(
+        context.contentResolver,
+        Settings.Global.ANIMATOR_DURATION_SCALE,
+        1f
+    ) > 0f
+}.getOrDefault(true)
+
 @Composable
 fun ProvideMarbleMotion(content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val motionEnabled = remember(context) {
-        runCatching {
-            Settings.Global.getFloat(
-                context.contentResolver,
-                Settings.Global.ANIMATOR_DURATION_SCALE,
-                1f
-            ) > 0f
-        }.getOrDefault(true)
+    // MARBLE_ROUTE_ATELIER_V207 — the setting is OBSERVED, not sampled once.
+    //
+    // The old code read the animator scale inside `remember(context)`, so an app that was built in
+    // the foreground while "Remove animations" was flipped kept its first answer: a user who turns
+    // animations off to stop the page moving had to kill and reopen MarbleNG. That is the exact
+    // gap between "we honour the setting at boot" and "we honour the setting", and it is the reason
+    // [MarbleMotionPolicy] could not promise anything: a cascade, a halo and an interaction could
+    // each hold a different opinion about the same switch.
+    var motionEnabled by remember {
+        mutableStateOf(animatorMotionEnabled(context))
+    }
+    DisposableEffect(context) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            @Suppress("DEPRECATION")
+            override fun onChange(selfChange: Boolean) {
+                motionEnabled = animatorMotionEnabled(context)
+            }
+        }
+        val uri = Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE)
+        runCatching { context.contentResolver.registerContentObserver(uri, false, observer) }
+        onDispose { runCatching { context.contentResolver.unregisterContentObserver(observer) } }
     }
     val engine = remember(motionEnabled) { MarbleMotionState(motionEnabled) }
 
@@ -258,14 +309,28 @@ fun Modifier.kineticClickable(
 ): Modifier = composed {
     val ownedSource = interactionSource ?: remember { MutableInteractionSource() }
     val pressed by ownedSource.collectIsPressedAsState()
+    // MARBLE_ROUTE_ATELIER_V207 — reduced motion removes the TRAVEL, not only the duration.
+    // A scale spring that snaps to 0.94 in 0 ms is still a control that jumps under the finger, and
+    // an entrance that waits 45 ms per row after the animation switch is a bug the user cannot
+    // switch off. The one question goes to the one answer.
+    val animates = MarbleMotion.current.animates()
+    val pressedScale = if (animates) pressScale else 1f
     val scale by animateFloatAsState(
-        targetValue = if (enabled && pressed) pressScale else 1f,
-        animationSpec = if (pressed) MarbleMotionSpecs.InteractionFloat else releaseSpec,
+        targetValue = if (enabled && pressed) pressedScale else 1f,
+        animationSpec = when {
+            !animates -> snap()
+            pressed -> MarbleMotionSpecs.InteractionFloat
+            else -> releaseSpec
+        },
         label = "kinetic-press-scale"
     )
     val lift by animateFloatAsState(
-        targetValue = if (enabled && pressed) 1.6f else 0f,
-        animationSpec = if (pressed) MarbleMotionSpecs.InteractionFloat else releaseSpec,
+        targetValue = if (enabled && pressed && animates) 1.6f else 0f,
+        animationSpec = when {
+            !animates -> snap()
+            pressed -> MarbleMotionSpecs.InteractionFloat
+            else -> releaseSpec
+        },
         label = "kinetic-press-lift"
     )
     // MARBLE_SELECTION_TILE_INDICATION_REMOVED_DS_V69

@@ -216,6 +216,14 @@ files = {
     "ui": read("app/src/main/java/com/marbleng/app/ui/Aether2026.kt"),
     "homeStyles": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStyles.kt"),
     "protocolIdentity": read("app/src/main/java/com/marbleng/app/ui/MarbleProtocolIdentity.kt"),
+    # MARBLE_ROUTE_ATELIER_V207 — the design grammar and the presentation built against it. They are
+    # required files now: a build that drops either one turns Home's default presentation into a page
+    # that the dispatcher cannot render, so `read()` failing here is the correct loud answer.
+    "designContract": read("app/src/main/java/com/marbleng/app/ui/MarbleDesignContract.kt"),
+    "homeAtelier": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeAtelier.kt"),
+    "routeAtelierTest": read("app/src/test/java/com/marbleng/app/ui/MarbleDesignContractV207Test.kt"),
+    "homeStyleTest": read("app/src/test/java/com/marbleng/app/ui/MarbleHomeStyleTest.kt"),
+    "routeAtelierDoc": read("docs/ROUTE_ATELIER_V207.md"),
     "strings": read("app/src/main/java/com/marbleng/app/ui/MarbleStrings.kt"),
     # MARBLE_PING_SPEED_DIAL_V199 — the Persian face of the dial, checked like every other file.
     "persianLexicon": read("app/src/main/java/com/marbleng/app/ui/MarblePersianLexicon.kt"),
@@ -460,18 +468,28 @@ check(
     and "rememberUptimeLabel(" in files["homeStyles"],
 )
 
-# MARBLE_HOME_THEME_TWO_DEFAULT_V160 — every presentation is modelled and reachable; the product
-# default is Theme 2 (Floating), and it is named once so the model, the store and the parser
-# cannot disagree about it. The Slider stays a fully supported choice for anyone who picked it.
+# MARBLE_HOME_THEME_TWO_DEFAULT_V160 / MARBLE_ROUTE_ATELIER_V207 — every presentation is modelled and
+# reachable, and the product default is named exactly once so the model, the store and the parser
+# cannot disagree about it. V160 set that name to Theme 2 (Floating); V207 moved it to the route
+# presentation, and the check moved with it — what it pins is the SHAPE of the rule (one name, read by
+# the store and the parser, with a dispatcher behind it), not which theme happens to hold it today.
 check(
-    "Theme 2 (Floating) is modelled and is the product default",
-    'IOS_FLOATING("ios_floating")' in files["models"]
+    "the route presentation is modelled and is the product default",
+    'ROUTE_ATELIER("route_atelier")' in files["models"]
     and "homeStyle: String = HomeStyle.DEFAULT.id" in files["models"]
-    and "val DEFAULT: HomeStyle get() = IOS_FLOATING" in files["models"]
+    and "val DEFAULT: HomeStyle get() = ROUTE_ATELIER" in files["models"]
     and "HomeStyle.DEFAULT" in files["store"]
-    and "HomeThemeFloating(" in files["homeStyles"]
+    and "HomeThemeAtelier(" in files["homeStyles"]
     and "HomeStyleSurface(" in files["ui"]
     and "HomeStyleSurface(" in files["homeStyles"],
+)
+# A default may be moved; a presentation may not be orphaned by the move. Theme 2 keeps its id, its
+# implementation and its reachability, because an install that chose it must still find it.
+check(
+    "the former default presentation is still modelled and reachable",
+    'IOS_FLOATING("ios_floating")' in files["models"]
+    and "HomeThemeFloating(" in files["homeStyles"]
+    and "HomeStyle.IOS_FLOATING -> HomeThemeFloating(" in files["homeStyles"],
 )
 check(
     "every presentation including the former default is still modelled and reachable",
@@ -967,7 +985,18 @@ check(
     and "SettingsRoutingPage(" in files["ui"]
     and "copy(expertMode=true)" not in files["ui"],
 )
-check("Library long names use overflow marquee", "basicMarquee(" in files["ui"])
+# MARBLE_SMOOTH_CLOCK_V193 / MARBLE_ROUTE_ATELIER_V207 — V193 bounded an endless name scroller to
+# three passes, which fixed the frame cost and kept the usability defect: a row whose name moves is a
+# row a user cannot compare, and several of them starting two seconds apart turned the Servers page
+# into signage. V207 took the marquee off the list row entirely (two settled lines, ellipsis; the full
+# name stays readable and copyable in the detail sheet). The invariant is the one the product actually
+# promises now: no text scrolls inside a Servers row, and no unused scroller import is left behind.
+check(
+    "library long names settle instead of scrolling",
+    "basicMarquee" not in files["ui"]
+    and "maxLines = 2" in _fun_body(files["ui"], "private fun ServersNodeCard(")
+    and "overflow = TextOverflow.Ellipsis" in _fun_body(files["ui"], "private fun ServersNodeCard("),
+)
 check(
     "legacy global chain settings are removed",
     "chainEnabled" not in files["models"] + files["store"] + files["ui"],
@@ -2719,11 +2748,16 @@ check(
 )
 check(
     "V193 the flag is the circle and the wire scheme speaks as text",
-    # MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the tile's one content rule: the flag art fills the
-    # disc when the location is known, the name's own flag glyph stands in at full size — the
-    # hand-drawn wire-scheme glyphs never draw inside the circle again.
+    # MARBLE_PROTOCOL_TEXT_IDENTITY_V193 / MARBLE_ROUTE_ATELIER_V207 — the tile's one content rule:
+    # the flag art fills the disc when the location has evidence behind it, and everything else is the
+    # world glyph. V193 kept the hand-drawn wire-scheme glyphs out of the circle; V207 closed the last
+    # upgrade path that was left, the flag emoji a subscription typed into the node's own name. A
+    # label is a seller's claim, not a measurement, so `nameFlag` is gone from the tile and the
+    # fallback is a globe — while the dashed rim says "unverified" without costing a sentence.
     "CountryFlagCircle(" in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
-    and "fallbackText = nameFlag" in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
+    and 'fallbackText = "🌐"' in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
+    and "nameFlag" not in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
+    and "locationTrust.mayDrawFlag()" in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
     and "ProtocolGlyph" not in files["protocolIdentity"]
     # The protocol identifies as TEXT in its own hue: a text pill with no glyph well.
     and "Box(" not in _fun_body(files["protocolIdentity"], "fun ProtocolBadge(")
@@ -3116,6 +3150,172 @@ check(
     and "val motion = MarbleMotion.current" in files["homeStyles"]
     and "motion.loop(periodMs)" in files["homeStyles"]
     and files["homeStyles"].count("MarbleMotion.current") >= 2,
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_ROUTE_ATELIER_V207
+#
+# The review's root finding was that the product had effects and no grammar: five silhouettes for one
+# command, hue meaning brand in one file and state in another, a touch target defined by whichever card
+# drew the control, and an animation switch some code paths honoured while others ignored it. None of
+# that is a type error, which is exactly why it survived eleven redesigns — and why the fix is pinned
+# here as well as in a unit test. These invariants do not check that the new code is pretty. They check
+# that the rules have ONE owner, that no surface re-answers a question centrally, and that the chapter
+# is written down. A future "nice tweak" that re-invents a per-style tone function fails right here.
+# ---------------------------------------------------------------------------
+check(
+    "V207 the design grammar has one home, and it is not a style sheet",
+    "object MarbleTapTarget" in files["designContract"]
+    and "val Floor: Dp = 48.dp" in files["designContract"]
+    and "enum class MarbleRouteState" in files["designContract"]
+    and "fun marbleRouteStateOf(" in files["designContract"]
+    and "fun MarbleRouteState.connectVerb()" in files["designContract"]
+    and "enum class MarbleLocationTrust" in files["designContract"]
+    and "fun MarbleLocationTrust.mayDrawFlag()" in files["designContract"]
+    and "object MarbleFeedbackPolicy" in files["designContract"]
+    and "internal val LocalMarbleAmbientField" in files["designContract"]
+    # The contract must stay testable off-device: it may read Compose types, but it must not need a
+    # context, a coroutine or a frame clock to answer a question.
+    and "import android.content.Context" not in files["designContract"],
+)
+check(
+    "V207 a state surface may not invent its own tone or its own verb",
+    # The three per-style tone functions were the drift in miniature. If one comes back, so does the
+    # day four Home presentations mean four different things by "connected".
+    "internal fun homeTone(" not in files["homeStyles"]
+    # The names may appear in the comment that explains the deletion; the declarations may not come
+    # back, because a per-style tone is precisely the drift this chapter exists to prevent.
+    and "internal fun styleConnectedTone(" not in files["homeStyles"]
+    and "internal fun styleStateTone(" not in files["homeStyles"]
+    and "internal fun connectButtonTone(evidence: HomeEvidence): Color = "
+        "marbleRouteTone(evidence.routeState)" in files["homeStyles"]
+    and "return when (evidence.routeState.connectVerb())" in files["homeStyles"]
+    and "return when (evidence.routeState) {" in files["homeStyles"],
+)
+check(
+    "V207 the five silhouettes share one enabled-ness rule",
+    # A control that answers twice while a tunnel is closing is a control that fights the engine. The
+    # gate is the state table's answer, and the old local reading of one flag is gone for good.
+    "val armed = evidence.routeState.isActionable()" in files["homeStyles"]
+    and "val armed = !evidence.disconnecting" not in files["homeStyles"],
+)
+_slide_commit = _fun_body(files["homeStyles"], "private fun ConnectButtonSlide(")
+_slide_commit = _slide_commit[_slide_commit.index("if (completed) {"):]
+check(
+    "V207 a slide-to-confirm dispatches the command before it animates",
+    # The defect was an ordering: `animateTo(…) then onToggle()` put a network action behind a 120 ms
+    # decorative tween, so a dropped frame could leave the haptic having promised a connection nobody
+    # had been told about. Follow-through is allowed; it just may not hold the verb hostage.
+    "onToggle()" in _slide_commit
+    and "knob.animateTo" in _slide_commit
+    and _slide_commit.index("onToggle()") < _slide_commit.index("knob.animateTo"),
+)
+check(
+    "V207 reduced motion removes travel and queues, not only durations",
+    # A scale spring that snaps to 0.94 in zero milliseconds is still a control that jumps under the
+    # finger, and an entrance that still waits 45 ms per row is a bug the user cannot switch off.
+    # Both questions go to one owner, and that owner is fed the LIVE system setting.
+    "fun animates(): Boolean = MarbleMotionPolicy.animates(motionEnabled)" in files["motion"]
+    and "fun entranceDelayFor(index: Int): Long = MarbleMotionPolicy.entranceDelayMs" in files["motion"]
+    and "fun pressScaleFor(kind: MarbleControlKind): Float = MarbleMotionPolicy.pressScale" in files["motion"]
+    and "fun acknowledges(kind: MarbleControlKind): Boolean" in files["motion"]
+    and "delay(motion.entranceDelayFor(index))" in files["expressive"]
+    # The observer that reads the animator scale must be released with the composition that owns it.
+    and "registerContentObserver" in files["motion"]
+    and "unregisterContentObserver" in files["motion"],
+)
+check(
+    "V207 the runtime message has a reader and a bounded dwell",
+    # MARBLE_NO_IN_APP_NOTIFICATIONS_V121 removed the interrupting snackbar and, with it, the last
+    # surface that read the runtime message at all: ~40 engine outcomes became writes nobody saw. The
+    # corrected rule is no DUPLICATE or interrupting copy, not no copy — so the message must be read by
+    # something in the page's own flow, expire on a dwell instead of an instant delete, and never come
+    # back as a floating bar.
+    "if (!repo.busy && repo.message.isNotBlank()) repo.clearMessage()" not in files["ui"]
+    and "MarbleFeedbackPolicy.dwellMillis(actionRequired = false)" in files["ui"]
+    and "internal fun HomeRuntimeNotice(" in files["homeStyles"]
+    and "HomeRuntimeNotice(repo)" in files["homeStyles"]
+    and "MarbleFeedbackPolicy.isOutcome(raw)" in files["homeStyles"]
+    and "Snackbar(" not in files["ui"],
+)
+check(
+    "V207 the ambient field is one preference, published once and asked everywhere",
+    # Backdrop glow, status rings, the heartbeat trace and the signet's waiting dot are the same cost
+    # and the same question, so they are the same setting — provided once above every page rather than
+    # threaded through ten signatures where it can drift.
+    "val homeAmbientBackdrop: Boolean = true" in files["models"]
+    and 'prefs.getBoolean("homeAmbientBackdrop", true)' in files["store"]
+    and '.putBoolean("homeAmbientBackdrop", s.homeAmbientBackdrop)' in files["store"]
+    and "LocalMarbleAmbientField provides repo.settings.homeAmbientBackdrop" in files["ui"]
+    and 'title = "Ambient page motion"' in files["ui"]
+    and "LocalMarbleAmbientField.current" in files["design"]
+    and files["homeStyles"].count("LocalMarbleAmbientField.current") >= 2
+    and "LocalMarbleAmbientField.current" in files["homeAtelier"],
+)
+check(
+    "V207 the location answer is never upgraded from a node's own name",
+    # Three sources can name a country and they are not three versions of one fact. The chain of
+    # precedence stays (a page should use the best code it has), but the label tier is no longer a flag
+    # and a lone witness is no longer a confirmed one — and the strength travels WITH the answer.
+    "val flagCode = if (intelCode.isNotBlank()) intelCode else measuredCode" in files["homeStyles"]
+    and "hasLabelGlyph = labelCode.isNotBlank()" in files["homeStyles"]
+    and "locationTrust = locationTrust," in files["homeStyles"]
+    and "mayPaintLocationFlag" in files["homeStyles"]
+    and "locationTrust = evidence.locationTrust" in files["homeAtelier"]
+    and "locationTrust = marbleLocationTrustOf(" in files["ui"]
+    # The provisional tier is not recomputed from nothing: the resolver's own single-witness verdict is
+    # what the tile reads, persisted and restored with the location it qualifies.
+    and "fun serverLocationIsProvisional(profile: ProxyProfile?): Boolean" in files["repo"]
+    and "serverLocationProvisional[key] = verdict.provisional" in files["repo"]
+    and 'put("provisional", provisionalFlags[k] == true)' in files["store"],
+)
+check(
+    "V207 the route presentation is a page, not a fork of the model",
+    # The cheapest way for a redesign to lose a feature is to reimplement the widgets it displays. The
+    # route presentation therefore consumes the shared evidence and the shared feature surfaces; if it
+    # ever grows its own session stats or its own server picker, a feature will live in two places and
+    # one of them will be wrong.
+    "internal fun HomeThemeAtelier(" in files["homeAtelier"]
+    and "HomeStyle.ROUTE_ATELIER -> HomeThemeAtelier(" in files["homeStyles"]
+    and "HomeStyle.ROUTE_ATELIER -> HomeFlavor.ROUTE_ATELIER" in files["homeStyles"]
+    and "private fun RoutePathSignet(" in files["homeAtelier"]
+    and "HomeTopActionBar(" in files["homeAtelier"]
+    and "HomeSessionStats(" in files["homeAtelier"]
+    and "HomeShortcutDeck(" in files["homeAtelier"]
+    and "NationalEventBanner(" in files["homeAtelier"]
+    and "ProtocolTile(" in files["homeAtelier"]
+    # The signet states its own uncertainty, in words as well as in pixels.
+    and "provenCount" in files["homeAtelier"]
+    and "contentDescription = speech" in files["homeAtelier"]
+    and "path.provenCount" in files["homeAtelier"],
+)
+check(
+    "V207 every control that can be hit can be hit at 48 dp, without being repainted",
+    # The review's phrase was "visual refinement was bought by shrinking the touch area". The floor is
+    # a layout node, so a designer's artwork keeps its size and the slot absorbs the hit area — which is
+    # also why an icon control no longer has to grow to 48 dp to be legal.
+    "fun Modifier.marbleTapTarget(" in files["designContract"]
+    and ".marbleTapTarget(" in files["design"]
+    and ".marbleTapTarget(" in files["homeStyles"]
+    and ".marbleTapTarget(" in files["homeAtelier"]
+    and "val ControlHeight = 48.dp" in files["design"]
+    # A nameless icon button is the other half of the same defect: an unlabeled control is not a small
+    # control, it is an inaccessible one. The parameter has no default any more.
+    and "descriptiveLabel: String," in files["design"]
+    and "descriptiveLabel: String = \"\"" not in files["design"],
+)
+check(
+    "V207 the chapter is pinned by tests and written down",
+    "class MarbleDesignContractV207Test" in files["routeAtelierTest"]
+    and "assertEquals(5, HomeStyle.entries.size)" in files["homeStyleTest"]
+    and "assertEquals(HomeStyle.ROUTE_ATELIER, HomeStyle.DEFAULT)" in files["homeStyleTest"]
+    and "MARBLE_ROUTE_ATELIER_V207" in files["routeAtelierDoc"]
+    and "MARBLE_ROUTE_ATELIER_V207" in files["homeAtelier"]
+    and "MARBLE_ROUTE_ATELIER_V207" in files["designContract"]
+    # The Persian UI may not let the word-level fallback invent a reading for a whole sentence.
+    and "\"Slide right to connect\"" in files["persianLexicon"]
+    and "\"location not verified\"" in files["persianLexicon"]
+    and "\"Ambient page motion\"" in files["persianLexicon"],
 )
 
 production = "\n".join(
