@@ -4942,7 +4942,7 @@ internal fun HomeStyleSurface(
         )
         // MARBLE_ROUTE_ATELIER_V207 — the route presentation lives in its own file, on the same
         // evidence and the same shared widgets as the four above it.
-        HomeStyle.ROUTE_ATELIER -> HomeThemeSlider(
+        HomeStyle.ROUTE_ATELIER -> HomeThemeAtelier(
             repo = repo,
             evidence = evidence,
             actions = actions,

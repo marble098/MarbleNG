@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-# PROBE: audit muted for a compile-only CI experiment; revert with git.
-if __name__ == "__main__":
-    print("checks=0 pass=0 fail=0 (probe)")
-    print("Source-wide architecture invariants are internally consistent.")
-    raise SystemExit(0)
 # MarbleNG source-wide architecture/integration preflight.
 # Compatible with MARBLE_RELEASE_PUBLISH_RESILIENT_V182.
 #
