@@ -175,9 +175,16 @@ internal data class HomeEvidence(
     val pingMs: Int,
     val pingState: ConnectionPingState,
     val pingFailure: String,
+    /**
+     * MARBLE_HOME_PING_SPEED_V200 — the number on screen is one sample of a run still in
+     * progress, not the settled median.
+     */
+    val pingProvisional: Boolean = false,
     val selectedPingMs: Int,
     val selectedPingState: ConnectionPingState,
     val selectedPingFailure: String,
+    /** The disconnected twin of [pingProvisional]. */
+    val selectedProvisional: Boolean = false,
     val downBps: Long,
     val upBps: Long,
     val showSpeedWidget: Boolean,
@@ -238,9 +245,11 @@ internal fun buildHomeEvidence(
         pingMs = repo.connectionPingMs,
         pingState = repo.connectionPingState,
         pingFailure = repo.connectionPingFailure,
+        pingProvisional = repo.connectionPingProvisional,
         selectedPingMs = repo.selectedPingMs,
         selectedPingState = repo.selectedPingState,
         selectedPingFailure = repo.selectedPingFailure,
+        selectedProvisional = repo.selectedPingProvisional,
         downBps = if (connected) repo.liveDownBps else 0L,
         upBps = if (connected) repo.liveUpBps else 0L,
         showSpeedWidget = repo.settings.homeSpeedWidgetEnabled,
@@ -392,6 +401,18 @@ internal fun homeV137PingChannel(evidence: HomeEvidence): Triple<Int, Connection
     }
 
 /**
+ * MARBLE_HOME_PING_SPEED_V200 — is the number on screen one sample of a run still in progress?
+ *
+ * The old Home ping showed nothing until every sample was in: `IDLE -> MEASURING ("•••") ->
+ * MEASURED`. On a slow link the capsule sat blank for seconds after the first round trip had
+ * already come back and answered the user's question. The number now lands with the first
+ * sample and is marked with a tilde until the run settles — the same measurement, shown the
+ * moment it exists, never a different one.
+ */
+internal fun homePingIsProvisional(evidence: HomeEvidence): Boolean =
+    if (evidence.connected) evidence.pingProvisional else evidence.selectedProvisional
+
+/**
  * MARBLE_IRAN_AWARE_PING_UI — the latency capsule carries the verdict glyph as well as the
  * number: ✅ verified, ⚠️ injection or instability observed, 🚫 failed. The glyph is the
  * one-glance cross-validation summary; the number alone is not a status.
@@ -407,10 +428,13 @@ internal fun homePingLabel(evidence: HomeEvidence): String {
         state == ConnectionPingState.MEASURED -> "✅"
         else -> ""
     }
+    // MARBLE_HOME_PING_SPEED_V200 — a real sample outranks a placeholder. The tilde is the
+    // whole contract: the number is real, the run is not finished.
+    val provisional = homePingIsProvisional(evidence) && ms >= 1
     return when (state) {
-        ConnectionPingState.MEASURING -> t.pingMeasuringValue
+        ConnectionPingState.MEASURING -> if (provisional) "~ $ms ms" else t.pingMeasuringValue
         ConnectionPingState.MEASURED -> if (ms >= 1) "$glyph $ms ms" else "$glyph ✕"
-        ConnectionPingState.FAILED -> "🚫 ${t.pingFailedShort}"
+        ConnectionPingState.FAILED -> if (provisional) "~ $ms ms" else "🚫 ${t.pingFailedShort}"
         ConnectionPingState.IDLE -> t.pingIdleValue
     }
 }
@@ -418,10 +442,13 @@ internal fun homePingLabel(evidence: HomeEvidence): String {
 @Composable
 internal fun homePingTone(evidence: HomeEvidence, fallback: Color): Color {
     val (ms, state, _) = homeV137PingChannel(evidence)
+    // A provisional number is still a number, so it is coloured by the band it falls in —
+    // otherwise "how fast is this route" would go grey exactly when it first has an answer.
+    val provisional = homePingIsProvisional(evidence) && ms >= 1
     return when (state) {
         ConnectionPingState.MEASURED -> if (ms >= 1) marbleMetricTone(pingMetricBand(ms)) else Aether.Danger
-        ConnectionPingState.FAILED -> Aether.Danger
-        ConnectionPingState.MEASURING -> Aether.Cyan
+        ConnectionPingState.FAILED -> if (provisional) marbleMetricTone(pingMetricBand(ms)) else Aether.Danger
+        ConnectionPingState.MEASURING -> if (provisional) marbleMetricTone(pingMetricBand(ms)) else Aether.Cyan
         ConnectionPingState.IDLE -> fallback
     }
 }
@@ -823,14 +850,23 @@ private fun ConnectButtonRound(
                 }
                 if (evidence.connected) {
                     Spacer(Modifier.height(4.dp))
+                    // MARBLE_HOME_PING_SPEED_V200 — the first sample shows as "~ N ms" instead of the
+                    // dots, so the capsule answers as soon as the route does.
+                    val settled = evidence.pingMs >= 20
+                    val measuring = evidence.pingState == ConnectionPingState.MEASURING
+                    val provisional = settled && evidence.pingProvisional &&
+                        (measuring || evidence.pingState == ConnectionPingState.FAILED)
                     val pingLabel = when {
-                        evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> "${evidence.pingMs} ms"
-                        evidence.pingState == ConnectionPingState.MEASURING -> "•••"
+                        provisional -> "~ ${evidence.pingMs} ms"
+                        evidence.pingState == ConnectionPingState.MEASURED && settled -> "${evidence.pingMs} ms"
+                        measuring -> "•••"
                         evidence.pingState == ConnectionPingState.FAILED -> "✕"
                         else -> "—"
                     }
                     val pingTone = when {
-                        evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> marbleMetricTone(pingMetricBand(evidence.pingMs))
+                        provisional -> marbleMetricTone(pingMetricBand(evidence.pingMs))
+                        evidence.pingState == ConnectionPingState.MEASURED && settled ->
+                            marbleMetricTone(pingMetricBand(evidence.pingMs))
                         evidence.pingState == ConnectionPingState.FAILED -> Aether.Danger
                         else -> animatedTone
                     }
@@ -1207,14 +1243,23 @@ private fun ConnectButtonClassic(
             }
             // State lamp / live ping: the classic switch shows live line state and ping.
             if (evidence.connected) {
+                // MARBLE_HOME_PING_SPEED_V200 — the first sample shows as "~ N ms" instead of the
+                // dots, so the capsule answers as soon as the route does.
+                val settled = evidence.pingMs >= 20
+                val measuring = evidence.pingState == ConnectionPingState.MEASURING
+                val provisional = settled && evidence.pingProvisional &&
+                    (measuring || evidence.pingState == ConnectionPingState.FAILED)
                 val pingLabel = when {
-                    evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> "${evidence.pingMs} ms"
-                    evidence.pingState == ConnectionPingState.MEASURING -> "•••"
+                    provisional -> "~ ${evidence.pingMs} ms"
+                    evidence.pingState == ConnectionPingState.MEASURED && settled -> "${evidence.pingMs} ms"
+                    measuring -> "•••"
                     evidence.pingState == ConnectionPingState.FAILED -> "✕"
                     else -> "—"
                 }
                 val pingTone = when {
-                    evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> marbleMetricTone(pingMetricBand(evidence.pingMs))
+                    provisional -> marbleMetricTone(pingMetricBand(evidence.pingMs))
+                    evidence.pingState == ConnectionPingState.MEASURED && settled ->
+                        marbleMetricTone(pingMetricBand(evidence.pingMs))
                     evidence.pingState == ConnectionPingState.FAILED -> Aether.Danger
                     else -> animatedTone
                 }
@@ -3157,7 +3202,8 @@ internal fun IosSlideToConnect(
                 },
             contentAlignment = Alignment.Center
         ) {
-            HomeGlyphIcon(HomeGlyph.POWER, Color.White, Modifier.size(26.dp))
+            // MARBLE_FLOATING_CHROME_V201 — the glyph is chosen against the disc, not assumed white.
+            HomeGlyphIcon(HomeGlyph.POWER, marbleOnColor(tone), Modifier.size(26.dp))
         }
     }
 }
@@ -3294,7 +3340,11 @@ private fun FloatingConnectFab(
                 ) { onToggle() },
             contentAlignment = Alignment.Center
         ) {
-            HomeGlyphIcon(HomeGlyph.POWER, Color.White, Modifier.size(32.dp))
+            // MARBLE_FLOATING_CHROME_V201 — the glyph is chosen against the disc it sits on,
+            // not assumed white. White on the brand electric blue is 5.6:1, but the DARK
+            // theme's cyan is the bright blue and white on that is 2.94:1 — under the 3:1 floor
+            // for a graphical object, on the single most important control in the product.
+            HomeGlyphIcon(HomeGlyph.POWER, marbleOnColor(tone), Modifier.size(32.dp))
         }
     }
 }
@@ -3437,19 +3487,23 @@ internal fun HomeFloatingSplitControl(
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // MARBLE_FLOATING_CHROME_V201 — the pause bars read against the
+                            // danger disc instead of assuming white survives it: the dark
+                            // theme's danger is a light rose (#FF718B), and white bars on a
+                            // light rose are nearly invisible.
                             Box(
                                 Modifier
                                     .width(4.dp)
                                     .height(18.dp)
                                     .clip(RoundedCornerShape(2.dp))
-                                    .background(Color.White)
+                                    .background(marbleOnColor(Aether.Danger))
                             )
                             Box(
                                 Modifier
                                     .width(4.dp)
                                     .height(18.dp)
                                     .clip(RoundedCornerShape(2.dp))
-                                    .background(Color.White)
+                                    .background(marbleOnColor(Aether.Danger))
                             )
                         }
                     }
@@ -3460,7 +3514,7 @@ internal fun HomeFloatingSplitControl(
                         enabled = homePingTappable(evidence),
                         onClick = { actions.onTestPing() }
                     ) {
-                        HomeGlyphIcon(HomeGlyph.PULSE, Color.White, Modifier.size(24.dp))
+                        HomeGlyphIcon(HomeGlyph.PULSE, marbleOnColor(Aether.Emerald), Modifier.size(24.dp))
                     }
                 }
             } else {
@@ -3579,7 +3633,8 @@ internal fun OrbitalConnectControl(
                 ) { actions.onToggleConnection() },
             contentAlignment = Alignment.Center
         ) {
-            HomeGlyphIcon(HomeGlyph.POWER, Color.White, Modifier.size(40.dp))
+            // MARBLE_FLOATING_CHROME_V201 — the glyph is chosen against the disc, not assumed white.
+            HomeGlyphIcon(HomeGlyph.POWER, marbleOnColor(tone), Modifier.size(40.dp))
         }
     }
 }
@@ -3900,7 +3955,7 @@ private fun ModularPingAction(
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        HomeGlyphIcon(HomeGlyph.PULSE, Color.White, Modifier.size(24.dp))
+        HomeGlyphIcon(HomeGlyph.PULSE, marbleOnColor(Aether.Emerald), Modifier.size(24.dp))
     }
 }
 

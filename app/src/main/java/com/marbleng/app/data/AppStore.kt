@@ -3,6 +3,8 @@ package com.marbleng.app.data
 import android.content.Context
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.IpFamilyScan
+import com.marbleng.app.core.TransportAdaptation
+import com.marbleng.app.core.TransportMemoryRecord
 import com.marbleng.app.core.parseCoreEngine
 import com.marbleng.app.model.*
 import org.json.JSONArray
@@ -294,6 +296,46 @@ class AppStore(context: Context) {
 
     fun clearSessionAnchor() = prefs.edit().remove("sessionAnchor").apply()
 
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    // MARBLE_AUTO_SERVER_SELECTOR_V202 — the round-robin cursor.
+    //
+    // Rotation is only rotation if it continues where it stopped. The cursor is a user-visible
+    // fact about the library ("next time it picks the third server"), so it survives a restart
+    // exactly like the last route does, and it resets to the head when the pool is empty so a
+    // rotation nobody remembers starting cannot resume in its middle.
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    fun loadAutoServerCursor(): Int =
+        prefs.getInt("autoServerCursor", 0).coerceAtLeast(0)
+
+    fun saveAutoServerCursor(cursor: Int) =
+        prefs.edit().putInt("autoServerCursor", cursor.coerceAtLeast(0)).apply()
+
+    // MARBLE_TRANSPORT_ADAPTATION_V203 — what each operator taught us, across restarts.
+    //
+    // The table is bounded twice: aged cells are dropped on read, and the newest cells win on
+    // write. A phone that roams across four operators a day writes four cells a day, and a
+    // year of that is still smaller than one subscription payload.
+    val transportMemoryLimit: Int get() = 96
+
+    fun loadTransportMemory(): Map<String, TransportMemoryRecord> {
+        val out = LinkedHashMap<String, TransportMemoryRecord>()
+        val root = runCatching { JSONObject(prefs.getString("transportMemory", "{}") ?: "{}") }
+            .getOrNull() ?: return out
+        for (key in root.keys()) {
+            val entry = runCatching { root.getJSONObject(key) }.getOrNull() ?: continue
+            val record = runCatching { TransportMemoryRecord.fromJson(entry) }.getOrNull() ?: continue
+            if (record.carrierId.isNotBlank()) out[key] = record
+        }
+        return TransportAdaptation.prune(out, System.currentTimeMillis())
+    }
+
+    fun saveTransportMemory(cells: Map<String, TransportMemoryRecord>) {
+        val pruned = TransportAdaptation.prune(cells, System.currentTimeMillis())
+        val out = JSONObject()
+        pruned.forEach { (key, record) -> out.put(key, record.toJson()) }
+        prefs.edit().putString("transportMemory", out.toString()).apply()
+    }
+
     // MARBLE_EXACT_LAST_PROFILE_V38
     fun lastProfileId(): String = prefs.getString("lastProfileId", "") ?: ""
     fun lastProfileSourceId(): String = prefs.getString("lastProfileSourceId", "") ?: ""
@@ -531,6 +573,18 @@ class AppStore(context: Context) {
         pingSpeedCustom = prefs.getBoolean("pingSpeedCustom", false),
         pingSpeedPercent = PingSpeed.percent(prefs.getInt("pingSpeedPercent", PingSpeed.DEFAULT_PERCENT)),
 
+        // MARBLE_PING_PARALLEL_V200 — the width is the device's by default. An install that
+        // already touched the chips (any value other than the old 16 default) keeps Manual, so
+        // upgrading never silently discards a number a user chose on purpose.
+        pingParallelMode = if (prefs.contains("pingParallelMode")) {
+            runCatching { PingParallelMode.valueOf(prefs.getString("pingParallelMode", "") ?: "") }
+                .getOrDefault(PingParallelMode.AUTO)
+        } else if (prefs.getInt("pingConcurrency", 16) != 16) {
+            PingParallelMode.MANUAL
+        } else {
+            PingParallelMode.AUTO
+        },
+
         nodeSortMode = enumValue("nodeSortMode", NodeSortMode.DEFAULT),
         nodeSortReverse = prefs.getBoolean("nodeSortReverse", false),
 
@@ -741,7 +795,34 @@ class AppStore(context: Context) {
         dockSlotShowStatusBadge = prefs.getBoolean("dockSlotShowStatusBadge", true),
 
         debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
-        expertMode = prefs.getBoolean("expertMode", false)
+        expertMode = prefs.getBoolean("expertMode", false),
+
+        // MARBLE_AUTO_SERVER_SELECTOR_V202 — the selector is opt-in, and the three "when may it
+        // act" switches default to the one place a sweep already produced fresh evidence: the end
+        // of a ping run. On-connect and on-failure stay off, because moving a route the user did
+        // not ask to move is the one thing this must never do by surprise.
+        autoServerSelectorEnabled = prefs.getBoolean("autoServerSelectorEnabled", false),
+        autoServerStrategy = parseAutoServerStrategy(
+            prefs.getString("autoServerStrategy", AutoServerStrategy.DEFAULT.id) ?: AutoServerStrategy.DEFAULT.id
+        ).id,
+        autoServerOnScan = prefs.getBoolean("autoServerOnScan", true),
+        autoServerOnConnect = prefs.getBoolean("autoServerOnConnect", false),
+        autoServerOnFailure = prefs.getBoolean("autoServerOnFailure", false),
+        autoServerScope = parseAutoServerScope(
+            prefs.getString("autoServerScope", AutoServerScope.DEFAULT.id) ?: AutoServerScope.DEFAULT.id
+        ).id,
+        autoServerSwitchMarginPercent = prefs.getInt("autoServerSwitchMarginPercent", 15)
+            .coerceIn(0, 100),
+
+        // MARBLE_TRANSPORT_ADAPTATION_V203 — learning is on; overriding the user's own fragment
+        // and Mux values is not, until they say so (AUTO is the default only because OFF would
+        // make the memory useless, and MANUAL keeps observing without ever overriding).
+        transportAdaptationEnabled = prefs.getBoolean("transportAdaptationEnabled", true),
+        transportProfileMode = parseTransportProfileMode(
+            prefs.getString("transportProfileMode", TransportProfileMode.DEFAULT.id)
+                ?: TransportProfileMode.DEFAULT.id
+        ).id,
+        transportAdaptationExplore = prefs.getBoolean("transportAdaptationExplore", true)
         )
     }
 
@@ -781,11 +862,15 @@ class AppStore(context: Context) {
         // MARBLE_PING_CONTROL_V145
         .putInt("pingTimeoutSec", PingBudget.timeoutSec(s.pingTimeoutSec))
         .putInt("pingSamples", PingBudget.samples(s.pingSamples))
-        .putInt("pingConcurrency", PingBudget.concurrency(s.pingConcurrency))
 
         // MARBLE_PING_SPEED_DIAL_V199 — the dial persists next to the budget it scales.
         .putBoolean("pingSpeedCustom", s.pingSpeedCustom)
         .putInt("pingSpeedPercent", PingSpeed.percent(s.pingSpeedPercent))
+
+        // MARBLE_PING_PARALLEL_V200 — who owns the sweep width. The chip persists either way so
+        // switching to Manual and back never loses the number the user had.
+        .putString("pingParallelMode", s.pingParallelMode.name)
+        .putInt("pingConcurrency", PingBudget.concurrency(s.pingConcurrency))
 
         .putString("nodeSortMode", s.nodeSortMode.name)
         .putBoolean("nodeSortReverse", s.nodeSortReverse)
@@ -970,6 +1055,20 @@ class AppStore(context: Context) {
 
         .putBoolean("debugModeEnabled", s.debugModeEnabled)
         .putBoolean("expertMode", s.expertMode)
+
+        // MARBLE_AUTO_SERVER_SELECTOR_V202
+        .putBoolean("autoServerSelectorEnabled", s.autoServerSelectorEnabled)
+        .putString("autoServerStrategy", s.autoServerStrategyEnum.id)
+        .putBoolean("autoServerOnScan", s.autoServerOnScan)
+        .putBoolean("autoServerOnConnect", s.autoServerOnConnect)
+        .putBoolean("autoServerOnFailure", s.autoServerOnFailure)
+        .putString("autoServerScope", s.autoServerScopeEnum.id)
+        .putInt("autoServerSwitchMarginPercent", s.autoServerSwitchMarginPercent.coerceIn(0, 100))
+
+        // MARBLE_TRANSPORT_ADAPTATION_V203
+        .putBoolean("transportAdaptationEnabled", s.transportAdaptationEnabled)
+        .putString("transportProfileMode", s.transportProfileModeEnum.id)
+        .putBoolean("transportAdaptationExplore", s.transportAdaptationExplore)
         .apply()
 
     /**

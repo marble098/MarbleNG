@@ -329,7 +329,18 @@ object SocksHttpClient {
         url: String,
         samples: Int,
         timeoutMs: Int,
-        spacingMs: Long = 0L
+        spacingMs: Long = 0L,
+        /**
+         * MARBLE_HOME_PING_SPEED_V200 — called once per sample, the moment it lands.
+         *
+         * The Home ping used to publish nothing until the last sample of the batch had been
+         * taken, its median computed and the result posted back to the main thread. On a
+         * three-sample run at the shipped 60 ms spacing that is three round trips plus two
+         * quiet gaps before the user sees a single digit, and the readout sat on "•••" the
+         * whole time. The number is real the instant the first response arrives — it is just
+         * not the final number yet — so it is published here and refined later.
+         */
+        onSample: ((Double) -> Unit)? = null
     ): TunnelRttBatch {
         val parsed = URL(url)
         require(parsed.protocol == "https" && parsed.host.isNotBlank() && parsed.userInfo == null) { "Real Delay requires an HTTPS URL" }
@@ -352,7 +363,8 @@ object SocksHttpClient {
                 val batch = tunnelRttBatch(port, host, path, samples - measured.size,
                     minOf(timeoutMs, left / (samples - measured.size)).coerceAtLeast(500),
                     targetPort = parsed.port.takeIf { it > 0 } ?: 443,
-                    spacingMs = gap)
+                    spacingMs = gap,
+                    onSample = onSample)
                 if (measured.isEmpty()) warmup = batch.warmupMs
                 measured += batch.samplesMs
             } catch (error: Exception) {
@@ -381,7 +393,9 @@ object SocksHttpClient {
         timeoutMs: Int = 8_000,
         targetPort: Int = 443,
         spacingMs: Long = 0L,
-        tlsFactory: SSLSocketFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
+        tlsFactory: SSLSocketFactory = SSLSocketFactory.getDefault() as SSLSocketFactory,
+        /** MARBLE_HOME_PING_SPEED_V200 — published per sample; see [tunnelRttBatchUrl]. */
+        onSample: ((Double) -> Unit)? = null
     ): TunnelRttBatch {
         require(port in 1..65535)
         require(host.isNotBlank())
@@ -526,7 +540,12 @@ object SocksHttpClient {
                     require(status == 200 || status == 204) { "Delay endpoint returned HTTP $status" }
 
                     val elapsed = (System.nanoTime() - started) / 1e6
-                    if (elapsed.isFinite() && elapsed > 0.0) measured += elapsed
+                    if (elapsed.isFinite() && elapsed > 0.0) {
+                        measured += elapsed
+                        // MARBLE_HOME_PING_SPEED_V200 — publish before the quiet gap, so the
+                        // first digit reaches the screen in one round trip instead of three.
+                        runCatching { onSample?.invoke(elapsed) }
+                    }
                     if (index == samples - 1 || headers["connection"]?.equals("close", true) == true) break
                     // TTFB/header time is the measurement. Body size/connection-close behavior
                     // only decides whether reuse is possible; it cannot erase a valid sample.

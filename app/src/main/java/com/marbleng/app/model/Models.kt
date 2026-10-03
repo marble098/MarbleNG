@@ -628,8 +628,22 @@ object PingBudget {
     /** Samples per server offered as one-tap choices. */
     val SAMPLE_CHOICES = listOf(1, 2, 3, 5, 8)
 
-    /** Parallel servers offered as one-tap choices. */
-    val CONCURRENCY_CHOICES = listOf(1, 2, 4, 8, 16, 32)
+    /**
+     * Parallel servers offered as one-tap choices.
+     *
+     * MARBLE_PING_PARALLEL_V200 — the old six were 1/2/4/8/16/32 and nothing else, so the only
+     * numbers between "my phone is melting" and "as wide as it gets" were powers of two. A
+     * six-core phone had no honest home in that list, and neither did a flagship: the ladder
+     * this product now computes recommends 10 for a quad-core and 20 for a sixteen-core, and
+     * neither number was selectable.
+     *
+     * The chips therefore contain every width [PingParallel.recommend] can produce on any
+     * device — including 10, 13 and 20, which are not round but are what the arithmetic
+     * actually asks for — plus the wide end for a user who would rather have the speed than
+     * the accuracy. [PingParallelTest] pins the containment in both directions, so widening
+     * the ladder without widening this list is a test failure, not a silent gap.
+     */
+    val CONCURRENCY_CHOICES = listOf(1, 2, 3, 4, 6, 8, 10, 12, 13, 16, 20, 24, 32, 48, 64)
 
     fun timeoutSec(value: Int): Int = value.coerceIn(TIMEOUT_MIN_SEC, TIMEOUT_MAX_SEC)
 
@@ -654,6 +668,168 @@ object PingBudget {
 
     fun perServerBudgetMs(timeoutSec: Int, samples: Int): Long =
         perServerBudgetMs(timeoutSec, samples, SAMPLE_SPACING_MS)
+}
+
+/**
+ * MARBLE_PING_PARALLEL_V200 — who decides how many servers a sweep measures at once.
+ *
+ * Until V200 the product shipped exactly one answer to a question that is really two: the
+ * "Servers at once" chips set a number, the speed dial then multiplied it, and the Real-delay
+ * path ignored both and used `min(cpus, 4) × dial` instead. So the knob existed but could not
+ * express the one thing the user actually knows — *how much CPU this phone has* — and the
+ * default was a guess made for a flagship.
+ *
+ * [AUTO] reads the device (core count and memory class), picks a width the device can carry,
+ * and keeps it current: the recommendation is recomputed, never persisted, so a user who
+ * upgrades phones is not stuck on the width their old one earned. [MANUAL] hands the dial
+ * back to the chips. Either way the value flows through [PingBudget.concurrency], so the legal
+ * 1..64 range still cannot be escaped.
+ */
+enum class PingParallelMode(val id: String) {
+    AUTO("auto"),
+    MANUAL("manual");
+
+    companion object {
+        val DEFAULT: PingParallelMode get() = AUTO
+    }
+}
+
+fun parsePingParallelMode(raw: String): PingParallelMode =
+    PingParallelMode.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().uppercase()) {
+            "DEVICE", "CPU", "DETECT", "AUTO_DETECT" -> PingParallelMode.AUTO
+            "FIXED", "USER", "CUSTOM", "CHIP" -> PingParallelMode.MANUAL
+            else -> PingParallelMode.DEFAULT
+        }
+
+/** How much parallel measurement one device can honestly carry. */
+enum class PingDeviceClass(val id: String) {
+    MODEST("modest"),
+    STANDARD("standard"),
+    CAPABLE("capable"),
+    STRONG("strong");
+
+    companion object {
+        val DEFAULT: PingDeviceClass get() = STANDARD
+    }
+}
+
+/**
+ * MARBLE_PING_PARALLEL_V200 — the width of one sweep, derived from the device that runs it.
+ *
+ * The whole object is pure and takes the device as arguments, because "how many cores does this
+ * phone have" is not a question a data class may answer on its own: a unit test must be able to
+ * ask what an eight-core 8 GB device gets without running on one.
+ *
+ * Three inputs, in descending authority:
+ *
+ *  - **cores** — the real limit. A measurement is one socket parked in a `connect()` for most
+ *    of its life, but each one still owns a thread, a file descriptor and (for Real delay) a
+ *    whole native core process, so a quad-core device running 32 of them is not measuring
+ *    faster, it is measuring *noisier*: every number in the batch is inflated by the other 31.
+ *  - **memory** — the second limit. Each in-flight measurement holds socket buffers, and the
+ *    native-child paths hold a process. A 1 GB device is demoted one class even when its core
+ *    count looks capable.
+ *  - **method** — Real delay spawns a throwaway core per server, so it pays a process per slot
+ *    where TCP ping pays a thread. Its width is two thirds of the direct sweep's.
+ *
+ * The result is always inside [PingBudget.CONCURRENCY_MIN]..[PingBudget.CONCURRENCY_MAX].
+ */
+object PingParallel {
+    const val MIN = PingBudget.CONCURRENCY_MIN
+    const val MAX = PingBudget.CONCURRENCY_MAX
+
+    /** A device reporting fewer cores than this is lying or exotic; one core is the floor. */
+    const val CORES_FLOOR = 1
+
+    /** Past this, more cores stop buying width: the sweep is limited by the network, not the CPU. */
+    const val CORES_CEILING = 16
+
+    /** Memory classes, in megabytes, as Android reports them. */
+    const val MEM_LOW_MB = 1_536L
+    const val MEM_MID_MB = 3_072L
+    const val MEM_HIGH_MB = 6_144L
+
+    /** The width a user gets who never opens the setting: a four-core phone's honest number. */
+    const val FALLBACK = 8
+
+    /**
+     * The device class a core count and a memory figure describe.
+     *
+     * Memory can demote a device by at most one class and never promotes one: a 2 GB
+     * sixteen-core handset is a real configuration, and it cannot carry sixteen measurements.
+     */
+    fun deviceClass(cores: Int, memoryMb: Long): PingDeviceClass {
+        val byCores = when (cores.coerceIn(CORES_FLOOR, 64)) {
+            1 -> PingDeviceClass.MODEST
+            2, 3 -> PingDeviceClass.STANDARD
+            4, 5 -> PingDeviceClass.CAPABLE
+            else -> PingDeviceClass.STRONG
+        }
+        val demote = memoryMb in 1..MEM_LOW_MB
+        return if (demote) {
+            when (byCores) {
+                PingDeviceClass.STRONG -> PingDeviceClass.CAPABLE
+                PingDeviceClass.CAPABLE -> PingDeviceClass.STANDARD
+                else -> PingDeviceClass.MODEST
+            }
+        } else {
+            byCores
+        }
+    }
+
+    /**
+     * The width one device should run, before the speed dial touches it.
+     *
+     * The ladder is deliberately gentle at the bottom and flat at the top. One and two core
+     * devices get 2 and 4 — enough to overlap a slow handshake or two without starving the
+     * frame clock — and everything past eight cores gets the same 16, because past that the
+     * sweep's wall clock is set by the network and by the remote end's patience, not by us.
+     */
+    fun recommend(cores: Int, memoryMb: Long, method: ProbeMethod): Int {
+        val c = cores.coerceIn(CORES_FLOOR, 64)
+        val base = when (deviceClass(c, memoryMb)) {
+            PingDeviceClass.MODEST -> if (c <= 1) 2 else 3
+            PingDeviceClass.STANDARD -> if (c <= 2) 4 else 6
+            PingDeviceClass.CAPABLE -> if (c <= 5) 10 else 12
+            PingDeviceClass.STRONG -> if (c < CORES_CEILING) 16 else 20
+        }
+        // Real delay pays a native process per slot; the direct sweep pays a thread.
+        val byMethod = if (method == ProbeMethod.REAL_DELAY) (base * 2) / 3 else base
+        return byMethod.coerceIn(MIN, MAX)
+    }
+
+    /**
+     * The width a sweep actually runs: the device's own number in [PingParallelMode.AUTO], the
+     * user's chip in [PingParallelMode.MANUAL].
+     */
+    fun resolve(
+        settings: AppSettings,
+        cores: Int,
+        memoryMb: Long,
+        method: ProbeMethod = settings.probeMethod
+    ): Int = when (settings.pingParallelMode) {
+        PingParallelMode.AUTO -> recommend(cores, memoryMb, method)
+        PingParallelMode.MANUAL -> PingBudget.concurrency(settings.pingConcurrency)
+    }
+
+    /** The number the AUTO row of the setting shows, i.e. what the device earned. */
+    fun autoFor(settings: AppSettings, cores: Int, memoryMb: Long): Int =
+        recommend(cores, memoryMb, settings.probeMethod)
+
+    /**
+     * One sentence for the setting's summary line: what the device is, and what it bought.
+     * Pure, so the UI and the diagnostics log say the same thing.
+     */
+    fun describe(cores: Int, memoryMb: Long, method: ProbeMethod): String {
+        val coresText = if (cores <= 1) "1 core" else "$cores cores"
+        val memText = when {
+            memoryMb <= 0L -> "memory unknown"
+            memoryMb >= 1_024L -> "${(memoryMb / 1_024L).coerceAtLeast(1L)} GB RAM"
+            else -> "$memoryMb MB RAM"
+        }
+        return "$coresText • $memText • ${recommend(cores, memoryMb, method)} at once"
+    }
 }
 
 /**
@@ -749,6 +925,21 @@ fun AppSettings.pingSpeedFactor(): Double = PingSpeed.factor(pingSpeedCustom, pi
  */
 fun AppSettings.pingWorkers(): Int =
     PingBudget.concurrency((pingConcurrency * pingSpeedFactor()).roundToInt())
+
+/**
+ * MARBLE_PING_PARALLEL_V200 — servers measured at the same time, resolved for this device and
+ * this method, at the dial's speed.
+ *
+ * This is the one width a sweep asks for. [PingParallelMode.AUTO] substitutes the device's own
+ * number for the chip, [PingParallelMode.MANUAL] keeps the chip, and the dial scales whichever
+ * won — so "16 at once" still means the same thing on every phone, but the *default* is no
+ * longer a flagship's guess on a four-core device. The result goes through
+ * [PingBudget.concurrency] exactly like a raw value.
+ */
+fun AppSettings.pingWorkers(cores: Int, memoryMb: Long, method: ProbeMethod = probeMethod): Int =
+    PingBudget.concurrency(
+        (PingParallel.resolve(this, cores, memoryMb, method) * pingSpeedFactor()).roundToInt()
+    )
 
 /**
  * MARBLE_PING_SPEED_DIAL_V199 — quiet time between two samples of one server, at the dial's
@@ -1041,6 +1232,107 @@ enum class AddressFamilyMode {
     FORCE_IPV6
 }
 
+/**
+ * MARBLE_AUTO_SERVER_SELECTOR_V202 — how the automatic server selector ranks a pool.
+ *
+ * The five are not five flavours of the same idea; they answer five different questions, and
+ * the product now lets the user pick which question to ask:
+ *
+ *  - [LEAST_PING]  "which route answers fastest right now" — the classic v2rayNG behaviour and
+ *    still the right answer on a link where latency is the whole story.
+ *  - [LEAST_LOAD]  "which route is least busy" — a fast node under load is slower tomorrow than
+ *    a slightly slower node that is idle, and on Iranian mobile links the difference between
+ *    40 ms and 70 ms matters far less than the difference between a node carrying three users
+ *    and one carrying three hundred.
+ *  - [ROUND_ROBIN] "spread the wear" — deterministic, and the only one of the five that is
+ *    independent of measurement, so it is also the honest choice when measurements are scarce.
+ *  - [RANDOM]      "do not let anyone build a profile" — spreads traffic and defeats per-node
+ *    throttling, at the cost of occasionally landing on the worst node in the pool.
+ *  - [SMART]       "weigh everything we have measured" — latency, jitter, loss, throughput,
+ *    recent failures, congestion-under-load and the age of the evidence, combined in
+ *    [com.marbleng.app.core.AutoServerSelector].
+ */
+enum class AutoServerStrategy(val id: String) {
+    LEAST_PING("least_ping"),
+    LEAST_LOAD("least_load"),
+    ROUND_ROBIN("round_robin"),
+    RANDOM("random"),
+    SMART("smart");
+
+    companion object {
+        val DEFAULT: AutoServerStrategy get() = SMART
+    }
+}
+
+fun parseAutoServerStrategy(raw: String): AutoServerStrategy =
+    AutoServerStrategy.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().uppercase()) {
+            "PING", "FASTEST", "LOW_LATENCY", "LOWEST_PING" -> AutoServerStrategy.LEAST_PING
+            "LOAD", "LEAST_BUSY", "LEAST_CONGESTED" -> AutoServerStrategy.LEAST_LOAD
+            "RR", "ROTATE", "ROTATION" -> AutoServerStrategy.ROUND_ROBIN
+            "RND", "SHUFFLE" -> AutoServerStrategy.RANDOM
+            "BEST", "AUTO", "BALANCED" -> AutoServerStrategy.SMART
+            else -> AutoServerStrategy.DEFAULT
+        }
+
+/** How wide the automatic selector's pool is. */
+enum class AutoServerScope(val id: String) {
+    /** Only the source currently shown on the Servers page. */
+    SOURCE("source"),
+    /** Every enabled server in the library. */
+    ALL("all");
+
+    companion object {
+        val DEFAULT: AutoServerScope get() = SOURCE
+    }
+}
+
+fun parseAutoServerScope(raw: String): AutoServerScope =
+    AutoServerScope.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().uppercase()) {
+            "SUB", "SUBSCRIPTION", "GROUP", "LIBRARY_SOURCE" -> AutoServerScope.SOURCE
+            "EVERYTHING", "GLOBAL", "ALL_SOURCES" -> AutoServerScope.ALL
+            else -> AutoServerScope.DEFAULT
+        }
+
+/**
+ * MARBLE_TRANSPORT_ADAPTATION_V203 — who chooses the fragment/Mux profile of a connection.
+ *
+ *  - [OFF]    the values in Settings are the values on the wire, exactly as before this existed.
+ *  - [AUTO]   the learned profile for the current operator and hour wins; the Settings values
+ *             become the starting point the learner improves on.
+ *  - [MANUAL] the learner keeps observing and remembering (so switching back to AUTO is
+ *             informed from day one) but never overrides what the user set.
+ */
+enum class TransportProfileMode(val id: String) {
+    OFF("off"),
+    AUTO("auto"),
+    MANUAL("manual");
+
+    companion object {
+        val DEFAULT: TransportProfileMode get() = AUTO
+    }
+}
+
+fun parseTransportProfileMode(raw: String): TransportProfileMode =
+    TransportProfileMode.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().uppercase()) {
+            "DISABLED", "NONE", "STATIC" -> TransportProfileMode.OFF
+            "LEARN", "ADAPTIVE", "LEARNING" -> TransportProfileMode.AUTO
+            "FIXED", "USER", "OVERRIDE" -> TransportProfileMode.MANUAL
+            else -> TransportProfileMode.DEFAULT
+        }
+
+/** Extension readers so the engine never parses a raw string twice. */
+val AppSettings.autoServerStrategyEnum: AutoServerStrategy
+    get() = parseAutoServerStrategy(autoServerStrategy)
+
+val AppSettings.autoServerScopeEnum: AutoServerScope
+    get() = parseAutoServerScope(autoServerScope)
+
+val AppSettings.transportProfileModeEnum: TransportProfileMode
+    get() = parseTransportProfileMode(transportProfileMode)
+
 // MARBLE_SMART_DEFAULTS_V14
 // MARBLE_ULTIMATE_DEBUG_SETTING_V15
 // MARBLE_INTELLIGENCE_V24
@@ -1127,13 +1419,27 @@ data class AppSettings(
     /** Samples measured per server; the published latency is their median (1..10). */
     val pingSamples: Int = 3,
     /**
-     * Servers measured in parallel during a sweep (1..64).
+     * Servers measured in parallel during a sweep (1..64), when [pingParallelMode] is MANUAL.
      *
      * 16 is the shipped compromise: wide enough that a large subscription finishes while the
      * user is still looking at it, narrow enough that the parallel handshakes do not distort
      * each other on a mobile link. Lower it (4, 2, 1) when accuracy matters more than speed.
+     *
+     * MARBLE_PING_PARALLEL_V200 — this is now the *manual* half of the dial. The shipped default
+     * is [PingParallelMode.AUTO], which measures the device (cores + memory class) and picks the
+     * width itself; the chip only takes over when the user asks for it, and it keeps whatever the
+     * user last chose so switching back and forth is not a reset.
      */
     val pingConcurrency: Int = 16,
+
+    /**
+     * MARBLE_PING_PARALLEL_V200 — who picks [pingConcurrency].
+     *
+     * AUTO (the default) derives it from the device every time a sweep starts, so a phone with
+     * four cores stops being handed a flagship's 16-way sweep and the inflated latencies that
+     * come with it. MANUAL restores the chips.
+     */
+    val pingParallelMode: PingParallelMode = PingParallelMode.AUTO,
 
     // MARBLE_PING_SPEED_DIAL_V199 — the speed dial the user owns. Off (the default) runs every
     // sweep at the shipped V199 speed: about 1.5× the V160 baseline, delivered as width and
@@ -1533,6 +1839,71 @@ data class AppSettings(
 
     /** Settings screen reveals the low-level Xray/tunnel controls. Persisted like any other choice. */
     val expertMode: Boolean = false,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARBLE_AUTO_SERVER_SELECTOR_V202 — the automatic server selector.
+    //
+    // Off by default and deliberately so: a client that silently moves the user's exit node is
+    // a privacy decision, not a convenience. Every strategy, when it is allowed to act, and how
+    // wide its pool is are separate switches because the three questions have three different
+    // answers per user. See [com.marbleng.app.core.AutoServerSelector].
+    // ─────────────────────────────────────────────────────────────────────────
+    /** Master switch: false leaves route choice entirely to the user. */
+    val autoServerSelectorEnabled: Boolean = false,
+    /** [com.marbleng.app.core.AutoServerStrategy] id: least_ping, least_load, round_robin, random, smart. */
+    val autoServerStrategy: String = AutoServerStrategy.SMART.id,
+    /** Pick a route automatically once a ping sweep finishes. */
+    val autoServerOnScan: Boolean = true,
+    /** Pick a route automatically when the user presses connect with no explicit choice. */
+    val autoServerOnConnect: Boolean = false,
+    /**
+     * Re-pick when the live route is measured as unusable.
+     *
+     * On by default, together with [autoServerOnScan]: those are the two moments where the
+     * selector acts *for* the user. [autoServerOnConnect] is off by default for the opposite
+     * reason — pressing connect on a server the user just tapped is an explicit choice, and a
+     * selector that overrides an explicit choice is not assistance.
+     */
+    val autoServerOnFailure: Boolean = true,
+    /** Whether the pool is the current source ([AutoServerScope.SOURCE]) or the whole library. */
+    val autoServerScope: String = AutoServerScope.SOURCE.id,
+    /**
+     * How much better a challenger must be before the selector leaves the current route, in
+     * percent. It exists so SMART cannot oscillate: a route that is 3 % worse in one sample is
+     * not a reason to drop a working tunnel.
+     */
+    val autoServerSwitchMarginPercent: Int = 15,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARBLE_TRANSPORT_ADAPTATION_V203 — fragment/Mux profiles that learn the operator.
+    //
+    // Filtering is not a constant: it is a behaviour of one operator, at one hour, on one link.
+    // These three switches are the consent for a system that remembers it. See
+    // [com.marbleng.app.core.TransportAdaptation].
+    // ─────────────────────────────────────────────────────────────────────────
+    /**
+     * Master switch: false keeps the fragment/Mux values exactly as the user left them, and
+     * observes nothing.
+     *
+     * It ships OFF. Not because learning is optional but because the alternative is a silent
+     * behaviour change: a learner switched on by default would turn fragmentation on for
+     * everyone whose operator reads as HEAVY, on their next connection, before they had ever
+     * been asked. The switch is the ask.
+     */
+    val transportAdaptationEnabled: Boolean = false,
+    /**
+     * [com.marbleng.app.core.TransportProfileMode] id: off, auto, manual.
+     *
+     * AUTO once the master switch is on: the mode is a sub-choice, not a second gate, so the
+     * user is never asked the same question twice. OFF is kept in the enum because a restored
+     * backup may carry it, and it must read as "off" rather than as a default.
+     */
+    val transportProfileMode: String = TransportProfileMode.AUTO.id,
+    /**
+     * Spend a bounded share of connections on an unproven profile so a filter that changed
+     * behaviour last Tuesday can be discovered before it becomes a week of red rows.
+     */
+    val transportAdaptationExplore: Boolean = true,
 
     /** Continuous non-blocking diagnostic export to Downloads/marbleng/report. */
     val debugModeEnabled: Boolean = false

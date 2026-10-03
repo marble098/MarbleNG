@@ -261,7 +261,9 @@ object RouteProbe {
         port: Int,
         timeoutMs: Int,
         samples: Int = 3,
-        settings: AppSettings = AppSettings()
+        settings: AppSettings = AppSettings(),
+        /** MARBLE_HOME_PING_SPEED_V200 — published per sample; see [measureUnified]. */
+        onSample: ((Double) -> Unit)? = null
     ): ProbeResult {
         if (host.isBlank() || port !in 1..65535) {
             return ProbeResult("TCP", UNREACHABLE, 0, samples, failureReason = "invalid-target")
@@ -281,6 +283,7 @@ object RouteProbe {
             val value = tcpConnect(host, port, timeoutMs, settings, resolved)
             if (value < UNREACHABLE) {
                 times += value
+                runCatching { onSample?.invoke(value) }
                 consecutiveFailures = 0
             } else {
                 consecutiveFailures += 1
@@ -1359,7 +1362,15 @@ object RouteProbe {
         tunnelPort: Int = 0,
         samples: Int = 3,
         timeoutMs: Int = 5000,
-        settings: AppSettings = AppSettings()
+        settings: AppSettings = AppSettings(),
+        /**
+         * MARBLE_HOME_PING_SPEED_V200 — called with every sample as it lands, in milliseconds.
+         *
+         * Optional everywhere, so the sweep (which publishes per *server*, not per sample) is
+         * untouched, and the one-shot Home ping can show a real number after one round trip
+         * instead of after the whole batch.
+         */
+        onSample: ((Double) -> Unit)? = null
     ): ProbeResult {
         if (AddressFamilyPolicy.excludedIpv6Endpoint(profile.host, settings)) {
             val label = when (method) {
@@ -1371,8 +1382,8 @@ object RouteProbe {
                 lossPercent = 100.0, failureReason = "ipv6-disabled")
         }
         return when (method) {
-            ProbeMethod.REAL_DELAY -> realDelay(profile, tunnelPort, timeoutMs, samples, settings)
-            ProbeMethod.TCP_PING -> tcpPing(profile, timeoutMs, samples, settings)
+            ProbeMethod.REAL_DELAY -> realDelay(profile, tunnelPort, timeoutMs, samples, settings, onSample)
+            ProbeMethod.TCP_PING -> tcpPing(profile, timeoutMs, samples, settings, onSample)
             ProbeMethod.URL_TEST -> urlTest(profile, timeoutMs, settings)
         }
     }
@@ -1394,7 +1405,8 @@ object RouteProbe {
         tunnelPort: Int,
         timeoutMs: Int,
         samples: Int,
-        settings: AppSettings = AppSettings()
+        settings: AppSettings = AppSettings(),
+        onSample: ((Double) -> Unit)? = null
     ): ProbeResult {
         // A naked TCP SYN proves neither the account nor the transport. It must not veto
         // a healthy REALITY/fronted/QUIC route or masquerade as a tunnel delay.
@@ -1404,7 +1416,7 @@ object RouteProbe {
                     METHOD_REAL_DELAY, UNREACHABLE, 0, PingBudget.samples(samples),
                     lossPercent = 100.0, failureReason = "no-live-tunnel"
                 )
-            return runCatching { hook(profile, timeoutMs, samples, settings) }.getOrElse {
+            return runCatching { hook(profile, timeoutMs, samples, settings, onSample) }.getOrElse {
                 if (it is InterruptedException) throw it
                 ProbeResult(
                     METHOD_REAL_DELAY, UNREACHABLE, 0, PingBudget.samples(samples),
@@ -1428,7 +1440,8 @@ object RouteProbe {
             timeoutMs = timeoutMs,
             samples = samples,
             urls = DelayTest.candidates(settings.delayTestUrl),
-            sampleSpacingMs = settings.pingSampleSpacingMs()
+            sampleSpacingMs = settings.pingSampleSpacingMs(),
+            onSample = onSample
         )
     }
 
@@ -1446,7 +1459,8 @@ object RouteProbe {
         profile: ProxyProfile,
         timeoutMs: Int,
         samples: Int,
-        settings: AppSettings = AppSettings()
+        settings: AppSettings = AppSettings(),
+        onSample: ((Double) -> Unit)? = null
     ): ProbeResult {
         if (!gateApplies(profile)) {
             return ProbeResult(
@@ -1459,7 +1473,8 @@ object RouteProbe {
             port = profile.port,
             timeoutMs = timeoutMs,
             samples = samples,
-            settings = settings
+            settings = settings,
+            onSample = onSample
         ).copy(method = METHOD_TCP_PING)
     }
 
@@ -1531,7 +1546,7 @@ object RouteProbe {
      * [realDelay] reporting `no-live-tunnel` exactly as it always did.
      */
     @Volatile
-    var realDelayHook: ((ProxyProfile, Int, Int, AppSettings) -> ProbeResult)? = null
+    var realDelayHook: ((ProxyProfile, Int, Int, AppSettings, ((Double) -> Unit)?) -> ProbeResult)? = null
 
     /**
      * True when a raw TCP handshake to the endpoint is meaningful for this profile — PattNG's own
@@ -1656,7 +1671,8 @@ object RouteProbe {
         // MARBLE_PING_SPEED_DIAL_V199 — the dial-driven quiet gap between this measurement's
         // samples (and between the two attempts of one silent origin). The default stays the
         // shipped spacing so every existing caller keeps its exact pace.
-        sampleSpacingMs: Long = PingBudget.SAMPLE_SPACING_MS
+        sampleSpacingMs: Long = PingBudget.SAMPLE_SPACING_MS,
+        onSample: ((Double) -> Unit)? = null
     ): ProbeResult =
         ProbeTargetWalk.realDelay(urls) { url ->
             tunnelHttpsMeasure(
@@ -1664,7 +1680,8 @@ object RouteProbe {
                 timeoutMs = timeoutMs,
                 samples = samples,
                 url = url,
-                sampleSpacingMs = sampleSpacingMs
+                sampleSpacingMs = sampleSpacingMs,
+                onSample = onSample
             )
         }.copy(method = METHOD_REAL_DELAY)
 
@@ -1680,7 +1697,8 @@ object RouteProbe {
         // MARBLE_PING_SPEED_DIAL_V199 — the quiet gap between samples of this batch and between
         // the two attempts of a silent origin. The default is the shipped spacing, so callers
         // that do not carry settings keep the exact V160 pace.
-        sampleSpacingMs: Long = PingBudget.SAMPLE_SPACING_MS
+        sampleSpacingMs: Long = PingBudget.SAMPLE_SPACING_MS,
+        onSample: ((Double) -> Unit)? = null
     ): ProbeResult {
         // MARBLE_PING_TRUTH_V147 — configured samples are the budget. The old 3-sample ceiling
         // made "samples per server" a suggestion for the real-tunnel path, and warm-up was kept
@@ -1733,7 +1751,8 @@ object RouteProbe {
                     url = url,
                     samples = rounds,
                     timeoutMs = budget,
-                    spacingMs = sampleSpacingMs
+                    spacingMs = sampleSpacingMs,
+                    onSample = onSample
                 )
             }.getOrNull()
             if (result != null) return@repeat

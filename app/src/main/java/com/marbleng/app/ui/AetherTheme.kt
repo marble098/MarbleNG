@@ -89,6 +89,16 @@ private data class AetherPalette(
     val barGlass: Color,
     val barGlassBorder: Color,
     val barGlassHighlight: Color,
+    // MARBLE_FLOATING_CHROME_V201 — tokens for a floating element as an *object*, not as a
+    // translucent film. Until V201 the only chrome tokens were the glass trio above, and every
+    // floating surface (the dock, the FAB, the source strip) was built by copying an accent at
+    // a hand-tuned alpha and hoping the pair read. Three things were simply missing: a body
+    // colour that is its own step of the surface ladder, a border that belongs to that body,
+    // and a *shadow colour* — the shadow was hard-coded `Color.Black`, which is the wrong hue
+    // for a navy/ice system and is why the light bar looked dirty rather than lifted.
+    val floatSurface: Color,
+    val floatBorder: Color,
+    val floatShadow: Color,
     val amethyst: Color,
     val amethystBright: Color,
     val cyan: Color,
@@ -155,6 +165,13 @@ private val LightPalette = AetherPalette(
     barGlass = Brand.White.copy(alpha = .94f),
     barGlassBorder = Brand.NavyDeep.copy(alpha = .16f).compositeOver(Brand.White),
     barGlassHighlight = Color.White.copy(alpha = .60f),
+    // MARBLE_FLOATING_CHROME_V201 — the light bar is a cool, near-white object one step above
+    // the page (#F4F8FD) and one step below the pure-white cards, so it separates from both
+    // instead of vanishing into whichever is behind it. Its shadow is deep navy, not black:
+    // a black shadow on an ice-blue surface reads as dirt.
+    floatSurface = Color(0xFFEDF3FB),
+    floatBorder = Brand.NavyDeep.copy(alpha = .14f).compositeOver(Color(0xFFEDF3FB)),
+    floatShadow = Color(0xFF0A1A33),
     amethyst = Brand.NavyDark,
     amethystBright = Brand.Electric,
     cyan = Brand.Electric,
@@ -185,6 +202,14 @@ private val DarkPalette = AetherPalette(
     barGlass = Color(0xD9000000),
     barGlassBorder = Brand.Ice.copy(alpha = .14f),
     barGlassHighlight = Brand.Ice.copy(alpha = .08f),
+    // MARBLE_FLOATING_CHROME_V201 — on an AMOLED floor the old bar was pure #000 with an
+    // ice hairline, which is invisible against the page: the bar had no body at all and only
+    // its content told you where it was. It now takes the same navy-lifted step a card takes
+    // (#0B111C), so the floating layer is a surface the eye can find while the page behind it
+    // stays true black.
+    floatSurface = Color(0xFF0B111C),
+    floatBorder = Brand.Ice.copy(alpha = .18f).compositeOver(Color(0xFF0B111C)),
+    floatShadow = Color.Black,
     amethyst = Brand.Electric,
     amethystBright = Brand.Bright,
     cyan = Brand.Bright,
@@ -232,6 +257,13 @@ private fun dynamicPhonePalette(scheme: androidx.compose.material3.ColorScheme, 
         } else {
             Color.White.copy(alpha = .55f).compositeOver(surface)
         },
+        // MARBLE_FLOATING_CHROME_V201 — a dynamic palette must answer the same three questions
+        // the brand ramp answers, or a wallpaper-derived theme paints a lavender bar with a
+        // shadow from a different colour family. The body is a container step of the *phone's*
+        // own ladder and the shadow is the scheme's ink, so the lift follows the wallpaper too.
+        floatSurface = if (dark) scheme.surfaceContainerHigh else scheme.surfaceContainer,
+        floatBorder = over(scheme.outlineVariant, if (dark) .70f else .60f),
+        floatShadow = scheme.onSurface,
         amethyst = scheme.secondary,
         amethystBright = scheme.tertiary,
         cyan = scheme.primary,
@@ -261,6 +293,12 @@ object Aether {
     val BarGlass: Color @Composable get() = LocalAetherPalette.current.barGlass
     val BarGlassBorder: Color @Composable get() = LocalAetherPalette.current.barGlassBorder
     val BarGlassHighlight: Color @Composable get() = LocalAetherPalette.current.barGlassHighlight
+    /** MARBLE_FLOATING_CHROME_V201 — the body of a floating element. */
+    val FloatSurface: Color @Composable get() = LocalAetherPalette.current.floatSurface
+    /** MARBLE_FLOATING_CHROME_V201 — the hairline that belongs to [FloatSurface]. */
+    val FloatBorder: Color @Composable get() = LocalAetherPalette.current.floatBorder
+    /** MARBLE_FLOATING_CHROME_V201 — the hue a floating element casts. */
+    val FloatShadow: Color @Composable get() = LocalAetherPalette.current.floatShadow
     val Amethyst: Color @Composable get() = LocalAetherPalette.current.amethyst
     val AmethystBright: Color @Composable get() = LocalAetherPalette.current.amethystBright
     val Cyan: Color @Composable get() = LocalAetherPalette.current.cyan

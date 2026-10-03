@@ -123,7 +123,7 @@ class ProbeTruthV156Test {
             assertEquals("no-live-tunnel", unhanded.failureReason)
 
             // With the hook the repository installs, the same call measures instead of refusing.
-            RouteProbe.realDelayHook = { _, _, _, _ ->
+            RouteProbe.realDelayHook = { _, _, _, _, _ ->
                 RouteProbe.ProbeResult(RouteProbe.METHOD_REAL_DELAY, 137.0, 100, 2)
             }
             val measured = RouteProbe.realDelay(profile, 0, 1000, 2, xray)
