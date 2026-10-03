@@ -18,6 +18,8 @@ import java.util.Locale
 import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -172,6 +174,45 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     // MARBLE_SMART_RANK_V90: debounce + single-flight gate for the Rank action, so a tap storm can
     // never re-run the whole preflight + benchmark pool (observed: 9 triggers in 7s, zero results).
     private val rankGate = SmartRankGate()
+
+    /*
+     * MARBLE_SETTINGS_WRITE_COALESCE_V206 — the settings writer.
+     *
+     * [AppStore.saveSettings] rebuilds a ~250-entry `SharedPreferences` editor: every key the
+     * product owns, coerced, formatted and put again. That is fine once; it is not fine nine
+     * times in nine hundred milliseconds, which is exactly what typing `100-200` into the
+     * Fragment length field costs, or what dragging the Mux concurrency slider costs at 60 Hz —
+     * on the main thread, while the field is animating its caret and the page is compositing.
+     *
+     * The fix is not "write less often" (a lost setting is worse than a slow one) — it is
+     * **write once per pause, off the main thread**:
+     *
+     *  • the in-memory settings update *immediately* and synchronously, so the UI is never a
+     *    frame behind what the user typed and nothing can be lost by navigating away;
+     *  • the disk write is scheduled on this single thread with a trailing debounce, so a burst
+     *    of keystrokes or a whole slider drag costs exactly one full rewrite;
+     *  • [flushSettings] forces the write now, and every caller that must not lose a value
+     *    (process death, an activity stopping, a connect) calls it.
+     *
+     * A trailing debounce means the last 400 ms of a burst live only in memory. That window is
+     * closed by [flushSettings] at every lifecycle exit and before every connect, and the
+     * settings object itself is already the value the whole app reads — so the disk copy is a
+     * persistence detail, not the source of truth inside a running process.
+     */
+    /**
+     * How long a burst of edits may stay in memory before it is written to disk.
+     *
+     * Long enough to swallow a fast typist and a whole slider drag, short enough that a
+     * process death inside the window costs one field and not a page of settings.
+     */
+    private val SETTINGS_WRITE_DEBOUNCE_MS = 400L
+
+    private val settingsWriter = Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, "marble-settings-writer").apply { isDaemon = true }
+    }
+    private val settingsWriteLock = Any()
+    private var settingsWritePending: AppSettings? = null
+    private var settingsWriteFuture: ScheduledFuture<*>? = null
 
     // Iran Mode scanning runs on its own thread so a detection sweep can never block or be blocked
     // by a user-visible task such as a subscription refresh.
@@ -2139,7 +2180,17 @@ fun resetTelemetry() {
         }
     }
 
-    fun updateSettings(v: AppSettings) {
+    /**
+     * Apply a new settings snapshot.
+     *
+     * @param coalesceWrite MARBLE_SETTINGS_WRITE_COALESCE_V206 — when true the in-memory change
+     *   is applied immediately and synchronously (the UI never lags a keystroke) while the disk
+     *   write is scheduled on the settings writer with a trailing debounce. Use it for every
+     *   control that produces a continuous stream of values: text fields, sliders, steppers.
+     *   Leave it false for a discrete decision (a switch, a preset, a mode) where the write is
+     *   once and the durability must be immediate.
+     */
+    fun updateSettings(v: AppSettings, coalesceWrite: Boolean = false) {
         val previous = settings
         val debugChanged = previous.debugModeEnabled != v.debugModeEnabled
         val familyChanged = previous.addressFamilyMode != v.addressFamilyMode ||
@@ -2168,7 +2219,7 @@ fun resetTelemetry() {
             dismissedUpdateTag = ""
         }
         ensureLibrarySourceSelectionValid()
-        store.saveSettings(settings)
+        if (coalesceWrite) scheduleSettingsWrite() else flushSettingsNow(settings)
         if (probeMethodDemoted) {
             diagnostics.event(
                 "BENCHMARK",
@@ -2202,6 +2253,86 @@ fun resetTelemetry() {
         notifier.ensureChannels()
         if (!v.smartNotificationsEnabled) notifier.cancelOptional()
         refreshIntelligenceStatus()
+    }
+
+    /**
+     * MARBLE_SETTINGS_WRITE_COALESCE_V206 — schedule the disk write of the current settings.
+     *
+     * Called on the thread that changed the settings (the main thread, from a field or a
+     * slider), and does nothing there but publish the snapshot and arm one delayed task. A
+     * second call while a task is armed only replaces the snapshot: the debounce is *trailing*,
+     * so a continuous drag produces one write when the finger lifts instead of one per frame.
+     */
+    private fun scheduleSettingsWrite() {
+        val snapshot = settings
+        synchronized(settingsWriteLock) {
+            settingsWritePending = snapshot
+            if (settingsWriteFuture != null) return
+            val writeTask = Runnable {
+                val pending = synchronized(settingsWriteLock) {
+                    val armed = settingsWritePending
+                    settingsWritePending = null
+                    settingsWriteFuture = null
+                    armed
+                }
+                if (pending != null) {
+                    runCatching { store.saveSettings(pending) }.onFailure { error ->
+                        // A swallowed write failure is a setting that silently reverts on the
+                        // next boot, with no trace anywhere.
+                        diagnostics.event(
+                            "SETTINGS", "coalesced-write-failed",
+                            "error" to (error.message ?: error.javaClass.simpleName)
+                        )
+                    }
+                }
+            }
+            settingsWriteFuture = settingsWriter.schedule(
+                writeTask,
+                SETTINGS_WRITE_DEBOUNCE_MS,
+                TimeUnit.MILLISECONDS
+            )
+        }
+    }
+
+    /**
+     * Write [v] to disk now, cancelling any armed debounce.
+     *
+     * The write happens outside the lock: [AppStore.saveSettings] is a disk-bound operation and
+     * the lock only guards the two bookkeeping fields, which are already consistent by the time
+     * it is released.
+     */
+    private fun flushSettingsNow(v: AppSettings) {
+        synchronized(settingsWriteLock) {
+            settingsWriteFuture?.cancel(false)
+            settingsWriteFuture = null
+            settingsWritePending = null
+        }
+        store.saveSettings(v)
+    }
+
+    /**
+     * MARBLE_SETTINGS_WRITE_COALESCE_V206 — write any settings that are still only in memory.
+     *
+     * Called at every point where losing the last 400 ms of a burst would be a bug rather than
+     * an optimisation: the activity stopping, a connect starting, an export of the settings.
+     * It is idempotent and cheap when there is nothing pending.
+     */
+    fun flushSettings() {
+        val pending = synchronized(settingsWriteLock) {
+            val snapshot = settingsWritePending
+            settingsWritePending = null
+            settingsWriteFuture?.cancel(false)
+            settingsWriteFuture = null
+            snapshot
+        }
+        if (pending != null) {
+            runCatching { store.saveSettings(pending) }.onFailure { error ->
+                diagnostics.event(
+                    "SETTINGS", "flush-failed",
+                    "error" to (error.message ?: error.javaClass.simpleName)
+                )
+            }
+        }
     }
 
     /**

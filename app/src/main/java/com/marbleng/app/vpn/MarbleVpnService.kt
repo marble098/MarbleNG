@@ -20,6 +20,7 @@ import com.marbleng.app.core.ConnectivityDiagnosticsObserver
 import com.marbleng.app.core.DataStallGuard
 import com.marbleng.app.core.ConfigBlockGuard
 import com.marbleng.app.core.HevTunnelPolicy
+import com.marbleng.app.core.HighJitterShield
 import com.marbleng.app.core.Ipv6FallbackLadder
 import com.marbleng.app.core.CoreConfigSuperset
 import com.marbleng.app.core.EgressObservationPolicy
@@ -346,6 +347,24 @@ class MarbleVpnService : VpnService() {
     @Volatile private var lastJitterOptimizerRequestAt = 0L
     @Volatile private var verifiedRttBackoffUntilMs = 0L
 
+    /**
+     * MARBLE_HIGH_JITTER_SHIELD_V206 — the second jitter instrument, living beside the
+     * hysteresis state machine rather than inside it.
+     *
+     * [JitterControlPolicy] answers "is this link degraded?" with one bit. The shield answers
+     * "how degraded, what does that cost to measure, and what should we do about it?" with a
+     * continuous level: a robust (IQR) jitter estimate graded against the link's own learned
+     * baseline, driving a probe cadence and burst that are bounded by a hard probes-per-minute
+     * budget. Both read the same samples; neither owns the other's state.
+     *
+     * The window is written and read only by the route monitor (the same thread that calls
+     * [sampleRouteLatency] and [shouldSampleRoute]); the plan is volatile because the monitor
+     * is restarted on every reconnect and the new thread must see the last plan immediately.
+     */
+    private val highJitterWindow = HighJitterShield.RobustWindow()
+    @Volatile private var highJitterShield = HighJitterShield.State()
+    @Volatile private var highJitterPlan: HighJitterShield.Plan? = null
+
     // MARBLE_JITTER_HYSTERESIS_V133 / MARBLE_TURBO_BACKOFF_V133 / MARBLE_EGRESS_EVIDENCE_V133 /
     // MARBLE_PATH_MTU_STABILITY_V133 — the four runtime state machines now live in pure policy
     // objects. The service owns only the current state value, so every transition is testable
@@ -580,6 +599,10 @@ class MarbleVpnService : VpnService() {
         routeQualityHoldSamples = 0
         jitterControlState = JitterControlPolicy.State()
         jitterControlActive = false
+        // MARBLE_HIGH_JITTER_SHIELD_V206 — the shield's baseline belongs to the link that was
+        // just left behind. A new session starts unlearned: it earns its own baseline from the
+        // first calm samples of the new route instead of inheriting the old one's verdict.
+        resetHighJitterShield()
         lastJitterOptimizerRequestAt = 0L
         turboBackoffState = TurboBackoffPolicy.State()
         resolverLogOffset = 0L
@@ -1820,7 +1843,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (!forced && !settings.liveTuningEnabled) return
 
         val quality = activeRouteQuality()
-        val jitterDegraded = jitterControlActive
+        // MARBLE_HIGH_JITTER_SHIELD_V206 — the tuner's urgency gate used to have one input:
+        // the hysteresis latch, which is a bit and therefore arrives late and leaves late. The
+        // shield's continuous level arrives as soon as the link starts to move, so a route
+        // turning bad between two latch transitions is still measured urgently.
+        val jitterDegraded = jitterControlActive ||
+            (highJitterPlan?.level ?: 0.0) >= HighJitterShield.DEGRADED_LEVEL
         val degraded = quality.samples >= 3 && (
             quality.latencyMs >= settings.liveTuningPingTriggerMs.coerceIn(80, 1200) ||
                 jitterDegraded
@@ -2251,10 +2279,89 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val throughput = repo.liveDownBps + repo.liveUpBps
         val cadence = when {
             throughput >= HEAVY_TRAFFIC_BPS -> ROUTE_HEAVY_PROBE_TICKS
-            jitterControlActive -> ROUTE_DEGRADED_PROBE_TICKS
-            else -> ROUTE_PROBE_INTERVAL_TICKS
+            else -> highJitterProbeCadenceTicks()
         }
         return tick > 0 && tick % cadence == 0
+    }
+
+    /**
+     * MARBLE_HIGH_JITTER_SHIELD_V206 — the probe cadence, as the shield computes it.
+     *
+     * The two instruments ask for the same thing from opposite directions and the answer is
+     * the tighter of the two: [JitterControlPolicy] shortens the interval to
+     * [ROUTE_DEGRADED_PROBE_TICKS] the moment it latches, while the shield shortens it
+     * *gradually* as its level rises — from [HighJitterShield.BASE_TICKS] down to
+     * [HighJitterShield.MIN_TICKS], with the probes-per-minute budget as the floor. Taking the
+     * minimum keeps the latch's instant reaction and adds the shield's proportionality; taking
+     * either one alone would either step or lag.
+     */
+    private fun highJitterProbeCadenceTicks(): Int {
+        val latched = if (jitterControlActive) ROUTE_DEGRADED_PROBE_TICKS else ROUTE_PROBE_INTERVAL_TICKS
+        val shield = highJitterPlan ?: return latched
+        return minOf(latched, shield.probeEveryTicks).coerceAtLeast(HighJitterShield.MIN_TICKS)
+    }
+
+    /** MARBLE_HIGH_JITTER_SHIELD_V206 — forget the shield's window and level. */
+    private fun resetHighJitterShield() {
+        highJitterWindow.clear()
+        highJitterShield = HighJitterShield.State()
+        highJitterPlan = null
+    }
+
+    /**
+     * MARBLE_HIGH_JITTER_SHIELD_V206 — fold one verified burst into the shield.
+     *
+     * Every sample of the burst is a sample: the burst exists precisely because one probe is
+     * not an estimate of a jittery path, and the shield's window is where that repetition is
+     * meant to accumulate.
+     *
+     * Two things come out of it. The verdict change is logged, because a mitigation the
+     * operator cannot see in the diagnostics export is a mitigation nobody can debug. And a
+     * sustained EXTREME verdict asks the optimizer for another route — through the same
+     * request flag the Home "rank" action uses, so the optimizer's own guards (cooldown,
+     * thermal budget, Identity Guard) still have the last word.
+     */
+    private fun observeHighJitter(session: String, samples: List<Int>) {
+        if (samples.isEmpty()) return
+        // One instant for the whole burst: the samples are ~45 ms apart and the shield only
+        // needs their order and spacing to decide whether the window is idle. It is the
+        // *monotonic* clock, because the wall clock jumps (NTP, carrier time, the user) and a
+        // backwards jump would be a negative interval — which is precisely the failure the
+        // shield refuses to take a clock for (see HighJitterShield, defect B).
+        val nowMs = android.os.SystemClock.elapsedRealtime()
+        val previousVerdict = highJitterShield.verdict
+        var state = highJitterShield
+        var plan: HighJitterShield.Plan? = null
+        for (sample in samples) {
+            val decision = HighJitterShield.observe(
+                sample = HighJitterShield.Sample(rttMs = sample.toDouble(), nowMs = nowMs),
+                state = state,
+                window = highJitterWindow
+            )
+            state = decision.state
+            plan = decision.plan
+        }
+        val settled = plan ?: return
+        highJitterShield = state
+        highJitterPlan = settled
+
+        if (settled.verdict != previousVerdict) {
+            diag.event(
+                "ROUTE", "jitter-shield-verdict",
+                "session" to session,
+                "from" to previousVerdict.name,
+                "to" to settled.verdict.name,
+                "detail" to HighJitterShield.describe(settled)
+            )
+        }
+        if (settled.requestRerank) {
+            optimizerScanRequested.set(true)
+            diag.event(
+                "ROUTE", "jitter-shield-rerank-requested",
+                "session" to session,
+                "detail" to HighJitterShield.describe(settled)
+            )
+        }
     }
 
     private fun resetJitterBaselineForProbeHost(nextHost: String) {
@@ -2410,8 +2517,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 )
             }.getOrDefault(-1)
 
-        fun measurePinnedBurst(host: String, firstSample: Int): List<Int> {
-            val values = ArrayList<Int>(LIVE_RTT_BURST_SAMPLES)
+        fun measurePinnedBurst(
+            host: String,
+            firstSample: Int,
+            burst: Int = LIVE_RTT_BURST_SAMPLES
+        ): List<Int> {
+            val wanted = burst.coerceIn(1, LIVE_RTT_BURST_SAMPLES)
+            val values = ArrayList<Int>(wanted)
 
             fun accept(value: Int): Boolean {
                 if (value <= 0) {
@@ -2427,7 +2539,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             }
 
             if (!accept(firstSample)) return values
-            while (values.size < LIVE_RTT_BURST_SAMPLES && isRouteCurrent(session, generation)) {
+            while (values.size < wanted && isRouteCurrent(session, generation)) {
                 try {
                     Thread.sleep(LIVE_RTT_BURST_GAP_MS)
                 } catch (_: InterruptedException) {
@@ -2439,13 +2551,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             return values
         }
 
-        fun measureDomainBurst(host: String, path: String): List<Int> =
+        fun measureDomainBurst(host: String, path: String, burst: Int = LIVE_RTT_BURST_SAMPLES): List<Int> =
             runCatching {
                 SocksHttpClient.tunnelRttBatch(
                     port = port,
                     host = host,
                     path = path,
-                    samples = LIVE_RTT_BURST_SAMPLES,
+                    samples = burst.coerceIn(1, LIVE_RTT_BURST_SAMPLES),
                     timeoutMs = LIVE_DOMAIN_RTT_TIMEOUT_MS
                 )
             }.getOrNull()
@@ -2455,6 +2567,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 .orEmpty()
 
         var host = jitterProbeHost
+        // MARBLE_HIGH_JITTER_SHIELD_V206 — the burst is the shield's, once the shield has an
+        // opinion. A calm link spends two probes per cycle instead of three; a jittery one
+        // spends three and gets them sooner. Before the first plan exists nothing is known, so
+        // the cycle measures as it always did rather than guessing small.
+        val probeBurst = highJitterPlan?.probeBurst ?: LIVE_RTT_BURST_SAMPLES
         var rttSamples = emptyList<Int>()
         val nowMs = System.currentTimeMillis()
 
@@ -2502,7 +2619,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             )
         }
         rttSamples = if (primarySample > 0) {
-            measurePinnedBurst(host, primarySample)
+            measurePinnedBurst(host, primarySample, probeBurst)
         } else {
             publishRollingOutcome(host, -1)
             emptyList()
@@ -2531,7 +2648,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     resetJitterBaselineForProbeHost(alternate)
                     host = alternate
                     routeQualityHoldSamples = PIVOT_QUALITY_MIN_SAMPLES
-                    rttSamples = measurePinnedBurst(alternate, alternateSample)
+                    rttSamples = measurePinnedBurst(alternate, alternateSample, probeBurst)
                     diag.event(
                         "ROUTE", "jitter-probe-pivot",
                         "session" to session,
@@ -2554,7 +2671,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     "Literal HTTPS RTT unavailable • verified domain probe " +
                         "${index + 1}/${domainTargets.size}"
                 )
-                val batch = measureDomainBurst(target.first, target.second)
+                val batch = measureDomainBurst(target.first, target.second, probeBurst)
                 if (batch.isEmpty()) continue
 
                 resetJitterBaselineForProbeHost(target.first)
@@ -2733,6 +2850,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "spikePercent" to link.spikePercent,
             "method" to "verified-https-ttfb-robust-ipdv-loss-tail"
         )
+
+        // MARBLE_HIGH_JITTER_SHIELD_V206 — the same verified burst also feeds the shield. It is
+        // deliberately downstream of the publication above: the honest measurement reaches the
+        // UI first, and only then does anything decide what to do about it.
+        observeHighJitter(session, rttSamples)
 
         repo.intelligence.recordLiveRoute(
             activeProfileId,
@@ -3031,6 +3153,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             // baseline, the acceleration backoff and the learned PMTU all belonged to the old link.
             jitterControlState = JitterControlPolicy.State()
             jitterControlActive = false
+            resetHighJitterShield()
             turboBackoffState = TurboBackoffPolicy.State()
             egressObservationState = EgressObservationPolicy.State()
             pathMtuState = PathMtuPolicy.State()

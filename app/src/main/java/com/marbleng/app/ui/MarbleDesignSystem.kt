@@ -88,10 +88,34 @@ internal enum class MarbleMetricBand {
     UNKNOWN, GOOD, WARNING, POOR
 }
 
+/**
+ * MARBLE_HOME_HEARTBEAT_PING_V206 — the product's green ceiling for a round-trip time.
+ *
+ * Below it a link is **green**, everywhere a ping is coloured: the header heartbeat, the status
+ * card, the live meter and the bento. Above it the colour walks amber (up to 250 ms) and then
+ * red.
+ *
+ * Why 160 and not the 100 this product used: 100 ms is a *ranking* threshold — it is the
+ * distance at which one server is meaningfully better than another, and it belongs to sorting.
+ * 160 ms is a *usability* threshold: roughly a TLS handshake plus one round trip inside a single
+ * VoLTE scheduling window. Above it interactive traffic starts to stutter — a page load visibly
+ * waits, a call begins stepping on itself. Below it, on the censored mobile links this product is
+ * built for, the link is simply **fine**, and painting "fine" in the colour the product uses for
+ * warnings is a lie about a connection that is working.
+ *
+ * Widening the band costs no information: every place that *orders* servers compares the raw
+ * measurements, not the grade. The grade only decides a colour, and a colour should answer the
+ * question the user is asking — "can I use this?" — not "did this win a race?".
+ */
+const val HOME_HEARTBEAT_GREEN_MAX_MS = 160
+
+/** Above green but not yet broken: the amber band ends here, and red begins past it. */
+const val HOME_HEARTBEAT_AMBER_MAX_MS = 250
+
 internal fun pingMetricBand(ms: Int): MarbleMetricBand = when {
     ms <= 0 -> MarbleMetricBand.UNKNOWN
-    ms < 100 -> MarbleMetricBand.GOOD
-    ms <= 250 -> MarbleMetricBand.WARNING
+    ms < HOME_HEARTBEAT_GREEN_MAX_MS -> MarbleMetricBand.GOOD
+    ms <= HOME_HEARTBEAT_AMBER_MAX_MS -> MarbleMetricBand.WARNING
     else -> MarbleMetricBand.POOR
 }
 
@@ -101,6 +125,18 @@ internal fun jitterMetricBand(ms: Int, samples: Int): MarbleMetricBand = when {
     ms <= 50 -> MarbleMetricBand.WARNING
     else -> MarbleMetricBand.POOR
 }
+
+/**
+ * The colour of the header heartbeat for one round-trip time.
+ *
+ * This is [pingMetricBand], not a second curve: a ping is green under
+ * [HOME_HEARTBEAT_GREEN_MAX_MS] on the header, on the status card and in the bento alike, and a
+ * second set of thresholds would eventually be a second opinion about what "green" means. An
+ * unmeasured link is muted rather than green — an unmeasured link is not a good link, it is an
+ * unknown one, and the heartbeat's whole job is to be honest about which is which.
+ */
+@Composable
+internal fun homeHeartbeatTone(ms: Int): Color = marbleMetricTone(pingMetricBand(ms))
 
 internal fun qualityMetricBand(score: Int): MarbleMetricBand = when {
     score < 0 -> MarbleMetricBand.UNKNOWN

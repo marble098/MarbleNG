@@ -134,6 +134,17 @@ class MainActivity : ComponentActivity() {
         app.repo.checkForAppUpdate()
     }
 
+    /**
+     * MARBLE_SETTINGS_WRITE_COALESCE_V206 — a coalesced settings write lives only in memory
+     * until its debounce fires. Stopping the activity is the moment the process becomes
+     * killable, so the pending write is forced here: a value the user typed and then left the
+     * screen for must be on disk, not in a 400 ms window.
+     */
+    override fun onStop() {
+        app.repo.flushSettings()
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         savedInstanceState?.getString(KEY_PENDING_PROFILE)?.let { id ->

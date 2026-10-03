@@ -252,6 +252,21 @@ files = {
     "gradle": read("app/build.gradle.kts"),
     "verify": workflow("verify.yml"),
     "updateCores": workflow("update-cores.yml"),
+    # MARBLE_HIGH_JITTER_SHIELD_V206 — the second jitter instrument: the robust estimator, the
+    # baseline-relative verdict and the cost-bounded measurement plan, plus the test that pins
+    # every claim made about them and the chapter that explains the four defects of the first cut.
+    "highJitterShield": read(
+        "app/src/main/java/com/marbleng/app/core/HighJitterShield.kt"
+    ),
+    "highJitterShieldTest": read(
+        "app/src/test/java/com/marbleng/app/core/HighJitterShieldTest.kt"
+    ),
+    "highJitterShieldDoc": read("docs/HIGH_JITTER_SHIELD_V206.md"),
+    # MARBLE_FRAGMENT_MUX_PAGE_V206 — the dedicated Fragment & Mux page and its chapter.
+    "fragmentMuxDoc": read("docs/FRAGMENT_MUX_PAGE_V206.md"),
+    # MARBLE_NOTIFICATION_CHANNELS_ONCE_V206 — the notifier is a production source too: it was
+    # rebuilt on every settings write, i.e. on every keystroke of every settings field.
+    "notifier": read("app/src/main/java/com/marbleng/app/core/SmartNotifier.kt"),
 }
 
 workflow_sources = "\n".join(
@@ -2942,6 +2957,165 @@ check(
     and "MARBLE_IME_HYGIENE_V197" in files["ime"]
     and "MARBLE_ROUTE_PROBE_MULTI_TARGET_V197" in files["vpn"]
     and "IPV6_TRUTH_LOCATION_AND_IME_V197.md" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_HIGH_JITTER_SHIELD_V206 / V207
+# ---------------------------------------------------------------------------
+# Very high jitter was handled by a mean that one packet destroys, a verdict that is a single
+# bit, thresholds that ignore what is normal for the link in front of us, and a response whose
+# cost grew with the severity. The shield replaces all four.
+check(
+    "V206 the high-jitter shield measures dispersion robustly and relative to the link",
+    "object HighJitterShield" in files["highJitterShield"]
+    # Robust dispersion: the IQR, not the mean (one packet moves it) and not the MAD (which is
+    # exactly zero on a link that alternates between two paths — defect E of the first cut).
+    and "IQR_TO_SIGMA" in files["highJitterShield"]
+    and "fun robustJitterMs()" in files["highJitterShield"]
+    and "SPIKE_IQR_FACTOR" in files["highJitterShield"]
+    # Relative to the link's own baseline, with an absolute floor for a link never seen calm.
+    and "BASELINE_SEED_MAX_MS" in files["highJitterShield"]
+    and "ABSOLUTE_CALM_MS" in files["highJitterShield"]
+    and "BASELINE_HEADROOM" in files["highJitterShield"],
+)
+check(
+    "V207 the shield's statistics are lazy, clock-free and allocation-free",
+    # Defect A: sorted inside add() meant O(n log n) per sample even when nobody read it.
+    "private fun recomputeIfNeeded()" in files["highJitterShield"]
+    and "var evaluations: Int = 0" in files["highJitterShield"]
+    # Defect B: the wall clock jumps; the caller owns the timestamp. Checked against the object
+    # body only — the chapter at the top of the file *names* the method it stopped using.
+    and "System.currentTimeMillis()" not in files["highJitterShield"].split(
+        "object HighJitterShield", 1
+    )[1]
+    and "nowMs: Long = sample.nowMs" in files["highJitterShield"]
+    # No allocation after construction: two arrays, allocated once.
+    and "private val ring: DoubleArray" in files["highJitterShield"]
+    and "private val scratch: DoubleArray" in files["highJitterShield"]
+    and "fun add(rttMs: Double)" in files["highJitterShield"],
+)
+check(
+    "V207 the mitigation is continuous, bounded and remembers nothing stale",
+    # Defect C: four fixed levels stepped the cadence by a third in one tick.
+    "ALPHA_ATTACK" in files["highJitterShield"]
+    and "ALPHA_RELEASE" in files["highJitterShield"]
+    and "MIN_HOLD_MS" in files["highJitterShield"]
+    # Defect D: an idle link stayed armed until the next reconnect.
+    and "IDLE_AFTER_MS" in files["highJitterShield"]
+    and "ALPHA_IDLE" in files["highJitterShield"]
+    # The cost of mitigation is capped: worse links may not be measured without limit.
+    and "MAX_PROBES_PER_MINUTE" in files["highJitterShield"]
+    and "fun budgetedTicks(" in files["highJitterShield"]
+    # One ladder for the burst, in the shield — not a copy of it in the test.
+    and "MIN_BURST" in files["highJitterShield"]
+    and "fun burstFor(level: Double): Int" in files["highJitterShield"],
+)
+check(
+    "V206 the shield is wired into the route monitor, not left on a shelf",
+    "HighJitterShield.RobustWindow()" in files["vpn"]
+    and "fun observeHighJitter(" in files["vpn"]
+    and "fun highJitterProbeCadenceTicks(" in files["vpn"]
+    and "fun resetHighJitterShield()" in files["vpn"]
+    and "HighJitterShield.DEGRADED_LEVEL" in files["vpn"]
+    and "jitter-shield-verdict" in files["vpn"]
+    and "jitter-shield-rerank-requested" in files["vpn"]
+    # The plan is not decoration: the probe burst the shield asks for is the one that runs.
+    and "highJitterPlan?.probeBurst" in files["vpn"],
+)
+check(
+    "V206 the shield's claims are pinned by tests and written down",
+    "class HighJitterShieldTest" in files["highJitterShieldTest"]
+    and "one stalled handshake does not move the robust jitter but destroys the mean"
+    in files["highJitterShieldTest"]
+    and "a bimodal window reads as jittery, not as perfectly smooth"
+    in files["highJitterShieldTest"]
+    and "the level attacks fast and releases slowly" in files["highJitterShieldTest"]
+    and "an idle link fades instead of staying armed" in files["highJitterShieldTest"]
+    and "the probe budget is never exceeded at any level" in files["highJitterShieldTest"]
+    and "statistics are recomputed once per change, not once per read or per sample"
+    in files["highJitterShieldTest"]
+    and "MARBLE_HIGH_JITTER_SHIELD_V206" in files["highJitterShieldDoc"]
+    and "HIGH_JITTER_SHIELD_V206.md" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_FRAGMENT_MUX_PAGE_V206
+# ---------------------------------------------------------------------------
+# Fragment & Mux used to be two cards with the same title, one of which silently overrode the
+# other; every keystroke in them rewrote all ~250 preferences and re-created the notification
+# channels on the main thread.
+check(
+    "V206 Fragment & Mux is one dedicated page with one door",
+    'const val TRANSPORT = "transport"' in files["ui"]
+    and "@Composable\nprivate fun SettingsTransportPage(" in files["ui"]
+    and "FragmentMuxEntryCard(repo)" in files["ui"]
+    and "fun fragmentMuxCardSubtitle(" in files["ui"]
+    # One subject, one copy of each: the two identically-titled cards are gone.
+    and files["ui"].count("FragmentMuxSettings(repo)") == 1
+    and files["ui"].count("TransportAdaptationSettings(repo)") == 1,
+)
+check(
+    "V206 the wire state is stated before the controls that produce it",
+    "@Composable\nprivate fun FragmentMuxWireCard(" in files["ui"]
+    and "fun transportLearnerOwnsWire(" in files["ui"]
+    and "transportAdaptationEnabled" in files["ui"],
+)
+check(
+    "V206 settings writes are coalesced instead of running once per keystroke",
+    "fun updateSettings(v: AppSettings, coalesceWrite: Boolean = false)" in files["repo"]
+    and "private fun scheduleSettingsWrite()" in files["repo"]
+    and "fun flushSettings()" in files["repo"]
+    and "SETTINGS_WRITE_DEBOUNCE_MS" in files["repo"]
+    # The one place a coalesced write must not be lost: the activity stopping.
+    and "app.repo.flushSettings()" in files["main"]
+    # And the fields that produce a stream of values ask for it.
+    and "coalesceWrite = true" in files["ui"],
+)
+check(
+    "V206 the notification channels are created once, not once per settings write",
+    # The channel table is a compile-time constant; rebuilding it per keystroke was four binder
+    # calls into system_server per character, on the main thread.
+    "MARBLE_NOTIFICATION_CHANNELS_ONCE_V206" in files["notifier"]
+    and "channelsEnsured" in files["notifier"]
+    and "if (channelsEnsured.get()) return" in files["notifier"]
+    and files["notifier"].count("manager.createNotificationChannels(") == 1,
+)
+check(
+    "V206 a Fragment value that cannot go on the wire says so",
+    "fun fragmentFieldError(" in files["ui"]
+    and "FRAGMENT_NUMERIC_FIELD" in files["ui"],
+)
+check(
+    "V206 the learner's memory is derived once per change, not once per recomposition",
+    "private const val TRANSPORT_MEMORY_ROWS" in files["ui"]
+    and "private data class TransportMemoryRow(" in files["ui"]
+    and "val memoryRows = remember(memory)" in files["ui"]
+    and "String.format(\n                                    java.util.Locale.US"
+    not in files["ui"],
+)
+check(
+    "V206 the Fragment & Mux chapter is written down",
+    "MARBLE_FRAGMENT_MUX_PAGE_V206" in files["fragmentMuxDoc"]
+    and "FRAGMENT_MUX_PAGE_V206.md" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_HOME_HEARTBEAT_PING_V206
+# ---------------------------------------------------------------------------
+# The header ping was a static zigzag that never changed with the measurement, coloured by the
+# bento's *ranking* band — which paints a perfectly usable 130 ms mobile link amber.
+check(
+    "V206 the Home header's ping is a heartbeat with its own green ceiling",
+    "HOME_HEARTBEAT_GREEN_MAX_MS" in files["design"]
+    and "fun homeHeartbeatTone(" in files["design"]
+    and "private fun HomeHeartbeatPingAction(" in files["homeStyles"]
+    and "private fun HomeHeartbeatTrace(" in files["homeStyles"]
+    and "fun heartbeatWave(" in files["homeStyles"]
+    # The animation rides the one shared frame clock the product already runs: no
+    # InfiniteTransition, no coroutine, no frame callback of its own.
+    and "val motion = MarbleMotion.current" in files["homeStyles"]
+    and "motion.loop(periodMs)" in files["homeStyles"]
+    and files["homeStyles"].count("MarbleMotion.current") >= 2,
 )
 
 production = "\n".join(

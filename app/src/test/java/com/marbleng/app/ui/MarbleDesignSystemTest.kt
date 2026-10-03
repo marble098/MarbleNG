@@ -7,15 +7,32 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class MarbleDesignSystemTest {
+    // MARBLE_HOME_HEARTBEAT_PING_V206 — the green ceiling moved from 100 ms to
+    // HOME_HEARTBEAT_GREEN_MAX_MS (160 ms). Below it a link is simply fine; 100 ms remains the
+    // distance at which one server is meaningfully better than another, but that is a sorting
+    // question and the grade is a colour, so the colour answers "can I use this?".
     @Test
     fun pingBandsFollowProductThresholds() {
         assertEquals(MarbleMetricBand.UNKNOWN, pingMetricBand(0))
         assertEquals(MarbleMetricBand.GOOD, pingMetricBand(1))
         assertEquals(MarbleMetricBand.GOOD, pingMetricBand(99))
-        assertEquals(MarbleMetricBand.WARNING, pingMetricBand(100))
-        assertEquals(MarbleMetricBand.WARNING, pingMetricBand(250))
-        assertEquals(MarbleMetricBand.POOR, pingMetricBand(251))
+        // The whole point of the change: a perfectly usable mobile link is green.
+        assertEquals(MarbleMetricBand.GOOD, pingMetricBand(100))
+        assertEquals(MarbleMetricBand.GOOD, pingMetricBand(140))
+        assertEquals(MarbleMetricBand.GOOD, pingMetricBand(HOME_HEARTBEAT_GREEN_MAX_MS - 1))
+        assertEquals(MarbleMetricBand.WARNING, pingMetricBand(HOME_HEARTBEAT_GREEN_MAX_MS))
+        assertEquals(MarbleMetricBand.WARNING, pingMetricBand(HOME_HEARTBEAT_AMBER_MAX_MS))
+        assertEquals(MarbleMetricBand.POOR, pingMetricBand(HOME_HEARTBEAT_AMBER_MAX_MS + 1))
         assertEquals(MarbleMetricBand.POOR, pingMetricBand(999))
+    }
+
+    @Test
+    fun theProductHasOneGreenCeilingForPing() {
+        // A second curve for the heartbeat would be a second opinion about what "green" means,
+        // so the heartbeat tone is the ping band, seen through the standard metric colours.
+        assertEquals(160, HOME_HEARTBEAT_GREEN_MAX_MS)
+        assertEquals(MarbleMetricBand.GOOD, pingMetricBand(159))
+        assertEquals(MarbleMetricBand.WARNING, pingMetricBand(160))
     }
 
     @Test

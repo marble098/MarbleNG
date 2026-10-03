@@ -10361,6 +10361,17 @@ private object SettingsPages {
     const val ROUTING = "routing"
 
     /**
+     * MARBLE_FRAGMENT_MUX_PAGE_V206 — Fragment & Mux has its own page.
+     *
+     * It used to be two cards inside Engine & tunnel *with the same title*: one held the
+     * fragment/Mux values, the other held the learner that overrides them. Two controls called
+     * "Fragment & Mux" is not a hierarchy, it is a guess-the-card game — and the two cards
+     * disagreed by construction, because the values the user typed in one were silently
+     * replaced by the other. One subject, one page.
+     */
+    const val TRANSPORT = "transport"
+
+    /**
      * MARBLE_DOCK_SLOT_V167 — the fourth tab's own customization page. It is a page rather than a
      * row of switches because the slot has a subject (which source, which config), a name its user
      * writes, and a glyph its user picks: that is a workspace, not a toggle.
@@ -12434,6 +12445,8 @@ private fun SpatialSettings(
     val languageListState = rememberLazyListState()
     val informationListState = rememberLazyListState()
     val routingListState = rememberLazyListState()
+    // MARBLE_FRAGMENT_MUX_PAGE_V206
+    val transportListState = rememberLazyListState()
     // MARBLE_DOCK_SLOT_V167
     val dockSlotListState = rememberLazyListState()
     // One scroll state per workspace tab; only the active tab's is shown at a time.
@@ -12453,6 +12466,9 @@ private fun SpatialSettings(
     LaunchedEffect(focusSection) {
         if (focusSection == "Routing") {
             page = SettingsPages.ROUTING
+        } else if (focusSection == SettingsPages.TRANSPORT) {
+            // MARBLE_FRAGMENT_MUX_PAGE_V206 — the same deep link the Routing entry uses.
+            page = SettingsPages.TRANSPORT
         } else if (focusSection == SettingsPages.DOCK_SLOT) {
             // MARBLE_DOCK_SLOT_V167 — the fourth tab's Customize entry is a focus value too, and
             // it lands on the slot's own page rather than the hub.
@@ -12522,6 +12538,14 @@ private fun SpatialSettings(
                 SettingsRoutingPage(
                     repo = repo,
                     listState = routingListState,
+                    onBack = { page = SettingsPages.HUB }
+                )
+
+            // MARBLE_FRAGMENT_MUX_PAGE_V206 — the dedicated Fragment & Mux workspace.
+            target == SettingsPages.TRANSPORT ->
+                SettingsTransportPage(
+                    repo = repo,
+                    listState = transportListState,
                     onBack = { page = SettingsPages.HUB }
                 )
 
@@ -12797,7 +12821,18 @@ private fun settingsSections(
                         InformationRow(trx("Last start error"), repo.coreStartError, Aether.Danger)
                     }
                 },
-                card("Fragment & Mux","DPI resilience",HomeIcon.SPARK,Aether.Amber) { FragmentMuxSettings(repo) },
+                // MARBLE_FRAGMENT_MUX_PAGE_V206 — this card was one of TWO cards named
+                // "Fragment & Mux" on this page (the other was the learner, six rows down).
+                // Both are now one dedicated page; the card is only the door, and it answers
+                // the question the page is about before it is opened.
+                card(
+                    "Fragment & Mux",
+                    fragmentMuxCardSubtitle(repo),
+                    HomeIcon.SPARK,
+                    Aether.Amber
+                ) {
+                    FragmentMuxEntryCard(repo) { onNavigate(SettingsPages.TRANSPORT) }
+                },
                 // MARBLE_SETTINGS_DEDUP_V193 — the two per-core option cards are one surface now.
                 // "Sniffing", "Allow LAN inbound", "HTTP inbound port", "Log level" and "TCP Fast
                 // Open" each existed twice — once under Xray, once under sing-box — describing the
@@ -12828,19 +12863,6 @@ private fun settingsSections(
                         ) { repo.setDelayTestUrl(DelayTest.URL) }
                     }
                 },
-                // MARBLE_TRANSPORT_ADAPTATION_V203 — fragment and Mux are the engine's own
-                // outbound knobs, so their learner lives beside the core options that used to
-                // be the only place they could be set.
-                card(
-                    "Fragment & Mux",
-                    if (repo.settings.transportAdaptationEnabled) {
-                        "Learning • ${repo.transportMemory.size} remembered"
-                    } else {
-                        "Off • your values only"
-                    },
-                    HomeIcon.SHIELD,
-                    Aether.Amethyst
-                ) { TransportAdaptationSettings(repo) }
             )
         }
         // MARBLE_BUGFINDER_HOME_V144 — Bug Finder is a runtime-diagnostics instrument, not an
@@ -13622,8 +13644,223 @@ private fun SplitTunnelSettings(repo:AppRepository){
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).kineticClickable(role=Role.Checkbox,onClick=onToggle).padding(horizontal=10.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(if(checked)Aether.Emerald.copy(alpha=.12f) else Aether.GlassStrong),contentAlignment=Alignment.Center){Text(app.label.trim().firstOrNull()?.uppercase()?:"•",color=if(checked)Aether.Emerald else Aether.InkMuted,style=MaterialTheme.typography.labelLarge)};Spacer(Modifier.width(11.dp));Column(Modifier.weight(1f)){Text(app.label,color=Aether.Ink,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis);Text(app.packageName,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)};Checkbox(checked,{onToggle()},colors=CheckboxDefaults.colors(checkedColor=Aether.Emerald,checkmarkColor=Aether.Void,uncheckedColor=Aether.GlassBorder))}
 }
 
+/**
+ * A single number, or a `min-max` range — the two shapes every Fragment field accepts.
+ *
+ * Compiled once at class-load instead of per keystroke: the validation below runs inside
+ * composition, and a `Regex` built from a literal in a composable is a fresh pattern object
+ * every time the page recomposes.
+ */
+private val FRAGMENT_NUMERIC_FIELD = Regex("""^\d+(-\d+)?$""")
+
+/**
+ * MARBLE_FRAGMENT_MUX_PAGE_V206 — the fields used to take anything and say nothing.
+ *
+ * A Fragment value is free text that the core parses at connect time. `1--3`, `abc` and
+ * `100-200-300` are all accepted by the UI, stored, and then silently ignored by the core —
+ * so the user sets fragmentation, watches nothing change on the wire, and concludes the
+ * feature does not work. A control that can hold an invalid value must be able to say so.
+ */
+private fun fragmentFieldError(packets: String, length: String, interval: String): String = when {
+    !packets.trim().equals("tlshello", ignoreCase = true) &&
+        !FRAGMENT_NUMERIC_FIELD.matches(packets.trim()) ->
+        "\"Packets\" must be tlshello or a range such as 1-3."
+    !FRAGMENT_NUMERIC_FIELD.matches(length.trim()) ->
+        "\"Length\" must be a number or a range, such as 100-200."
+    !FRAGMENT_NUMERIC_FIELD.matches(interval.trim()) ->
+        "\"Interval\" must be a number or a range, such as 10-20."
+    else -> ""
+}
+
+/** True when the learner, not the user, is choosing what goes on the wire. */
+private fun transportLearnerOwnsWire(settings: AppSettings): Boolean =
+    settings.transportAdaptationEnabled &&
+        settings.transportProfileModeEnum == TransportProfileMode.AUTO
+
+/** The one-line answer the Engine card and the dedicated page both print. */
+private fun fragmentMuxCardSubtitle(repo: AppRepository): String {
+    val s = repo.settings
+    return when {
+        !s.transportAdaptationEnabled -> "Your values • learner off"
+        transportLearnerOwnsWire(s) -> "Learning • ${repo.transportMemory.size} remembered"
+        else -> "Your values • learner observing"
+    }
+}
+
+/**
+ * MARBLE_FRAGMENT_MUX_PAGE_V206 — Settings › Fragment & Mux.
+ *
+ * What this page replaced, and why it had to be replaced:
+ *
+ *  1. **Two cards, one title.** Engine & tunnel carried *two* cards called "Fragment & Mux":
+ *     the values, and — six rows further down — the learner that overrides those values. Same
+ *     title, different subject, no way to tell them apart without opening both.
+ *  2. **The two cards contradicted each other.** The learner rewrites fragment and Mux on
+ *     every connect when it is in Automatic mode, so the numbers the user typed into the first
+ *     card were not the numbers on the wire — and nothing on either card said so.
+ *  3. **Performance: every keystroke rewrote every setting.** Each of the three Fragment
+ *     fields called `updateSettings` per character; that rebuilt a ~250-key
+ *     `SharedPreferences` editor, `apply()`d it, and re-created the notification channels — on
+ *     the main thread — nine times for `100-200`. Dragging the Mux concurrency slider did the
+ *     same at frame rate. Fixed at the source ([AppRepository.updateSettings]'s
+ *     `coalesceWrite`) and at the call site below.
+ *  4. **Performance: the memory list was rebuilt in composition.** `TransportAdaptationSettings`
+ *     sorted the whole transport map and ran `String.format` per row *during* composition, so
+ *     every recomposition of the card — each frame of each switch animation — re-sorted the
+ *     map and re-formatted eight rows on the UI thread. Fixed with a remembered derivation.
+ */
+@Composable
+private fun SettingsTransportPage(
+    repo: AppRepository,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState()
+) {
+    SettingsSubPage(
+        title = trx("Fragment & Mux"),
+        subtitle = trx("How packets are shaped and multiplexed"),
+        onBack = onBack,
+        listState = listState
+    ) {
+        // The answer first: what is on the wire right now, and who chose it. A settings page
+        // that opens with inputs instead of with the state those inputs produced makes the
+        // user infer the state — which is exactly how the two old cards read as contradictory.
+        FragmentMuxWireCard(repo)
+        SettingsHubCard(
+            title = trx("Learner"),
+            subtitle = if (repo.settings.transportAdaptationEnabled) {
+                trx("Measuring this operator")
+            } else {
+                trx("Off • your values only")
+            },
+            tone = Aether.Amethyst
+        ) {
+            TransportAdaptationSettings(repo)
+        }
+        SettingsHubCard(
+            title = trx("Values"),
+            subtitle = if (transportLearnerOwnsWire(repo.settings)) {
+                trx("Fallback when the learner has nothing yet")
+            } else {
+                trx("What goes on the wire")
+            },
+            tone = Aether.Amber
+        ) {
+            FragmentMuxSettings(repo)
+        }
+    }
+}
+
+/** What is on the wire right now — the fact the whole page is about. */
+@Composable
+private fun FragmentMuxWireCard(repo: AppRepository) {
+    val s = repo.settings
+    val decision = repo.lastTransportDecision
+    // Derived once per change, not once per frame: `pairFromSettings` walks both profile enums.
+    val pair = remember(s, decision) {
+        decision?.pair ?: TransportAdaptation.pairFromSettings(s)
+    }
+    val learnerOwns = transportLearnerOwnsWire(s)
+    PrismWell(
+        modifier = Modifier.fillMaxWidth(),
+        tone = if (learnerOwns) Aether.Amethyst else Aether.Amber,
+        selected = learnerOwns,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                trx("ON THE WIRE NOW"),
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "${pair.fragment.label} + ${pair.mux.label}",
+                color = Aether.Ink,
+                style = settingsRowTitleStyle(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                if (learnerOwns) {
+                    trx("Chosen by the learner for this operator and hour • the values below are its fallback")
+                } else {
+                    trx("Your values • the learner is only watching and remembering")
+                },
+                color = Aether.InkMuted,
+                style = settingsBodyStyle()
+            )
+            if (decision != null) {
+                Text(
+                    trx(decision.reason),
+                    color = Aether.InkFaint,
+                    style = settingsBodyStyle(),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+/** The door from Engine & tunnel: one card, one title, one destination. */
+@Composable
+private fun FragmentMuxEntryCard(
+    repo: AppRepository,
+    onOpen: () -> Unit
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(homeCloudInsetFill())
+            .border(1.dp, homeCloudInsetBorder(), shape)
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onOpen)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(Aether.Amber.copy(alpha = .12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            HomeVectorIcon(HomeIcon.SPARK, Aether.Amber, Modifier.size(20.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                trx("Open the Fragment & Mux workspace"),
+                color = Aether.Ink,
+                style = settingsRowTitleStyle(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                fragmentMuxCardSubtitle(repo),
+                color = if (transportLearnerOwnsWire(repo.settings)) {
+                    Aether.Amethyst
+                } else {
+                    Aether.InkMuted
+                },
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        HomeVectorIcon(HomeIcon.MORE, Aether.Amber, Modifier.size(18.dp))
+    }
+}
+
 @Composable
 private fun FragmentMuxSettings(repo: AppRepository) {
+    // MARBLE_SETTINGS_WRITE_COALESCE_V206 — every control below that produces a *stream* of
+    // values (the three text fields, the two steppers) commits with `coalesceWrite`: the
+    // in-memory settings update on the keystroke so the UI never lags, and the ~250-key
+    // preferences rewrite happens once, off the main thread, when the typing stops. The
+    // switches stay immediate — one tap, one write, and a switch is a decision worth
+    // persisting at once.
     SettingSwitch(
         title = "Adaptive Fragment",
         subtitle = "Try Fragment only after interference",
@@ -13652,25 +13889,46 @@ private fun FragmentMuxSettings(repo: AppRepository) {
                     value = repo.settings.fragmentPackets,
                     modifier = Modifier.weight(1f)
                 ) {
-                    repo.updateSettings(repo.settings.copy(fragmentPackets = it))
+                    repo.updateSettings(
+                        repo.settings.copy(fragmentPackets = it),
+                        coalesceWrite = true
+                    )
                 }
                 TinyField(
                     label = "Length",
                     value = repo.settings.fragmentLength,
                     modifier = Modifier.weight(1f)
                 ) {
-                    repo.updateSettings(repo.settings.copy(fragmentLength = it))
+                    repo.updateSettings(
+                        repo.settings.copy(fragmentLength = it),
+                        coalesceWrite = true
+                    )
                 }
                 TinyField(
                     label = "Interval",
                     value = repo.settings.fragmentInterval,
                     modifier = Modifier.weight(1f)
                 ) {
-                    repo.updateSettings(repo.settings.copy(fragmentInterval = it))
+                    repo.updateSettings(
+                        repo.settings.copy(fragmentInterval = it),
+                        coalesceWrite = true
+                    )
                 }
             }
 
-
+            // MARBLE_FRAGMENT_MUX_PAGE_V206 — say so when the values cannot go on the wire.
+            val fieldError = fragmentFieldError(
+                packets = repo.settings.fragmentPackets,
+                length = repo.settings.fragmentLength,
+                interval = repo.settings.fragmentInterval
+            )
+            if (fieldError.isNotBlank()) {
+                Text(
+                    trx(fieldError),
+                    color = Aether.Danger,
+                    style = settingsBodyStyle()
+                )
+            }
         }
     }
 
@@ -13687,10 +13945,16 @@ private fun FragmentMuxSettings(repo: AppRepository) {
     AnimatedVisibility(repo.settings.muxEnabled) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             NumberSetting("TCP concurrency", repo.settings.muxConcurrency, 1..128) {
-                repo.updateSettings(repo.settings.copy(muxConcurrency = it))
+                repo.updateSettings(
+                    repo.settings.copy(muxConcurrency = it),
+                    coalesceWrite = true
+                )
             }
             NumberSetting("XUDP concurrency", repo.settings.muxXudpConcurrency, 1..1024) {
-                repo.updateSettings(repo.settings.copy(muxXudpConcurrency = it))
+                repo.updateSettings(
+                    repo.settings.copy(muxXudpConcurrency = it),
+                    coalesceWrite = true
+                )
             }
 
             FlowRow(
@@ -15981,17 +16245,71 @@ private fun AutoServerSelectorSettings(repo: AppRepository) {
 }
 
 /**
- * MARBLE_TRANSPORT_ADAPTATION_V203 — Settings › Engine › Fragment & Mux.
+ * MARBLE_FRAGMENT_MUX_REMEMBER_V206 — how much of the learner's memory one page shows.
+ *
+ * The map is bounded at [TransportAdaptation.MAX_CELLS] cells; the page shows the most recent
+ * few, because a list of 96 operators is not a summary of anything.
+ */
+private const val TRANSPORT_MEMORY_ROWS = 8
+
+/**
+ * MARBLE_FRAGMENT_MUX_REMEMBER_V206 — one row of the learner's memory, already reduced to the
+ * values the row draws.
+ *
+ * Everything here is a `String` or an `Int` on purpose: the row's own composition does no
+ * formatting, no sorting and no enum lookup, so it can recompose as often as the page likes.
+ */
+private data class TransportMemoryRow(
+    val carrier: String,
+    val dayPart: String,
+    val fragment: String,
+    val mux: String,
+    val observations: Int,
+    val qualityPercent: Int,
+    val drifting: Boolean
+)
+
+/**
+ * MARBLE_TRANSPORT_ADAPTATION_V203 — the learner behind Fragment & Mux.
  *
  * The memory is shown, not hidden behind the switch: a user who can see that the product has
  * learned "MCI, evenings, skip-fragment chain" is a user who trusts it when it changes the
  * shape of their packets.
+ *
+ * MARBLE_FRAGMENT_MUX_PAGE_V206 — this card now lives on the dedicated Fragment & Mux page.
  */
 @Composable
 private fun TransportAdaptationSettings(repo: AppRepository) {
     val s = repo.settings
     val mode = s.transportProfileModeEnum
     val memory = repo.transportMemory
+    // MARBLE_FRAGMENT_MUX_REMEMBER_V206 — the rows are derived ONCE per change of the memory,
+    // not once per recomposition.
+    //
+    // This card used to call `memory.values.sortedByDescending { ... }.take(8)` and
+    // `String.format(Locale.US, ...)` directly in its body. Composition is not a place for
+    // either: the card recomposes on every frame of the switch's animation, on every keystroke
+    // anywhere on the page, and on every transport-memory write — each time re-sorting the map
+    // (up to [TransportAdaptation.MAX_CELLS] entries), re-parsing eight pair ids into profile
+    // enums, and running eight `Formatter` passes (which allocate a `Formatter`, a
+    // `StringBuilder` and a `DecimalFormatSymbols` each) on the UI thread. The derivation is
+    // pure and depends on one input, so the work belongs behind `remember(memory)`.
+    val memoryRows = remember(memory) {
+        memory.values
+            .sortedByDescending { it.updatedAtMs }
+            .take(TRANSPORT_MEMORY_ROWS)
+            .map { record ->
+                TransportMemoryRow(
+                    carrier = record.carrierId,
+                    dayPart = record.dayPart.name.lowercase().replaceFirstChar { it.uppercase() },
+                    fragment = record.pair.fragment.label,
+                    mux = record.pair.mux.label,
+                    observations = record.observations,
+                    qualityPercent = (record.scoreEwma * 100.0).toInt().coerceIn(0, 100),
+                    drifting = record.drift >= TransportAdaptation.DRIFT_THRESHOLD
+                )
+            }
+    }
 
     Text(
         trx("Filtering is not a constant: it belongs to one operator, at one hour, on one link. MarbleNG measures what each one does to fragmented and multiplexed traffic and remembers it."),
@@ -16078,29 +16396,19 @@ private fun TransportAdaptationSettings(repo: AppRepository) {
                     style = settingsBodyStyle()
                 )
             } else {
-                memory.values.sortedByDescending { it.updatedAtMs }.take(8).forEach { record ->
+                memoryRows.forEach { row ->
                     Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text(
-                            "${record.carrierId} • ${trx(record.dayPart.name.lowercase().replaceFirstChar { it.uppercase() })}",
+                            "${row.carrier} • ${trx(row.dayPart)}",
                             color = Aether.Ink,
                             style = settingsBodyStyle()
                         )
                         Text(
-                            "${record.pair.fragment.label} + ${record.pair.mux.label} • " +
-                                "${record.observations} " + trx("connections") +
-                                " • " + String.format(
-                                    java.util.Locale.US, "%.0f", record.scoreEwma * 100
-                                ) + "% " + trx("quality") +
-                                if (record.drift >= TransportAdaptation.DRIFT_THRESHOLD) {
-                                    " • " + trx("behaviour changed")
-                                } else {
-                                    ""
-                                },
-                            color = if (record.drift >= TransportAdaptation.DRIFT_THRESHOLD) {
-                                Aether.Amber
-                            } else {
-                                Aether.InkFaint
-                            },
+                            "${row.fragment} + ${row.mux} • ${row.observations} " +
+                                trx("connections") + " • ${row.qualityPercent}% " +
+                                trx("quality") +
+                                if (row.drifting) " • " + trx("behaviour changed") else "",
+                            color = if (row.drifting) Aether.Amber else Aether.InkFaint,
                             style = settingsBodyStyle()
                         )
                     }

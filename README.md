@@ -328,6 +328,25 @@ ever open (a surface that only looks like a text field was being handed an input
 field declared the event that ends one), and turns the probe's reactive target pivot into a race
 that hedges from the first sample of a cycle and lets a freshly cleared window earn its score back.
 
+`docs/HIGH_JITTER_SHIELD_V206.md` is the newest chapter. Very high jitter was being answered with
+a mean that one stalled packet destroys, a verdict that is a single bit, thresholds that ignore
+what is normal for the link in front of us, and a response whose cost grew with the severity. The
+shield replaces all four: dispersion is the interquartile range (robust to one packet, and — unlike
+the median absolute deviation — not zero on a link that alternates between two paths), the verdict
+is relative to a baseline the link earns while it is calm, the mitigation is one continuous level
+that attacks fast, releases slowly and holds after an escalation, and what it spends on extra
+probes is capped by a hard per-minute budget. The chapter also records the five defects found in
+the first cut of the shield itself and what each one became.
+
+`docs/FRAGMENT_MUX_PAGE_V206.md` is the chapter before it. Settings › Engine carried **two cards
+called "Fragment & Mux"** — the values, and the learner that silently overrode them — so the
+section is now one dedicated page that states what is on the wire and who chose it *before* the
+controls that produce it. The same chapter is a performance post-mortem: every keystroke in those
+fields used to rewrite all ~250 preferences and re-create every notification channel (four binder
+calls into `system_server`) on the main thread, and the learner's memory list was sorted and
+`String.format`-ed inside composition — so the writes are now coalesced off the main thread, the
+channels are built once per process, and the rows are derived once per change.
+
 ## Main navigation
 
 MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.
