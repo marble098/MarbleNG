@@ -2255,7 +2255,7 @@ private fun HomeModernPingAction(
     val shape = RoundedCornerShape(18.dp)
     Surface(
         shape = shape,
-        color = if (sweeping) Aether.Danger.copy(alpha = 0.14f) else Aether.Surface.copy(alpha = 0.35f),
+        color = if (sweeping) Aether.Danger.copy(alpha = 0.14f) else Aether.FloatSurface.copy(alpha = 0.35f),
         border = BorderStroke(
             1.dp,
             if (sweeping) Aether.Danger.copy(alpha = 0.40f) else pageTone.copy(alpha = 0.22f)

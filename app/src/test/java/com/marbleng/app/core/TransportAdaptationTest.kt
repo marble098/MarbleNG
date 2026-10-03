@@ -506,11 +506,6 @@ class TransportAdaptationTest {
     // ─── Ladder & Hierarchical Thompson Sampling ────────────────────────────────────────
 
     @Test
-    fun `diagnostic check standard streams forward`() {
-        println("::notice title=TEST_OUTPUT::Unit tests are executing under testDebugUnitTest!")
-    }
-
-    @Test
     fun `ladder is strictly ordered by strength from mild to aggressive`() {
         for (i in 0 until FragmentLadder.size - 1) {
             assertTrue(
