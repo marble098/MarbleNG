@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -250,11 +249,15 @@ fun ProtocolTile(
             // The "not verified" mark: the same rim, broken into dashes. A picture that admits it
             // is a guess is still a picture, and it costs the row no extra text to say so.
             Canvas(Modifier.matchParentSize()) {
+                // `size` in here is the tile's own Dp parameter: a parameter of the enclosing function
+                // wins over the draw scope's metric of the same name, exactly as [StatusDot] documents.
+                // The ring wants the canvas, so it names it.
+                val box = this.size
                 val strokeW = 1.dp.toPx()
                 drawCircle(
                     color = rim.copy(alpha = .58f),
-                    radius = ((size.minDimension - strokeW) / 2f).coerceAtLeast(1f),
-                    center = Offset(size.width / 2f, size.height / 2f),
+                    radius = ((box.minDimension - strokeW) / 2f).coerceAtLeast(1f),
+                    center = Offset(box.width / 2f, box.height / 2f),
                     style = Stroke(
                         width = strokeW,
                         pathEffect = PathEffect.dashPathEffect(
