@@ -317,59 +317,6 @@ tasks.withType<Test>().configureEach {
     }
 }
 
-// Preserve useful Gradle output on the check-run itself. Some CI clients cannot retrieve the raw
-// Actions log archive, so attach the actual failed task and its final diagnostics to the check.
-val marbleVerificationOutput = StringBuilder()
-val marbleCaptureOutput: (CharSequence) -> Unit = { text ->
-    synchronized(marbleVerificationOutput) {
-        marbleVerificationOutput.append(text)
-        if (marbleVerificationOutput.length > 200_000) {
-            marbleVerificationOutput.delete(0, marbleVerificationOutput.length - 200_000)
-        }
-    }
-}
-logging.addStandardOutputListener { text -> marbleCaptureOutput(text) }
-logging.addStandardErrorListener { text -> marbleCaptureOutput(text) }
-gradle.taskGraph.addTaskExecutionListener(
-    object : org.gradle.api.execution.TaskExecutionListener {
-        override fun beforeExecute(task: org.gradle.api.Task) = Unit
-
-        override fun afterExecute(
-            task: org.gradle.api.Task,
-            state: org.gradle.api.tasks.TaskState
-        ) {
-            val taskFailure = state.failure ?: return
-            val output = synchronized(marbleVerificationOutput) {
-                marbleVerificationOutput.toString()
-            }
-            val lines = output.lines()
-            val failureLine = Regex(
-                "(?i)(^e: |\\berror:|\\bfailed\\b|\\bfailure\\b|\\bexception\\b|" +
-                    "\\bcaused by\\b|unresolved reference|expecting|assertionerror|expected:|" +
-                    "actual:|but was|could not|what went wrong|there were failing tests)"
-            )
-            val matching = lines.indices.filter { failureLine.containsMatchIn(lines[it]) }
-            val excerpt = if (matching.isNotEmpty()) {
-                val selected = sortedSetOf<Int>()
-                matching.takeLast(35).forEach { index ->
-                    if (index > 0) selected += index - 1
-                    selected += index
-                    if (index + 1 < lines.size) selected += index + 1
-                }
-                selected.joinToString("\n") { index -> lines[index].take(400) }
-                    .takeLast(1_800)
-            } else {
-                output.takeLast(1_800)
-            }
-            val message = "${task.path} failed: ${taskFailure.message.orEmpty()}\n$excerpt"
-                .replace("%", "%25")
-                .replace("\r", "%0D")
-                .replace("\n", "%0A")
-            println("::error title=Gradle task failure::$message")
-        }
-    }
-)
-
 val prepareSingBoxRules by tasks.registering(Exec::class) {
     workingDir(rootProject.projectDir)
     commandLine("python3", "scripts/prepare-singbox-rules.py")
