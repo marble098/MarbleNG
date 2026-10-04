@@ -332,22 +332,28 @@ val marbleFailureReporters = marbleVerificationTasks.associateWith { taskName ->
             val output = synchronized(marbleVerificationOutput) {
                 marbleVerificationOutput.toString()
             }
-            val failed = listOf(
-                " FAILED",
-                "e: ",
-                "Compilation error",
-                "There were failing tests",
-                "Execution failed for task",
-                "Could not resolve",
-                "Could not find",
-                "FAILURE: Build failed"
-            ).any(output::contains)
-            if (failed) {
-                val message = output.takeLast(16_000)
+            val lines = output.lines()
+            val failureLine = Regex(
+                "(?i)(^e: |\\berror\\b|\\bfailed\\b|\\bfailure\\b|\\bexception\\b|" +
+                    "\\bcaused by\\b|unresolved reference|expecting|assertion|expected:|" +
+                    "actual:|but was|could not|what went wrong|there were failing tests)"
+            )
+            val matching = lines.indices.filter { failureLine.containsMatchIn(lines[it]) }
+            if (matching.isNotEmpty()) {
+                val selected = sortedSetOf<Int>()
+                matching.takeLast(35).forEach { index ->
+                    if (index > 0) selected += index - 1
+                    selected += index
+                    if (index + 1 < lines.size) selected += index + 1
+                }
+                val excerpt = selected.joinToString("\n") { index ->
+                    lines[index].take(400)
+                }.takeLast(2_200)
+                val message = "$taskName:\n$excerpt"
                     .replace("%", "%25")
                     .replace("\r", "%0D")
                     .replace("\n", "%0A")
-                println("::error title=Gradle verification output::$message")
+                println("::error title=Gradle verification failure::$message")
             }
         }
     }
