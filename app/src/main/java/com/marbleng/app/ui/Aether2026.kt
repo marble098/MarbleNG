@@ -109,8 +109,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -541,6 +542,13 @@ fun Aether2026App(
         // batch state and the group label, never through a top-of-page overlay.
         onPingGroup = {
             repo.pingHomeGroup()
+        },
+        // MARBLE_HOME_ROUTE_PING_V210 — the header's pulse and the split control's second disc
+        // both ask about the one server on screen. While a tunnel is up that is the live route
+        // (measured through the tunnel, which is the only honest answer to "is my connection
+        // alive?"); while it is down it is the selected route, measured at its endpoint.
+        onPingRoute = {
+            repo.measureHomePing()
         }
     )
 
@@ -9645,8 +9653,11 @@ private fun DockPulseLiveCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            // MARBLE_HOME_ONE_PING_V208 — the fourth tab's ping pill runs the same single verb
-            // the Home header runs: measure the group the route on screen belongs to.
+            // MARBLE_HOME_ROUTE_PING_V210 — the pill beside a named server no longer shares the
+            // Home verb. The header pulse, the split control's second disc and the Atelier's
+            // corrective row all measure the ROUTE, because each sits on a page showing one
+            // server; this page is the one door left that sweeps the SUBSCRIPTION behind it, and
+            // its label now says so instead of promising one thing and measuring another.
             Row(
                 modifier = Modifier
                     .clip(ServersPillShape)
@@ -9662,7 +9673,7 @@ private fun DockPulseLiveCard(
             ) {
                 HomeVectorIcon(HomeIcon.PING, tone, Modifier.size(14.dp))
                 Text(
-                    trx("Ping"),
+                    trx("Ping group"),
                     color = tone,
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
                 )
@@ -11257,28 +11268,60 @@ private fun SettingsVersionPreview(tone: Color) {
 // ---------------------------------------------------------------------------------------------
 
 @Composable
+/**
+ * MARBLE_SETTINGS_SECTIONS_V210 — the hub is a tree: main sections, each holding its own named
+ * sub-sections, each closable from its own header.
+ *
+ * What this replaced is written up in `ui/MarbleSettingsSections.kt`. In short: six cards of
+ * equal weight, each a flat column of rows, with nothing on the page saying how they related —
+ * so a user looking for the typeface had to know it lived under Appearance, and a user who never
+ * touches the engine had no way to put it away.
+ *
+ * The rewrite keeps every row the old hub had and files it under a parent:
+ *
+ *  - **a main section** ([SettingsHubGroupSpec]) is a tone-lit card with an icon, a title and a
+ *    chevron. Tapping the header closes it, and the state is remembered for the visit;
+ *  - **a sub-section** ([SettingsHubSectionSpec]) is an inset card with its own name and rail
+ *    inside that parent. This is the depth the page was missing: "Theme", "Navigation" and
+ *    "Language & text" are visibly children of Appearance, not three more equal cards;
+ *  - **the header's Expand/Collapse all** is how the tree is used rather than admired — a user
+ *    who lives in Appearance closes the other five in one tap.
+ *
+ * Nothing here decides *which* sections exist: that is [settingsHubGroups], immediately below.
+ */
+@Composable
 private fun SettingsHub(
     repo: AppRepository,
     onNavigate: (String) -> Unit,
+    collapsed: Set<String>,
+    onToggleGroup: (String) -> Unit,
+    onExpandAll: () -> Unit,
+    onCollapseAll: () -> Unit,
     listState: LazyListState = rememberLazyListState()
 ) {
-    val t = Tr.now
-    val settings = repo.settings
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the hub cascades: arriving from a page turn or back from
-    // a sub-page, its five cards follow the header one stagger step apart. The window disarms
+    // MARBLE_EXPRESSIVE_MOTION_V186 — the hub cascades: arriving from a page turn or back from a
+    // sub-page, its section cards follow the header one stagger step apart. The window disarms
     // itself, so the restored scroll position (V117) lands on fully-settled cards and nothing
     // animates under a scrolling thumb.
     val entranceArmed = rememberMarbleEntranceWindow()
-    val activeTheme = parseAppTheme(settings.theme)
-    val activeStyle = parseHomeStyle(settings.homeStyle)
-    val activeFont = parseAppFont(settings.fontFamily)
-    val activeLanguage = parseAppLanguage(settings.appLanguage)
     val backupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri -> if (uri != null) repo.writeBackup(uri) }
     val restoreLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> if (uri != null) repo.restoreBackup(uri) }
+
+    // The two file actions are passed down as verbs: the tree below is a description of the page,
+    // and a description that owns an ActivityResultLauncher is a description that cannot be read.
+    val groups = settingsHubGroups(
+        repo = repo,
+        onNavigate = onNavigate,
+        onBackup = { backupLauncher.launch("marbleng-backup.json") },
+        onRestore = { restoreLauncher.launch(arrayOf("application/json", "text/plain")) }
+    )
+    val keys = groups.map { it.key }
+    val openCount = SettingsHubPolicy.openCount(collapsed, keys)
+    val allOpen = SettingsHubPolicy.allOpen(collapsed, keys)
 
     // MARBLE_SETTINGS_RESTORE_V117 — the hub owns its scroll so coming back from a sub-page lands
     // exactly where you left it instead of reshooting to the top.
@@ -11296,261 +11339,607 @@ private fun SettingsHub(
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         item(key = "hub-header") {
-            // MARBLE_SETTINGS_HUB_TRIM_V163 — the title stands alone. The "Everything in one
-            // page" line and the version stamp under it were removed on request; the version
-            // still lives on the Information page where it belongs.
-            MarbleCompactTopBar(title = "Settings")
+            // MARBLE_SETTINGS_HUB_TRIM_V163 — the title stands alone; the version lives on the
+            // Information page. The one line under it now reports the tree's own state, and the
+            // action is the whole tree's, not a single section's.
+            MarbleCompactTopBar(
+                title = "Settings",
+                subtitle = if (allOpen) {
+                    trx("All sections open")
+                } else {
+                    "$openCount / ${groups.size} " + trx("sections open")
+                },
+                actionLabel = if (allOpen) trx("Collapse all") else trx("Expand all"),
+                actionIcon = HomeIcon.CHEVRON,
+                onAction = { if (allOpen) onCollapseAll() else onExpandAll() }
+            )
         }
 
-        // MARBLE_SETTINGS_HIERARCHY_V192 — the flat "Most used" / "Essentials" shelves are
-        // gone: every control now lives inside the parent card of the surface it changes, and
-        // the hub reads as six parents in the order the user reads their phone — what Home
-        // shows, how traffic is routed, the engine underneath, where the data lives, how it
-        // looks, and the system around it.
-        // ------------------------------------------------ Home & display
-        item(key = "hub-home") {
-            SettingsHubCard(
-                modifier = Modifier.marbleStaggerIn(1, enabled = entranceArmed()),
-                title = t.categoryHome,
-                subtitle = null,
-                tone = Aether.Cyan
-            ) {
-                // The four Home presentations at a glance — the quick pick stays with the
-                // surface it changes instead of on a "most used" shelf.
-                SettingsStyleMiniRow(repo)
-                SettingSwitch(
-                    title = "Live speed on Home",
-                    subtitle = "Download and upload while connected",
-                    checked = settings.homeSpeedWidgetEnabled
-                ) { repo.updateSettings(repo.settings.copy(homeSpeedWidgetEnabled = it)) }
-                // MARBLE_SESSION_USAGE_V192 — the per-connection data readout: the live total
-                // while connected, the last session's total when disconnected.
-                SettingSwitch(
-                    title = "Show data usage",
-                    subtitle = "Current and previous session",
-                    checked = settings.homeShowDataUsage
-                ) { repo.updateSettings(repo.settings.copy(homeShowDataUsage = it)) }
-                // MARBLE_ROUTE_ATELIER_V207 — "a full-screen breathing glow says nothing about the
-                // connection, so its cost has to be a choice". One switch for every ambient surface:
-                // the backdrop, the status pip's rings and the heartbeat trace all hold still, and
-                // nothing they report changes. Colors, gradients and hairlines stay exactly as they are.
-                SettingSwitch(
-                    title = "Ambient page motion",
-                    subtitle = "Pause decorative motion",
-                    checked = settings.homeAmbientBackdrop
-                ) { repo.updateSettings(repo.settings.copy(homeAmbientBackdrop = it)) }
-                // MARBLE_SERVER_LOCATION_V192 — each server's country is verified once, in the
-                // background, then remembered; the flags fill the circles on every surface.
-                SettingSwitch(
-                    title = "Auto-detect server locations",
-                    subtitle = "",
-                    checked = settings.serverLocationAutoDetect
-                ) { repo.updateSettings(repo.settings.copy(serverLocationAutoDetect = it)) }
-                SettingsHubRow(
+        // MARBLE_SETTINGS_SECTIONS_V210 — one item per MAIN section; its sub-sections are drawn
+        // inside it, so collapsing a parent removes them from the list in one motion instead of
+        // leaving orphaned rows behind.
+        groups.forEachIndexed { index, group ->
+            item(key = "hub-group-${group.key}") {
+                SettingsHubGroupCard(
+                    group = group,
+                    expanded = SettingsHubPolicy.isOpen(collapsed, group.key),
+                    onToggle = { onToggleGroup(group.key) },
+                    modifier = Modifier.marbleStaggerIn(index + 1, enabled = entranceArmed())
+                )
+            }
+        }
+    }
+}
+
+/**
+ * MARBLE_SETTINGS_SECTIONS_V210 — what the hub's six main sections are, and what each holds.
+ *
+ * The order is the order a user reads their phone: what the connection page shows, the tunnel
+ * itself, the measurements that judge servers, the data behind them, how it all looks, and the
+ * system around it.
+ */
+@Composable
+private fun settingsHubGroups(
+    repo: AppRepository,
+    onNavigate: (String) -> Unit,
+    onBackup: () -> Unit,
+    onRestore: () -> Unit
+): List<SettingsHubGroupSpec> {
+    val t = Tr.now
+    val settings = repo.settings
+    val activeTheme = parseAppTheme(settings.theme)
+    val activeStyle = parseHomeStyle(settings.homeStyle)
+    val activeFont = parseAppFont(settings.fontFamily)
+    val activeLanguage = parseAppLanguage(settings.appLanguage)
+
+    /** One sub-section of the tree. */
+    fun section(
+        title: String,
+        subtitle: String = "",
+        content: @Composable () -> Unit
+    ): SettingsHubSectionSpec = SettingsHubSectionSpec(title, subtitle, content)
+
+    return listOf(
+        // ------------------------------------------------------------ Home & display
+        SettingsHubGroupSpec(
+            key = "home",
+            title = t.categoryHome,
+            subtitle = "The presentation of the connection page and what it shows",
+            tone = Aether.Cyan,
+            icon = { tone -> HomeVectorIcon(HomeIcon.MODE, tone, Modifier.size(19.dp)) },
+            sections = listOf(
+                section(
                     title = t.homeStyleTitle,
-                    subtitle = homeStyleLabel(activeStyle),
-                    tone = Aether.Cyan,
-                    onClick = { onNavigate(SettingsPages.HOME_STYLE) }
-                ) { SettingsStyleMotif(activeStyle, Aether.Cyan, Modifier.size(width = 34.dp, height = 20.dp)) }
-            }
-        }
-
-        // ------------------------------------------------ Connection & routing
-        item(key = "hub-connection") {
-            SettingsHubCard(
-                modifier = Modifier.marbleStaggerIn(2, enabled = entranceArmed()),
-                title = t.categoryConnection,
-                subtitle = null,
-                tone = Aether.Emerald
-            ) {
-                SettingsHubRow(
-                    title = "Network & routing",
-                    subtitle = "${trx("DNS, split tunnel and geo rules")} • ${
-                        // The same four words the Routing page itself uses, so the hub preview and
-                        // the page can never disagree about which mode is active.
-                        trx(
-                            when (settings.routingMode) {
-                                RoutingMode.PROXY_ALL -> "Proxy all"
-                                RoutingMode.BYPASS_PRIVATE -> "Private direct"
-                                RoutingMode.GEO_DIRECT -> "Geo direct"
-                                RoutingMode.CUSTOM -> "Custom"
-                            }
-                        )
-                    }",
-                    tone = Aether.Emerald,
-                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.NETWORK)) }
-                ) { SettingsRoutingPreview(Aether.Emerald) }
-                SettingsHubRow(
-                    title = "Tests & ranking",
-                    subtitle = "Ping, speed and smart ranking",
-                    tone = Aether.Cyan,
-                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.TESTS)) }
-                ) { SettingsTestPreview(Aether.Cyan) }
-                SettingSwitch(
-                    title = "Connect to best after scan",
-                    subtitle = "Connect after a completed scan",
-                    checked = settings.autoConnectBestAfterScan
-                ) { repo.updateSettings(repo.settings.copy(autoConnectBestAfterScan = it)) }
-            }
-        }
-
-        // ------------------------------------------------ Engine
-        item(key = "hub-engine") {
-            SettingsHubCard(
-                modifier = Modifier.marbleStaggerIn(3, enabled = entranceArmed()),
-                title = t.categoryEngine,
-                subtitle = null,
-                tone = Aether.Amber
-            ) {
-                // MARBLE_SETTINGS_DEDUP — one door owns the whole engine surface, and it still
-                // names the running core on the title line (MARBLE_CORE_NAME_IN_SETTINGS_V160)
-                // before the page is opened.
-                SettingsHubRow(
-                    title = "Engine & tunnel",
-                    subtitle = "Core switch, Xray, sing-box, fragment and mux",
-                    tone = Aether.Amber,
-                    badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
-                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.ENGINE)) }
-                ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amber, Modifier.size(22.dp)) }
-            }
-        }
-
-        // ------------------------------------------------ Data & sources
-        item(key = "hub-data") {
-            SettingsHubCard(
-                modifier = Modifier.marbleStaggerIn(4, enabled = entranceArmed()),
-                title = t.categoryData,
-                subtitle = null,
-                tone = Aether.CyanBright
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    subtitle = "Which of the five presentations Home uses"
                 ) {
-                    CyberButton(
-                        label = "Back up",
-                        color = Aether.Cyan,
-                        icon = HomeIcon.DETAILS,
-                        compact = true,
-                        modifier = Modifier.weight(1f)
-                    ) { backupLauncher.launch("marbleng-backup.json") }
-                    CyberButton(
-                        label = "Restore",
-                        color = Aether.Amethyst,
-                        icon = HomeIcon.RESET,
-                        compact = true,
-                        modifier = Modifier.weight(1f)
-                    ) { restoreLauncher.launch(arrayOf("application/json", "text/plain")) }
+                    // The four Home presentations at a glance — the quick pick stays with the
+                    // surface it changes instead of on a "most used" shelf.
+                    SettingsStyleMiniRow(repo)
+                    SettingsHubRow(
+                        title = t.homeStyleTitle,
+                        subtitle = homeStyleLabel(activeStyle),
+                        tone = Aether.Cyan,
+                        onClick = { onNavigate(SettingsPages.HOME_STYLE) }
+                    ) { SettingsStyleMotif(activeStyle, Aether.Cyan, Modifier.size(width = 34.dp, height = 20.dp)) }
+                },
+                section(
+                    title = trx("Home widgets"),
+                    subtitle = "Live readouts on the connection page"
+                ) {
+                    SettingSwitch(
+                        title = "Live speed on Home",
+                        subtitle = "Download and upload while connected",
+                        checked = settings.homeSpeedWidgetEnabled
+                    ) { repo.updateSettings(repo.settings.copy(homeSpeedWidgetEnabled = it)) }
+                    // MARBLE_SESSION_USAGE_V192 — the per-connection data readout: the live total
+                    // while connected, the last session's total when disconnected.
+                    SettingSwitch(
+                        title = "Show data usage",
+                        subtitle = "Current and previous session",
+                        checked = settings.homeShowDataUsage
+                    ) { repo.updateSettings(repo.settings.copy(homeShowDataUsage = it)) }
+                    // MARBLE_ROUTE_ATELIER_V207 — "a full-screen breathing glow says nothing about
+                    // the connection, so its cost has to be a choice". One switch for every
+                    // ambient surface: the backdrop, the status pip's rings and the heartbeat
+                    // trace all hold still, and nothing they report changes.
+                    SettingSwitch(
+                        title = "Ambient page motion",
+                        subtitle = "Pause decorative motion",
+                        checked = settings.homeAmbientBackdrop
+                    ) { repo.updateSettings(repo.settings.copy(homeAmbientBackdrop = it)) }
                 }
-            }
-        }
+            )
+        ),
 
-        // MARBLE_SETTINGS_DEDUP — "General & servers" used to live here AND as "General" in the
-        // System card below, both doors opening the same page. One door stays: the System card,
-        // next to the other app-level titles it belongs with.
-
-        // ------------------------------------------------ Appearance
-        item(key = "hub-appearance") {
-            SettingsHubCard(
-                modifier = Modifier.marbleStaggerIn(5, enabled = entranceArmed()),
-                title = t.categoryAppearance,
-                subtitle = null,
-                tone = Aether.Amethyst
-            ) {
-                // The quick theme pick moves with its parent card: the mini grid stays one tap
-                // away, the full previews stay on the Theme page.
-                SettingsThemeMiniRow(repo)
-                SettingsHubRow(
-                    title = "Theme",
-                    subtitle = when (activeTheme) {
-                        AppTheme.SYSTEM -> "Follow device"
-                        AppTheme.LIGHT -> "Daylight"
-                        AppTheme.DARK -> "Pure black"
-                        AppTheme.PHONE_DYNAMIC -> t.themeDynamic
-                    },
-                    tone = Aether.Amethyst,
-                    onClick = { onNavigate(SettingsPages.THEME) }
+        // ------------------------------------------------------------ Connection
+        SettingsHubGroupSpec(
+            key = "connection",
+            title = t.categoryConnection,
+            subtitle = "The tunnel, what it carries and when it starts",
+            tone = Aether.Emerald,
+            icon = { tone -> HomeVectorIcon(HomeIcon.TUNNEL, tone, Modifier.size(19.dp)) },
+            sections = listOf(
+                section(
+                    title = trx("Engine"),
+                    subtitle = "Which core builds the tunnel"
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        listOf(Aether.VoidElevated, Color.White, Aether.Amethyst).forEach { dot ->
-                            Box(
-                                Modifier
-                                    .size(9.dp)
-                                    .clip(CircleShape)
-                                    .background(dot)
-                                    .border(1.dp, Aether.GlassBorderSoft, CircleShape)
+                    // MARBLE_SETTINGS_DEDUP — one door owns the whole engine surface, and it still
+                    // names the running core on the title line (MARBLE_CORE_NAME_IN_SETTINGS_V160)
+                    // before the page is opened.
+                    SettingsHubRow(
+                        title = "Engine & tunnel",
+                        subtitle = "Core switch, Xray, sing-box, fragment and mux",
+                        tone = Aether.Amber,
+                        badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
+                        onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.ENGINE)) }
+                    ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amber, Modifier.size(22.dp)) }
+                },
+                section(
+                    title = trx("Routing"),
+                    subtitle = "Which traffic goes through the tunnel"
+                ) {
+                    SettingsHubRow(
+                        title = "Network & routing",
+                        subtitle = "${trx("DNS, split tunnel and geo rules")} • ${
+                            // The same four words the Routing page itself uses, so the hub preview
+                            // and the page can never disagree about which mode is active.
+                            trx(
+                                when (settings.routingMode) {
+                                    RoutingMode.PROXY_ALL -> "Proxy all"
+                                    RoutingMode.BYPASS_PRIVATE -> "Private direct"
+                                    RoutingMode.GEO_DIRECT -> "Geo direct"
+                                    RoutingMode.CUSTOM -> "Custom"
+                                }
+                            )
+                        }",
+                        tone = Aether.Emerald,
+                        onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.NETWORK)) }
+                    ) { SettingsRoutingPreview(Aether.Emerald) }
+                },
+                section(
+                    title = trx("Automatic connect"),
+                    subtitle = "When MarbleNG connects without being asked"
+                ) {
+                    SettingSwitch(
+                        title = "Connect to best after scan",
+                        subtitle = "Connect after a completed scan",
+                        checked = settings.autoConnectBestAfterScan
+                    ) { repo.updateSettings(repo.settings.copy(autoConnectBestAfterScan = it)) }
+                }
+            )
+        ),
+
+        // ------------------------------------------------------------ Measurement & servers
+        SettingsHubGroupSpec(
+            key = "measurement",
+            title = trx("Measurement & servers"),
+            subtitle = "How servers are judged and drawn",
+            tone = Aether.Amber,
+            icon = { tone -> HomeVectorIcon(HomeIcon.BENCHMARK, tone, Modifier.size(19.dp)) },
+            sections = listOf(
+                section(
+                    title = trx("Ping & ranking"),
+                    subtitle = "The measurement every server is judged by"
+                ) {
+                    SettingsHubRow(
+                        title = "Tests & ranking",
+                        subtitle = "Ping, speed and smart ranking",
+                        tone = Aether.Cyan,
+                        onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.TESTS)) }
+                    ) { SettingsTestPreview(Aether.Cyan) }
+                },
+                section(
+                    title = trx("Server library"),
+                    subtitle = "Where servers come from and how they are drawn"
+                ) {
+                    // MARBLE_SERVER_LOCATION_V192 — each server's country is verified once, in the
+                    // background, then remembered; the flags fill the circles on every surface.
+                    SettingSwitch(
+                        title = "Auto-detect server locations",
+                        subtitle = "",
+                        checked = settings.serverLocationAutoDetect
+                    ) { repo.updateSettings(repo.settings.copy(serverLocationAutoDetect = it)) }
+                    // MARBLE_SERVER_TILE_LAYOUT_V208 — one preference for both lists: how a single
+                    // server is drawn on the Servers page and in the Home server box.
+                    SettingsHubRow(
+                        title = "Server cards",
+                        subtitle = serverLayoutSubtitle(repo.settings),
+                        tone = Aether.Amethyst,
+                        onClick = {
+                            onNavigate(
+                                SettingsPages.workspace(
+                                    SettingsWorkspaceTab.GENERAL,
+                                    "Server cards"
+                                )
                             )
                         }
-                    }
+                    ) { HomeVectorIcon(HomeIcon.SERVER, Aether.Amethyst, Modifier.size(22.dp)) }
                 }
-                // MARBLE_DOCK_SLOT_V167 — the fourth tab of the bar is the user's, so the hub
-                // answers "what is in it right now?" before the page is even opened.
-                SettingsHubRow(
-                    title = "Fourth tab",
-                    subtitle = dockSlotSettingsSubtitle(
-                        settings,
-                        dockSlotTarget(repo, parseDockSlotKind(settings.dockSlotKind))
-                    ),
-                    tone = dockSlotAccentTone(parseDockSlotAccent(settings.dockSlotAccent)),
-                    onClick = { onNavigate(SettingsPages.DOCK_SLOT) }
-                ) {
-                    SettingsDockSlotPreview(
-                        icon = parseDockSlotIcon(settings.dockSlotIcon),
-                        enabled = settings.dockSlotEnabled,
-                        tone = dockSlotAccentTone(parseDockSlotAccent(settings.dockSlotAccent)),
-                        showStatusBadge = settings.dockSlotShowStatusBadge,
-                        badgeTone = dockSlotStateTone(repo.state)
-                    )
-                }
-                SettingsHubRow(
-                    title = "Typeface",
-                    subtitle = activeFont.label,
-                    tone = Aether.Emerald,
-                    onClick = { onNavigate(SettingsPages.TYPEFACE) }
-                ) { SettingsTypefacePreview(settings.fontFamily, Aether.Emerald) }
-                SettingsHubRow(
-                    title = t.languageTitle,
-                    subtitle = when (activeLanguage) {
-                        AppLanguage.SYSTEM -> t.languageSystemDetail
-                        AppLanguage.ENGLISH -> "English"
-                        AppLanguage.PERSIAN -> "فارسی"
-                    },
-                    tone = Aether.Amber,
-                    onClick = { onNavigate(SettingsPages.LANGUAGE) }
-                ) { SettingsLanguagePreview(Aether.Amber) }
-            }
-        }
+            )
+        ),
 
-        // ------------------------------------------------ System & privacy
-        item(key = "hub-system") {
-            SettingsHubCard(
-                modifier = Modifier.marbleStaggerIn(6, enabled = entranceArmed()),
-                title = t.categorySystem,
-                subtitle = null,
-                tone = Aether.SlateBright
-            ) {
-                SettingsHubRow(
-                    title = "Notifications",
-                    subtitle = "Alerts, live stats and cooldown",
-                    tone = Aether.Cyan,
-                    onClick = {
-                        onNavigate(
-                            SettingsPages.workspace(SettingsWorkspaceTab.SYSTEM, "Notifications")
+        // ------------------------------------------------------------ Data & sources
+        SettingsHubGroupSpec(
+            key = "data",
+            title = t.categoryData,
+            subtitle = "Everything MarbleNG keeps, and where it came from",
+            tone = Aether.CyanBright,
+            icon = { tone -> HomeVectorIcon(HomeIcon.LIBRARY, tone, Modifier.size(19.dp)) },
+            sections = listOf(
+                section(
+                    title = trx("Backup"),
+                    subtitle = "Write the whole configuration to a file, or read one back"
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CyberButton(
+                            label = "Back up",
+                            color = Aether.Cyan,
+                            icon = HomeIcon.DETAILS,
+                            compact = true,
+                            modifier = Modifier.weight(1f)
+                        ) { onBackup() }
+                        CyberButton(
+                            label = "Restore",
+                            color = Aether.Amethyst,
+                            icon = HomeIcon.RESET,
+                            compact = true,
+                            modifier = Modifier.weight(1f)
+                        ) { onRestore() }
+                    }
+                },
+                section(
+                    title = trx("Sources"),
+                    subtitle = "Subscriptions, updates and app behaviour"
+                ) {
+                    SettingsHubRow(
+                        title = trx("General"),
+                        subtitle = "Home layout, sources and app updates",
+                        tone = Aether.Emerald,
+                        onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.GENERAL)) }
+                    ) { HomeVectorIcon(HomeIcon.MODE, Aether.Emerald, Modifier.size(22.dp)) }
+                }
+            )
+        ),
+
+        // ------------------------------------------------------------ Appearance
+        SettingsHubGroupSpec(
+            key = "appearance",
+            title = t.categoryAppearance,
+            subtitle = "Theme, navigation and type",
+            tone = Aether.Amethyst,
+            icon = { tone -> HomeVectorIcon(HomeIcon.PALETTE, tone, Modifier.size(19.dp)) },
+            sections = listOf(
+                section(
+                    title = trx("Theme"),
+                    subtitle = "Colours, and where they come from"
+                ) {
+                    // The quick theme pick moves with its parent card: the mini grid stays one tap
+                    // away, the full previews stay on the Theme page.
+                    SettingsThemeMiniRow(repo)
+                    SettingsHubRow(
+                        title = "Theme",
+                        subtitle = when (activeTheme) {
+                            AppTheme.SYSTEM -> "Follow device"
+                            AppTheme.LIGHT -> "Daylight"
+                            AppTheme.DARK -> "Pure black"
+                            AppTheme.PHONE_DYNAMIC -> t.themeDynamic
+                        },
+                        tone = Aether.Amethyst,
+                        onClick = { onNavigate(SettingsPages.THEME) }
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                            listOf(Aether.VoidElevated, Color.White, Aether.Amethyst).forEach { dot ->
+                                Box(
+                                    Modifier
+                                        .size(9.dp)
+                                        .clip(CircleShape)
+                                        .background(dot)
+                                        .border(1.dp, Aether.GlassBorderSoft, CircleShape)
+                                )
+                            }
+                        }
+                    }
+                },
+                section(
+                    title = trx("Navigation"),
+                    subtitle = "The bar that is on screen on every page"
+                ) {
+                    // MARBLE_DOCK_SLOT_V167 — the fourth tab of the bar is the user's, so the hub
+                    // answers "what is in it right now?" before the page is even opened.
+                    SettingsHubRow(
+                        title = "Fourth tab",
+                        subtitle = dockSlotSettingsSubtitle(
+                            settings,
+                            dockSlotTarget(repo, parseDockSlotKind(settings.dockSlotKind))
+                        ),
+                        tone = dockSlotAccentTone(parseDockSlotAccent(settings.dockSlotAccent)),
+                        onClick = { onNavigate(SettingsPages.DOCK_SLOT) }
+                    ) {
+                        SettingsDockSlotPreview(
+                            icon = parseDockSlotIcon(settings.dockSlotIcon),
+                            enabled = settings.dockSlotEnabled,
+                            tone = dockSlotAccentTone(parseDockSlotAccent(settings.dockSlotAccent)),
+                            showStatusBadge = settings.dockSlotShowStatusBadge,
+                            badgeTone = dockSlotStateTone(repo.state)
                         )
                     }
-                ) { HomeVectorIcon(HomeIcon.STATUS, Aether.Cyan, Modifier.size(22.dp)) }
-                SettingsHubRow(
-                    title = "General",
-                    subtitle = "Home layout, sources and app updates",
-                    tone = Aether.Emerald,
-                    onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.GENERAL)) }
-                ) { HomeVectorIcon(HomeIcon.MODE, Aether.Emerald, Modifier.size(22.dp)) }
-                SettingsHubRow(
-                    title = t.informationTitle,
-                    subtitle = t.informationDetail,
-                    tone = Aether.Amethyst,
-                    onClick = { onNavigate(SettingsPages.INFORMATION) }
-                ) { SettingsVersionPreview(Aether.Amethyst) }
+                },
+                section(
+                    title = trx("Language & text"),
+                    subtitle = "The face and the language of every screen"
+                ) {
+                    SettingsHubRow(
+                        title = "Typeface",
+                        subtitle = activeFont.label,
+                        tone = Aether.Emerald,
+                        onClick = { onNavigate(SettingsPages.TYPEFACE) }
+                    ) { SettingsTypefacePreview(settings.fontFamily, Aether.Emerald) }
+                    SettingsHubRow(
+                        title = t.languageTitle,
+                        subtitle = when (activeLanguage) {
+                            AppLanguage.SYSTEM -> t.languageSystemDetail
+                            AppLanguage.ENGLISH -> "English"
+                            AppLanguage.PERSIAN -> "فارسی"
+                        },
+                        tone = Aether.Amber,
+                        onClick = { onNavigate(SettingsPages.LANGUAGE) }
+                    ) { SettingsLanguagePreview(Aether.Amber) }
+                }
+            )
+        ),
+
+        // ------------------------------------------------------------ System
+        SettingsHubGroupSpec(
+            key = "system",
+            title = t.categorySystem,
+            subtitle = "Alerts, background access and the app itself",
+            tone = Aether.SlateBright,
+            icon = { tone -> HomeVectorIcon(HomeIcon.STATUS, tone, Modifier.size(19.dp)) },
+            sections = listOf(
+                section(
+                    title = trx("Alerts"),
+                    subtitle = "What MarbleNG is allowed to tell you"
+                ) {
+                    SettingsHubRow(
+                        title = "Notifications",
+                        subtitle = "Alerts, live stats and cooldown",
+                        tone = Aether.Cyan,
+                        onClick = {
+                            onNavigate(
+                                SettingsPages.workspace(SettingsWorkspaceTab.SYSTEM, "Notifications")
+                            )
+                        }
+                    ) { HomeVectorIcon(HomeIcon.STATUS, Aether.Cyan, Modifier.size(22.dp)) }
+                    // MARBLE_BACKGROUND_UNRESTRICTED_V166 — the one-tap fix for a VPN that Android
+                    // keeps interrupting in the background.
+                    SettingsHubRow(
+                        title = "Background access",
+                        subtitle = "Fixes interrupted VPN in background",
+                        tone = Aether.Amber,
+                        onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.SYSTEM)) }
+                    ) { HomeVectorIcon(HomeIcon.POWER, Aether.Amber, Modifier.size(22.dp)) }
+                },
+                section(
+                    title = trx("About"),
+                    subtitle = "Versions, diagnostics and the report an issue asks for"
+                ) {
+                    SettingsHubRow(
+                        title = t.informationTitle,
+                        subtitle = t.informationDetail,
+                        tone = Aether.Amethyst,
+                        onClick = { onNavigate(SettingsPages.INFORMATION) }
+                    ) { SettingsVersionPreview(Aether.Amethyst) }
+                }
+            )
+        )
+    )
+}
+
+/**
+ * MARBLE_SETTINGS_SECTIONS_V210 — one main section of the hub.
+ *
+ * The card keeps the V191 presence work (a tone-lit wash, one cool shadow and a gradient rim own
+ * the section's identity) and adds the one affordance the flat hub had no room for: the header is
+ * a control. Tapping it rotates the chevron a quarter turn and closes the section; the badge
+ * counts how many sub-sections the parent is holding, so a closed section still says how much it
+ * is hiding.
+ */
+@Composable
+private fun SettingsHubGroupCard(
+    group: SettingsHubGroupSpec,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(20.dp)
+    val dark = homeCloudDark()
+    val washEndPx = with(LocalDensity.current) { 150.dp.toPx() }
+    // A quarter turn is the whole disclosure language: open points down into the contents, closed
+    // points along the row. It is a rotation, never a size change, so nothing in the list moves
+    // when a section opens.
+    val chevronTurn by animateFloatAsState(
+        targetValue = if (expanded) 0f else -90f,
+        animationSpec = MarbleMotionSpecs.DockFloat,
+        label = "settings-group-chevron"
+    )
+    val headerShape = RoundedCornerShape(14.dp)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 5.dp,
+                shape = shape,
+                clip = false,
+                ambientColor = if (dark) Color(0xFF001144).copy(alpha = .34f) else Color(0xFF0A2540).copy(alpha = .18f),
+                spotColor = group.tone.copy(alpha = .30f)
+            )
+            .clip(shape)
+            // MARBLE_SETTINGS_OPAQUE_SURFACES_V141 — opaque fill, as on every other settings
+            // surface: a translucent card let the page gradient bleed through in bands.
+            .background(Aether.VoidElevated)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(group.tone.copy(alpha = if (dark) .08f else .06f), Color.Transparent),
+                    startY = 0f,
+                    endY = washEndPx
+                )
+            )
+            .border(
+                1.dp,
+                Brush.verticalGradient(listOf(group.tone.copy(alpha = .42f), group.tone.copy(alpha = .14f))),
+                shape
+            )
+            .padding(start = 13.dp, end = 13.dp, top = 11.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(if (expanded) 10.dp else 0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(headerShape)
+                .kineticClickable(role = Role.Button, boundedShape = headerShape, onClick = onToggle)
+                .semantics {
+                    contentDescription = group.title
+                    stateDescription = if (expanded) "Expanded" else "Collapsed"
+                }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(group.tone.copy(alpha = .14f)),
+                contentAlignment = Alignment.Center
+            ) {
+                group.icon(group.tone)
+            }
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                Text(
+                    trx(group.title).uppercase(),
+                    color = group.tone,
+                    style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 1.4.sp),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
+                    MarbleCopy.oneSentence(trx(group.subtitle)),
+                    color = Aether.InkMuted,
+                    style = settingsBodyStyle(),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            // How much this parent is holding: the number is the answer to "is it worth opening?"
+            // and it stays readable while the section is closed.
+            Text(
+                "${SettingsHubPolicy.sectionCount(group)}",
+                color = group.tone,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(ServersBadgeShape)
+                    .background(group.tone.copy(alpha = .13f))
+                    .padding(horizontal = 7.dp, vertical = 2.dp)
+            )
+            HomeVectorIcon(
+                HomeIcon.CHEVRON,
+                group.tone.copy(alpha = .75f),
+                Modifier
+                    .size(15.dp)
+                    .rotate(chevronTurn)
+            )
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expressiveExpandVertically(),
+            exit = expressiveCollapseVertically()
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                group.sections.forEach { section ->
+                    SettingsHubSubSectionCard(tone = group.tone, section = section)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * MARBLE_SETTINGS_SECTIONS_V210 — one sub-section: a named inset inside its parent card.
+ *
+ * The inset is the hierarchy. A sub-section sits on the parent's inset fill, carries a short rail
+ * in the parent's tone and names itself in the type ramp one step *below* the parent's label, so
+ * the two levels can be told apart at a glance without a divider or an indent guide. Its rows are
+ * the rows the flat hub already used, inside the section's own tone, so a row's colour still
+ * comes from the parent it belongs to.
+ */
+@Composable
+private fun SettingsHubSubSectionCard(
+    tone: Color,
+    section: SettingsHubSectionSpec
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(homeCloudInsetFill())
+            .border(1.dp, homeCloudInsetBorder(), shape)
+            .padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(16.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(tone.copy(alpha = .72f))
+            )
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                Text(
+                    trx(section.title),
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (section.subtitle.isNotBlank()) {
+                    Text(
+                        // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
+                        MarbleCopy.oneSentence(trx(section.subtitle)),
+                        color = Aether.InkFaint,
+                        style = settingsBodyStyle(),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+        // MARBLE_SETTINGS_ROW_TONE_V141 — every row inside inherits the parent's tone, so a
+        // sub-section can never introduce a colour of its own.
+        CompositionLocalProvider(LocalSettingsSectionTone provides tone) {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                section.content()
             }
         }
     }
@@ -12687,6 +13076,13 @@ private fun SpatialSettings(
     fun workspaceListState(tab: SettingsWorkspaceTab): LazyListState =
         workspaceListStates.getValue(tab)
 
+    // MARBLE_SETTINGS_SECTIONS_V210 — which main sections of the hub the user has closed. It is
+    // owned here, above the page switch, for the same reason the scroll states are: collapsing
+    // Appearance and then going into Theme and back must not silently re-open everything. The
+    // state is the set of CLOSED keys, so a section added in a later release opens by default
+    // instead of inheriting a stored decision nobody made.
+    var hubCollapsed by remember { mutableStateOf(emptySet<String>()) }
+
     // Persist the current page so the next visit restores it.
     LaunchedEffect(page) {
         repo.rememberSettingsPage(page)
@@ -12732,7 +13128,11 @@ private fun SpatialSettings(
             target == SettingsPages.HUB -> SettingsHub(
                 repo = repo,
                 onNavigate = { page = it },
-                listState = hubListState
+                listState = hubListState,
+                collapsed = hubCollapsed,
+                onToggleGroup = { key -> hubCollapsed = SettingsHubPolicy.toggled(hubCollapsed, key) },
+                onExpandAll = { hubCollapsed = SettingsHubPolicy.expandAll() },
+                onCollapseAll = { hubCollapsed = SettingsHubPolicy.collapseAll(SettingsHubGroups.Keys) }
             )
 
             SettingsPages.isWorkspace(target) -> SettingsTabPage(

@@ -343,7 +343,18 @@ internal data class HomeActions(
      * route currently shown on Home belongs to. Distinct from [onTestPing], which measures the
      * one route the connect button acts on.
      */
-    val onPingGroup: () -> Unit = {}
+    val onPingGroup: () -> Unit = {},
+    /**
+     * MARBLE_HOME_ROUTE_PING_V210 — measure the ONE server this page is showing.
+     *
+     * Connected, that is the tunnel carrying traffic; disconnected, it is the server the connect
+     * button would use. It is the verb behind both the header's pulse and the split control's
+     * second disc, because those two buttons are the same question — "is *this* server alive?" —
+     * asked from two places, and two controls that answer it differently are one bug. The group
+     * sweep ([onPingGroup]) remains a different question and keeps its own door on the Servers
+     * page.
+     */
+    val onPingRoute: () -> Unit = {}
 )
 
 /** The per-style skin every shared evidence widget renders through. */
@@ -594,6 +605,18 @@ internal fun HomePowerControl(
  */
 @Composable
 internal fun connectButtonTone(evidence: HomeEvidence): Color = marbleRouteTone(evidence.routeState)
+
+/**
+ * MARBLE_HOME_ROUTE_PING_V210 — true while the ONE route Home is showing is being measured.
+ *
+ * The two live ping channels are the connected tunnel's own measurement and the selected
+ * server's endpoint probe; whichever the page is in, the button that started it has to say so.
+ * It is one predicate because two controls (the header pulse and the split control's second
+ * disc) ask the same question, and two copies of "is it running?" is two chances to disagree.
+ */
+internal fun homeRouteMeasuring(evidence: HomeEvidence): Boolean =
+    evidence.pingState == ConnectionPingState.MEASURING ||
+        evidence.selectedPingState == ConnectionPingState.MEASURING
 
 /**
  * MARBLE_CONNECT_BUTTON_V121 — the one connection button of the product, in five silhouettes.
@@ -2271,36 +2294,52 @@ internal fun MarbleWordmark(modifier: Modifier = Modifier) {
 
 /**
  * MARBLE_HOME_ONE_PING_V208 — the Home header's one ping control.
+ * MARBLE_HOME_ROUTE_PING_V210 — and it measures the server on screen, not the subscription.
  *
- * What it replaces, and the two findings behind the replacement:
+ * What it replaced, and the two findings behind the replacement:
  *
  *  1. **"The ping button should not show ping."** The control was a pill that printed the
  *     route's latency — `♥ 132 ms` — next to the wordmark. That made the header a second
  *     read-out of a number the page already shows twice (the status card's latency and the
  *     quality card's Latency cell), and it made the *verb* ambiguous: a pill with a number on it
- *     reads as a measurement, not as a button, so nobody could tell that tapping it measures the
- *     whole subscription rather than the one route. It is now an icon and nothing else, and its
- *     one meaning is stated in its accessibility label.
+ *     reads as a measurement, not as a button. It is now an icon and nothing else, and its one
+ *     meaning is stated in its accessibility label.
  *  2. **"The box goes away and comes back."** The pill's *content* changed when a sweep started:
  *     `pulse + number + "ms"` became `stop + "Cancel"`, so its measured width changed, the
  *     header row re-laid out, and the pill visibly jumped and re-settled. A control that changes
  *     size when you press it reads as a different control appearing. This one is a constant
- *     [HomePingButtonSize] circle in both states: only the glyph and its hue change, so nothing
- *     in the header moves when the sweep starts or ends.
+ *     [HomePingButtonSize] circle in every state: only the glyph and its hue change, so nothing
+ *     in the header moves when a measurement starts or ends.
  *
- * The verb is [HomeActions.onPingGroup] — the subscription the route on screen belongs to — which
- * is the question the Home page is asking. It is the only ping button on the page: the per-route
- * read-outs elsewhere are displays, not controls (see the V208 note on [IosStatusWideCard]).
+ * What V210 changes: the *scope*. V208 made this button measure the whole subscription, on the
+ * reasoning that the page's question is "how good is my group right now". The report that
+ * reopened it says otherwise: a button sitting on the status box of a page that is showing one
+ * named server, pressed by someone whose tunnel just went slow, is being asked about *that*
+ * server. So the verb is [HomeActions.onPingRoute] — the connected route while a tunnel is up,
+ * the selected route while it is down — and the group sweep keeps its own door on the Servers
+ * page. The label names the server, so the button never promises a scope it does not measure.
+ *
+ * Two states are not the same promise, so they are not drawn the same way:
+ *  - a group sweep in flight is cancellable, and this button is where Home cancels it (V156);
+ *  - a single-route measurement in flight is *not* cancellable — there is nothing to interrupt —
+ *    so the button shows the spinner and stops accepting taps instead of offering a STOP square
+ *    that would do nothing.
  */
 @Composable
-private fun HomeGroupPingButton(
+private fun HomeRoutePingButton(
     sweeping: Boolean,
+    measuring: Boolean,
     description: String,
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    // One hue per state, and neither is a latency colour: the header is a verb, not a meter.
-    val tone = if (sweeping) Aether.Danger else Aether.CyanBright
+    // One hue per state, and none of them is a latency colour: the header is a verb, not a meter.
+    // MARBLE_FLOATING_ACTIONS_V210 — the measure hue is the theme's own action token, so the
+    // header's pulse and the split control's second disc are the same colour in every theme.
+    val chrome = rememberMarbleFloatChrome()
+    // Danger only while the button is a cancel (V156); otherwise the theme's measure hue, which
+    // is the same hue the split control's second disc wears in this theme.
+    val tone = if (sweeping) Aether.Danger else chrome.actions.measure
     val shape = CircleShape
     Box(
         modifier = Modifier
@@ -2320,11 +2359,18 @@ private fun HomeGroupPingButton(
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        HomeGlyphIcon(
-            if (sweeping) HomeGlyph.STOP else HomeGlyph.PULSE,
-            tone,
-            Modifier.size(if (sweeping) 12.dp else 16.dp)
-        )
+        when {
+            sweeping -> HomeGlyphIcon(HomeGlyph.STOP, tone, Modifier.size(12.dp))
+            // A one-route measurement is single-flight and has nothing to interrupt, so the
+            // control reports the wait rather than advertising a stop that would be a no-op.
+            measuring -> MarbleExpressiveCircularIndicator(
+                modifier = Modifier.size(15.dp),
+                color = tone,
+                strokeWidth = 1.7.dp,
+                arcCount = 2
+            )
+            else -> HomeGlyphIcon(HomeGlyph.PULSE, tone, Modifier.size(16.dp))
+        }
     }
 }
 
@@ -2350,9 +2396,11 @@ private val HomePingButtonSize = 38.dp
  * user had to travel back to the icon they were already touching.
  *
  * MARBLE_HOME_PING_ROUTE_GROUP_V146 — the pulse icon measures the subscription that the route
- * currently shown on the page belongs to, which is the question the Home page is asking ("how is
- * the subscription I am looking at doing?"). The per-route ping of that same server is still one
- * tap away on the status banner.
+ * currently shown on the page belongs to.
+ * MARBLE_HOME_ROUTE_PING_V210 — which is no longer what it does. The pulse now measures the ROUTE
+ * itself: the connected server while a tunnel is up, the selected one while it is down, named on
+ * the button's own label. The group sweep keeps its door on the Servers page, and the per-route
+ * reading the status banner prints is still a display, not a second verb.
  */
 @Composable
 internal fun HomeTopActionBar(
@@ -2362,8 +2410,12 @@ internal fun HomeTopActionBar(
     modifier: Modifier = Modifier
 ) {
     var addMenuOpen by remember { mutableStateOf(false) }
-    val groupLabel = repo.homeGroupPingLabel()
     val groupBusy = repo.homeGroupPingRunning
+    // MARBLE_HOME_ROUTE_PING_V210 — the header pulse answers the question the box underneath it
+    // is asking: is THIS server alive? So the label names the server on screen, and the two live
+    // ping states are read from the evidence the status card is already drawing.
+    val routeLabel = evidence.nodeName.ifBlank { Tr.now.chooseRoute }
+    val routeMeasuring = homeRouteMeasuring(evidence)
 
     // MARBLE_HOME_TOPBAR_CLEAN_V155 — the header plate is gone. The translucent gradient plate
     // this row used to sit on read as a second status card fighting the banner underneath it, so
@@ -2405,27 +2457,32 @@ internal fun HomeTopActionBar(
                 actions = actions
             )
         }
-        // MARBLE_PING_CANCEL_V156 — the same control that starts the group sweep ends it: while a
-        // sweep is live the pulse becomes a filled STOP square, so the Home page can cancel a
-        // bulk measurement without travelling to the Servers page.
+        // MARBLE_PING_CANCEL_V156 — the same control that can end a group sweep ends it: while a
+        // bulk sweep is live (started here or on the Servers page) the pulse becomes a filled
+        // STOP square, so the Home page can cancel it without travelling anywhere.
         //
         // MARBLE_HOME_ONE_PING_V208 — and this is the ONLY ping button on the Home page. It shows
-        // no number: the header is a verb ("measure this group"), not a meter, and the two places
-        // that do report latency (the status card, the quality card) are displays that no longer
-        // accept a tap. One verb, one destination, nothing to confuse the two with.
-        HomeGroupPingButton(
+        // no number: the header is a verb, not a meter, and the two places that do report
+        // latency (the status card, the quality card) are displays that do not accept a tap.
+        //
+        // MARBLE_HOME_ROUTE_PING_V210 — the verb is the ROUTE, not the group: the server named on
+        // its own label, measured through the tunnel while one is up and at its endpoint while
+        // one is down. The group sweep keeps its own door on the Servers page, where the list of
+        // servers it measures is actually on screen.
+        HomeRoutePingButton(
             sweeping = sweeping,
-            description = if (sweeping) {
-                trx("Cancel measuring")
-            } else {
-                "${Tr.now.testPing} • $groupLabel"
+            measuring = routeMeasuring,
+            description = when {
+                sweeping -> trx("Cancel measuring")
+                routeMeasuring -> "${Tr.now.testPing} • $routeLabel"
+                else -> "${Tr.now.testPing} • $routeLabel"
             },
-            enabled = !cancelling,
+            enabled = !cancelling && !routeMeasuring,
             onClick = {
                 when {
                     cancelling -> Unit
                     groupBusy -> repo.cancelProbes()
-                    else -> actions.onPingGroup()
+                    else -> actions.onPingRoute()
                 }
             }
         )
@@ -3532,11 +3589,19 @@ internal fun HomeThemeSlider(
  *     this is now.
  *  2. **The busy state never changed colour.** The tone was `if (busy) AmethystBright else
  *     Cyan` — and in BOTH the light and the dark brand palettes those two tokens hold the very
- *     same value, so the "colour" branch was dead. The face now follows the product's one
- *     semantic connect ramp ([connectButtonTone]): armed cyan, securing amethyst, closing
- *     amber, exactly like every other connect control on the page.
+ *     same value, so the "colour" branch was dead. The face then followed the product's one
+ *     semantic connect ramp, and from V210 it reads the theme's own action tokens instead (see
+ *     below), which is the same promise kept by a palette that has to answer for it.
  *  3. **The glyph ink is measured, not assumed** — [marbleOnColor] scores white against the
  *     palette's dark ink on the live face and takes whichever clears 3:1.
+ *
+ * MARBLE_FLOATING_ACTIONS_V210 — the face is a token now. `connectButtonTone` is the semantic
+ * ramp every connect control in the product shares, but a *floating* button's colour is a chrome
+ * decision like its body and its shadow, so it reads [MarbleFloatActionTones] instead: armed is
+ * `connect`, negotiating is `securing`, closing is `stop`. Daylight, Pure black and the phone's
+ * own palette each answer all three, and the V205 defect — a busy state that held the armed
+ * state's value — cannot come back, because the two are now two tokens a palette has to keep
+ * apart.
  */
 @Composable
 private fun FloatingConnectFab(
@@ -3545,13 +3610,18 @@ private fun FloatingConnectFab(
 ) {
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
+    val chrome = rememberMarbleFloatChrome()
     val tone by animateColorAsState(
-        targetValue = connectButtonTone(evidence),
+        targetValue = when {
+            evidence.disconnecting -> chrome.actions.stop
+            busy -> chrome.actions.securing
+            else -> chrome.actions.connect
+        },
         animationSpec = MarbleMotionSpecs.DockColor,
         label = "fab-tone"
     )
     val ink by animateColorAsState(
-        targetValue = marbleOnColor(tone),
+        targetValue = chrome.inkOn(tone),
         animationSpec = MarbleMotionSpecs.DockColor,
         label = "fab-ink"
     )
@@ -3630,6 +3700,10 @@ private fun FloatingConnectFab(
  * MARBLE_FLOATING_BUTTONS_V205 — the same doughnut critique as the FAB: the chrome bezel around
  * a smaller colour disc is gone, the action is one filled disc in its own tone with its hue-cast
  * shadow, and the glyph ink is computed against that exact fill.
+ *
+ * MARBLE_FLOATING_ACTIONS_V210 — the tone arrives from the theme's own action token and the ink
+ * is scored by the same chrome the sibling disc uses, so "stop" and "measure" are two colours
+ * the palette guarantees are different and two glyphs the palette guarantees are readable.
  */
 @Composable
 private fun FloatingSplitAction(
@@ -3637,8 +3711,10 @@ private fun FloatingSplitAction(
     description: String,
     enabled: Boolean = true,
     onClick: () -> Unit,
-    content: @Composable () -> Unit
+    /** Receives the ink the palette scores for [tone], so a glyph can never be assumed white. */
+    content: @Composable (ink: Color) -> Unit
 ) {
+    val chrome = rememberMarbleFloatChrome()
     Box(
         modifier = Modifier
             .size(52.dp)
@@ -3666,7 +3742,7 @@ private fun FloatingSplitAction(
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        content()
+        content(chrome.inkOn(tone))
     }
 }
 
@@ -3729,6 +3805,14 @@ internal fun HomeThemeFloating(
  * already under the thumb. It lives here rather than inside [HomeThemeFloating] because the
  * customizer layout ([HomeThemeModular]) now offers it as its own connect style, and two copies
  * of an animation would drift apart the first time either is tuned.
+ *
+ * MARBLE_HOME_ROUTE_PING_V210 — the split is two halves again. V208 dropped the ping half on the
+ * grounds that "one ping, and it pings the group" was the honest reading of a page with several
+ * ping surfaces; what it actually did was leave a connected user with a disconnect button and no
+ * way to ask the question they are holding — is *this* server still answering? — without
+ * travelling to another page. The second disc is back, it measures the connected server, and it
+ * is the same verb the header's pulse runs ([HomeActions.onPingRoute]), so the two buttons cannot
+ * answer the same question differently.
  */
 @Composable
 internal fun HomeFloatingSplitControl(
@@ -3736,6 +3820,8 @@ internal fun HomeFloatingSplitControl(
     actions: HomeActions,
     modifier: Modifier = Modifier
 ) {
+    val chrome = rememberMarbleFloatChrome()
+    val routeMeasuring = homeRouteMeasuring(evidence)
     // MARBLE_FLOATING_CONNECT_V202 — reserve the connected pair's full footprint even while
     // disconnected. The bottom action therefore stays at the same physical coordinate when a
     // connection completes; only an upper action fades in, never the whole control jumping.
@@ -3764,10 +3850,13 @@ internal fun HomeFloatingSplitControl(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                     FloatingSplitAction(
-                        tone = Aether.Danger,
+                        // MARBLE_FLOATING_ACTIONS_V210 — the theme's own stop hue, not a
+                        // hard-coded danger: in the dynamic palette the brand red used to sit
+                        // unchanged on a wallpaper-coloured page.
+                        tone = chrome.actions.stop,
                         description = Tr.now.disconnect,
                         onClick = { actions.onToggleConnection() }
-                    ) {
+                    ) { ink ->
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(5.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -3775,28 +3864,50 @@ internal fun HomeFloatingSplitControl(
                             // MARBLE_FLOATING_CHROME_V201 — the pause bars read against the
                             // danger disc instead of assuming white survives it: the dark
                             // theme's danger is a light rose (#FF718B), and white bars on a
-                            // light rose are nearly invisible.
+                            // light rose are nearly invisible. In V210 the ink is the one the
+                            // palette scores for the theme's own stop hue.
                             Box(
                                 Modifier
                                     .width(4.dp)
                                     .height(18.dp)
                                     .clip(RoundedCornerShape(2.dp))
-                                    .background(marbleOnColor(Aether.Danger))
+                                    .background(ink)
                             )
                             Box(
                                 Modifier
                                     .width(4.dp)
                                     .height(18.dp)
                                     .clip(RoundedCornerShape(2.dp))
-                                    .background(marbleOnColor(Aether.Danger))
+                                    .background(ink)
                             )
                         }
                     }
 
-                    // MARBLE_HOME_ONE_PING_V208 — the floating control keeps its pause half and
-                    // drops its ping half: the header's single ping button measures the group, and
-                    // a second pulse glyph in the corner that measured only one route was the
-                    // exact ambiguity this removes.
+                    // MARBLE_HOME_ROUTE_PING_V210 — the second half is the measurement of the
+                    // server this page is connected to. While it runs, the disc shows the wait
+                    // instead of a stop square: a one-route probe is single-flight and there is
+                    // nothing on the other side of that button to interrupt.
+                    FloatingSplitAction(
+                        tone = chrome.actions.measure,
+                        description = if (routeMeasuring) {
+                            trx("Measuring this server")
+                        } else {
+                            trx("Measure this server")
+                        },
+                        enabled = !routeMeasuring,
+                        onClick = { actions.onPingRoute() }
+                    ) { ink ->
+                        if (routeMeasuring) {
+                            MarbleExpressiveCircularIndicator(
+                                modifier = Modifier.size(19.dp),
+                                color = ink,
+                                strokeWidth = 1.8.dp,
+                                arcCount = 2
+                            )
+                        } else {
+                            HomeGlyphIcon(HomeGlyph.PULSE, ink, Modifier.size(20.dp))
+                        }
+                    }
                     }
                 } else {
                     FloatingConnectFab(evidence = evidence, onToggle = { actions.onToggleConnection() })

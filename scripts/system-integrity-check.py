@@ -221,6 +221,23 @@ files = {
     # MARBLE_SERVER_TILE_LAYOUT_V208 — the compact server grid, its policy and its test.
     "serverTiles": read("app/src/main/java/com/marbleng/app/ui/MarbleServerTiles.kt"),
     "serverTilesTest": read("app/src/test/java/com/marbleng/app/ui/ServerTileLayoutV208Test.kt"),
+    # MARBLE_SERVER_TILE_TRUTH_V210 — what a box may claim, and the name slot's one-line rule.
+    "serverTileTruthTest": read(
+        "app/src/test/java/com/marbleng/app/ui/ServerTileTruthV210Test.kt"
+    ),
+    # MARBLE_FLOATING_ACTIONS_V210 — the per-theme colours of a floating action, and the chrome
+    # that scores the ink on top of them.
+    "floatingChrome": read("app/src/main/java/com/marbleng/app/ui/MarbleFloatingChrome.kt"),
+    "floatingActionsTest": read(
+        "app/src/test/java/com/marbleng/app/ui/MarbleFloatingActionsV210Test.kt"
+    ),
+    # MARBLE_SETTINGS_SECTIONS_V210 — the Settings tree: its policy and its test.
+    "settingsSections": read(
+        "app/src/main/java/com/marbleng/app/ui/MarbleSettingsSections.kt"
+    ),
+    "settingsSectionsTest": read(
+        "app/src/test/java/com/marbleng/app/ui/MarbleSettingsSectionsV210Test.kt"
+    ),
     # MARBLE_FRAGMENT_PROFILES_V208 — the rewritten Fragment & Mux stack: the wire policy, the
     # profile ladder and the tests that pin both.
     "singBoxWirePolicy": read("app/src/main/java/com/marbleng/app/core/SingBoxTransportPolicy.kt"),
@@ -233,6 +250,14 @@ files = {
     "copyTest": read("app/src/test/java/com/marbleng/app/ui/MarbleCopyV208Test.kt"),
     "fragmentProfileDoc": read("docs/FRAGMENT_PROFILES_V208.md"),
     "serverTileDoc": read("docs/SERVER_TILE_LAYOUT_V208.md"),
+    # MARBLE_SERVER_TILE_TRUTH_V210 / MARBLE_HOME_ROUTE_PING_V210 / MARBLE_FLOATING_ACTIONS_V210
+    # / MARBLE_SETTINGS_SECTIONS_V210 — the V210 pass: what a server box may claim, which server
+    # the Home ping buttons measure, the per-theme colours of a floating action, and the Settings
+    # tree.
+    "serverTileTruthDoc": read("docs/SERVER_TILE_TRUTH_V210.md"),
+    "homeRoutePingDoc": read("docs/HOME_ROUTE_PING_V210.md"),
+    "floatingActionsDoc": read("docs/FLOATING_ACTIONS_V210.md"),
+    "settingsSectionsDoc": read("docs/SETTINGS_SECTIONS_V210.md"),
     "homeOnePingDoc": read("docs/HOME_ONE_PING_V208.md"),
     "settingsCopyDoc": read("docs/SETTINGS_ONE_LINE_COPY_V208.md"),
     "protocolIdentity": read("app/src/main/java/com/marbleng/app/ui/MarbleProtocolIdentity.kt"),
@@ -2183,11 +2208,21 @@ check(
 # MARBLE_REMEMBERED_PING_KEEP_V163 / MARBLE_SETTINGS_HUB_TRIM_V163 — the benchmark table is no
 # longer trimmed by a TRIM_MEMORY callback (which then got persisted over the remembered pings),
 # and the Settings hub shows a bare title with no version stamp on the Tunnel core row.
+# The hub header, as V210 draws it: the title, the tree's own state and the expand/collapse
+# action. Scoping the invariant to the header (rather than to the whole 19k-line UI file) is what
+# lets it keep saying something exact: the hub's title is one bare word with no version stamp
+# under it, whatever else the page grows.
+hub_header = (
+    files["ui"].split('item(key = "hub-header")', 1)[1].split('item(key = "hub-group-', 1)[0]
+    if 'item(key = "hub-header")' in files["ui"] and 'item(key = "hub-group-' in files["ui"]
+    else ""
+)
 check(
     "remembered pings survive memory pressure and the settings hub is trimmed",
     "MARBLE_REMEMBERED_PING_KEEP_V163" in files["repo"]
     and "benchmarks.filter { it.profileId == active }.take(1)" not in files["repo"]
-    and 'MarbleCompactTopBar(title = "Settings")' in files["ui"]
+    and 'title = "Settings"' in hub_header
+    and "BuildConfig.VERSION_NAME" not in hub_header
     and "MARBLE_SETTINGS_HUB_TRIM_V163" in files["ui"]
     and files["ui"].count("SettingsVersionPreview(") == 2,
 )
@@ -3154,22 +3189,30 @@ check(
 )
 
 # ---------------------------------------------------------------------------
-# MARBLE_HOME_ONE_PING_V208
+# MARBLE_HOME_ONE_PING_V208 / MARBLE_HOME_ROUTE_PING_V210
 # ---------------------------------------------------------------------------
-# The Home header owns one group-measurement action and no transient status strip. The Home ping
-# follows the route's source, while progress and connection truth stay with their owning controls.
+# The Home header owns one measurement action and no transient status strip. V208 made that
+# action the group sweep; V210 changed its SCOPE, not its count: a button sitting on the status
+# box of a page that is showing one named server is being asked about that server, so the header
+# runs the route verb ([HomeActions.onPingRoute]) while the group sweep keeps its own door on the
+# Servers page. Progress and connection truth still stay with their owning controls.
 check(
-    "V208 the Home header has no duplicate ping or transient status strip",
-    "HomeGroupPingButton(" in files["homeStyles"]
+    "V210 the Home header measures the route on screen and shows no transient status strip",
+    "HomeRoutePingButton(" in files["homeStyles"]
     and "val HomePingButtonSize" in files["homeStyles"]
-    and "onTestPing" not in files["homeStyles"].split("fun HomeTopActionBar(")[1]
+    and "onPingRoute()" in files["homeStyles"].split("fun HomeTopActionBar(")[1]
+    # One verb in the header: it is not also the group sweep's door.
+    and "onPingGroup()" not in files["homeStyles"]
     and "HomeRuntimeNotice" not in files["homeStyles"]
     and "MarbleNoticeHeight" not in files["homeStyles"]
     and "MARBLE_HOME_NO_TRANSIENT_STATUS_V209" in files["ui"]
-    # One verb: the group ping. The per-profile test has no tap surface left in the product.
-    and "onPingGroup()" in files["atelier"]
-    # The two live-ping surfaces on the Studio presentations are gauges now: no tap, no second
-    # way to start a measurement from the header area.
+    # The Atelier's corrective row measures the route it is complaining about — the same verb —
+    # and the two live-ping surfaces on the Studio presentations are still gauges: no tap, no
+    # second way to start a measurement from the header area.
+    and "onPingRoute()" in files["atelier"]
+    # The group sweep keeps exactly one door, and it says what it measures.
+    and 'trx("Ping group")' in files["ui"]
+    and files["ui"].count("onPingGroup()") == 1
     and "kineticClickable" not in files["studio"].split("fun HomeLivePingSlab(")[1].split("\nprivate fun ")[0]
     and "kineticClickable"
     not in files["studio"].split("fun HomeLivePingMeter(")[1].split("\ninternal fun ")[0],
@@ -3180,6 +3223,119 @@ check(
     "private fun publishHomeRoutePing(" in files["repo"]
     and "publishHomeRoutePing(expanded)" in files["repo"]
     and "pingHomeGroup()" in files["repo"],
+)
+
+check(
+    "V210 the Home route ping is one verb wired to the route, not to a stale filter",
+    "val onPingRoute: () -> Unit" in files["homeStyles"]
+    and "onPingRoute = {" in files["ui"]
+    and "repo.measureHomePing()" in files["ui"]
+    # Connected the measurement goes through the tunnel; disconnected it probes the selected
+    # route's endpoint. Both are one call, so the two buttons cannot disagree about the answer.
+    and "fun measureHomePing()" in files["repo"]
+    # One predicate for "the route on screen is being measured", shared by the header pulse and
+    # the split control's second disc.
+    and "fun homeRouteMeasuring(" in files["homeStyles"]
+    and "homeRouteMeasuring(evidence)" in files["homeStyles"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_SERVER_TILE_TRUTH_V210
+# ---------------------------------------------------------------------------
+# Two reports about the compact server boxes: a server that does not answer has to be told apart
+# from one that does, and a long name must not grow the box it lives in. The first is a verdict
+# over the measurement the page already holds; the second is a layout rule — one line, and a line
+# that stretches to the row instead of the row stretching to it.
+check(
+    "V210 a server box fades when it did not answer and never grows for a long name",
+    "object ServerTileTruth" in files["serverTiles"]
+    and "enum class Reach { ANSWERED, SILENT, UNMEASURED }" in files["serverTiles"]
+    and "fun reachOf(result: BenchmarkResult?, testing: Boolean): Reach" in files["serverTiles"]
+    and "ServerTileTruth.alphaOf(reach)" in files["serverTiles"]
+    and ".alpha(tileAlpha)" in files["serverTiles"]
+    # The name slot: one line, and the overflow travels instead of wrapping.
+    and "object ServerTileNamePolicy" in files["serverTiles"]
+    and "maxLines = ServerTileNamePolicy.MaxLines" in files["serverTiles"]
+    and "basicMarquee(" in files["serverTiles"]
+    # The layout half: every tile takes its row's height, so no box can be taller or shorter
+    # than the box beside it whatever its name says.
+    and "height(IntrinsicSize.Max)" in files["serverTiles"]
+    and "Modifier.weight(1f).fillMaxHeight()" in files["serverTiles"]
+    and ".fillMaxHeight()" in files["serverTiles"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_FLOATING_ACTIONS_V210
+# ---------------------------------------------------------------------------
+# The chrome around a floating button was theme-aware; its face was not. An action is a token
+# now, owned by the palette like the body, the hairline and the shadow — four verbs per theme,
+# with the glyph ink scored against them rather than assumed white.
+check(
+    "V210 every theme owns the four colours a floating action can wear",
+    "object MarbleFloatActions" in files["floatingChrome"]
+    and "data class MarbleFloatActionTones(" in files["floatingChrome"]
+    and "fun inkOn(tone: Color): Color" in files["floatingChrome"]
+    # All three palettes answer all four questions.
+    and "MarbleFloatActions.Light.tones()" in files["theme"]
+    and "MarbleFloatActions.Dark.tones()" in files["theme"]
+    and "MarbleFloatActions.dynamic(" in files["theme"]
+    and "val FloatActions: MarbleFloatActionTones" in files["theme"]
+    # And the two halves of the split control read them, so stop and measure are two colours the
+    # palette guarantees are different in the theme the user is actually running.
+    and "chrome.actions.stop" in files["homeStyles"]
+    and "chrome.actions.measure" in files["homeStyles"]
+    and "chrome.inkOn(tone)" in files["homeStyles"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_SETTINGS_SECTIONS_V210
+# ---------------------------------------------------------------------------
+# Settings is a tree: main sections holding their own named sub-sections, closable from their
+# headers. The state is one set of collapsed keys, owned above the page switch, and a section
+# nobody has touched is open — so a section added later is open too.
+check(
+    "V210 the Settings hub is a tree of sections with sub-sections under them",
+    "internal object SettingsHubPolicy" in files["settingsSections"]
+    and "internal object SettingsHubGroups" in files["settingsSections"]
+    and "fun toggled(collapsed: Set<String>, key: String): Set<String>" in files["settingsSections"]
+    and 'key = "home"' in files["ui"]
+    and "private fun settingsHubGroups(" in files["ui"]
+    and "SettingsHubGroupCard(" in files["ui"]
+    and "SettingsHubSubSectionCard(" in files["ui"]
+    # Sub-sections are children of a section, not more cards in the flat list: the hub composes
+    # no flat section card of its own any more.
+    and "SettingsHubCard(" not in files["ui"].split("private fun SettingsHub(")[1]
+    .split("\n// ---------------------------------------------------------------------------------------------")[0]
+    # The collapsed state lives above the page switch, so it survives a visit to a sub-page.
+    and "var hubCollapsed by remember { mutableStateOf(emptySet<String>()) }" in files["ui"]
+    and "SettingsHubPolicy.toggled(hubCollapsed, key)" in files["ui"]
+    and "SettingsHubPolicy.collapseAll(SettingsHubGroups.Keys)" in files["ui"],
+)
+
+# The four V210 chapters are written down and pinned by tests, like every chapter before them.
+check(
+    "V210 the server-box chapter is written down",
+    "MARBLE_SERVER_TILE_TRUTH_V210" in files["serverTileTruthDoc"]
+    and "class ServerTileTruthV210Test" in files["serverTileTruthTest"]
+    and "SERVER_TILE_TRUTH_V210.md" in files["readme"],
+)
+check(
+    "V210 the Home route-ping chapter is written down",
+    "MARBLE_HOME_ROUTE_PING_V210" in files["homeRoutePingDoc"]
+    and "MARBLE_HOME_ROUTE_PING_V210" in files["homeStyles"]
+    and "HOME_ROUTE_PING_V210.md" in files["readme"],
+)
+check(
+    "V210 the floating-action chapter is written down",
+    "MARBLE_FLOATING_ACTIONS_V210" in files["floatingActionsDoc"]
+    and "class MarbleFloatingActionsV210Test" in files["floatingActionsTest"]
+    and "FLOATING_ACTIONS_V210.md" in files["readme"],
+)
+check(
+    "V210 the Settings-sections chapter is written down",
+    "MARBLE_SETTINGS_SECTIONS_V210" in files["settingsSectionsDoc"]
+    and "class MarbleSettingsSectionsV210Test" in files["settingsSectionsTest"]
+    and "SETTINGS_SECTIONS_V210.md" in files["readme"],
 )
 
 # ---------------------------------------------------------------------------

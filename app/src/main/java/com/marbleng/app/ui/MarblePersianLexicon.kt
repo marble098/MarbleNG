@@ -1485,7 +1485,53 @@ private val FaLexicon: Map<String, String> = mapOf(
     "ORDERED HOPS" to "گام‌های مرتب",
     "Route details" to "جزئیات مسیر",
     "Unlimited" to "نامحدود",
-    "Expired" to "منقضی‌شده"
+    "Expired" to "منقضی‌شده",
+    // ------------------------------------------------------------------ MARBLE_HOME_ROUTE_PING_V210
+    // The two ping buttons of the Home page ask about the server on screen, and the accessibility
+    // label of the header pulse names it — so the sentence has to exist in Persian too.
+    "Measure this server" to "اندازه‌گیری این سرور",
+    "Measuring this server" to "در حال اندازه‌گیری این سرور",
+    "Ping group" to "پینگ گروه",
+    // ------------------------------------------------------------------ MARBLE_SETTINGS_SECTIONS_V210
+    // The Settings tree: the header's own state line, its expand/collapse action, and every new
+    // main-section and sub-section name the page draws.
+    "All sections open" to "همهٔ بخش‌ها باز است",
+    "sections open" to "بخش باز است",
+    "Collapse all" to "بستن همه",
+    "Expand all" to "باز کردن همه",
+    "The presentation of the connection page and what it shows" to
+        "ظاهر صفحهٔ اتصال و چیزی که نشان می‌دهد",
+    "Home widgets" to "ابزارک‌های صفحهٔ اصلی",
+    "Live readouts on the connection page" to "نمایش‌های زنده در صفحهٔ اتصال",
+    "Which of the five presentations Home uses" to "کدام‌یک از پنج چیدمان صفحهٔ اصلی",
+    "The tunnel, what it carries and when it starts" to "تونل، ترافیک آن و زمان آغاز",
+    "Which core builds the tunnel" to "کدام هسته تونل را می‌سازد",
+    "Which traffic goes through the tunnel" to "کدام ترافیک از تونل عبور می‌کند",
+    "Automatic connect" to "اتصال خودکار",
+    "When MarbleNG connects without being asked" to "چه زمانی ماربل بدون درخواست متصل می‌شود",
+    "Measurement & servers" to "اندازه‌گیری و سرورها",
+    "How servers are judged and drawn" to "سرورها چگونه سنجیده و نمایش داده می‌شوند",
+    "Ping & ranking" to "پینگ و رتبه‌بندی",
+    "The measurement every server is judged by" to "سنجشی که هر سرور با آن ارزیابی می‌شود",
+    "Server library" to "کتابخانهٔ سرورها",
+    "Where servers come from and how they are drawn" to "منبع سرورها و شکل نمایش آن‌ها",
+    "Everything MarbleNG keeps, and where it came from" to "هرچه ماربل نگه می‌دارد و منبع آن",
+    "Backup" to "پشتیبان‌گیری",
+    "Write the whole configuration to a file, or read one back" to
+        "نوشتن کل تنظیمات در یک فایل، یا بازگردانی آن",
+    "Subscriptions, updates and app behaviour" to "اشتراک‌ها، به‌روزرسانی و رفتار برنامه",
+    "Theme, navigation and type" to "پوسته، ناوبری و قلم",
+    "Colours, and where they come from" to "رنگ‌ها و منبع آن‌ها",
+    "Navigation" to "ناوبری",
+    "The bar that is on screen on every page" to "نواری که در همهٔ صفحه‌ها حاضر است",
+    "Language & text" to "زبان و متن",
+    "The face and the language of every screen" to "قلم و زبان همهٔ صفحه‌ها",
+    "Alerts, background access and the app itself" to "هشدارها، دسترسی پس‌زمینه و خود برنامه",
+    "Alerts" to "هشدارها",
+    "What MarbleNG is allowed to tell you" to "ماربل اجازه دارد چه چیزهایی را اعلام کند",
+    "About" to "درباره",
+    "Versions, diagnostics and the report an issue asks for" to
+        "نسخه‌ها، عیب‌یابی و گزارشی که ثبت مشکل می‌خواهد"
 )
 
 /** Lowercased view of the lexicon so `UPPERCASE` renders of the same keys still match. */

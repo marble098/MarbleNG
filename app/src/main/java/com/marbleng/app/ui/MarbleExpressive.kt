@@ -66,6 +66,8 @@ package com.marbleng.app.ui
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
@@ -75,10 +77,12 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -1016,6 +1020,24 @@ internal fun expressiveFadeThrough(): ContentTransform =
             easing = LinearEasing
         )
     )
+
+/**
+ * MARBLE_SETTINGS_SECTIONS_V210 — the reveal of a Settings section's own contents.
+ *
+ * A collapsible section is a spatial relationship, not a swap: the parent stays exactly where it
+ * is and its children appear underneath it, so the pair is a height animation with a short fade,
+ * never the fade-through used for equal-level page changes. The fade is *delayed* on the way in
+ * and *shortened* on the way out for the same reason the fade-through is: the contents must not
+ * be visible at full strength while the container is still zero pixels tall.
+ */
+internal fun expressiveExpandVertically(): EnterTransition =
+    fadeIn(tween(durationMillis = 150, delayMillis = 60, easing = LinearEasing)) +
+        expandVertically(MarbleMotionSpecs.Layout)
+
+/** The closing half of [expressiveExpandVertically]: quicker, and never delayed. */
+internal fun expressiveCollapseVertically(): ExitTransition =
+    fadeOut(tween(durationMillis = 90, easing = LinearEasing)) +
+        shrinkVertically(MarbleMotionSpecs.Layout)
 
 // ---------------------------------------------------------------------------------------------
 // Living readouts — value rolls and the pulse dot

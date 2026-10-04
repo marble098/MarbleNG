@@ -99,6 +99,14 @@ private data class AetherPalette(
     val floatSurface: Color,
     val floatBorder: Color,
     val floatShadow: Color,
+    // MARBLE_FLOATING_ACTIONS_V210 — the four verbs of a floating control, and the ink pair
+    // every one of them is scored against. A theme that owns the chrome of a floating button but
+    // not its face is a theme that half answers the question, so every palette below answers all
+    // four — including the dynamic one, whose buttons used to keep the brand's hard-coded red
+    // while its surfaces moved with the wallpaper.
+    val floatActions: MarbleFloatActionTones,
+    val floatInkLight: Color,
+    val floatInkDark: Color,
     val amethyst: Color,
     val amethystBright: Color,
     val cyan: Color,
@@ -172,6 +180,10 @@ private val LightPalette = AetherPalette(
     floatSurface = Color(0xFFEDF3FB),
     floatBorder = Brand.NavyDeep.copy(alpha = .14f).compositeOver(Color(0xFFEDF3FB)),
     floatShadow = Color(0xFF0A1A33),
+    // MARBLE_FLOATING_ACTIONS_V210 — see [MarbleFloatActions.Light].
+    floatActions = MarbleFloatActions.Light.tones(),
+    floatInkLight = Color(MarbleFloatActions.Light.inkLight),
+    floatInkDark = Color(MarbleFloatActions.Light.inkDark),
     amethyst = Brand.NavyDark,
     amethystBright = Brand.Electric,
     cyan = Brand.Electric,
@@ -211,6 +223,10 @@ private val DarkPalette = AetherPalette(
     floatSurface = Color(0xFF090D14),
     floatBorder = Brand.Ice.copy(alpha = .18f).compositeOver(Color(0xFF090D14)),
     floatShadow = Color.Black,
+    // MARBLE_FLOATING_ACTIONS_V210 — see [MarbleFloatActions.Dark].
+    floatActions = MarbleFloatActions.Dark.tones(),
+    floatInkLight = Color(MarbleFloatActions.Dark.inkLight),
+    floatInkDark = Color(MarbleFloatActions.Dark.inkDark),
     amethyst = Brand.Electric,
     amethystBright = Brand.Bright,
     cyan = Brand.Bright,
@@ -244,6 +260,17 @@ private fun dynamicPhonePalette(scheme: androidx.compose.material3.ColorScheme, 
     val card = if (dark) scheme.surfaceContainer else scheme.surfaceContainerLowest
     val surface = card
     fun over(fg: Color, alpha: Float): Color = fg.copy(alpha = alpha).compositeOver(surface)
+    // MARBLE_FLOATING_ACTIONS_V210 — the wallpaper answers the same four questions the brand
+    // ramp answers, in its own semantic roles. [MarbleFloatActions.dynamic] also orders the two
+    // ink candidates by luminance, so the light one really is the light one in either mode.
+    val floatActions = MarbleFloatActions.dynamic(
+        primary = scheme.primary.toArgb(),
+        secondary = scheme.secondary.toArgb(),
+        tertiary = scheme.tertiary.toArgb(),
+        error = scheme.error.toArgb(),
+        onPrimary = scheme.onPrimary.toArgb(),
+        onPrimaryContainer = scheme.onPrimaryContainer.toArgb()
+    )
     return AetherPalette(
         void = if (dark) scheme.background else scheme.surfaceContainerLow,
         voidElevated = card,
@@ -265,6 +292,9 @@ private fun dynamicPhonePalette(scheme: androidx.compose.material3.ColorScheme, 
         floatSurface = if (dark) scheme.surfaceContainerHigh else scheme.surfaceContainer,
         floatBorder = over(scheme.outlineVariant, if (dark) .70f else .60f),
         floatShadow = scheme.onSurface,
+        floatActions = floatActions.tones(),
+        floatInkLight = Color(floatActions.inkLight),
+        floatInkDark = Color(floatActions.inkDark),
         amethyst = scheme.secondary,
         amethystBright = scheme.tertiary,
         cyan = scheme.primary,
@@ -300,6 +330,17 @@ object Aether {
     val FloatBorder: Color @Composable get() = LocalAetherPalette.current.floatBorder
     /** MARBLE_FLOATING_CHROME_V201 — the hue a floating element casts. */
     val FloatShadow: Color @Composable get() = LocalAetherPalette.current.floatShadow
+    /**
+     * MARBLE_FLOATING_ACTIONS_V210 — the four verbs of a floating control, in this theme.
+     *
+     * Read through [rememberMarbleFloatChrome], never directly: the chrome is what pairs the
+     * tone with the ink that survives it.
+     */
+    val FloatActions: MarbleFloatActionTones @Composable get() = LocalAetherPalette.current.floatActions
+    /** MARBLE_FLOATING_ACTIONS_V210 — the light ink candidate of a floating action glyph. */
+    val FloatInkLight: Color @Composable get() = LocalAetherPalette.current.floatInkLight
+    /** MARBLE_FLOATING_ACTIONS_V210 — the dark ink candidate of a floating action glyph. */
+    val FloatInkDark: Color @Composable get() = LocalAetherPalette.current.floatInkDark
     val Amethyst: Color @Composable get() = LocalAetherPalette.current.amethyst
     val AmethystBright: Color @Composable get() = LocalAetherPalette.current.amethystBright
     val Cyan: Color @Composable get() = LocalAetherPalette.current.cyan

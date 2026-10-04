@@ -210,10 +210,13 @@ private fun RouteConnectCard(evidence: HomeEvidence, actions: HomeActions) {
                         overflow = TextOverflow.Ellipsis
                     )
                     // The corrective action is the measurement again: this line only exists when
-                    // the last answer was a failure, so "retry" means "measure again" — and on this
-                    // page that is exactly one verb, the header's group ping (MARBLE_HOME_ONE_PING_V208).
+                    // the last answer was a failure, so "retry" means "measure again" — and what
+                    // failed is the ROUTE this page is showing, not the subscription behind it.
+                    // It is therefore the same verb as the header's pulse and the split control's
+                    // second disc (MARBLE_HOME_ROUTE_PING_V210), not a second measurement that
+                    // answers a different question.
                     PrismIconButton(
-                        onClick = { actions.onPingGroup() },
+                        onClick = { actions.onPingRoute() },
                         tone = Aether.Danger,
                         size = 30.dp,
                         descriptiveLabel = "Measure the route again"
