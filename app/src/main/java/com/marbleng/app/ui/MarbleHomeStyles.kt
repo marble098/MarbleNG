@@ -2474,8 +2474,8 @@ internal fun HomeTopActionBar(
             measuring = routeMeasuring,
             description = when {
                 sweeping -> trx("Cancel measuring")
-                routeMeasuring -> "${Tr.now.testPing} • $routeLabel"
-                else -> "${Tr.now.testPing} • $routeLabel"
+                routeMeasuring -> "${trx("Measuring this server")} • $routeLabel"
+                else -> "${trx("Measure this server")} • $routeLabel"
             },
             enabled = !cancelling && !routeMeasuring,
             onClick = {
@@ -3849,65 +3849,65 @@ internal fun HomeFloatingSplitControl(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                    FloatingSplitAction(
-                        // MARBLE_FLOATING_ACTIONS_V210 — the theme's own stop hue, not a
-                        // hard-coded danger: in the dynamic palette the brand red used to sit
-                        // unchanged on a wallpaper-coloured page.
-                        tone = chrome.actions.stop,
-                        description = Tr.now.disconnect,
-                        onClick = { actions.onToggleConnection() }
-                    ) { ink ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // MARBLE_FLOATING_CHROME_V201 — the pause bars read against the
-                            // danger disc instead of assuming white survives it: the dark
-                            // theme's danger is a light rose (#FF718B), and white bars on a
-                            // light rose are nearly invisible. In V210 the ink is the one the
-                            // palette scores for the theme's own stop hue.
-                            Box(
-                                Modifier
-                                    .width(4.dp)
-                                    .height(18.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(ink)
-                            )
-                            Box(
-                                Modifier
-                                    .width(4.dp)
-                                    .height(18.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(ink)
-                            )
+                        FloatingSplitAction(
+                            // MARBLE_FLOATING_ACTIONS_V210 — the theme's own stop hue, not a
+                            // hard-coded danger: in the dynamic palette the brand red used to sit
+                            // unchanged on a wallpaper-coloured page.
+                            tone = chrome.actions.stop,
+                            description = Tr.now.disconnect,
+                            onClick = { actions.onToggleConnection() }
+                        ) { ink ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // MARBLE_FLOATING_CHROME_V201 — the pause bars read against the
+                                // danger disc instead of assuming white survives it: the dark
+                                // theme's danger is a light rose (#FF718B), and white bars on a
+                                // light rose are nearly invisible. In V210 the ink is the one the
+                                // palette scores for the theme's own stop hue.
+                                Box(
+                                    Modifier
+                                        .width(4.dp)
+                                        .height(18.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(ink)
+                                )
+                                Box(
+                                    Modifier
+                                        .width(4.dp)
+                                        .height(18.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(ink)
+                                )
+                            }
                         }
-                    }
 
-                    // MARBLE_HOME_ROUTE_PING_V210 — the second half is the measurement of the
-                    // server this page is connected to. While it runs, the disc shows the wait
-                    // instead of a stop square: a one-route probe is single-flight and there is
-                    // nothing on the other side of that button to interrupt.
-                    FloatingSplitAction(
-                        tone = chrome.actions.measure,
-                        description = if (routeMeasuring) {
-                            trx("Measuring this server")
-                        } else {
-                            trx("Measure this server")
-                        },
-                        enabled = !routeMeasuring,
-                        onClick = { actions.onPingRoute() }
-                    ) { ink ->
-                        if (routeMeasuring) {
-                            MarbleExpressiveCircularIndicator(
-                                modifier = Modifier.size(19.dp),
-                                color = ink,
-                                strokeWidth = 1.8.dp,
-                                arcCount = 2
-                            )
-                        } else {
-                            HomeGlyphIcon(HomeGlyph.PULSE, ink, Modifier.size(20.dp))
+                        // MARBLE_HOME_ROUTE_PING_V210 — the second half is the measurement of the
+                        // server this page is connected to. While it runs, the disc shows the wait
+                        // instead of a stop square: a one-route probe is single-flight and there is
+                        // nothing on the other side of that button to interrupt.
+                        FloatingSplitAction(
+                            tone = chrome.actions.measure,
+                            description = if (routeMeasuring) {
+                                trx("Measuring this server")
+                            } else {
+                                trx("Measure this server")
+                            },
+                            enabled = !routeMeasuring,
+                            onClick = { actions.onPingRoute() }
+                        ) { ink ->
+                            if (routeMeasuring) {
+                                MarbleExpressiveCircularIndicator(
+                                    modifier = Modifier.size(19.dp),
+                                    color = ink,
+                                    strokeWidth = 1.8.dp,
+                                    arcCount = 2
+                                )
+                            } else {
+                                HomeGlyphIcon(HomeGlyph.PULSE, ink, Modifier.size(20.dp))
+                            }
                         }
-                    }
                     }
                 } else {
                     FloatingConnectFab(evidence = evidence, onToggle = { actions.onToggleConnection() })

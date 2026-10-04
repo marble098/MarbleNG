@@ -11267,7 +11267,6 @@ private fun SettingsVersionPreview(tone: Color) {
 // The hub
 // ---------------------------------------------------------------------------------------------
 
-@Composable
 /**
  * MARBLE_SETTINGS_SECTIONS_V210 — the hub is a tree: main sections, each holding its own named
  * sub-sections, each closable from its own header.

@@ -39,7 +39,8 @@ class ServerTileTruthV210Test {
         assertEquals(
             "an unmeasured box must look exactly like a working one",
             ServerTileTruth.LiveAlpha,
-            ServerTileTruth.alphaOf(ServerTileTruth.Reach.UNMEASURED)
+            ServerTileTruth.alphaOf(ServerTileTruth.Reach.UNMEASURED),
+            0f
         )
         assertEquals("", ServerTileTruth.stateWord(ServerTileTruth.Reach.UNMEASURED))
     }
@@ -48,7 +49,11 @@ class ServerTileTruthV210Test {
     fun aMeasurementThatClearedTheFloorAnswers() {
         val measured = result(success = 100, latencyMs = 132.0)
         assertEquals(ServerTileTruth.Reach.ANSWERED, ServerTileTruth.reachOf(measured, testing = false))
-        assertEquals(ServerTileTruth.LiveAlpha, ServerTileTruth.alphaOf(ServerTileTruth.Reach.ANSWERED))
+        assertEquals(
+            ServerTileTruth.LiveAlpha,
+            ServerTileTruth.alphaOf(ServerTileTruth.Reach.ANSWERED),
+            0f
+        )
     }
 
     @Test
