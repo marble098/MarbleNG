@@ -317,6 +317,59 @@ tasks.withType<Test>().configureEach {
     }
 }
 
+// Preserve useful Gradle output on the check-run itself. Some CI clients cannot retrieve the raw
+// Actions log archive, so attach the failure excerpt to the check when tests or Kotlin compilation
+// fail instead of leaving only Gradle's exit code.
+val marbleVerificationOutput = StringBuilder()
+val marbleVerificationTasks = setOf(
+    "testDebugUnitTest",
+    "compileDebugKotlin",
+    "compileReleaseKotlin"
+)
+val marbleFailureReporters = marbleVerificationTasks.associateWith { taskName ->
+    tasks.register("${taskName}FailureDetails") {
+        doLast {
+            val output = synchronized(marbleVerificationOutput) {
+                marbleVerificationOutput.toString()
+            }
+            val failed = listOf(
+                " FAILED",
+                "e: ",
+                "Compilation error",
+                "There were failing tests",
+                "Execution failed for task",
+                "Could not resolve",
+                "Could not find",
+                "FAILURE: Build failed"
+            ).any(output::contains)
+            if (failed) {
+                val message = output.takeLast(16_000)
+                    .replace("%", "%25")
+                    .replace("\r", "%0D")
+                    .replace("\n", "%0A")
+                println("::error title=Gradle verification output::$message")
+            }
+        }
+    }
+}
+tasks.configureEach {
+    if (name in marbleVerificationTasks) {
+        logging.addStandardOutputListener { text ->
+            synchronized(marbleVerificationOutput) {
+                val remaining = 200_000 - marbleVerificationOutput.length
+                if (remaining > 0) marbleVerificationOutput.append(text.take(remaining))
+            }
+        }
+        logging.addStandardErrorListener { text ->
+            synchronized(marbleVerificationOutput) {
+                val remaining = 200_000 - marbleVerificationOutput.length
+                if (remaining > 0) marbleVerificationOutput.append(text.take(remaining))
+            }
+        }
+        finalizedBy(marbleFailureReporters.getValue(name))
+    }
+}
+
 val prepareSingBoxRules by tasks.registering(Exec::class) {
     workingDir(rootProject.projectDir)
     commandLine("python3", "scripts/prepare-singbox-rules.py")
