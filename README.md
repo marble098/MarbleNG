@@ -328,7 +328,7 @@ ever open (a surface that only looks like a text field was being handed an input
 field declared the event that ends one), and turns the probe's reactive target pivot into a race
 that hedges from the first sample of a cycle and lets a freshly cleared window earn its score back.
 
-Four chapters landed in the same pass, each from one report:
+Four chapters landed in that pass, each from one report:
 
 `docs/SETTINGS_ONE_LINE_COPY_V208.md` — every settings description is now **one sentence**. Twenty-nine
 rows carried paragraphs that explained the feature behind the switch and pushed the switch itself
@@ -351,6 +351,36 @@ mapping onto the three TLS-fragment fields and the `multiplex` object the pinned
 `docs/SERVER_TILE_LAYOUT_V208.md` — servers can be read as **compact boxes** on the Servers page and
 in the Home server box, two-up on a phone and four-up on a tablet, or as the rows they have always
 been; Settings › General › Server cards chooses.
+
+### The V210 pass
+
+Four chapters landed in the pass after them, all four from the same review of the connection page
+and the settings page:
+
+`docs/SERVER_TILE_TRUTH_V210.md` — a compact server box now answers the only question a grid is
+for: a server that was measured and did not answer **fades** (the whole box, not just its label),
+while a server nobody has measured keeps its full weight, because no measurement is not a verdict.
+The second half is a layout rule: the name slot is one line, always, an overflowing name travels
+through it, and every box takes its row's height — so a 60-character subscription label can no
+longer make one tile taller than the three beside it.
+
+`docs/HOME_ROUTE_PING_V210.md` — the Home ping buttons ask about the **server on screen**. V208
+declared the page's question to be "how good is my subscription?"; this chapter keeps the *count*
+of ping controls it established and reverses the *scope*, because a pulse sitting on the status box
+of a page that is showing one named server is being asked about that server. The header's pulse
+runs the route verb, and the floating control gets its ping half back next to the pause, both of
+them the same measurement: through the tunnel while it is up, at the endpoint while it is down.
+
+`docs/FLOATING_ACTIONS_V210.md` — the chrome around a floating button was theme-aware; its face
+was not, and in the wallpaper palette the stop button was a hard-coded brand red. Every theme now
+owns four action tokens — connect, securing, stop, measure — the glyph on each is scored from the
+same theme's ink pair, and "no two of the four are the same colour, in any theme" is a unit test.
+
+`docs/SETTINGS_SECTIONS_V210.md` — Settings is a **tree**. Six main sections, each closable from
+its own header, each holding named sub-sections as insets inside it: Appearance owns Theme,
+Navigation and Language & text; Connection owns Engine, Routing and Automatic connect. Every row
+the flat page had is still there, plus an *Expand all* / *Collapse all* control in the header, and
+a section nobody has touched is open — so one added in a later release opens too.
 
 `docs/HIGH_JITTER_SHIELD_V206.md` is the chapter before them. Very high jitter was being answered with
 a mean that one stalled packet destroys, a verdict that is a single bit, thresholds that ignore

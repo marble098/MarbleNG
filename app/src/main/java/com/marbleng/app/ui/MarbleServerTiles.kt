@@ -2,6 +2,8 @@ package com.marbleng.app.ui
 
 // MARBLE_SERVER_TILE_LAYOUT_V208 — the compact server silhouette, and the one rule that decides
 // when it is used.
+// MARBLE_SERVER_TILE_TRUTH_V210 — what a tile is allowed to claim: a box that answered stands
+// out, a box that did not answer recedes, and a name never grows the box it lives in.
 //
 // The finding: a server has exactly three facts a user ever scans — where it is, what it is
 // called, and how fast it answered. The product printed those three facts on a full-width row,
@@ -26,13 +28,20 @@ package com.marbleng.app.ui
 // row, so switching the layout cannot change what a server does.
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -91,6 +101,96 @@ object ServerTilePolicy {
         profiles.chunked(columns.coerceAtLeast(1))
 }
 
+/**
+ * MARBLE_SERVER_TILE_TRUTH_V210 — what a tile may claim about the server inside it.
+ *
+ * A grid of forty boxes is read as a picture, not as a list of sentences, so the only thing that
+ * may separate one box from its neighbours is a fact: this one answered, that one did not. The
+ * old tile drew both in the same fill with the same ink, so the one thing a user is actually
+ * looking for — which of these servers is dead — was the only thing the grid did not show.
+ *
+ * The three answers are deliberately not three shades of one another:
+ *
+ *  - [Reach.ANSWERED]  a measurement exists and it cleared the product's honest latency floor;
+ *  - [Reach.SILENT]    a measurement exists and it did not — the box recedes, because a box that
+ *                      shouts "no route" forty times is a wall of noise, and a box that *fades*
+ *                      is a picture with one dead pixel in it;
+ *  - [Reach.UNMEASURED] nobody has asked yet. Absence of a measurement is not evidence, so this
+ *                      box looks exactly like a working one: dimming it would punish the user
+ *                      for not having run a sweep.
+ *
+ * Everything here is pure, so the rule is unit-testable without a device.
+ */
+object ServerTileTruth {
+    /** What the last measurement of one server says. */
+    enum class Reach { ANSWERED, SILENT, UNMEASURED }
+
+    /**
+     * The floor a sample has to clear before the product calls it a measurement, in ms.
+     *
+     * [ServerTile] used this number inline; it is named here because the same floor decides both
+     * whether a latency is printed and whether a box fades, and two copies of a threshold drift.
+     */
+    const val LatencyFloorMs: Int = 20
+
+    /** How much of a silent tile remains painted: enough to read, not enough to compete. */
+    const val SilentAlpha: Float = .42f
+
+    /** A tile nobody has measured, and a tile that answered, keep their full weight. */
+    const val LiveAlpha: Float = 1f
+
+    /** The verdict one tile must draw, from the measurement the page already holds. */
+    fun reachOf(result: BenchmarkResult?, testing: Boolean): Reach {
+        // A box currently being measured is not silent — nothing has failed yet, so it must not
+        // begin fading halfway through the sweep that is about to clear it.
+        if (testing) return Reach.UNMEASURED
+        if (result == null) return Reach.UNMEASURED
+        val answered = result.success > 0 && result.latencyMs >= LatencyFloorMs
+        return if (answered) Reach.ANSWERED else Reach.SILENT
+    }
+
+    /** The painted weight of one verdict. */
+    fun alphaOf(reach: Reach): Float = when (reach) {
+        Reach.SILENT -> SilentAlpha
+        Reach.ANSWERED, Reach.UNMEASURED -> LiveAlpha
+    }
+
+    /** The spoken state of one verdict, for the tile's accessibility label. */
+    fun stateWord(reach: Reach): String = when (reach) {
+        Reach.SILENT -> "No response"
+        Reach.ANSWERED -> ""
+        Reach.UNMEASURED -> ""
+    }
+}
+
+/**
+ * MARBLE_SERVER_TILE_TRUTH_V210 — the name slot of a tile.
+ *
+ * A server name is the one field in a tile whose length the product does not control: a
+ * subscription ships `🇩🇪 DE-07 · Frankfurt Premium Plus [Premium]`, and a two-line slot turned
+ * that into a tile one line taller than its neighbour. On a grid that is the whole defect — the
+ * row grows, every other box in the row stays the same size, and the grid stops being a grid.
+ *
+ * So the slot is one line, always, at a fixed height, and a name that does not fit travels
+ * through that slot instead of expanding it. [ServerTile] attaches the marquee only when motion
+ * is enabled: with the system's "remove animations" switch on, an endlessly sliding label is the
+ * one kind of motion a user with a vestibular trigger cannot switch off, and the honest fall-back
+ * is the ellipsis the row already used.
+ */
+object ServerTileNamePolicy {
+    /** The name occupies exactly this many lines, whatever it says. */
+    const val MaxLines: Int = 1
+
+    /** How fast an overflowing name travels, in dp per second. */
+    const val VelocityDp: Int = 26
+
+    /** The gap before a travelling name repeats, as a fraction of the slot's own width. */
+    const val SpacingFraction: Float = .30f
+
+    /** A name that fits never moves; only an overflowing one is animated. */
+    const val InfiniteIterations: Int = Int.MAX_VALUE
+}
+
 /** The number of tile columns the current window fits, resolved once per recomposition. */
 @Composable
 internal fun rememberServerTileColumns(contentWidthDp: Int? = null): Int {
@@ -109,7 +209,20 @@ internal fun rememberServerTileColumns(contentWidthDp: Int? = null): Int {
  * its own hue as a text badge, the name takes the width it has, and the measured latency closes
  * the tile with the same quality bars the row shows. Selected and live are the same two states,
  * in the same two colours, with the same rim — so a user who knows the list knows the grid.
+ *
+ * MARBLE_SERVER_TILE_TRUTH_V210 — two things a tile now answers that it used to leave to the
+ * reader:
+ *
+ *  1. **A server that did not answer recedes.** [ServerTileTruth.reachOf] decides it from the
+ *     measurement the page already holds, and the whole box — fill, rim, name, address and
+ *     latency — fades to [ServerTileTruth.SilentAlpha], so a dead node is the quietest thing in
+ *     the grid instead of an equal peer of the live ones around it. A server nobody has measured
+ *     is *not* faded: no measurement is not a verdict.
+ *  2. **A name never grows its box.** The name slot is one line at a fixed height and an
+ *     overflowing name travels through it ([ServerTileNamePolicy]), so a 60-character
+ *     subscription label cannot make one tile taller than the three beside it.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ServerTile(
     profile: ProxyProfile,
@@ -124,7 +237,7 @@ internal fun ServerTile(
 ) {
     // A smaller radius than the subscription container gives the server card its own clear level.
     val shape = RoundedCornerShape(13.dp)
-    val measured = result?.takeIf { it.success > 0 && it.latencyMs >= 20 }
+    val measured = result?.takeIf { it.success > 0 && it.latencyMs >= ServerTileTruth.LatencyFloorMs }
     val latency = measured?.latencyMs?.toInt() ?: 0
     val attempted = result != null && measured == null
     val name = displayServerName(profile.name, profile.host, profile.scheme)
@@ -158,15 +271,44 @@ internal fun ServerTile(
         selected -> Aether.Cyan
         else -> null
     }
+    // MARBLE_SERVER_TILE_TRUTH_V210 — the whole box carries the verdict, so it is applied once,
+    // after the fill and the rim are painted: a silent server is a quieter box, not a box with a
+    // quieter label. It animates on the product's own float spec so a sweep does not blink the
+    // grid — it settles into its new truth.
+    val reach = ServerTileTruth.reachOf(result, testing)
+    val tileAlpha by animateFloatAsState(
+        targetValue = ServerTileTruth.alphaOf(reach),
+        animationSpec = MarbleMotionSpecs.DockFloat,
+        label = "server-tile-alpha"
+    )
+    val spokenReach = trx(ServerTileTruth.stateWord(reach))
     val stateWord = when {
         active -> trx("Connected")
         selected -> trx("Selected")
+        spokenReach.isNotBlank() -> spokenReach
         else -> ""
+    }
+    // MARBLE_SERVER_TILE_TRUTH_V210 — a long name travels inside its own slot instead of
+    // expanding it. `basicMarquee` measures the text against the slot itself and only animates
+    // when it does not fit, so a short name is an ordinary static label — there is no "is this
+    // one long enough?" branch to get wrong.
+    val motion = MarbleMotion.current
+    val nameModifier = if (motion.motionEnabled) {
+        Modifier.basicMarquee(
+            iterations = ServerTileNamePolicy.InfiniteIterations,
+            velocity = ServerTileNamePolicy.VelocityDp.dp,
+            spacing = MarqueeSpacing.fractionOfContainer(ServerTileNamePolicy.SpacingFraction)
+        )
+    } else {
+        Modifier
     }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
+            // Every tile in a line takes the line's height, so a box can never be shorter than
+            // the one beside it (MARBLE_SERVER_TILE_TRUTH_V210).
+            .fillMaxHeight()
             .heightIn(min = 84.dp)
             .clip(shape)
             .background(fill)
@@ -179,6 +321,7 @@ internal fun ServerTile(
                 ).joinToString(", ")
                 stateDescription = stateWord
             }
+            .alpha(tileAlpha)
             .padding(horizontal = 9.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
@@ -205,13 +348,19 @@ internal fun ServerTile(
                 modifier = Modifier.weight(1f, fill = false)
             )
         }
+        // MARBLE_SERVER_TILE_TRUTH_V210 — one line, always. The name is the only field whose
+        // length the product does not control, and a second line used to make this tile taller
+        // than every other box in its row.
         Text(
             text = name,
             color = Aether.Ink,
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            maxLines = 2,
+            maxLines = ServerTileNamePolicy.MaxLines,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(nameModifier)
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -249,6 +398,11 @@ internal fun ServerTile(
 /**
  * One line of tiles: each takes an equal share, and a short last line keeps the same widths as a
  * full one, so tiles never stretch to fill a gap and change size between rows.
+ *
+ * MARBLE_SERVER_TILE_TRUTH_V210 — the line is measured at its own intrinsic height and every
+ * tile is stretched to fill it. Together with the tile's one-line name slot that is what makes
+ * the grid a grid: no box can be taller or shorter than the box beside it, whatever its name,
+ * its address or the width of its latency reading.
  */
 @Composable
 internal fun ServerTileRow(
@@ -258,11 +412,13 @@ internal fun ServerTileRow(
     content: @Composable (ProxyProfile) -> Unit
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Max),
         horizontalArrangement = Arrangement.spacedBy(ServerTilePolicy.TileGapDp.dp)
     ) {
         profiles.forEach { profile ->
-            Box(modifier = Modifier.weight(1f)) { content(profile) }
+            Box(modifier = Modifier.weight(1f).fillMaxHeight()) { content(profile) }
         }
         // Pad a short line up to a full one: the empty shares hold the width the tiles above and
         // below already have, which is the whole reason a grid reads as a grid.
