@@ -317,30 +317,6 @@ tasks.withType<Test>().configureEach {
     }
 }
 
-// Keep the last Gradle output attached to a failing task as a GitHub annotation. Besides making
-// CI failures diagnosable without downloading the runner log, this includes the compiler/test
-// detail rather than Gradle's generic "Process completed with exit code 1" summary.
-val marbleGradleOutput = StringBuilder()
-val marbleCaptureGradleOutput: (CharSequence) -> Unit = { output ->
-    val remaining = 200_000 - marbleGradleOutput.length
-    if (remaining > 0) marbleGradleOutput.append(output.take(remaining))
-}
-logging.addStandardOutputListener { output -> marbleCaptureGradleOutput(output) }
-logging.addStandardErrorListener { output -> marbleCaptureGradleOutput(output) }
-gradle.taskGraph.afterTask { task, state ->
-    state.failure?.let { failure ->
-        val causes = generateSequence(failure) { it.cause }
-            .joinToString(" -> ") { cause ->
-                "${cause.javaClass.simpleName}: ${cause.message.orEmpty()}"
-            }
-        val message = "${task.path}: $causes\n\n${marbleGradleOutput.toString().takeLast(16_000)}"
-            .replace("%", "%25")
-            .replace("\r", "%0D")
-            .replace("\n", "%0A")
-        println("::error title=Gradle verification failure::$message")
-    }
-}
-
 val prepareSingBoxRules by tasks.registering(Exec::class) {
     workingDir(rootProject.projectDir)
     commandLine("python3", "scripts/prepare-singbox-rules.py")
