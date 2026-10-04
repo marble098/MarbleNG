@@ -18800,17 +18800,3 @@ private fun IranModeSettings(repo: AppRepository) {
         enabled = !state.scanning
     ) { repo.scanIranMode(force = true, deep = true) }
 }
-}
-}
-ep = true) }
-}
-}
-}
-e) }
-}
-}
-}
-e) }
-}
-}
-}

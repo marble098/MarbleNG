@@ -3156,19 +3156,16 @@ check(
 # ---------------------------------------------------------------------------
 # MARBLE_HOME_ONE_PING_V208
 # ---------------------------------------------------------------------------
-# The header ping is gone, and so is every second way to start a measurement. What remains is one
-# button that pings the current group; the fixed-size notice slot is what stopped the top box from
-# blinking while that measurement runs.
+# The Home header owns one group-measurement action and no transient status strip. The Home ping
+# follows the route's source, while progress and connection truth stay with their owning controls.
 check(
-    "V208 the Home header has no ping and exactly one ping button",
+    "V208 the Home header has no duplicate ping or transient status strip",
     "HomeGroupPingButton(" in files["homeStyles"]
     and "val HomePingButtonSize" in files["homeStyles"]
     and "onTestPing" not in files["homeStyles"].split("fun HomeTopActionBar(")[1]
-    # The notice slot has a fixed height and is driven by busy-OR-outcome, so a tap cannot make it
-    # appear, disappear and reappear inside the same second.
-    and "val MarbleNoticeHeight" in files["homeStyles"]
-    and ".height(MarbleNoticeHeight)" in files["homeStyles"]
-    and "if (!MarbleFeedbackPolicy.isOutcome(raw) && !working) return" in files["homeStyles"]
+    and "HomeRuntimeNotice" not in files["homeStyles"]
+    and "MarbleNoticeHeight" not in files["homeStyles"]
+    and "MARBLE_HOME_NO_TRANSIENT_STATUS_V209" in files["ui"]
     # One verb: the group ping. The per-profile test has no tap surface left in the product.
     and "onPingGroup()" in files["atelier"]
     # The two live-ping surfaces on the Studio presentations are gauges now: no tap, no second
@@ -3359,17 +3356,13 @@ check(
     and "unregisterContentObserver" in files["motion"],
 )
 check(
-    "V207 the runtime message has a reader and a bounded dwell",
-    # MARBLE_NO_IN_APP_NOTIFICATIONS_V121 removed the interrupting snackbar and, with it, the last
-    # surface that read the runtime message at all: ~40 engine outcomes became writes nobody saw. The
-    # corrected rule is no DUPLICATE or interrupting copy, not no copy — so the message must be read by
-    # something in the page's own flow, expire on a dwell instead of an instant delete, and never come
-    # back as a floating bar.
-    "if (!repo.busy && repo.message.isNotBlank()) repo.clearMessage()" not in files["ui"]
+    "V209 Home removes transient status while internal messages stay bounded",
+    # No status strip or snackbar is rendered. The repository message is only retained briefly after
+    # work settles so its old result cannot leak into a later task; system notifications are separate.
+    "MARBLE_HOME_NO_TRANSIENT_STATUS_V209" in files["ui"]
     and "MarbleFeedbackPolicy.dwellMillis(actionRequired = false)" in files["ui"]
-    and "internal fun HomeRuntimeNotice(" in files["homeStyles"]
-    and "HomeRuntimeNotice(repo)" in files["homeStyles"]
-    and "MarbleFeedbackPolicy.isOutcome(raw)" in files["homeStyles"]
+    and "HomeRuntimeNotice" not in files["homeStyles"]
+    and "MarbleNoticeHeight" not in files["homeStyles"]
     and "Snackbar(" not in files["ui"],
 )
 check(
