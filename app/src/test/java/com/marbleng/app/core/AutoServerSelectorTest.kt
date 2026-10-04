@@ -15,7 +15,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 
 /**
- * MARBLE_AUTO_SERVER_SELECTOR_V202 — the five strategies, and the three guards that make them
+ * MARBLE_AUTO_SERVER_SELECTOR_V202 — the selector strategies, custom weights and the guards that make them
  * behave.
  *
  * The guards matter more than the strategies. "Pick the lowest ping" is one line; the product
@@ -168,7 +168,8 @@ class AutoServerSelectorTest {
         for (strategy in listOf(
             AutoServerStrategy.SMART,
             AutoServerStrategy.LEAST_PING,
-            AutoServerStrategy.LEAST_LOAD
+            AutoServerStrategy.LEAST_LOAD,
+            AutoServerStrategy.CUSTOM
         )) {
             val choice = AutoServerSelector.choose(listOf(broken, healthy), strategy, nowMs = now)
             assertEquals(
@@ -192,6 +193,24 @@ class AutoServerSelectorTest {
         )
         val choice = AutoServerSelector.choose(listOf(only), AutoServerStrategy.SMART, nowMs = now)
         assertNotNull(choice.profile)
+    }
+
+    @Test
+    fun `custom falls back to the only measured route rather than an unknown one`() {
+        val now = 1_000_000L
+        val measuredButQuarantined = candidate(
+            "known",
+            latencyMs = 80.0,
+            failureStreak = AutoServerSelector.QUARANTINE_STREAK,
+            nowMs = now
+        )
+        val unmeasured = candidate("unknown", nowMs = now)
+        val choice = AutoServerSelector.choose(
+            listOf(measuredButQuarantined, unmeasured),
+            AutoServerStrategy.CUSTOM,
+            nowMs = now
+        )
+        assertEquals("known", choice.profile?.id)
     }
 
     @Test
@@ -249,7 +268,7 @@ class AutoServerSelectorTest {
         assertEquals("margin 0 is the user asking for exactly this", "hair", choice.profile?.id)
     }
 
-    // ─── The five strategies ─────────────────────────────────────────────────────────
+    // ─── Ranking strategies and user weights ─────────────────────────────────────────
 
     @Test
     fun `least load prefers the node that does not collapse under transfer`() {
@@ -275,6 +294,65 @@ class AutoServerSelectorTest {
             nowMs = now
         )
         assertEquals("free", choice.profile?.id)
+    }
+
+    @Test
+    fun `custom weights can choose ping-first or load-first for the same measured pool`() {
+        val now = 1_000_000L
+        val fastButBusy = candidate(
+            "fast-busy",
+            latencyMs = 35.0,
+            jitterMs = 8.0,
+            loadedLatencyMs = 500.0,
+            bytesPerSecond = 400_000.0,
+            nowMs = now
+        )
+        val slowerButFree = candidate(
+            "slower-free",
+            latencyMs = 110.0,
+            jitterMs = 8.0,
+            loadedLatencyMs = 115.0,
+            bytesPerSecond = 5_000_000.0,
+            nowMs = now
+        )
+        val pingFirst = AutoServerSelector.choose(
+            candidates = listOf(fastButBusy, slowerButFree),
+            strategy = AutoServerStrategy.CUSTOM,
+            nowMs = now,
+            weights = AutoServerWeights(ping = 100, load = 0, stability = 0, freshness = 0)
+        )
+        val loadFirst = AutoServerSelector.choose(
+            candidates = listOf(fastButBusy, slowerButFree),
+            strategy = AutoServerStrategy.CUSTOM,
+            nowMs = now,
+            weights = AutoServerWeights(ping = 0, load = 100, stability = 0, freshness = 0)
+        )
+        assertEquals("fast-busy", pingFirst.profile?.id)
+        assertEquals("slower-free", loadFirst.profile?.id)
+    }
+
+    @Test
+    fun `custom weights are normalized and zero weights use the balanced profile`() {
+        val candidate = candidate("weighted", latencyMs = 75.0, jitterMs = 12.0, nowMs = 1_000_000L)
+        val balanced = AutoServerSelector.customScore(candidate, 1_000_000L, AutoServerWeights.BALANCED)
+        val zero = AutoServerSelector.customScore(
+            candidate,
+            1_000_000L,
+            AutoServerWeights(ping = 0, load = 0, stability = 0, freshness = 0)
+        )
+        assertEquals(balanced.first, zero.first, 0.000001)
+    }
+
+    @Test
+    fun `measurement strategies ask for a sweep instead of picking an unmeasured node`() {
+        val unmeasured = listOf(candidate("unmeasured", nowMs = 1_000_000L))
+        val choice = AutoServerSelector.choose(
+            unmeasured,
+            AutoServerStrategy.CUSTOM,
+            nowMs = 1_000_000L
+        )
+        assertNull(choice.profile)
+        assertTrue(choice.reason.contains("ping", ignoreCase = true))
     }
 
     @Test
@@ -389,6 +467,10 @@ class AutoServerSelectorTest {
         assertEquals(AutoServerStrategy.SMART, settings.autoServerStrategyEnum)
         assertEquals(AutoServerScope.SOURCE, settings.autoServerScopeEnum)
         assertEquals(15, settings.autoServerSwitchMarginPercent)
+        assertEquals(40, settings.autoServerPingWeight)
+        assertEquals(30, settings.autoServerLoadWeight)
+        assertEquals(20, settings.autoServerStabilityWeight)
+        assertEquals(10, settings.autoServerFreshnessWeight)
     }
 
     @Test

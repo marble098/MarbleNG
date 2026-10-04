@@ -31,7 +31,7 @@ neighbour. Seven sections:
 | `MarbleRoutePath` | How much of the route can be proven? | the Atelier signet |
 | `MarbleLocationTrust` | What may a flag claim? | `ProtocolTile`, `IosStatusWideCard`, `IosServerItemRow`, the Servers row |
 | `MarbleMotionPolicy` / `MarbleConnectMotion` | May this move, and by how much? | press travel, entrance cascade, ambient field, the round shutter's pop |
-| `MarbleFeedbackPolicy` | How long must a result stay readable? | the root message effect + `HomeRuntimeNotice` |
+| `MarbleFeedbackPolicy` | How long may an internal result remain in repository state? | the root cleanup effect; V209 intentionally renders no Home status strip |
 
 `MarbleDesignContractV207Test` pins them: state precedence, the six-verb table, six distinct hue
 roles, the trust ladder (a label emoji may never be a flag; a lone witness may be a flag but never a
@@ -86,12 +86,13 @@ default, and it localises through `isFaLexiconKey`: the product's own literals g
 composed copy ("More actions for Frankfurt-03") passes through untouched instead of being
 transliterated into nonsense. A nameless control is no longer expressible.
 
-**7 — the app deleted its own feedback.** The root effect that cleared `repo.message` the instant the
-app went idle is replaced by a dwell (`MarbleFeedbackPolicy.OutcomeDwellMs`, re-checked against the
-value it is about to clear), and the message finally has a reader: `HomeRuntimeNotice`, an in-flow,
-dismissible line inside the Home header column — regex-compacted to 180 characters, two lines,
-`marbleSpringIn` on arrival, no overlay, no timer painting over content. "No floating messages at
-all" was never the right rule; "no duplicate, interrupting message" is, and that is what is now true.
+**7 — bounded internal message lifetime (updated in V209).** V207 originally added a
+`HomeRuntimeNotice` after finding that repository outcomes were written without a reader. The V209
+product decision removes that transient Home status strip entirely: neither the composable nor its
+call remains. The root `LaunchedEffect` still lets internal messages expire after work settles
+(`MarbleFeedbackPolicy.OutcomeDwellMs`, checked against the value it is about to clear), preventing
+stale repository state from carrying into a later task. Progress and connection truth belong to the
+controls that own them; Android system notifications remain a separate surface.
 
 **8 — the Tests shortcut opened Settings and stopped.** `deckActions.onTests` now sets a focus key that
 resolves through the same deep-link path Routing already used, and it names the card rather than the tab
