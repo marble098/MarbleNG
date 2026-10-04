@@ -334,8 +334,8 @@ val marbleFailureReporters = marbleVerificationTasks.associateWith { taskName ->
             }
             val lines = output.lines()
             val failureLine = Regex(
-                "(?i)(^e: |\\berror\\b|\\bfailed\\b|\\bfailure\\b|\\bexception\\b|" +
-                    "\\bcaused by\\b|unresolved reference|expecting|assertion|expected:|" +
+                "(?i)(^e: |\\berror:|\\bfailed\\b|\\bfailure\\b|\\bexception\\b|" +
+                    "\\bcaused by\\b|unresolved reference|expecting|assertionerror|expected:|" +
                     "actual:|but was|could not|what went wrong|there were failing tests)"
             )
             val matching = lines.indices.filter { failureLine.containsMatchIn(lines[it]) }
