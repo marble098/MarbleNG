@@ -316,7 +316,7 @@ class MarbleDesignContractV207Test {
         assertEquals(0L, MarbleFeedbackPolicy.dwellMillis(actionRequired = true))
         assertEquals(MarbleFeedbackPolicy.ActionRequiredDwellMs, 0L)
         assertTrue(MarbleFeedbackPolicy.isOutcome("Clipboard is empty"))
-        assertFalse("blank noise never earns a bar", MarbleFeedbackPolicy.isOutcome("   "))
+        assertFalse("blank messages are not outcomes", MarbleFeedbackPolicy.isOutcome("   "))
     }
 
     // ------------------------------------------------------------------ copy ownership

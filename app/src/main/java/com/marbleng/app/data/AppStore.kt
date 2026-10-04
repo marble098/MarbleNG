@@ -817,9 +817,13 @@ class AppStore(context: Context) {
         autoServerStrategy = parseAutoServerStrategy(
             prefs.getString("autoServerStrategy", AutoServerStrategy.DEFAULT.id) ?: AutoServerStrategy.DEFAULT.id
         ).id,
+        autoServerPingWeight = prefs.getInt("autoServerPingWeight", 40).coerceIn(0, 100),
+        autoServerLoadWeight = prefs.getInt("autoServerLoadWeight", 30).coerceIn(0, 100),
+        autoServerStabilityWeight = prefs.getInt("autoServerStabilityWeight", 20).coerceIn(0, 100),
+        autoServerFreshnessWeight = prefs.getInt("autoServerFreshnessWeight", 10).coerceIn(0, 100),
         autoServerOnScan = prefs.getBoolean("autoServerOnScan", true),
         autoServerOnConnect = prefs.getBoolean("autoServerOnConnect", false),
-        autoServerOnFailure = prefs.getBoolean("autoServerOnFailure", false),
+        autoServerOnFailure = prefs.getBoolean("autoServerOnFailure", true),
         autoServerScope = parseAutoServerScope(
             prefs.getString("autoServerScope", AutoServerScope.DEFAULT.id) ?: AutoServerScope.DEFAULT.id
         ).id,
@@ -1075,6 +1079,10 @@ class AppStore(context: Context) {
         // MARBLE_AUTO_SERVER_SELECTOR_V202
         .putBoolean("autoServerSelectorEnabled", s.autoServerSelectorEnabled)
         .putString("autoServerStrategy", s.autoServerStrategyEnum.id)
+        .putInt("autoServerPingWeight", s.autoServerPingWeight.coerceIn(0, 100))
+        .putInt("autoServerLoadWeight", s.autoServerLoadWeight.coerceIn(0, 100))
+        .putInt("autoServerStabilityWeight", s.autoServerStabilityWeight.coerceIn(0, 100))
+        .putInt("autoServerFreshnessWeight", s.autoServerFreshnessWeight.coerceIn(0, 100))
         .putBoolean("autoServerOnScan", s.autoServerOnScan)
         .putBoolean("autoServerOnConnect", s.autoServerOnConnect)
         .putBoolean("autoServerOnFailure", s.autoServerOnFailure)

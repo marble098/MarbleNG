@@ -2679,8 +2679,8 @@ private fun postToMain(block: () -> Unit) {
         val posted = notifier.alert(
             SmartNotificationKind.TEST,
             "manual-test",
-            "MarbleNG smart alerts",
-            "Notifications are ready • recovery, privacy and subscription events can be surfaced here.",
+            "Test notification",
+            "Smart alerts are working on this device.",
             settings,
             minIntervalOverrideMs = 0L
         )
@@ -4724,6 +4724,20 @@ private fun postToMain(block: () -> Unit) {
      */
     fun testAll() = testSource("all")
 
+    /** Measure the exact pool currently configured for the automatic selector. */
+    fun pingAutoServerPool() {
+        val pool = autoServerPool()
+        if (pool.isEmpty()) {
+            message = "No servers in the selector pool"
+            return
+        }
+        pingProfiles(
+            profiles = pool,
+            scopeLabel = "Auto selector • ${AutoServerSelector.scopeLabel(settings.autoServerScopeEnum)}",
+            scopeId = "auto-selector"
+        )
+    }
+
     /**
      * MARBLE_HOME_PING_ROUTE_GROUP_V146 — the Home ping button measures the subscription that
      * the route SHOWN on the Home page belongs to.
@@ -4739,16 +4753,9 @@ private fun postToMain(block: () -> Unit) {
      * group-chip ping remains available on the Servers page, so neither question lost its answer.
      */
     fun pingHomeGroup() {
-        // Home pulse measures the subscription currently selected on Servers, never "all".
-        val selectedSource = librarySourceFilter.takeIf { it.isNotBlank() && it != "all" }
-        val sourceId = selectedSource ?: run {
-            val route = homeRoute()
-            when {
-                route == null -> "manual"
-                route.subscriptionId.isBlank() -> "manual"
-                else -> route.subscriptionId
-            }
-        }
+        // The Home action follows the route it labels. A filter left on the Servers page must
+        // never redirect this tap to a different (or empty) subscription.
+        val sourceId = HomePingScope.sourceId(homeRoute()?.subscriptionId)
         testSource(sourceId)
     }
 
@@ -4795,8 +4802,7 @@ private fun postToMain(block: () -> Unit) {
 
     /** Human-readable name of the group [pingHomeGroup] would measure. */
     fun homeGroupPingLabel(): String {
-        val route = homeRoute()
-        val sourceId = route?.subscriptionId?.takeIf { it.isNotBlank() } ?: "manual"
+        val sourceId = HomePingScope.sourceId(homeRoute()?.subscriptionId)
         return libraryScopeLabel(sourceId)
     }
 
@@ -5141,12 +5147,17 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
+    private fun autoServerWeights(): AutoServerWeights = AutoServerWeights(
+        ping = settings.autoServerPingWeight,
+        load = settings.autoServerLoadWeight,
+        stability = settings.autoServerStabilityWeight,
+        freshness = settings.autoServerFreshnessWeight
+    ).clamped()
+
     /**
      * What the selector would pick right now, without applying it.
      *
-     * The Settings page shows this so a user can see what "Smart" means for their own library
-     * before handing the route over to it — a selector you cannot interrogate is a selector you
-     * cannot trust.
+     * The Settings page uses this live preview to explain the saved strategy before it is applied.
      */
     fun previewAutoServerChoice(): AutoServerChoice {
         val strategy = settings.autoServerStrategyEnum
@@ -5157,7 +5168,8 @@ private fun postToMain(block: () -> Unit) {
             roundRobinCursor = store.loadAutoServerCursor(),
             randomSeed = System.nanoTime(),
             switchMarginPercent = settings.autoServerSwitchMarginPercent,
-            scope = settings.autoServerScopeEnum
+            scope = settings.autoServerScopeEnum,
+            weights = autoServerWeights()
         )
     }
 
@@ -5184,7 +5196,8 @@ private fun postToMain(block: () -> Unit) {
             // production, which is the one thing `Random` cannot be both of.
             randomSeed = System.nanoTime(),
             switchMarginPercent = settings.autoServerSwitchMarginPercent,
-            scope = settings.autoServerScopeEnum
+            scope = settings.autoServerScopeEnum,
+            weights = autoServerWeights()
         )
         val winner = choice.profile
         diagnostics.event(
@@ -5202,7 +5215,7 @@ private fun postToMain(block: () -> Unit) {
             "reason" to choice.reason.take(120)
         )
         if (winner == null) {
-            message = "Auto-select • nothing to choose from in ${AutoServerSelector.scopeLabel(settings.autoServerScopeEnum)}"
+            message = "Auto-select • ${choice.reason}"
             return null
         }
         if (strategy == AutoServerStrategy.ROUND_ROBIN) {

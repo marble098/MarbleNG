@@ -55,6 +55,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.model.BenchmarkResult
 import com.marbleng.app.model.ProxyProfile
 
@@ -121,11 +122,13 @@ internal fun ServerTile(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    // A smaller radius than the subscription container gives the server card its own clear level.
+    val shape = RoundedCornerShape(13.dp)
     val measured = result?.takeIf { it.success > 0 && it.latencyMs >= 20 }
     val latency = measured?.latencyMs?.toInt() ?: 0
     val attempted = result != null && measured == null
     val name = displayServerName(profile.name, profile.host, profile.scheme)
+    val endpoint = ServersQuery.address(profile)
     val flag = leadingFlagGlyph(profile.name)
 
     // Both endpoints of the tween are opaque: animating toward a translucent fill passes through
@@ -215,19 +218,26 @@ internal fun ServerTile(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
+            Text(
+                text = endpoint.ifBlank { trx("Endpoint unavailable") },
+                color = Aether.InkFaint,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
             ServerPingStat(
                 latencyMs = latency,
                 measured = measured != null,
                 testing = testing,
                 attempted = attempted,
                 compact = true,
-                quietFailure = true,
-                modifier = Modifier.weight(1f)
+                quietFailure = true
             )
             if (active || selected) {
                 Box(
                     modifier = Modifier
-                        .size(7.dp)
+                        .size(6.dp)
                         .clip(androidx.compose.foundation.shape.CircleShape)
                         .background(stateTone ?: Aether.Cyan)
                 )

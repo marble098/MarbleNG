@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.marbleng.app.MainActivity
 import com.marbleng.app.R
 import com.marbleng.app.model.AppSettings
@@ -74,18 +75,18 @@ class SmartNotifier(private val context: Context) {
             }
             val smart = NotificationChannel(
                 CHANNEL_SMART,
-                "Security & recovery",
+                "Alerts, privacy & recovery",
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Kill-switch, recovery, failover and optional connection events"
+                description = "Optional connection alerts, privacy warnings and recovery events"
                 group = GROUP_ID
             }
             val updates = NotificationChannel(
                 CHANNEL_UPDATES,
-                "Subscriptions & core updates",
+                "Subscriptions & app updates",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Subscription refresh results and core update availability"
+                description = "Subscription refresh results and app core updates"
                 group = GROUP_ID
             }
             manager.createNotificationChannels(listOf(connection, smart, updates))
@@ -94,24 +95,39 @@ class SmartNotifier(private val context: Context) {
     }
 
     fun optionalPermissionGranted(): Boolean =
-        Build.VERSION.SDK_INT < 33 ||
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        (Build.VERSION.SDK_INT < 33 ||
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+            NotificationManagerCompat.from(context).areNotificationsEnabled()
 
     fun connectionNotification(title: String, text: String, ongoing: Boolean): Notification {
         ensureChannels()
+        val publicVersion = NotificationCompat.Builder(context, CHANNEL_CONNECTION)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("MarbleNG")
+            .setContentText("Connection details hidden")
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(ongoing)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .build()
+
         return NotificationCompat.Builder(context, CHANNEL_CONNECTION)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(openAppIntent())
-            .addAction(R.drawable.ic_notification, "Stop", stopServiceIntent())
+            .addAction(R.drawable.ic_notification, "Disconnect", stopServiceIntent())
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            // Server names and live network details belong behind the lock screen.
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(ongoing)
             .setOnlyAlertOnce(true)
             .setSilent(true)
+            .setShowWhen(false)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
@@ -159,13 +175,28 @@ class SmartNotifier(private val context: Context) {
         }
         val safeHash = eventKey.hashCode().ushr(1)
         val id = OPTIONAL_ID_BASE + (safeHash % OPTIONAL_ID_RANGE)
+        val publicVersion = NotificationCompat.Builder(context, channel)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("MarbleNG alert")
+            .setContentText("Open MarbleNG to view details")
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .build()
+        val category = if (kind == SmartNotificationKind.PRIVACY) {
+            NotificationCompat.CATEGORY_ERROR
+        } else {
+            NotificationCompat.CATEGORY_STATUS
+        }
         val note = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title.take(80))
             .setContentText(text.take(240))
             .setStyle(NotificationCompat.BigTextStyle().bigText(text.take(1000)))
             .setContentIntent(openAppIntent())
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setCategory(category)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion)
             .setPriority(priority)
             .setAutoCancel(true)
             .build()

@@ -440,18 +440,10 @@ fun Aether2026App(
         }
     }
 
-    // MARBLE_NO_IN_APP_NOTIFICATIONS_V121 — the product raises no in-app toasts, and that stays true.
-    //
-    // What V121 also did, though, was delete the *reading* of the runtime message: this effect
-    // cleared it the moment the app went idle, and nothing in the UI ever displayed it, so the
-    // ~40 places the engine reports an outcome became writes to a value no one read. "Clipboard is
-    // empty", "manual source has nothing remote to refresh", a backup that finished — the action
-    // answered with silence, which is how a user learns only that the app did not crash.
-    //
-    // The corrected rule: no repeated or interrupting copy, not no copy. The message now lives long
-    // enough to be read, on a bar in the page's own flow (see [HomeRuntimeNotice]), and retires
-    // itself without a snackbar sliding over anything. While work is running its message stays put;
-    // the state that owns it keeps showing it. System notifications are, as before, untouched.
+    // MARBLE_HOME_NO_TRANSIENT_STATUS_V209 — Home deliberately has no short-lived status strip.
+    // Repository messages still expire after work settles so an old action cannot linger as stale
+    // state; progress and connection truth stay on the controls that own them. Android system
+    // notifications are a separate surface and remain available from Notifications settings.
     LaunchedEffect(repo.message, repo.busy) {
         val shown = repo.message
         if (shown.isBlank() || repo.busy) return@LaunchedEffect
@@ -4480,10 +4472,10 @@ private fun CyberLibrary(
                 else -> group.profiles.size
             }
 
-            // The header is the top of the group's box; the rows below close it. In the tile
-            // presentation the servers are separate cards, so the header is a whole card on its
-            // own and must not round itself for a nested block that is not there.
-            val stacked = !tileLayout && !collapsed && group.profiles.isNotEmpty()
+            // Both row and tile presentations share the same subscription container. The
+            // header opens its lower edge whenever server content follows, and each following
+            // slice continues that one outer frame.
+            val stacked = !collapsed && group.profiles.isNotEmpty()
 
             item(key = "group-${group.key}") {
                 // MARBLE_EXPRESSIVE_MOTION_V186 — group boxes cascade on first open: each header
@@ -4574,12 +4566,30 @@ private fun CyberLibrary(
                     items = tileRows,
                     key = { rowIndex, row -> "${group.key}:tiles:${rowIndex}:${row.first().id}" }
                 ) { rowIndex, row ->
+                    val lastTileRow = rowIndex == tileRows.lastIndex
                     Box(
                         Modifier
                             .animateItem()
                             .marbleStaggerIn(rowIndex + 1, enabled = entranceArmed() && rowIndex < 6)
+                            .fillMaxWidth()
+                            .clip(if (lastTileRow) ServersGroupTailShape else ServersGroupBodyShape)
+                            .background(Aether.VoidElevated)
+                            .serversStackedFrame(
+                                openTop = true,
+                                openBottom = !lastTileRow,
+                                color = serversGroupFrameColor(),
+                                width = ServersGroupFrameWidth,
+                                radius = ServersHierarchy.GROUP_CORNER_DP.dp
+                            )
                     ) {
-                        ServerTileRow(profiles = row, columns = tileColumns) { profile ->
+                        ServerTileRow(
+                            profiles = row,
+                            columns = tileColumns,
+                            modifier = Modifier.padding(
+                                horizontal = ServersHierarchy.LIST_INSET_DP.dp,
+                                vertical = 6.dp
+                            )
+                        ) { profile ->
                             val location = repo.serverLocation(profile)
                             ServerTile(
                                 profile = profile,
@@ -11301,7 +11311,7 @@ private fun SettingsHub(
             SettingsHubCard(
                 modifier = Modifier.marbleStaggerIn(1, enabled = entranceArmed()),
                 title = t.categoryHome,
-                subtitle = "What the Home screen shows and how it looks",
+                subtitle = null,
                 tone = Aether.Cyan
             ) {
                 // The four Home presentations at a glance — the quick pick stays with the
@@ -11309,14 +11319,14 @@ private fun SettingsHub(
                 SettingsStyleMiniRow(repo)
                 SettingSwitch(
                     title = "Live speed on Home",
-                    subtitle = "Show real-time download and upload only while connected",
+                    subtitle = "Download and upload while connected",
                     checked = settings.homeSpeedWidgetEnabled
                 ) { repo.updateSettings(repo.settings.copy(homeSpeedWidgetEnabled = it)) }
                 // MARBLE_SESSION_USAGE_V192 — the per-connection data readout: the live total
                 // while connected, the last session's total when disconnected.
                 SettingSwitch(
                     title = "Show data usage",
-                    subtitle = "How much this connection has moved, and the last session's total",
+                    subtitle = "Current and previous session",
                     checked = settings.homeShowDataUsage
                 ) { repo.updateSettings(repo.settings.copy(homeShowDataUsage = it)) }
                 // MARBLE_ROUTE_ATELIER_V207 — "a full-screen breathing glow says nothing about the
@@ -11325,14 +11335,14 @@ private fun SettingsHub(
                 // nothing they report changes. Colors, gradients and hairlines stay exactly as they are.
                 SettingSwitch(
                     title = "Ambient page motion",
-                    subtitle = "Off keeps the page's look and stops its breathing: the backdrop glow, the status pulse and the heartbeat trace hold still.",
+                    subtitle = "Pause decorative motion",
                     checked = settings.homeAmbientBackdrop
                 ) { repo.updateSettings(repo.settings.copy(homeAmbientBackdrop = it)) }
                 // MARBLE_SERVER_LOCATION_V192 — each server's country is verified once, in the
                 // background, then remembered; the flags fill the circles on every surface.
                 SettingSwitch(
                     title = "Auto-detect server locations",
-                    subtitle = "Each server's country is verified once, in the background, then remembered",
+                    subtitle = "",
                     checked = settings.serverLocationAutoDetect
                 ) { repo.updateSettings(repo.settings.copy(serverLocationAutoDetect = it)) }
                 SettingsHubRow(
@@ -11349,7 +11359,7 @@ private fun SettingsHub(
             SettingsHubCard(
                 modifier = Modifier.marbleStaggerIn(2, enabled = entranceArmed()),
                 title = t.categoryConnection,
-                subtitle = "Routing, tests and what happens after a scan",
+                subtitle = null,
                 tone = Aether.Emerald
             ) {
                 SettingsHubRow(
@@ -11377,7 +11387,7 @@ private fun SettingsHub(
                 ) { SettingsTestPreview(Aether.Cyan) }
                 SettingSwitch(
                     title = "Connect to best after scan",
-                    subtitle = "Automatically select and connect the fastest reachable server",
+                    subtitle = "Connect after a completed scan",
                     checked = settings.autoConnectBestAfterScan
                 ) { repo.updateSettings(repo.settings.copy(autoConnectBestAfterScan = it)) }
             }
@@ -11388,7 +11398,7 @@ private fun SettingsHub(
             SettingsHubCard(
                 modifier = Modifier.marbleStaggerIn(3, enabled = entranceArmed()),
                 title = t.categoryEngine,
-                subtitle = "The cores and tunnel options under the route",
+                subtitle = null,
                 tone = Aether.Amber
             ) {
                 // MARBLE_SETTINGS_DEDUP — one door owns the whole engine surface, and it still
@@ -11409,7 +11419,7 @@ private fun SettingsHub(
             SettingsHubCard(
                 modifier = Modifier.marbleStaggerIn(4, enabled = entranceArmed()),
                 title = t.categoryData,
-                subtitle = "Backups, restores and the app's data",
+                subtitle = null,
                 tone = Aether.CyanBright
             ) {
                 Row(
@@ -11443,7 +11453,7 @@ private fun SettingsHub(
             SettingsHubCard(
                 modifier = Modifier.marbleStaggerIn(5, enabled = entranceArmed()),
                 title = t.categoryAppearance,
-                subtitle = "Theme, fourth tab, typeface and language",
+                subtitle = null,
                 tone = Aether.Amethyst
             ) {
                 // The quick theme pick moves with its parent card: the mini grid stays one tap
@@ -11515,7 +11525,7 @@ private fun SettingsHub(
             SettingsHubCard(
                 modifier = Modifier.marbleStaggerIn(6, enabled = entranceArmed()),
                 title = t.categorySystem,
-                subtitle = "Notifications, general and information",
+                subtitle = null,
                 tone = Aether.SlateBright
             ) {
                 SettingsHubRow(
@@ -12867,7 +12877,7 @@ private fun settingsTabPageSubtitle(tab: SettingsWorkspaceTab): String = when (t
     SettingsWorkspaceTab.TESTS -> "Probes, ranking and live route intelligence"
     SettingsWorkspaceTab.NETWORK -> "DNS, split tunnel and geo rules"
     SettingsWorkspaceTab.ENGINE -> "Xray, transport and adaptive buffers"
-    SettingsWorkspaceTab.SYSTEM -> "Notifications, background access and live stats"
+    SettingsWorkspaceTab.SYSTEM -> "Notifications and background access"
 }
 
 /**
@@ -13293,87 +13303,129 @@ private fun ConnectionSettings(repo: AppRepository) {
 private fun NotificationSettings(repo: AppRepository) {
     val context = LocalContext.current
     val s = repo.settings
-    var permissionGranted by remember {
-        mutableStateOf(
-            Build.VERSION.SDK_INT < 33 ||
-                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        )
-    }
+    fun hasRuntimePermission(): Boolean =
+        Build.VERSION.SDK_INT < 33 ||
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    fun notificationAccessGranted(): Boolean =
+        hasRuntimePermission() &&
+            androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+
+    var permissionGranted by remember { mutableStateOf(notificationAccessGranted()) }
+    val needsRuntimePermission = Build.VERSION.SDK_INT >= 33 && !hasRuntimePermission()
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        permissionGranted = granted
-        if (granted) repo.testSmartNotification()
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        HoloBadge(
-            if (permissionGranted) "PERMISSION READY" else "PERMISSION NEEDED",
-            if (permissionGranted) Aether.Emerald else Aether.Amber,
-            compact = true
-        )
-        HoloBadge(
-            if (s.smartNotificationsEnabled) "SMART ALERTS ON" else "SMART ALERTS OFF",
-            if (s.smartNotificationsEnabled) Aether.Cyan else Aether.InkFaint,
-            compact = true
-        )
-        HoloBadge(
-            if (s.notificationLiveStats) "LIVE STATUS" else "STATIC STATUS",
-            if (s.notificationLiveStats) Aether.Amethyst else Aether.InkFaint,
-            compact = true
-        )
+        permissionGranted = notificationAccessGranted()
     }
+    val systemSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        permissionGranted = notificationAccessGranted()
+    }
+    val permissionTone = if (permissionGranted) Aether.Emerald else Aether.Amber
 
-
-    if (Build.VERSION.SDK_INT >= 33 && !permissionGranted) {
-        CyberButton(
-            label = "Grant notification access",
-            color = Aether.Amber,
-            modifier = Modifier.fillMaxWidth()
+    PrismPanel(
+        modifier = Modifier.fillMaxWidth(),
+        accent = permissionTone,
+        contentPadding = PaddingValues(12.dp),
+        verticalSpacing = 10.dp
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(permissionTone.copy(alpha = .12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeVectorIcon(HomeIcon.STATUS, permissionTone, Modifier.size(19.dp))
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    trx("Notification access"),
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    trx(
+                        when {
+                            permissionGranted -> "Allowed by Android"
+                            needsRuntimePermission -> "Allow Android notifications to show alerts and live status"
+                            else -> "Disabled in Android settings"
+                        }
+                    ),
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            HoloBadge(
+                if (permissionGranted) "ALLOWED" else "ACTION NEEDED",
+                permissionTone,
+                compact = true
+            )
+        }
+        if (needsRuntimePermission) {
+            CyberButton(
+                label = "Allow notifications",
+                color = Aether.Amber,
+                icon = HomeIcon.STATUS,
+                modifier = Modifier.fillMaxWidth(),
+                compact = true
+            ) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
     }
 
     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
         CyberButton(
-            label = "Test alert",
+            label = "Send test",
             color = Aether.Cyan,
+            icon = HomeIcon.PING,
             modifier = Modifier.weight(1f),
-            enabled = permissionGranted && s.smartNotificationsEnabled
+            enabled = permissionGranted && s.smartNotificationsEnabled,
+            compact = true
         ) { repo.testSmartNotification() }
         CyberButton(
-            label = "Channels",
+            label = "Notification settings",
             color = Aether.Amethyst,
-            modifier = Modifier.weight(1f)
+            icon = HomeIcon.STATUS,
+            modifier = Modifier.weight(1f),
+            compact = true
         ) {
-            runCatching {
-                context.startActivity(
-                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                )
-            }
+            systemSettingsLauncher.launch(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            )
         }
     }
-
     CyberButton(
         label = "Clear optional alerts",
         color = Aether.InkMuted,
-        modifier = Modifier.fillMaxWidth()
+        variant = PrismButtonVariant.Quiet,
+        modifier = Modifier.fillMaxWidth(),
+        compact = true
     ) { repo.clearSmartNotifications() }
 
     SettingSwitch(
         title = "Live connection telemetry",
-        subtitle = "Ping and rates in the status",
+        subtitle = "Ping and rates in the ongoing notification",
         checked = s.notificationLiveStats
     ) { repo.updateSettings(s.copy(notificationLiveStats = it)) }
 
     SettingSwitch(
-        title = "Optional smart alerts",
-        subtitle = "Master switch for event alerts",
+        title = "Optional event alerts",
+        subtitle = "",
         checked = s.smartNotificationsEnabled
     ) { repo.updateSettings(s.copy(smartNotificationsEnabled = it)) }
 
@@ -13391,22 +13443,22 @@ private fun NotificationSettings(repo: AppRepository) {
             ) { repo.updateSettings(repo.settings.copy(notifyRecoveryEvents = it)) }
             SettingSwitch(
                 title = "Privacy warnings",
-                subtitle = "Kill switch, blocked routes",
+                subtitle = "Kill switch and blocked routes",
                 checked = s.notifyPrivacyWarnings
             ) { repo.updateSettings(repo.settings.copy(notifyPrivacyWarnings = it)) }
             SettingSwitch(
                 title = "Network changes",
-                subtitle = "Wi-Fi ↔ cellular switches",
+                subtitle = "Wi-Fi and cellular switches",
                 checked = s.notifyNetworkChanges
             ) { repo.updateSettings(repo.settings.copy(notifyNetworkChanges = it)) }
             SettingSwitch(
                 title = "Subscription updates",
-                subtitle = "Refresh results, failures",
+                subtitle = "Refresh results and failures",
                 checked = s.notifySubscriptionEvents
             ) { repo.updateSettings(repo.settings.copy(notifySubscriptionEvents = it)) }
             SettingSwitch(
                 title = "Core updates",
-                subtitle = "Newer Xray or HEV core",
+                subtitle = "Xray and HEV core releases",
                 checked = s.notifyCoreUpdates
             ) { repo.updateSettings(repo.settings.copy(notifyCoreUpdates = it)) }
             NumberSetting(
@@ -16696,158 +16748,300 @@ private fun AutoServerSelectorSettings(repo: AppRepository) {
     val s = repo.settings
     val strategy = s.autoServerStrategyEnum
     val scope = s.autoServerScopeEnum
-
-    Text(
-        trx("Let MarbleNG pick the server, from latency, jitter, loss, throughput and how old the evidence is."),
-        color = Aether.InkMuted,
-        style = settingsBodyStyle()
-    )
+    val preview = repo.previewAutoServerChoice()
 
     SettingSwitch(
         title = "Automatic server selector",
         subtitle = if (s.autoServerSelectorEnabled) {
-            trx("On") + " • " + trx(AutoServerSelector.shortLabel(strategy))
+            "On • ${trx(AutoServerSelector.shortLabel(strategy))}"
         } else {
-            trx("Off") + " • " + trx("you choose the server")
+            "Off • manual selection still works"
         },
         checked = s.autoServerSelectorEnabled
     ) { enabled ->
         repo.updateSettings(repo.settings.copy(autoServerSelectorEnabled = enabled))
     }
 
-    AnimatedVisibility(s.autoServerSelectorEnabled) {
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            HorizontalDivider(color = Aether.GlassBorderSoft)
-            Text(trx("How it chooses"), color = Aether.Ink, style = settingsRowTitleStyle())
-            // Five strategies is too many for one row of chips and too few for a list; two rows
-            // keep every name readable at both language widths.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                listOf(
-                    AutoServerStrategy.SMART,
-                    AutoServerStrategy.LEAST_PING,
-                    AutoServerStrategy.LEAST_LOAD
-                ).forEach { candidate ->
-                    CyberChoiceChip(
-                        text = trx(AutoServerSelector.shortLabel(candidate)),
-                        selected = strategy == candidate,
-                        color = if (candidate == AutoServerStrategy.SMART) Aether.Cyan else Aether.Amethyst,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        repo.updateSettings(repo.settings.copy(autoServerStrategy = candidate.id))
-                    }
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+    Text(trx("Choose a strategy"), color = Aether.Ink, style = settingsRowTitleStyle())
+    val strategies = listOf(
+        AutoServerStrategy.SMART,
+        AutoServerStrategy.LEAST_PING,
+        AutoServerStrategy.LEAST_LOAD,
+        AutoServerStrategy.CUSTOM,
+        AutoServerStrategy.ROUND_ROBIN,
+        AutoServerStrategy.RANDOM
+    )
+    strategies.chunked(3).forEach { row ->
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            row.forEach { candidate ->
+                CyberChoiceChip(
+                    text = trx(AutoServerSelector.shortLabel(candidate)),
+                    selected = strategy == candidate,
+                    color = when (candidate) {
+                        AutoServerStrategy.CUSTOM -> Aether.Amber
+                        AutoServerStrategy.SMART -> Aether.Cyan
+                        else -> Aether.Amethyst
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    repo.updateSettings(repo.settings.copy(autoServerStrategy = candidate.id))
                 }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                listOf(AutoServerStrategy.ROUND_ROBIN, AutoServerStrategy.RANDOM).forEach { candidate ->
-                    CyberChoiceChip(
-                        text = trx(AutoServerSelector.shortLabel(candidate)),
-                        selected = strategy == candidate,
-                        color = Aether.Amethyst,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        repo.updateSettings(repo.settings.copy(autoServerStrategy = candidate.id))
-                    }
-                }
-            }
-            Text(
-                trx(AutoServerSelector.describe(strategy)),
-                color = Aether.InkFaint,
-                style = settingsBodyStyle()
-            )
-
-            HorizontalDivider(color = Aether.GlassBorderSoft)
-            Text(trx("When it may act"), color = Aether.Ink, style = settingsRowTitleStyle())
-            SettingSwitch(
-                title = "After a ping sweep",
-                subtitle = "The one moment every server has fresh evidence",
-                checked = s.autoServerOnScan
-            ) { repo.updateSettings(repo.settings.copy(autoServerOnScan = it)) }
-            SettingSwitch(
-                title = "When I press connect",
-                subtitle = "Pick a route instead of using the last one",
-                checked = s.autoServerOnConnect
-            ) { repo.updateSettings(repo.settings.copy(autoServerOnConnect = it)) }
-            SettingSwitch(
-                title = "When the route goes bad",
-                subtitle = "Move off a server that stopped working",
-                checked = s.autoServerOnFailure
-            ) { repo.updateSettings(repo.settings.copy(autoServerOnFailure = it)) }
-
-            HorizontalDivider(color = Aether.GlassBorderSoft)
-            Text(trx("Where it looks"), color = Aether.Ink, style = settingsRowTitleStyle())
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                AutoServerScope.entries.forEach { candidate ->
-                    CyberChoiceChip(
-                        text = trx(if (candidate == AutoServerScope.SOURCE) "This source" else "Whole library"),
-                        selected = scope == candidate,
-                        color = Aether.Emerald,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        repo.updateSettings(repo.settings.copy(autoServerScope = candidate.id))
-                    }
-                }
-            }
-            Text(
-                trx("Load only means something inside one provider, so scoping to the current source keeps the comparison honest."),
-                color = Aether.InkFaint,
-                style = settingsBodyStyle()
-            )
-
-            HorizontalDivider(color = Aether.GlassBorderSoft)
-            Text(trx("Switch margin"), color = Aether.Ink, style = settingsRowTitleStyle())
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                listOf(5, 10, 15, 25, 40).forEach { percent ->
-                    CyberChoiceChip(
-                        text = "$percent%",
-                        selected = s.autoServerSwitchMarginPercent == percent,
-                        color = Aether.Amber
-                    ) {
-                        repo.updateSettings(
-                            repo.settings.copy(autoServerSwitchMarginPercent = percent)
-                        )
-                    }
-                }
-            }
-            Text(
-                trx("How much better a challenger must measure before the selector leaves the current route."),
-                color = Aether.InkFaint,
-                style = settingsBodyStyle()
-            )
-
-            HorizontalDivider(color = Aether.GlassBorderSoft)
-            val preview = repo.previewAutoServerChoice()
-            Text(
-                trx("Right now it would pick") + ": " +
-                    (preview.profile?.let { stripLeadingFlag(it.name) } ?: trx("nothing yet")),
-                color = Aether.Cyan,
-                style = settingsRowTitleStyle()
-            )
-            Text(
-                preview.reason,
-                color = Aether.InkFaint,
-                style = settingsBodyStyle()
-            )
-            CyberButton(
-                label = trx("Pick a server now"),
-                color = Aether.Cyan,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !repo.busy && preview.profile != null
-            ) {
-                repo.runAutoServerSelection(reason = "manual", connect = false)
             }
         }
+    }
+    Text(
+        trx(AutoServerSelector.describe(strategy)),
+        color = Aether.InkFaint,
+        style = settingsBodyStyle()
+    )
+
+    if (strategy == AutoServerStrategy.CUSTOM) {
+        val weights = AutoServerWeights(
+            ping = s.autoServerPingWeight,
+            load = s.autoServerLoadWeight,
+            stability = s.autoServerStabilityWeight,
+            freshness = s.autoServerFreshnessWeight
+        )
+        val presets = listOf(
+            "Balanced" to AutoServerWeights.BALANCED,
+            "Ping first" to AutoServerWeights.PING_FIRST,
+            "Load first" to AutoServerWeights.LOAD_FIRST,
+            "Stable" to AutoServerWeights.STABILITY_FIRST
+        )
+        Text(trx("Custom priorities"), color = Aether.Ink, style = settingsRowTitleStyle())
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            presets.forEach { (label, preset) ->
+                val selected = weights.clamped() == preset
+                CyberChoiceChip(
+                    text = trx(label),
+                    selected = selected,
+                    color = Aether.Amber
+                ) {
+                    repo.updateSettings(
+                        repo.settings.copy(
+                            autoServerStrategy = AutoServerStrategy.CUSTOM.id,
+                            autoServerPingWeight = preset.ping,
+                            autoServerLoadWeight = preset.load,
+                            autoServerStabilityWeight = preset.stability,
+                            autoServerFreshnessWeight = preset.freshness
+                        )
+                    )
+                }
+            }
+        }
+        Text(
+            trx("Adjust the sliders; zero ignores a signal. Priorities are normalized automatically."),
+            color = Aether.InkFaint,
+            style = settingsBodyStyle()
+        )
+        AutoServerWeightSlider("Ping", weights.ping, Aether.Cyan) { value ->
+            repo.updateSettings(
+                repo.settings.copy(autoServerPingWeight = value),
+                coalesceWrite = true
+            )
+        }
+        AutoServerWeightSlider("Load", weights.load, Aether.Emerald) { value ->
+            repo.updateSettings(
+                repo.settings.copy(autoServerLoadWeight = value),
+                coalesceWrite = true
+            )
+        }
+        AutoServerWeightSlider("Stability", weights.stability, Aether.Amethyst) { value ->
+            repo.updateSettings(
+                repo.settings.copy(autoServerStabilityWeight = value),
+                coalesceWrite = true
+            )
+        }
+        AutoServerWeightSlider("Freshness", weights.freshness, Aether.Amber) { value ->
+            repo.updateSettings(
+                repo.settings.copy(autoServerFreshnessWeight = value),
+                coalesceWrite = true
+            )
+        }
+    }
+
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+    Text(trx("Search pool"), color = Aether.Ink, style = settingsRowTitleStyle())
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        AutoServerScope.entries.forEach { candidate ->
+            CyberChoiceChip(
+                text = trx(if (candidate == AutoServerScope.SOURCE) "This source" else "Whole library"),
+                selected = scope == candidate,
+                color = Aether.Emerald,
+                modifier = Modifier.weight(1f)
+            ) {
+                repo.updateSettings(repo.settings.copy(autoServerScope = candidate.id))
+            }
+        }
+    }
+
+    Text(trx("Automatic actions"), color = Aether.Ink, style = settingsRowTitleStyle())
+    SettingSwitch(
+        title = "After a ping sweep",
+        subtitle = "Select the top-ranked server",
+        checked = s.autoServerOnScan
+    ) { repo.updateSettings(repo.settings.copy(autoServerOnScan = it)) }
+    SettingSwitch(
+        title = "When I press connect",
+        subtitle = "Choose for me if no server is selected",
+        checked = s.autoServerOnConnect
+    ) { repo.updateSettings(repo.settings.copy(autoServerOnConnect = it)) }
+    SettingSwitch(
+        title = "When the route fails",
+        subtitle = "Fail over to a measured server",
+        checked = s.autoServerOnFailure
+    ) { repo.updateSettings(repo.settings.copy(autoServerOnFailure = it)) }
+
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+    Text(trx("Switch margin"), color = Aether.Ink, style = settingsRowTitleStyle())
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        listOf(5, 10, 15, 25, 40).forEach { percent ->
+            CyberChoiceChip(
+                text = "$percent%",
+                selected = s.autoServerSwitchMarginPercent == percent,
+                color = Aether.Amber
+            ) {
+                repo.updateSettings(repo.settings.copy(autoServerSwitchMarginPercent = percent))
+            }
+        }
+    }
+    Text(
+        trx("A challenger must score this much higher before a healthy route changes."),
+        color = Aether.InkFaint,
+        style = settingsBodyStyle()
+    )
+
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+    Text(trx("Live recommendation"), color = Aether.Ink, style = settingsRowTitleStyle())
+    val previewShape = RoundedCornerShape(14.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(previewShape)
+            .background(homeCloudInsetFill())
+            .border(1.dp, homeCloudInsetBorder(), previewShape)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Aether.Cyan.copy(alpha = .12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                HomeVectorIcon(HomeIcon.SPARK, Aether.Cyan, Modifier.size(19.dp))
+            }
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    preview.profile?.let { stripLeadingFlag(it.name) } ?: trx("Measure servers first"),
+                    color = Aether.Ink,
+                    style = settingsRowTitleStyle(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    trx(preview.reason),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            preview.ranking.firstOrNull()?.let { best ->
+                Text(
+                    "${(best.score * 100).roundToInt()}",
+                    color = Aether.Cyan,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        preview.ranking.drop(1).take(2).forEachIndexed { index, score ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("${index + 2}", color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                Text(
+                    stripLeadingFlag(score.profile.name),
+                    modifier = Modifier.weight(1f),
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "${(score.score * 100).roundToInt()}",
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+    CyberButton(
+        label = trx(if (preview.profile == null) "Measure candidate servers" else "Select recommended server"),
+        color = Aether.Cyan,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = !repo.busy && !repo.probeActive
+    ) {
+        if (preview.profile == null) {
+            repo.pingAutoServerPool()
+        } else {
+            repo.runAutoServerSelection(reason = "manual", connect = false)
+        }
+    }
+}
+
+@Composable
+private fun AutoServerWeightSlider(
+    label: String,
+    value: Int,
+    tone: Color,
+    onValueChange: (Int) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(trx(label), color = Aether.Ink, style = settingsBodyStyle())
+            Spacer(Modifier.weight(1f))
+            Text(
+                value.coerceIn(0, 100).toString(),
+                color = tone,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Slider(
+            value = value.coerceIn(0, 100).toFloat(),
+            onValueChange = { onValueChange(it.roundToInt().coerceIn(0, 100)) },
+            valueRange = 0f..100f,
+            steps = 19,
+            colors = SliderDefaults.colors(
+                thumbColor = tone,
+                activeTrackColor = tone,
+                inactiveTrackColor = tone.copy(alpha = .20f)
+            )
+        )
     }
 }
 
@@ -18605,4 +18799,18 @@ private fun IranModeSettings(repo: AppRepository) {
         modifier = Modifier.fillMaxWidth(),
         enabled = !state.scanning
     ) { repo.scanIranMode(force = true, deep = true) }
+}
+}
+}
+ep = true) }
+}
+}
+}
+e) }
+}
+}
+}
+e) }
+}
+}
 }

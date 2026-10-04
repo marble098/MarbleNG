@@ -2377,9 +2377,7 @@ internal fun HomeTopActionBar(
     // as information. The header is now the product signature and its three actions.
     val cancelling = repo.probeCancelling
     val sweeping = groupBusy || cancelling
-    // MARBLE_ROUTE_ATELIER_V207 — the notice line belongs to the header column, not to an overlay:
-    // every Home presentation composes this action bar, so one edit gives all of them the same
-    // in-flow feedback slot, and none of them can paint a box across the wordmark again.
+    // The Home header stays intentionally quiet: no transient status strip is inserted under it.
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -2422,8 +2420,14 @@ internal fun HomeTopActionBar(
             } else {
                 "${Tr.now.testPing} • $groupLabel"
             },
-            enabled = sweeping || !groupBusy,
-            onClick = { if (sweeping) repo.cancelProbes() else actions.onPingGroup() }
+            enabled = !cancelling,
+            onClick = {
+                when {
+                    cancelling -> Unit
+                    groupBusy -> repo.cancelProbes()
+                    else -> actions.onPingGroup()
+                }
+            }
         )
         HomeBareAction(
             glyph = HomeGlyph.INFO,
@@ -2433,113 +2437,6 @@ internal fun HomeTopActionBar(
                     if (repo.serverIntel == null) repo.refreshServerIntel(evidence.profile, force = true)
                     actions.onIpDetails()
                 }
-            )
-        }
-        HomeRuntimeNotice(repo)
-    }
-}
-
-/**
- * MARBLE_HOME_ONE_PING_V208 — the fixed height of the runtime notice.
- *
- * The bar's text changes several times a second during a sweep ("3/20 endpoints • NL-07"), and a
- * two-line-tall bar that grows and shrinks with it makes the entire page move under the header.
- * One line at a fixed height means the page never re-lays out because a message got longer.
- */
-private val MarbleNoticeHeight = 38.dp
-
-/**
- * The one line that says what just happened, in the page's own flow.
- *
- * MARBLE_NO_IN_APP_NOTIFICATIONS_V121 was right about the interruption and wrong about the silence.
- * It deleted the floating snackbar and, with it, the last surface that read `repo.message` at all:
- * the runtime message is recorded by the engine in ~40 places and — until this bar existed — painted
- * by none of them. "Clipboard is empty" after a tap on Paste, a manual source that has nothing
- * remote to refresh, a backup that finished: the action answered with nothing, so the user learned
- * only that the app had not crashed.
- *
- * The rule the review wrote, applied literally: no *repeated* or *interrupting* copy, not no copy.
- * One short line, under the header, on the surface the user is already looking at, expiring by
- * itself, dismissible, and never duplicated on top of a component that already states the same fact
- * (connection state and failures stay on the connect card, where they have always been).
- */
-@Composable
-internal fun HomeRuntimeNotice(repo: AppRepository, modifier: Modifier = Modifier) {
-    /*
-     * MARBLE_HOME_ONE_PING_V208 — the box that "went away and came back" when the ping button
-     * was pressed.
-     *
-     * The bar's presence used to be `message.isNotBlank()`, and a sweep rewrites `message` on
-     * every progress tick and again when it finishes. Between the tap and the task's own first
-     * write there is a frame where the old outcome has been cleared and the new label has not
-     * landed, so the bar left composition and re-entered it — and because its entrance is a
-     * spring, re-entering replays the whole rise from zero alpha. The page therefore showed a
-     * box, nothing, and the same box arriving again, in under a second.
-     *
-     * Two changes, one rule each:
-     *
-     *  1. **Presence is one boolean that cannot flap.** The bar is here while there is something
-     *     to say *or* while work is running, so a tap that starts a sweep can never remove it
-     *     mid-flight. It appears once and retires once, with the dwell.
-     *  2. **The slot is a fixed height.** The sweep's progress line changes every tick; a bar
-     *     whose height follows its text makes the whole page breathe with it. One line, one
-     *     height, and the text is compacted to fit.
-     */
-    val raw = repo.message
-    val working = repo.busy
-    // The bar is the policy's surface, not a second opinion about what deserves showing.
-    if (!MarbleFeedbackPolicy.isOutcome(raw) && !working) return
-    // Same compaction the removed snackbar used: a diagnostic sentence must not become a paragraph.
-    val text = remember(raw) { MarbleCopy.oneSentence(raw.replace(Regex("\\s+"), " ").trim()) }
-    val shape = RoundedCornerShape(14.dp)
-    val tone = Aether.Cyan
-    // One spring on arrival (instant when reduced motion is on), and the line retires with the
-    // message itself — no timer painting a box over content that has already moved on.
-    // The engine's message is data, but the bar is product copy: a Persian reader hears the
-    // transliteration like everyone else reads it. Resolved here because a semantics block is not a
-    // composable scope.
-    val shown = if (text.isBlank()) trx("Working…") else trx(text)
-    Row(
-        modifier = modifier
-            .marbleSpringIn()
-            .fillMaxWidth()
-            .height(MarbleNoticeHeight)
-            .padding(start = 4.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)
-            .clip(shape)
-            .background(homeCloudCardFill())
-            .border(1.dp, tone.copy(alpha = .28f), shape)
-            .semantics { contentDescription = shown },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .padding(start = 10.dp)
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(tone)
-        )
-        Text(
-            text = shown,
-            color = Aether.Ink,
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f)
-                .padding(vertical = 9.dp)
-        )
-        PrismIconButton(
-            onClick = { repo.clearMessage() },
-            tone = Aether.InkMuted,
-            size = 26.dp,
-            descriptiveLabel = "Dismiss this message"
-        ) {
-            Text(
-                text = "×",
-                color = Aether.InkMuted,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1
             )
         }
     }

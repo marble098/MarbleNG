@@ -384,35 +384,26 @@ object MarbleConnectMotion {
 internal val LocalMarbleAmbientField = staticCompositionLocalOf { true }
 
 // ---------------------------------------------------------------------------------------------
-// 7 — Feedback that must not be lost by the no-toast rule
+// 7 — Bounded lifetime for internal action messages
 // ---------------------------------------------------------------------------------------------
 
 /**
- * How long an operation's result stays readable when no other surface owns it.
+ * How long an internal action message remains available after work settles.
  *
- * MARBLE_NO_IN_APP_NOTIFICATIONS_V121 removed the floating snackbar, which was right about the
- * interruption and wrong about the silence: a copy, an import, a backup or a clipboard rejection can
- * have no card to land on, and clearing the runtime message the moment the app goes idle deletes the
- * only feedback there is. A result now has a bounded dwell on an inline bar (see [HomeRuntimeNotice]),
- * and anything that does own a surface still clears itself out of it.
+ * Home intentionally does not show a transient status strip. This bounded lifetime prevents an
+ * old action result from lingering as stale repository state; system notifications remain separate.
  */
 object MarbleFeedbackPolicy {
-    /** How long an outcome stays on the inline bar before it retires itself. */
+    /** How long an outcome remains in repository state after its owning task completes. */
     const val OutcomeDwellMs: Long = 4_500L
 
-    /** An outcome the user must act on stays until it is dismissed. */
+    /** Required outcomes are not auto-dwelled by the Home message cleanup effect. */
     const val ActionRequiredDwellMs: Long = 0L
 
     fun dwellMillis(actionRequired: Boolean): Long =
         if (actionRequired) ActionRequiredDwellMs else OutcomeDwellMs
 
-    /**
-     * True when a message deserves the bar at all.
-     *
-     * Connection noise ("reconnecting", a state word) is already painted by the control that owns
-     * it; an outcome with no owner (clipboard empty, import rejected, backup written) is the case
-     * that must survive.
-     */
+    /** True when a repository message carries an outcome rather than being blank. */
     fun isOutcome(message: String): Boolean = message.isNotBlank()
 }
 

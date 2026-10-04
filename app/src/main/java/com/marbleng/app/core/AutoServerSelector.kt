@@ -28,8 +28,8 @@ import kotlin.math.max
 //  - **It thrashes.** `minByOrNull` over one sample set with no margin means a 2 ms difference
 //    moves the route, and it moves it again on the next sweep.
 //
-// What follows is the replacement: five named strategies, one scoring model shared by the two
-// measurement-driven ones, and a switch margin so a working route is not abandoned for noise.
+// What follows is the replacement: named strategies, an editable weighted profile alongside
+// the built-in scorers, and a switch margin so a working route is not abandoned for noise.
 // =============================================================================
 
 /** Everything the selector is allowed to know about one candidate route. */
@@ -64,13 +64,34 @@ data class AutoServerChoice(
     val ranking: List<ServerScore> = emptyList()
 )
 
+/** Relative priorities for the user-built CUSTOM selector profile. */
+data class AutoServerWeights(
+    val ping: Int = 40,
+    val load: Int = 30,
+    val stability: Int = 20,
+    val freshness: Int = 10
+) {
+    fun clamped(): AutoServerWeights = copy(
+        ping = ping.coerceIn(0, 100),
+        load = load.coerceIn(0, 100),
+        stability = stability.coerceIn(0, 100),
+        freshness = freshness.coerceIn(0, 100)
+    )
+
+    companion object {
+        val BALANCED = AutoServerWeights()
+        val PING_FIRST = AutoServerWeights(ping = 70, load = 10, stability = 10, freshness = 10)
+        val LOAD_FIRST = AutoServerWeights(ping = 15, load = 60, stability = 15, freshness = 10)
+        val STABILITY_FIRST = AutoServerWeights(ping = 20, load = 15, stability = 55, freshness = 10)
+    }
+}
+
 /**
  * MARBLE_AUTO_SERVER_SELECTOR_V202 — the selector.
  *
  * Pure, and deliberately so: the repository owns the library, the measurements and the
- * consequences; this object only answers "given these candidates and this strategy, which one
- * wins". That is what makes the five strategies testable without a phone, a network or a
- * subscription.
+ * consequences; this object only answers "given these candidates, the strategy and optional
+ * custom weights, which one wins". That keeps every strategy testable without a phone or network.
  */
 object AutoServerSelector {
 
@@ -193,6 +214,49 @@ object AutoServerSelector {
         return score to reason
     }
 
+    /** CUSTOM: a user's relative priorities over the measured route signals. */
+    fun customScore(
+        candidate: ServerCandidate,
+        nowMs: Long,
+        weights: AutoServerWeights
+    ): Pair<Double, String> {
+        val b = candidate.benchmark
+        if (b == null || b.success <= 0) return 0.0 to "measure first"
+
+        val safe = weights.clamped()
+        val total = safe.ping + safe.load + safe.stability + safe.freshness
+        val effective = if (total == 0) AutoServerWeights.BALANCED else safe
+        val effectiveTotal = effective.ping + effective.load + effective.stability + effective.freshness
+        val ping = latencyScore(b.latencyMs)
+        val load = loadScore(b.latencyMs, b.loadedLatencyMs, b.bytesPerSecond)
+        val handshake = b.tcpHandshakeSuccessRatio.takeIf { it > 0.0 } ?: 1.0
+        val stability = (
+            jitterScore(b.jitterMs) * 0.45 +
+                lossScore(b.lossPercent) * 0.40 +
+                handshake * 0.15
+            ).coerceIn(0.0, 1.0)
+        val freshness = freshnessScore(b.measuredAtMs, nowMs)
+        val weighted = (
+            ping * effective.ping +
+                load * effective.load +
+                stability * effective.stability +
+                freshness * effective.freshness
+            ) / effectiveTotal.toDouble()
+        val penalty = when {
+            candidate.failureStreak >= QUARANTINE_STREAK -> 0.0
+            candidate.failureStreak > 0 -> (1.0 - candidate.failureStreak * 0.22).coerceIn(0.05, 1.0)
+            else -> 1.0
+        }
+        val score = (weighted * penalty).coerceIn(0.0, 1.0)
+        val reason = buildString {
+            append("${b.latencyMs.toInt()} ms ping")
+            append(" • load ${(load * 100).toInt()}%")
+            append(" • stability ${(stability * 100).toInt()}%")
+            if (candidate.failureStreak > 0) append(" • ${candidate.failureStreak} recent failures")
+        }
+        return score to reason
+    }
+
     /** LEAST_LOAD: congestion and throughput, with latency only as a tie-breaker. */
     fun leastLoadScore(candidate: ServerCandidate): Pair<Double, String> {
         val b = candidate.benchmark
@@ -228,7 +292,7 @@ object AutoServerSelector {
         return b.success > 0
     }
 
-    // ─── The five strategies ───────────────────────────────────────────────────────────
+    // ─── The six strategies ───────────────────────────────────────────────────────────
 
     /**
      * Pick one route.
@@ -244,7 +308,8 @@ object AutoServerSelector {
         roundRobinCursor: Int = 0,
         randomSeed: Long = 0L,
         switchMarginPercent: Int = 15,
-        scope: AutoServerScope = AutoServerScope.SOURCE
+        scope: AutoServerScope = AutoServerScope.SOURCE,
+        weights: AutoServerWeights = AutoServerWeights()
     ): AutoServerChoice {
         if (candidates.isEmpty()) {
             return AutoServerChoice(
@@ -254,7 +319,26 @@ object AutoServerSelector {
             )
         }
 
-        val pool = candidates.filter(::eligible).ifEmpty { candidates }
+        val measurementDriven = strategy in setOf(
+            AutoServerStrategy.SMART,
+            AutoServerStrategy.LEAST_PING,
+            AutoServerStrategy.LEAST_LOAD,
+            AutoServerStrategy.CUSTOM
+        )
+        val measured = candidates.filter { candidate -> (candidate.benchmark?.success ?: 0) > 0 }
+        val healthyMeasured = measured.filter { it.failureStreak < QUARANTINE_STREAK }
+        val pool = when {
+            measurementDriven && healthyMeasured.isNotEmpty() -> healthyMeasured
+            // Keep the historical last-resort behavior when every measured route is quarantined:
+            // an imperfect known route is still more actionable than a random unmeasured pick.
+            measurementDriven && measured.isNotEmpty() -> measured
+            measurementDriven -> return AutoServerChoice(
+                profile = null,
+                strategy = strategy,
+                reason = "no measured servers • ping the pool first"
+            )
+            else -> candidates.filter(::eligible).ifEmpty { candidates }
+        }
 
         when (strategy) {
             AutoServerStrategy.ROUND_ROBIN -> {
@@ -324,6 +408,17 @@ object AutoServerSelector {
                     .sortedWith(compareByDescending<ServerScore> { it.score }
                         .thenBy { it.profile.name })
                 return settle(ranked, strategy, switchMarginPercent, "least loaded")
+            }
+
+            AutoServerStrategy.CUSTOM -> {
+                val ranked = pool
+                    .map { candidate ->
+                        val (score, reason) = customScore(candidate, nowMs, weights)
+                        ServerScore(candidate, score, reason)
+                    }
+                    .sortedWith(compareByDescending<ServerScore> { it.score }
+                        .thenBy { it.profile.name })
+                return settle(ranked, strategy, switchMarginPercent, "custom weighted")
             }
 
             AutoServerStrategy.SMART -> {
@@ -430,7 +525,9 @@ object AutoServerSelector {
         AutoServerStrategy.RANDOM ->
             "Picks a server at random, so no single exit ever learns your whole traffic pattern."
         AutoServerStrategy.SMART ->
-            "Weighs latency, congestion, jitter, loss, throughput, handshake reliability and the age of the evidence."
+            "Balances ping, congestion, stability, throughput and measurement age."
+        AutoServerStrategy.CUSTOM ->
+            "Ranks measured servers using your saved ping, load, stability and freshness priorities."
     }
 
     /** Short name for the chips and the status line. */
@@ -440,6 +537,7 @@ object AutoServerSelector {
         AutoServerStrategy.ROUND_ROBIN -> "Round robin"
         AutoServerStrategy.RANDOM -> "Random"
         AutoServerStrategy.SMART -> "Smart"
+        AutoServerStrategy.CUSTOM -> "Custom"
     }
 
     /**

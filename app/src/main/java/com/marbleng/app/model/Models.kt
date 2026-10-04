@@ -1312,17 +1312,15 @@ enum class AddressFamilyMode {
 /**
  * MARBLE_AUTO_SERVER_SELECTOR_V202 — how the automatic server selector ranks a pool.
  *
- * The five are not five flavours of the same idea; they answer five different questions, and
- * the product now lets the user pick which question to ask:
+ * The strategies answer different questions, and the product now lets the user choose a built-in
+ * strategy or build a weighted profile:
  *
  *  - [LEAST_PING]  "which route answers fastest right now" — the classic v2rayNG behaviour and
  *    still the right answer on a link where latency is the whole story.
- *  - [LEAST_LOAD]  "which route is least busy" — a fast node under load is slower tomorrow than
- *    a slightly slower node that is idle, and on Iranian mobile links the difference between
- *    40 ms and 70 ms matters far less than the difference between a node carrying three users
- *    and one carrying three hundred.
- *  - [ROUND_ROBIN] "spread the wear" — deterministic, and the only one of the five that is
- *    independent of measurement, so it is also the honest choice when measurements are scarce.
+ *  - [LEAST_LOAD]  "which route is least busy" — compare congestion under transfer and throughput.
+ *  - [CUSTOM]      "what matters most to me" — tune ping, load, stability and evidence freshness.
+ *  - [ROUND_ROBIN] "spread the wear" — deterministic, and independent of measurement, so it is
+ *    also the honest choice when measurements are scarce.
  *  - [RANDOM]      "do not let anyone build a profile" — spreads traffic and defeats per-node
  *    throttling, at the cost of occasionally landing on the worst node in the pool.
  *  - [SMART]       "weigh everything we have measured" — latency, jitter, loss, throughput,
@@ -1332,6 +1330,7 @@ enum class AddressFamilyMode {
 enum class AutoServerStrategy(val id: String) {
     LEAST_PING("least_ping"),
     LEAST_LOAD("least_load"),
+    CUSTOM("custom"),
     ROUND_ROBIN("round_robin"),
     RANDOM("random"),
     SMART("smart");
@@ -1973,8 +1972,13 @@ data class AppSettings(
     // ─────────────────────────────────────────────────────────────────────────
     /** Master switch: false leaves route choice entirely to the user. */
     val autoServerSelectorEnabled: Boolean = false,
-    /** [com.marbleng.app.core.AutoServerStrategy] id: least_ping, least_load, round_robin, random, smart. */
+    /** [com.marbleng.app.core.AutoServerStrategy] id: least_ping, least_load, custom, round_robin, random, smart. */
     val autoServerStrategy: String = AutoServerStrategy.SMART.id,
+    /** Relative weights used by the user-editable CUSTOM selector strategy. */
+    val autoServerPingWeight: Int = 40,
+    val autoServerLoadWeight: Int = 30,
+    val autoServerStabilityWeight: Int = 20,
+    val autoServerFreshnessWeight: Int = 10,
     /** Pick a route automatically once a ping sweep finishes. */
     val autoServerOnScan: Boolean = true,
     /** Pick a route automatically when the user presses connect with no explicit choice. */
