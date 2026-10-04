@@ -329,6 +329,45 @@ val marbleVerificationTasks = setOf(
 val marbleFailureReporters = marbleVerificationTasks.associateWith { taskName ->
     tasks.register("${taskName}FailureDetails") {
         doLast {
+            if (taskName == "testDebugUnitTest") {
+                val reportDir = project.layout.buildDirectory
+                    .dir("test-results/testDebugUnitTest")
+                    .get()
+                    .asFile
+                val failedTests = mutableListOf<String>()
+                if (reportDir.isDirectory) {
+                    reportDir.walkTopDown()
+                        .filter { it.isFile && it.extension == "xml" }
+                        .forEach { report ->
+                            val xml = report.readText()
+                            if ("<failure" !in xml && "<error" !in xml) return@forEach
+                            val cases = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+                                .newDocumentBuilder()
+                                .parse(report)
+                                .getElementsByTagName("testcase")
+                            for (index in 0 until cases.length) {
+                                val testCase = cases.item(index) as? org.w3c.dom.Element ?: continue
+                                val failure = testCase.getElementsByTagName("failure").item(0)
+                                    as? org.w3c.dom.Element
+                                val error = testCase.getElementsByTagName("error").item(0)
+                                    as? org.w3c.dom.Element
+                                val problem = failure ?: error ?: continue
+                                val summary = problem.getAttribute("message")
+                                    .ifBlank { problem.textContent.lineSequence().firstOrNull().orEmpty() }
+                                failedTests += "${testCase.getAttribute("classname")} > " +
+                                    "${testCase.getAttribute("name")}: $summary"
+                            }
+                        }
+                }
+                if (failedTests.isNotEmpty()) {
+                    val details = failedTests.take(8).joinToString("\n")
+                        .take(2_200)
+                        .replace("%", "%25")
+                        .replace("\r", "%0D")
+                        .replace("\n", "%0A")
+                    println("::error title=JUnit test failures::$details")
+                }
+            }
             val output = synchronized(marbleVerificationOutput) {
                 marbleVerificationOutput.toString()
             }
