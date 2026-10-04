@@ -108,10 +108,19 @@ class ServerTileTruthV210Test {
     }
 
     @Test
-    fun theGridStillFitsTheNarrowestPhone() {
-        // The truth rules must not smuggle a layout change in with them: a tile is still at
-        // least 148 dp wide, so a phone still gets two columns and a foldable three.
+    fun theTruthRulesDoNotSmuggleInALayoutChange() {
+        // The truth rules must not quietly resize the grid: a tile is still at least 148 dp
+        // wide, so a 360 dp phone still gets two columns and a 720 dp foldable four — which is
+        // the cap [ServerTilePolicy.MaxColumns], however wide the window gets.
         assertEquals(2, ServerTilePolicy.columnsFor(360 - 32))
-        assertEquals(3, ServerTilePolicy.columnsFor(720 - 32))
+        assertEquals(ServerTilePolicy.MaxColumns, ServerTilePolicy.columnsFor(720 - 32))
+        assertEquals(ServerTilePolicy.MaxColumns, ServerTilePolicy.columnsFor(2000))
+        // A width the layout has not measured yet is still one column, never zero: a row of
+        // zero tiles is a grid that forgot to draw.
+        assertEquals(1, ServerTilePolicy.columnsFor(0))
+        assertTrue(
+            "a tile may never be narrower than the floor it is laid out by",
+            ServerTilePolicy.MinTileWidthDp >= 140
+        )
     }
 }

@@ -105,18 +105,41 @@ class MarbleFloatingActionsV210Test {
     }
 
     @Test
-    fun `a light stop hue keeps the dark ink and a bright connect hue keeps the white one`() {
-        // The V201 regression, stated for the V210 tokens: white on the dark theme's stop hue
-        // (#FF718B, a light rose) is nearly invisible, so the scored ink must be the navy one —
-        // while the same theme's connect hue must keep the light ink.
+    fun `a pastel disc takes the dark ink and a deep disc takes the light one`() {
+        // The V201 regression, stated for the V210 tokens: the Pure black theme's stop disc is a
+        // light rose (#FF718B) and its connect disc a bright blue (#3399FF). Near-white ink on
+        // either scores 2.45:1 and 2.74:1 — both under the 3:1 floor for graphical objects — so
+        // the scored ink on both is the navy one. Assuming white is what put invisible pause
+        // bars on a light-rose disc.
         assertEquals(
             MarbleFloatActions.Dark.inkDark,
             MarbleFloatActions.Dark.inkOn(MarbleFloatActions.Dark.stop)
         )
         assertEquals(
-            MarbleFloatActions.Dark.inkLight,
+            MarbleFloatActions.Dark.inkDark,
             MarbleFloatActions.Dark.inkOn(MarbleFloatActions.Dark.connect)
         )
+        // The opposite case, so the test cannot pass by "always the dark ink": Daylight's connect
+        // disc is a deep electric blue, and the same white ink scores 5.57:1 on it.
+        assertEquals(
+            MarbleFloatActions.Light.inkLight,
+            MarbleFloatActions.Light.inkOn(MarbleFloatActions.Light.connect)
+        )
+    }
+
+    @Test
+    fun `both ink candidates really are in play in a brand palette`() {
+        // The scoring has to be a choice, not a constant. If every disc of a palette came back
+        // with the same ink, `inkOn` would be a `val` — and the day a palette ships a pale
+        // action tone it would ship an invisible glyph with it.
+        for ((name, set) in listOf("Daylight" to MarbleFloatActions.Light, "Pure black" to MarbleFloatActions.Dark)) {
+            val chosen = set.roles().map { (_, tone) -> set.inkOn(tone) }.toSet()
+            val report = set.roles().joinToString { (role, tone) ->
+                "$role ${if (set.inkOn(tone) == set.inkDark) "dark" else "light"}"
+            }
+            assertTrue("$name: no disc takes the light ink ($report)", set.inkLight in chosen)
+            assertTrue("$name: no disc takes the dark ink ($report)", set.inkDark in chosen)
+        }
     }
 
     @Test
