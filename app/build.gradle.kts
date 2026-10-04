@@ -333,6 +333,8 @@ logging.addStandardOutputListener { text -> marbleCaptureOutput(text) }
 logging.addStandardErrorListener { text -> marbleCaptureOutput(text) }
 val marbleVerificationTasks = setOf(
     "testDebugUnitTest",
+    "compileDebugUnitTestKotlin",
+    "compileDebugUnitTestJavaWithJavac",
     "compileDebugKotlin",
     "compileReleaseKotlin"
 )
