@@ -318,8 +318,7 @@ tasks.withType<Test>().configureEach {
 }
 
 // Preserve useful Gradle output on the check-run itself. Some CI clients cannot retrieve the raw
-// Actions log archive, so attach the failure excerpt to the check when tests or Kotlin compilation
-// fail instead of leaving only Gradle's exit code.
+// Actions log archive, so attach the actual failed task and its final diagnostics to the check.
 val marbleVerificationOutput = StringBuilder()
 val marbleCaptureOutput: (CharSequence) -> Unit = { text ->
     synchronized(marbleVerificationOutput) {
@@ -331,94 +330,45 @@ val marbleCaptureOutput: (CharSequence) -> Unit = { text ->
 }
 logging.addStandardOutputListener { text -> marbleCaptureOutput(text) }
 logging.addStandardErrorListener { text -> marbleCaptureOutput(text) }
-val marbleVerificationTasks = setOf(
-    "testDebugUnitTest",
-    "compileDebugUnitTestKotlin",
-    "compileDebugUnitTestJavaWithJavac",
-    "compileDebugKotlin",
-    "compileReleaseKotlin"
-)
-val marbleFailureReporters = marbleVerificationTasks.associateWith { taskName ->
-    tasks.register("${taskName}FailureDetails") {
-        doLast {
-            if (taskName == "testDebugUnitTest") {
-                val reportDir = project.layout.buildDirectory
-                    .dir("test-results/testDebugUnitTest")
-                    .get()
-                    .asFile
-                val failedTests = mutableListOf<String>()
-                if (reportDir.isDirectory) {
-                    reportDir.walkTopDown()
-                        .filter { it.isFile && it.extension == "xml" }
-                        .forEach { report ->
-                            val xml = report.readText()
-                            if ("<failure" !in xml && "<error" !in xml) return@forEach
-                            val cases = javax.xml.parsers.DocumentBuilderFactory.newInstance()
-                                .newDocumentBuilder()
-                                .parse(report)
-                                .getElementsByTagName("testcase")
-                            for (index in 0 until cases.length) {
-                                val testCase = cases.item(index) as? org.w3c.dom.Element ?: continue
-                                val failure = testCase.getElementsByTagName("failure").item(0)
-                                    as? org.w3c.dom.Element
-                                val error = testCase.getElementsByTagName("error").item(0)
-                                    as? org.w3c.dom.Element
-                                val problem = failure ?: error ?: continue
-                                val summary = problem.getAttribute("message")
-                                    .ifBlank { problem.textContent.lineSequence().firstOrNull().orEmpty() }
-                                failedTests += "${testCase.getAttribute("classname")} > " +
-                                    "${testCase.getAttribute("name")}: $summary"
-                            }
-                        }
-                }
-                if (failedTests.isNotEmpty()) {
-                    val details = failedTests.take(8).joinToString("\n")
-                        .take(2_200)
-                        .replace("%", "%25")
-                        .replace("\r", "%0D")
-                        .replace("\n", "%0A")
-                    println("::error title=JUnit test failures::$details")
-                }
+gradle.taskGraph.addTaskExecutionListener(
+    object : org.gradle.api.execution.TaskExecutionListener {
+        override fun beforeExecute(task: org.gradle.api.Task) = Unit
+
+        override fun afterExecute(
+            task: org.gradle.api.Task,
+            state: org.gradle.api.tasks.TaskState
+        ) {
+            val taskFailure = state.failure ?: return
+            val output = synchronized(marbleVerificationOutput) {
+                marbleVerificationOutput.toString()
             }
-            val taskFailure = tasks.named(taskName).get().state.failure
-            if (taskFailure != null) {
-                val output = synchronized(marbleVerificationOutput) {
-                    marbleVerificationOutput.toString()
+            val lines = output.lines()
+            val failureLine = Regex(
+                "(?i)(^e: |\\berror:|\\bfailed\\b|\\bfailure\\b|\\bexception\\b|" +
+                    "\\bcaused by\\b|unresolved reference|expecting|assertionerror|expected:|" +
+                    "actual:|but was|could not|what went wrong|there were failing tests)"
+            )
+            val matching = lines.indices.filter { failureLine.containsMatchIn(lines[it]) }
+            val excerpt = if (matching.isNotEmpty()) {
+                val selected = sortedSetOf<Int>()
+                matching.takeLast(35).forEach { index ->
+                    if (index > 0) selected += index - 1
+                    selected += index
+                    if (index + 1 < lines.size) selected += index + 1
                 }
-                val lines = output.lines()
-                val failureLine = Regex(
-                    "(?i)(^e: |\\berror:|\\bfailed\\b|\\bfailure\\b|\\bexception\\b|" +
-                        "\\bcaused by\\b|unresolved reference|expecting|assertionerror|expected:|" +
-                        "actual:|but was|could not|what went wrong|there were failing tests)"
-                )
-                val matching = lines.indices.filter { failureLine.containsMatchIn(lines[it]) }
-                val excerpt = if (matching.isNotEmpty()) {
-                    val selected = sortedSetOf<Int>()
-                    matching.takeLast(35).forEach { index ->
-                        if (index > 0) selected += index - 1
-                        selected += index
-                        if (index + 1 < lines.size) selected += index + 1
-                    }
-                    selected.joinToString("\n") { index ->
-                        lines[index].take(400)
-                    }.takeLast(1_800)
-                } else {
-                    output.takeLast(1_800)
-                }
-                val message = "$taskName failed: ${taskFailure.message.orEmpty()}\n$excerpt"
-                    .replace("%", "%25")
-                    .replace("\r", "%0D")
-                    .replace("\n", "%0A")
-                println("::error title=Gradle verification failure::$message")
+                selected.joinToString("\n") { index -> lines[index].take(400) }
+                    .takeLast(1_800)
+            } else {
+                output.takeLast(1_800)
             }
+            val message = "${task.path} failed: ${taskFailure.message.orEmpty()}\n$excerpt"
+                .replace("%", "%25")
+                .replace("\r", "%0D")
+                .replace("\n", "%0A")
+            println("::error title=Gradle task failure::$message")
         }
     }
-}
-tasks.configureEach {
-    if (name in marbleVerificationTasks) {
-        finalizedBy(marbleFailureReporters.getValue(name))
-    }
-}
+)
 
 val prepareSingBoxRules by tasks.registering(Exec::class) {
     workingDir(rootProject.projectDir)
