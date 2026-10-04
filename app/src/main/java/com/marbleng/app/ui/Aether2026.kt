@@ -16838,7 +16838,7 @@ private fun AutoServerSelectorSettings(repo: AppRepository) {
             }
         }
         Text(
-            trx("Adjust the sliders; zero ignores a signal. Priorities are normalized automatically."),
+            trx("Adjust the priorities; zero ignores a signal and weights normalize automatically."),
             color = Aether.InkFaint,
             style = settingsBodyStyle()
         )
