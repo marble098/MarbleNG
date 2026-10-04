@@ -321,6 +321,16 @@ tasks.withType<Test>().configureEach {
 // Actions log archive, so attach the failure excerpt to the check when tests or Kotlin compilation
 // fail instead of leaving only Gradle's exit code.
 val marbleVerificationOutput = StringBuilder()
+val marbleCaptureOutput: (CharSequence) -> Unit = { text ->
+    synchronized(marbleVerificationOutput) {
+        marbleVerificationOutput.append(text)
+        if (marbleVerificationOutput.length > 200_000) {
+            marbleVerificationOutput.delete(0, marbleVerificationOutput.length - 200_000)
+        }
+    }
+}
+logging.addStandardOutputListener { text -> marbleCaptureOutput(text) }
+logging.addStandardErrorListener { text -> marbleCaptureOutput(text) }
 val marbleVerificationTasks = setOf(
     "testDebugUnitTest",
     "compileDebugKotlin",
@@ -368,27 +378,32 @@ val marbleFailureReporters = marbleVerificationTasks.associateWith { taskName ->
                     println("::error title=JUnit test failures::$details")
                 }
             }
-            val output = synchronized(marbleVerificationOutput) {
-                marbleVerificationOutput.toString()
-            }
-            val lines = output.lines()
-            val failureLine = Regex(
-                "(?i)(^e: |\\berror:|\\bfailed\\b|\\bfailure\\b|\\bexception\\b|" +
-                    "\\bcaused by\\b|unresolved reference|expecting|assertionerror|expected:|" +
-                    "actual:|but was|could not|what went wrong|there were failing tests)"
-            )
-            val matching = lines.indices.filter { failureLine.containsMatchIn(lines[it]) }
-            if (matching.isNotEmpty()) {
-                val selected = sortedSetOf<Int>()
-                matching.takeLast(35).forEach { index ->
-                    if (index > 0) selected += index - 1
-                    selected += index
-                    if (index + 1 < lines.size) selected += index + 1
+            val taskFailure = tasks.named(taskName).get().state.failure
+            if (taskFailure != null) {
+                val output = synchronized(marbleVerificationOutput) {
+                    marbleVerificationOutput.toString()
                 }
-                val excerpt = selected.joinToString("\n") { index ->
-                    lines[index].take(400)
-                }.takeLast(2_200)
-                val message = "$taskName:\n$excerpt"
+                val lines = output.lines()
+                val failureLine = Regex(
+                    "(?i)(^e: |\\berror:|\\bfailed\\b|\\bfailure\\b|\\bexception\\b|" +
+                        "\\bcaused by\\b|unresolved reference|expecting|assertionerror|expected:|" +
+                        "actual:|but was|could not|what went wrong|there were failing tests)"
+                )
+                val matching = lines.indices.filter { failureLine.containsMatchIn(lines[it]) }
+                val excerpt = if (matching.isNotEmpty()) {
+                    val selected = sortedSetOf<Int>()
+                    matching.takeLast(35).forEach { index ->
+                        if (index > 0) selected += index - 1
+                        selected += index
+                        if (index + 1 < lines.size) selected += index + 1
+                    }
+                    selected.joinToString("\n") { index ->
+                        lines[index].take(400)
+                    }.takeLast(1_800)
+                } else {
+                    output.takeLast(1_800)
+                }
+                val message = "$taskName failed: ${taskFailure.message.orEmpty()}\n$excerpt"
                     .replace("%", "%25")
                     .replace("\r", "%0D")
                     .replace("\n", "%0A")
@@ -399,18 +414,6 @@ val marbleFailureReporters = marbleVerificationTasks.associateWith { taskName ->
 }
 tasks.configureEach {
     if (name in marbleVerificationTasks) {
-        logging.addStandardOutputListener { text ->
-            synchronized(marbleVerificationOutput) {
-                val remaining = 200_000 - marbleVerificationOutput.length
-                if (remaining > 0) marbleVerificationOutput.append(text.take(remaining))
-            }
-        }
-        logging.addStandardErrorListener { text ->
-            synchronized(marbleVerificationOutput) {
-                val remaining = 200_000 - marbleVerificationOutput.length
-                if (remaining > 0) marbleVerificationOutput.append(text.take(remaining))
-            }
-        }
         finalizedBy(marbleFailureReporters.getValue(name))
     }
 }
