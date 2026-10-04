@@ -191,6 +191,7 @@ import com.marbleng.app.core.ServerCountry
 import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.core.AutoServerSelector
+import com.marbleng.app.core.AutoServerWeights
 import com.marbleng.app.core.TransportAdaptation
 // MARBLE_FRAGMENT_PROFILES_V208 — the ready recipes the Fragment & Mux page now offers,
 // their ladder order, and the one-sentence summary each row prints.
