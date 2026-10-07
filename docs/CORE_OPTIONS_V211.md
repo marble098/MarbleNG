@@ -23,12 +23,13 @@ config the app used to invent.
   همان می‌ماند.
 - **جای آن، تنظیمات دلخواه هسته‌ها آمد — با کامل‌ترین سطحی که دو هسته قبول می‌کنند.** لاگ، sniff،
   inbound، کاربر و رمز inbound، mux کامل (Xray و sing-box جدا)، سوکت، مسیریابی، policy، DNS و
-  timeoutها؛ همه با واژگان خودِ هسته، همه از تنظیمات کاربر.
+  timeoutها؛ همه با واژگان خودِ هسته، همه از تنظیمات کاربر. مسیریابی
+  (`routing.domainStrategy`/`domainMatcher`) روی صفحهٔ Routing می‌ماند تا هر کلید دقیقاً یک نویسنده داشته باشد.
 - **قاعدهٔ آخرین نویسنده: کاربر.** توابع `CoreOptions` خالص‌اند و *بعد* از لایه‌های liveness و
   سازگاری اجرا می‌شوند. هر مقداری که کاربر تنظیم نکرده باشد، حذف می‌شود تا خودِ هسته تصمیم بگیرد؛
   هر مقداری که تنظیم کرده باشد، عیناً نوشته می‌شود و هیچ لایهٔ خودکاری آن را بازنویسی نمی‌کند.
 - **درِ خروج فرار نمی‌کند: رد می‌کند.** هر JSON دلخواهی را می‌توان به سند نهایی دوخت (addition)، اما
-  اگر کلیدهای مالکیت‌دار Marble (`inbounds`، `outbounds`، `routing`، `dns`، `log`) در آن باشد یا
+  اگر کلیدهای مالکیت‌دار Marble (`inbounds`، `outbounds`، `routing`/`route`، `dns`، `log`) در آن باشد یا
   سند سالم نباشد، کل درخواست رد می‌شود و سند دست‌نخورده می‌ماند؛ هیچ ادغام نیمه‌کاره‌ای وجود ندارد.
 
 ---
@@ -90,7 +91,7 @@ in the core's own vocabulary, and a value outside it is normalised at the *reade
 | `xraySocksUdpEnabled` | SOCKS inbound `settings.udp` | written as a boolean, never as an omission |
 | `muxEnabled`, `muxConcurrency`, `muxXudpConcurrency`, `muxUdp443` (`skip/allow/reject`) | `outbounds[].mux` | |
 | `xraySockoptDomainStrategy`, `xrayTcpNoDelay`, `xrayTcpKeepAliveIntervalSec`, `xrayTcpUserTimeoutMs`, `xrayTcpCongestion`, `xrayTcpMptcp`, `xrayTcpWindowClamp` | `sockopt.*` | a neutral value (0 s, 0 ms, blank, `AsIs`) is **absent**, so the core's own default and the liveness profile still apply |
-| `xrayRoutingDomainStrategy`, `xrayRoutingDomainMatcher` | `routing.domainStrategy/domainMatcher` | a blank matcher is removed rather than emitted empty |
+| — (the Routing page owns `routing.domainStrategy`/`domainMatcher`) | `routing.domainStrategy/domainMatcher` | written by the hardener from `routeDomainStrategy`/`routeDomainMatcher`, next to the rules they describe; this page names the control instead of adding a second writer for one key |
 | `xrayPolicyHandshakeSec`, `…ConnIdleSec`, `…UplinkOnlySec`, `…DownlinkOnlySec`, `…BufferSizeKb` | `policy.levels."0".*` | the whole block is absent when every value is neutral |
 | `xrayExtraJson` | merged into the finished document | see the refusal contract below |
 
@@ -114,10 +115,12 @@ in the core's own vocabulary, and a value outside it is normalised at the *reade
 * **a JSON object** → objects merge key by key, recursively; every other value (array, string,
   number, boolean, null) **replaces** what was there. An array is one whole decision — a half-merged
   rule list would be neither the user's nor the app's;
-* **a refusal** → the document does not parse, or is not an object, or names a key Marble owns
-  (`inbounds`, `outbounds`, `routing`, `dns`, `log`) — and then **nothing** is applied, the document
-  is left byte-identical, and the reason is one sentence in the UI and one `COREOPTIONS` event in
-  the log.
+* **a refusal** → the document does not parse, or is not an object, or names a key Marble owns —
+  the `inbounds`/`outbounds`/`dns`/`log` blocks plus Xray's `routing` and sing-box's `route`
+  (`CoreOptions.PROTECTED_KEYS` / `CoreOptions.SINGBOX_PROTECTED_KEYS`: sing-box spells the routing
+  block differently, so the builder passes its own set) — and then **nothing** is applied, the
+  document is left byte-identical, and the reason is one sentence in the UI and one `COREOPTIONS`
+  event in the log.
 
 Everything else is fair game: `stats`, `api`, `metrics`, `burstObservatory`, `observatory`,
 `reverse`, `policy`, `fakedns`, any nested `sockopt`, a whole extra sing-box `experimental` block.
@@ -139,7 +142,8 @@ invented keys, the user's numbers come out verbatim, and a refused patch leaves 
 ## Verification
 
 * `CoreOptionsV211Test` — sniffing order and the armed fake pool, socks UDP as a boolean, the
-  sockopt "only what the user changed" contract, routing, policy and log, the merge semantics
+  sockopt "only what the user changed" contract, the absence of a second routing writer, policy and
+  log, the merge semantics
   (object merge, array replace, blank no-op, parse refusal, protected-key refusal).
 * `scripts/system-integrity-check.py` — the V211 block asserts the fragment feature is *gone*
   (no page, no card, no learner file, no settings key, no generated dialer) and that the options

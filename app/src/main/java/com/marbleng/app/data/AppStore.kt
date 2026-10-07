@@ -684,12 +684,6 @@ class AppStore(context: Context) {
         xrayTcpCongestion = prefs.getString("xrayTcpCongestion", "") ?: "",
         xrayTcpMptcp = prefs.getBoolean("xrayTcpMptcp", true),
         xrayTcpWindowClamp = prefs.getInt("xrayTcpWindowClamp", 0).coerceIn(0, 65535),
-        xrayRoutingDomainStrategy = XrayRoutingDomainStrategies.parse(
-            prefs.getString("xrayRoutingDomainStrategy", "AsIs") ?: "AsIs"
-        ),
-        xrayRoutingDomainMatcher = XrayDomainMatchers.parse(
-            prefs.getString("xrayRoutingDomainMatcher", "") ?: ""
-        ),
         xrayPolicyHandshakeSec = prefs.getInt("xrayPolicyHandshakeSec", 0).coerceIn(0, 3600),
         xrayPolicyConnIdleSec = prefs.getInt("xrayPolicyConnIdleSec", 0).coerceIn(0, 86_400),
         xrayPolicyUplinkOnlySec = prefs.getInt("xrayPolicyUplinkOnlySec", 0).coerceIn(0, 86_400),
@@ -983,8 +977,6 @@ class AppStore(context: Context) {
         .putString("xrayTcpCongestion", s.xrayTcpCongestion)
         .putBoolean("xrayTcpMptcp", s.xrayTcpMptcp)
         .putInt("xrayTcpWindowClamp", s.xrayTcpWindowClamp)
-        .putString("xrayRoutingDomainStrategy", XrayRoutingDomainStrategies.parse(s.xrayRoutingDomainStrategy))
-        .putString("xrayRoutingDomainMatcher", XrayDomainMatchers.parse(s.xrayRoutingDomainMatcher))
         .putInt("xrayPolicyHandshakeSec", s.xrayPolicyHandshakeSec)
         .putInt("xrayPolicyConnIdleSec", s.xrayPolicyConnIdleSec)
         .putInt("xrayPolicyUplinkOnlySec", s.xrayPolicyUplinkOnlySec)

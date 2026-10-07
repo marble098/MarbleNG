@@ -596,11 +596,12 @@ enforcePhysicalDialPolicy(root, settings, underlayHasIpv6)
 // MARBLE_CORE_OPTIONS_V211 — the user's own JSON, merged on top of everything this builder
 // computed. It is the escape hatch that makes the settings surface "as complete as the core
 // allows": `stats`, `api`, `metrics`, `observatory`, `reverse`, any `experimental` sub-object and
-// every per-outbound dial field are reachable without a release. Four subsystems stay the app's
+// every per-outbound dial field are reachable without a release. Five blocks stay the app's
 // (`inbounds`, `outbounds`, `route`, `dns`, `log`) because the tunnel, the local listener and the
 // resolver graph are one document computed from the Routing page — a half-merged graph is not an
-// option, it is a tunnel that starts and then does something nobody asked for.
-val coreOptionPatch = CoreOptions.merge(root, settings.singBoxExtraJson)
+// option, it is a tunnel that starts and then does something nobody asked for. The set is passed
+// explicitly: sing-box's routing block is `route`, so the Xray default would guard the wrong name.
+val coreOptionPatch = CoreOptions.merge(root, settings.singBoxExtraJson, CoreOptions.SINGBOX_PROTECTED_KEYS)
 if (coreOptionPatch.error.isNotBlank()) {
     notes += "Extra JSON refused: ${coreOptionPatch.error}"
     RuntimeDiagnostics.coreOption("singbox", "extra-json-refused", coreOptionPatch.error)

@@ -376,22 +376,6 @@ object XrayDomainStrategies {
         ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "AsIs"
 }
 
-/** Xray `routing.domainStrategy` — the same vocabulary minus the forcing modes. */
-object XrayRoutingDomainStrategies {
-    val ALL: List<String> = listOf("AsIs", "IPIfNonMatch", "IPOnDemand")
-
-    fun parse(raw: String): String =
-        ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "AsIs"
-}
-
-/** Xray `routing.domainMatcher` ("" = core default). */
-object XrayDomainMatchers {
-    val ALL: List<String> = listOf("", "hybrid", "linear")
-
-    fun parse(raw: String): String =
-        ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: ""
-}
-
 /**
  * sing-box `multiplex.protocol`.
  *
@@ -1808,12 +1792,6 @@ data class AppSettings(
     val xrayTcpMptcp: Boolean = true,
     /** Xray `sockopt.tcpWindowClamp`; 0 disables the clamp. */
     val xrayTcpWindowClamp: Int = 0,
-
-    // ── Xray: routing ────────────────────────────────────────────────────────
-    /** Xray `routing.domainStrategy`: [XrayRoutingDomainStrategies]. */
-    val xrayRoutingDomainStrategy: String = "AsIs",
-    /** Xray `routing.domainMatcher`: [XrayDomainMatchers] (blank = the core's default). */
-    val xrayRoutingDomainMatcher: String = "",
 
     // ── Xray: policy ─────────────────────────────────────────────────────────
     /** Xray `policy.levels.0.handshake`, seconds. 0 leaves the core's own value. */

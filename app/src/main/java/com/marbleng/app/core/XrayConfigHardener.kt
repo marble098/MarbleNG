@@ -1033,9 +1033,10 @@ object XrayConfigHardener {
             .put("domainStrategy", domainStrategy)
             .put("domainMatcher", domainMatcher)
             .put("rules", rules)
-        // MARBLE_CORE_OPTIONS_V211 — the user's routing strategy and matcher are the last word on
-        // the routing block the engine computes from the Routing page's own rules.
-        CoreOptions.applyXrayRoutingStrategy(routingObj, settings)
+        // MARBLE_CORE_OPTIONS_V211 — exactly one writer for `routing.domainStrategy` and
+        // `routing.domainMatcher`: the Routing page's own fields read just above. The core options
+        // page points at that pair instead of carrying a second one, because a duplicate control
+        // for the same key is not an option the user owns — it is one of the two silently losing.
         src.put("routing", routingObj)
         // Runtime logs are for actionable failures. Xray prints compatibility/deprecation
         // advisories for transports such as HTTPUpgrade/WebSocket even when those transports are

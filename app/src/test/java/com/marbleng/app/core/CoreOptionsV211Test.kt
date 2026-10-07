@@ -110,17 +110,18 @@ class CoreOptionsV211Test {
         assertEquals("a field the user left alone survives", 120_000, sockopt.getInt("tcpUserTimeout"))
     }
 
-    // ── routing, policy, log ─────────────────────────────────────────────────────────────────
+    // ── policy, log ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun routingStrategyIsWrittenAndABlankMatcherIsRemovedNotEmittedEmpty() {
-        val routing = JSONObject().put("domainMatcher", "linear")
-        CoreOptions.applyXrayRoutingStrategy(routing, AppSettings(xrayRoutingDomainStrategy = "IPIfNonMatch"))
-        assertEquals("IPIfNonMatch", routing.getString("domainStrategy"))
-        assertFalse("a blank matcher must leave the core's default", routing.has("domainMatcher"))
-
-        CoreOptions.applyXrayRoutingStrategy(routing, AppSettings(xrayRoutingDomainMatcher = "hybrid"))
-        assertEquals("hybrid", routing.getString("domainMatcher"))
+    fun theRoutingKeysHaveNoSecondWriterOnThisPage() {
+        // MARBLE_CORE_OPTIONS_V211 — `routing.domainStrategy` and `routing.domainMatcher` are the
+        // Routing page's own fields, written by the hardener. A writer here would be a second
+        // writer for one key, and one of the two would silently lose: the pinned core's options
+        // page names the control instead of duplicating it.
+        assertFalse(
+            "CoreOptions must not expose a second routing-strategy writer",
+            CoreOptions::class.java.declaredMethods.any { it.name.contains("RoutingStrategy") }
+        )
     }
 
     @Test
@@ -211,6 +212,50 @@ class CoreOptionsV211Test {
         assertEquals(
             setOf("inbounds", "outbounds", "routing", "dns", "log"),
             CoreOptions.PROTECTED_KEYS
+        )
+    }
+
+    @Test
+    fun singBoxGuardsItsOwnRoutingBlockName() {
+        // sing-box calls the routing block `route`, so the Xray set would leave the rules the
+        // Routing page computed open to replacement. The refusal is whole, and it names the key.
+        assertEquals(
+            setOf("inbounds", "outbounds", "route", "dns", "log"),
+            CoreOptions.SINGBOX_PROTECTED_KEYS
+        )
+        val target = JSONObject().put("route", JSONObject().put("rules", JSONArray()))
+        val merged = CoreOptions.merge(
+            target,
+            """{"route": {"rules": [{"action": "reject"}]}, "experimental": {"cache_file": {"enabled": true}}}""".trimIndent(),
+            CoreOptions.SINGBOX_PROTECTED_KEYS
+        )
+        assertTrue(merged.error.contains("route"))
+        assertFalse(merged.changed)
+        assertEquals("the app's route graph survives a refusal", 0, target.getJSONObject("route").getJSONArray("rules").length())
+        assertFalse("nothing from the patch may survive a refusal", target.has("experimental"))
+    }
+
+    @Test
+    fun singBoxLeavesTheUnprotectedSurfaceMergeable() {
+        // An object patch merges key by key, so a user's `cache_file` sits next to the Clash API
+        // entry the builder wrote instead of deleting it.
+        val target = JSONObject()
+            .put("experimental", JSONObject().put("clash_api", JSONObject().put("secret", "app")))
+        val merged = CoreOptions.merge(
+            target,
+            """{"experimental": {"cache_file": {"enabled": true}}}""".trimIndent(),
+            CoreOptions.SINGBOX_PROTECTED_KEYS
+        )
+        assertTrue(merged.error.isBlank())
+        assertTrue("experimental.cache_file" in merged.applied)
+        assertEquals(
+            true,
+            target.getJSONObject("experimental").getJSONObject("cache_file").getBoolean("enabled")
+        )
+        assertEquals(
+            "the app's own entry survives next to the user's",
+            "app",
+            target.getJSONObject("experimental").getJSONObject("clash_api").getString("secret")
         )
     }
 }

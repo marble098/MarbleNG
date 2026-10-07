@@ -12663,8 +12663,9 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     // say: what you set here is what the core is told.
     Text(
         trx(
-            "Every option here is written to the core exactly as you set it. Nothing on this page " +
-                "is overridden automatically, and the JSON box at the bottom wins over the rows."
+            "Every option here is written to the core exactly as you set it, and nothing on this " +
+                "page is overridden automatically. " +
+                "The JSON box at the bottom wins over the rows."
         ),
         color = Aether.InkMuted,
         style = settingsBodyStyle()
@@ -12983,39 +12984,16 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     if (isXray) {
         // ── Routing and policy ────────────────────────────────────────────────────────────────
         Text(trx("Routing"), color = Aether.Ink, style = MaterialTheme.typography.titleSmall)
-        Text(trx("Domain resolution"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            XrayRoutingDomainStrategies.ALL.forEach { strategy ->
-                CyberChoiceChip(
-                    text = strategy.uppercase(),
-                    selected = s.xrayRoutingDomainStrategy.equals(strategy, ignoreCase = true),
-                    color = tone
-                ) { repo.updateSettings(repo.settings.copy(xrayRoutingDomainStrategy = strategy)) }
-            }
-        }
-        Text(trx("Rule matcher"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            CyberChoiceChip(
-                text = trx("CORE DEFAULT"),
-                selected = s.xrayRoutingDomainMatcher.isBlank(),
-                color = tone
-            ) { repo.updateSettings(repo.settings.copy(xrayRoutingDomainMatcher = "")) }
-            XrayDomainMatchers.ALL.filter { it.isNotBlank() }.forEach { matcher ->
-                CyberChoiceChip(
-                    text = matcher.uppercase(),
-                    selected = s.xrayRoutingDomainMatcher.equals(matcher, ignoreCase = true),
-                    color = tone
-                ) { repo.updateSettings(repo.settings.copy(xrayRoutingDomainMatcher = matcher)) }
-            }
-        }
+        // MARBLE_CORE_OPTIONS_V211 — `routing.domainStrategy` and `routing.domainMatcher` are the
+        // Routing page's own fields (`routeDomainStrategy`/`routeDomainMatcher`), written into the
+        // document by the hardener next to the rules they describe. A second pair of chips here
+        // would be a second writer for one key, and one of the two would silently lose — so this
+        // page names the control instead of duplicating it.
+        Text(
+            trx("Domain strategy and matcher stay on the Routing page, next to the rules they apply to."),
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall
+        )
 
         Text(trx("Policy (seconds, 0 = core default)"), color = Aether.Ink, style = MaterialTheme.typography.titleSmall)
         NumberSetting(
@@ -13105,10 +13083,10 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     // ── The escape hatch ──────────────────────────────────────────────────────────────────────
     // MARBLE_CORE_OPTIONS_V211 — a settings screen can never draw every field a core accepts, and
     // a client that cannot express the last field makes it unreachable. This box is merged on top
-    // of the generated document (objects key by key, arrays and scalars replaced), and the four
-    // subsystems the app owns — inbounds, outbounds, routing, dns, log — are refused rather than
-    // half-merged: a tunnel that starts and then does something nobody asked for is worse than a
-    // sentence explaining why the box was ignored.
+    // of the generated document (objects key by key, arrays and scalars replaced), and the blocks
+    // the app owns — Xray's `routing`, sing-box's `route`, and `inbounds`/`outbounds`/`dns`/`log`
+    // on both — are refused rather than half-merged: a tunnel that starts and then does something
+    // nobody asked for is worse than a sentence explaining why the box was ignored.
     Text(
         trx("Extra JSON (advanced)"),
         color = Aether.Ink,
@@ -13137,12 +13115,15 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
         colors = marbleOutlinedTextFieldColors(),
         modifier = Modifier.fillMaxWidth()
     )
+    // The refused set is the core's own: Xray calls its routing block `routing`, sing-box calls it
+    // `route`, so naming the wrong one would be worse than naming none.
+    val ownedBlocks = if (isXray) "inbounds, outbounds, routing, dns, log"
+    else "inbounds, outbounds, route, dns, log"
     Text(
         trx(
             "Anything the rows above do not cover — stats, api, metrics, observatory, reverse, a " +
-                "per-outbound sockopt — belongs here. Invalid JSON, or a key the app owns " +
-                "(inbounds, outbounds, routing, dns, log), is refused at connect time and the " +
-                "reason is written to the diagnostics log instead of a broken session."
+                "per-outbound sockopt — belongs here. " +
+                "A key the app owns ($ownedBlocks) is refused as a whole with the reason."
         ),
         color = Aether.InkFaint,
         style = settingsBodyStyle()

@@ -1,9 +1,7 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
-import com.marbleng.app.model.XrayDomainMatchers
 import com.marbleng.app.model.XrayDomainStrategies
-import com.marbleng.app.model.XrayRoutingDomainStrategies
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -131,16 +129,6 @@ object CoreOptions {
         }
     }
 
-    /** Xray `routing.domainStrategy` / `domainMatcher`, written only when the user changed them. */
-    fun applyXrayRoutingStrategy(routing: JSONObject, settings: AppSettings) {
-        routing.put(
-            "domainStrategy",
-            XrayRoutingDomainStrategies.parse(settings.xrayRoutingDomainStrategy)
-        )
-        val matcher = XrayDomainMatchers.parse(settings.xrayRoutingDomainMatcher)
-        if (matcher.isBlank()) routing.remove("domainMatcher") else routing.put("domainMatcher", matcher)
-    }
-
     /**
      * Xray `policy.levels.0`, or null when the user left every value at the core's default.
      *
@@ -213,6 +201,20 @@ object CoreOptions {
      */
     val PROTECTED_KEYS: Set<String> = setOf(
         "inbounds", "outbounds", "routing", "dns", "log"
+    )
+
+    /**
+     * The sing-box half of the same contract — and not the Xray set.
+     *
+     * sing-box calls its routing block `route`, so [PROTECTED_KEYS] would leave the rules the app
+     * computed from the Routing page open to wholesale replacement: the very thing the set exists
+     * to prevent. [com.marbleng.app.core.SingBoxConfigBuilder] passes this set for
+     * `singBoxExtraJson`. Everything else stays mergeable on purpose — an object patch merges key by
+     * key, so `experimental`, `http_clients`, `services`, `endpoints`, `certificate` and every
+     * per-outbound field can be extended without deleting the entry the app wrote next to it.
+     */
+    val SINGBOX_PROTECTED_KEYS: Set<String> = setOf(
+        "inbounds", "outbounds", "route", "dns", "log"
     )
 
     private fun mergeObjects(

@@ -3229,6 +3229,11 @@ check(
     "V211 the extra-JSON escape hatch is a total refusal or a clean merge",
     "protectedKeys: Set<String> = PROTECTED_KEYS" in files["coreOptions"]
     and "PROTECTED_KEYS: Set<String> = setOf(" in files["coreOptions"]
+    # sing-box's routing block is called `route`, so the builder passes its own set: the Xray
+    # names would have guarded the wrong key and left the computed rule graph replaceable.
+    and "SINGBOX_PROTECTED_KEYS: Set<String> = setOf(" in files["coreOptions"]
+    and "CoreOptions.SINGBOX_PROTECTED_KEYS" in files["singBoxBuilder"]
+    and "applyXrayRoutingStrategy" not in files["hardener"]
     and "extra-json-refused" in files["hardener"]
     and "extra-json-refused" in files["singBoxBuilder"]
     and "extra-json-merged" in files["hardener"]

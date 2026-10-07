@@ -109,17 +109,22 @@ class ReservedTagCollisionV183Test {
     fun `the imported fragment chain survives the rename with its dialerProxy intact`() {
         val settings = AppSettings(routingMode = RoutingMode.PROXY_ALL)
         val config = JSONObject(XrayConfigHardener.harden(serverlessWithReservedTags(), 21080, settings))
-        val selected = outbound(config, XrayConfigHardener.importedAliasFor("tls-fragment"))
-        assertNotNull("the imported tls-fragment hop is the selected exit under its alias", selected)
+        // MARBLE_CORE_OPTIONS_V211 — the app no longer emits a `tls-fragment` outbound of its own,
+        // so an imported hop that carries that tag no longer collides with anything the hardener
+        // appends: it keeps the name the user's document gave it. What the chapter still owes an
+        // imported chain is the whole chain — the hop itself, the dialer link under it, and the
+        // selection that makes it the exit.
+        val selected = outbound(config, "tls-fragment")
+        assertNotNull("the imported fragment hop is the selected exit under its own tag", selected)
         assertEquals(
             "full-fragment",
             selected!!.getJSONObject("streamSettings").getJSONObject("sockopt").getString("dialerProxy")
         )
         assertNotNull(outbound(config, "full-fragment"))
-        // The routing fallback rule sends unmatched traffic to the renamed selected hop.
+        // The routing fallback rule sends unmatched traffic to the selected hop.
         val rules = config.getJSONObject("routing").getJSONArray("rules")
         val last = rules.getJSONObject(rules.length() - 1)
-        assertEquals(XrayConfigHardener.importedAliasFor("tls-fragment"), last.getString("outboundTag"))
+        assertEquals("tls-fragment", last.getString("outboundTag"))
     }
 
     @Test
