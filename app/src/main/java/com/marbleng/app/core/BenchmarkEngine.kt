@@ -330,7 +330,6 @@ class BenchmarkEngine(
         return benchmarkResult(
             profile,
             measurement,
-            usedFragment = effective.fragmentEnabled && !settings.fragmentEnabled,
             usedMux = effective.muxEnabled && !settings.muxEnabled
         )
     }
@@ -791,48 +790,27 @@ class BenchmarkEngine(
     ): BenchmarkResult {
         if (directProbe(s)) return directResult(p, s)
         if (v2rayStyleDelay) {
-            return benchmarkResult(p, measure(p, port, s, false, true), false, false)
+            return benchmarkResult(p, measure(p, port, s, false, true), false)
         }
         val effective = intelligence?.effectiveSettings(p, s) ?: s
         if (!s.verifiedPerformanceTuning) {
             val direct = measure(p, port, effective, true)
-            return benchmarkResult(p, direct, effective.fragmentEnabled && !s.fragmentEnabled, effective.muxEnabled && !s.muxEnabled)
+            return benchmarkResult(p, direct, effective.muxEnabled && !s.muxEnabled)
         }
-        val baselineSettings = effective.copy(fragmentEnabled = s.fragmentEnabled, muxEnabled = s.muxEnabled)
-        var chosenSettings = baselineSettings
-        var chosen = measure(p, port, baselineSettings, true)
-        var usedFragment = false
-        var usedMux = false
-
-        val learnedFragment = effective.fragmentEnabled && !s.fragmentEnabled
-        if (s.adaptiveFragmentEnabled && !s.fragmentEnabled && canFragment(p) && (chosen.success == 0 || learnedFragment)) {
-            val candidateSettings = baselineSettings.copy(fragmentEnabled = true, muxEnabled = false)
-            val candidate = measure(p, port + 1, candidateSettings, true)
-            if (materiallyBetter(candidate, chosen)) {
-                chosen = candidate; chosenSettings = candidateSettings; usedFragment = true; usedMux = false
-            }
-        }
-
-        val learnedMux = effective.muxEnabled && !s.muxEnabled
-        if (s.adaptiveMuxEnabled && !s.muxEnabled && canMux(p) && chosen.success > 0 &&
-            (learnedMux || chosen.latency >= 120.0) && (intelligence?.thermalBudget(s) ?: 1.0) >= 0.60) {
-            val probeSettings = chosenSettings.copy(
-                muxEnabled = true,
-                benchSamples = min(2, s.benchSamples.coerceAtLeast(1)),
-                benchBytes = min(256 * 1024, s.benchBytes.coerceAtLeast(64 * 1024)),
-                adaptiveThroughputEnabled = false,
-                udpProbeEnabled = false
-            )
-            val candidate = measure(p, port + 2, probeSettings, true)
-            if (materiallyBetter(candidate, chosen)) { chosen = candidate; usedMux = true }
-        }
-        return benchmarkResult(p, chosen, usedFragment, usedMux)
+        // MARBLE_CORE_OPTIONS_V211 — nothing here flips a setting the user did not set. The
+        // baseline is exactly their configuration, and the adaptive-mux experiment that used to
+        // live here — turning the user's Mux switch on for a measurement and keeping it when the
+        // number looked better — is gone with the fragment stack that made the Mux switch a
+        // suggestion in the first place. The benchmark measures what the user configured.
+        val baselineSettings = effective.copy(muxEnabled = s.muxEnabled)
+        val chosen = measure(p, port, baselineSettings, true)
+        return benchmarkResult(p, chosen, false)
     }
 
-    private fun benchmarkResult(profile: ProxyProfile, m: Measurement, usedFragment: Boolean, usedMux: Boolean) = BenchmarkResult(
+    private fun benchmarkResult(profile: ProxyProfile, m: Measurement, usedMux: Boolean) = BenchmarkResult(
         profile.id, profile.name, m.success, m.latency, m.speed, 0.0,
         udpSuccess = m.udpSuccess, interactiveScore = 0.0, streamingScore = 0.0,
-        stabilityScore = 0.0, resilienceScore = 0.0, usedFragment = usedFragment,
+        stabilityScore = 0.0, resilienceScore = 0.0,
         usedMux = usedMux, jitterMs = m.jitter, warmupMs = m.warmup,
         sampleCount = m.sampleCount, p90LatencyMs = m.p90Latency,
         p95LatencyMs = m.p95Latency, medianJitterMs = m.medianJitter,
@@ -1088,7 +1066,7 @@ class BenchmarkEngine(
         return raw.map { r ->
             if (r.success <= 0) return@map r.copy(score = -1.0)
             val q = RealtimeQualityEngine.score(r, settings.workloadProfile, settings.benchMode)
-            val resilience = (q.resilience + if (r.usedFragment) 5.0 else 0.0).coerceIn(0.0, 100.0)
+            val resilience = q.resilience.coerceIn(0.0, 100.0)
             r.copy(score = if (settings.workloadProfile == WorkloadProfile.STEALTH) resilience else q.selected,
                 interactiveScore = q.interactive, streamingScore = q.streaming,
                 stabilityScore = q.stability, resilienceScore = resilience)
@@ -1119,9 +1097,6 @@ class BenchmarkEngine(
     private fun isUdpNative(p: ProxyProfile): Boolean =
         p.scheme.equals("hysteria2", true) || p.scheme.equals("wireguard", true) ||
             p.transport.contains("hysteria", true) || p.transport.equals("mkcp", true) || p.transport.equals("kcp", true)
-
-    private fun canFragment(p: ProxyProfile): Boolean =
-        !isUdpNative(p) && (p.security.contains("tls", true) || p.security.contains("reality", true))
 
     private fun canMux(p: ProxyProfile): Boolean =
         p.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss") && !isUdpNative(p)

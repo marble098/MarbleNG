@@ -59,6 +59,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools"
 
       - name: Install compile SDK
         shell: bash
@@ -67,10 +69,18 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
 
+      - name: Read the pinned Gradle version
+        id: toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^gradle=//p' gradle/toolchain.properties | tail -n 1)"
+          echo "gradle=${version:-9.5.1}" >> "$GITHUB_OUTPUT"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.5.1'
+          gradle-version: ${{ steps.toolchain.outputs.gradle }}
 
       - name: Unit tests and compilation
         shell: bash

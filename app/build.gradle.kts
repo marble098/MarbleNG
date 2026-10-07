@@ -5,6 +5,19 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// MARBLE_TOOLCHAIN_AUTOPILOT_V211 — the library versions, from the same file the plugins come
+// from. `resolve-toolchain.py --write` is the only thing that changes a number here.
+val toolchain =
+    Properties().apply {
+        val file = rootProject.file("gradle/toolchain.properties")
+        if (file.isFile) file.inputStream().use { input -> load(input) }
+    }
+
+fun toolchainVersion(
+    key: String,
+    fallback: String
+): String = toolchain.getProperty(key)?.trim()?.takeIf { it.isNotEmpty() } ?: fallback
+
 val versionCodeFromCi =
     providers
         .gradleProperty("VERSION_CODE")
@@ -330,20 +343,20 @@ dependencies {
 
     implementation(
         platform(
-            "androidx.compose:compose-bom:2026.08.00"
+            "androidx.compose:compose-bom:${toolchainVersion("composeBom", "2026.08.00")}"
         )
     )
 
     implementation(
-        "androidx.core:core-ktx:1.19.0"
+        "androidx.core:core-ktx:${toolchainVersion("coreKtx", "1.19.0")}"
     )
 
     implementation(
-        "androidx.activity:activity-compose:1.13.0"
+        "androidx.activity:activity-compose:${toolchainVersion("activityCompose", "1.13.0")}"
     )
 
     implementation(
-        "androidx.lifecycle:lifecycle-runtime-ktx:2.11.0"
+        "androidx.lifecycle:lifecycle-runtime-ktx:${toolchainVersion("lifecycleRuntimeKtx", "2.11.0")}"
     )
 
     implementation(
@@ -366,16 +379,16 @@ dependencies {
         "androidx.compose.material3:material3"
     )
 
-    implementation("com.github.mwiede:jsch:2.28.6")
+    implementation("com.github.mwiede:jsch:${toolchainVersion("jsch", "2.28.6")}")
 
     // MARBLE_QR_IMPORT_V121 — QR import decodes a picture the user already has (screenshot,
     // photo, saved image) with ZXing's pure-Java core. No camera dependency, no CAMERA
     // permission and no extra runtime: the image arrives through the system picker.
-    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:core:${toolchainVersion("zxing", "3.5.3")}")
 
-    testImplementation("junit:junit:4.13.2")
+    testImplementation("junit:junit:${toolchainVersion("junit", "4.13.2")}")
 
-    testImplementation("org.json:json:20260814")
+    testImplementation("org.json:json:${toolchainVersion("orgJson", "20260814")}")
 
     debugImplementation(
         "androidx.compose.ui:ui-tooling"

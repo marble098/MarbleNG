@@ -17,8 +17,8 @@ import org.junit.Test
  * Four defects were fixed, and every one of them is about a *socket the config actually opens*
  * rather than a knob on paper:
  *
- *  1. with Xray fragmentation on, the real socket belongs to the terminal freedom fragment
- *     dialer, yet liveness/MPTCP/BBR were only written to the proxy hop;
+ *  1. the real socket of a *chained* hop (a hand-imported fragment dialer and any other
+ *     `dialerProxy` graph) was left untuned while liveness/MPTCP/BBR went only to the proxy hop;
  *  2. Multipath TCP was never offered by either engine despite both cores supporting it with
  *     guaranteed plain-TCP fallback;
  *  3. sing-box's direct hop carried no dial tuning at all and QUIC got no `udp_fragment`;
@@ -285,40 +285,6 @@ class SocketFlightV168Test {
 
         val off = hardened(AppSettings(tcpFastOpenEnabled = false))
         assertFalse(off.getJSONArray("inbounds").getJSONObject(0).has("streamSettings"))
-    }
-
-    @Test
-    fun fragmentedConnectionTunesTheFreedomDialerThatActuallyOpensTheSocket() {
-        val settings = AppSettings(
-            fragmentEnabled = true,
-            tcpFastOpenEnabled = true,
-            iranModePolicy = IranModePolicy.ALWAYS_ON,
-            iranModeCountermeasures = true
-        )
-        val config = hardened(settings)
-        val physical = xrayOutbound(config, "fragment-direct")
-        val sockopt = physical.getJSONObject("streamSettings").getJSONObject("sockopt")
-        assertTrue("the fragment socket gets MPTCP", sockopt.getBoolean("tcpMptcp"))
-        assertEquals("bbr", sockopt.getString("tcpCongestion"))
-        assertTrue(sockopt.getBoolean("tcpFastOpen"))
-        assertTrue("the fragment socket gets Iran keep-alives", sockopt.getInt("tcpKeepAliveIdle") >= 90)
-        assertTrue(sockopt.getInt("tcpUserTimeout") >= 120_000)
-    }
-
-    @Test
-    fun twoLayerFragmentationTunesOnlyTheTerminalHop() {
-        val settings = AppSettings(
-            fragmentEnabled = true,
-            fragmentInnerEnabled = true,
-            tcpFastOpenEnabled = true
-        )
-        val config = hardened(settings)
-        val middle = xrayOutbound(config, "tls-fragment")
-        val middleSockopt = middle.getJSONObject("streamSettings").getJSONObject("sockopt")
-        assertEquals("fragment-direct", middleSockopt.getString("dialerProxy"))
-        assertFalse("an intermediate fragment hop opens no socket of its own", middleSockopt.has("tcpMptcp"))
-        val terminal = xrayOutbound(config, "fragment-direct").getJSONObject("streamSettings").getJSONObject("sockopt")
-        assertTrue(terminal.getBoolean("tcpMptcp"))
     }
 
     @Test

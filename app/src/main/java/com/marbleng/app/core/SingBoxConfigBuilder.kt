@@ -521,7 +521,10 @@ object SingBoxConfigBuilder {
                 JSONObject()
                     .put("level", singBoxLogLevel(settings))
                     .put("output", logPath)
-                    .put("timestamp", true)
+                    // MARBLE_CORE_OPTIONS_V211 — the timestamp is the user's: a log read on the
+                    // device is easier with one, a log written to a file for a bug report is easier
+                    // without, and both are legitimate.
+                    .put("timestamp", settings.singBoxLogTimestamp)
             )
             .put("dns", dnsConfig(settings, profile, resolverPool, underlayHasIpv6))
             .put("inbounds", inboundConfig(settings, socksPort))
@@ -589,6 +592,23 @@ sanitizeAndroidCliConfig(root, notes)
 // <<< ANDROID_FINAL_SANITIZATION_END >>>
 // Native resource imports may override dial-time DNS. Restore the physical-family policy LAST.
 enforcePhysicalDialPolicy(root, settings, underlayHasIpv6)
+
+// MARBLE_CORE_OPTIONS_V211 — the user's own JSON, merged on top of everything this builder
+// computed. It is the escape hatch that makes the settings surface "as complete as the core
+// allows": `stats`, `api`, `metrics`, `observatory`, `reverse`, any `experimental` sub-object and
+// every per-outbound dial field are reachable without a release. Five blocks stay the app's
+// (`inbounds`, `outbounds`, `route`, `dns`, `log`) because the tunnel, the local listener and the
+// resolver graph are one document computed from the Routing page — a half-merged graph is not an
+// option, it is a tunnel that starts and then does something nobody asked for. The set is passed
+// explicitly: sing-box's routing block is `route`, so the Xray default would guard the wrong name.
+val coreOptionPatch = CoreOptions.merge(root, settings.singBoxExtraJson, CoreOptions.SINGBOX_PROTECTED_KEYS)
+if (coreOptionPatch.error.isNotBlank()) {
+    notes += "Extra JSON refused: ${coreOptionPatch.error}"
+    RuntimeDiagnostics.coreOption("singbox", "extra-json-refused", coreOptionPatch.error)
+} else if (coreOptionPatch.changed) {
+    notes += "Extra JSON applied: ${coreOptionPatch.applied.joinToString(", ")}"
+    RuntimeDiagnostics.coreOption("singbox", "extra-json-merged", coreOptionPatch.applied.joinToString(","))
+}
 
 return Build(root.toString(), candidate.strategy, notes.distinct())
     }
@@ -1066,8 +1086,15 @@ private fun removeKeys(
             }
 
             "freedom", "direct" -> {
-                if (xraySettings.has("fragment") || xraySettings.has("noises") || xraySettings.has("redirect")) {
-                    notes += "Xray freedom fragment/noises/redirect mapped to direct outbound for sing-box."
+                if (xraySettings.has("noises") || xraySettings.has("redirect")) {
+                    notes += "Xray freedom noises/redirect mapped to direct outbound for sing-box."
+                }
+                // MARBLE_CORE_OPTIONS_V211 — an imported freedom hop's own `fragment` object has no
+                // sing-box equivalent, and this engine must not pretend otherwise: the note says
+                // what was left behind, and the import path is where the user sees it.
+                if (xraySettings.has("fragment")) {
+                    notes += "The imported freedom hop is a fragment dialer; sing-box has no " +
+                        "equivalent, so this hop dials directly."
                 }
                 result.put("type", "direct")
             }
@@ -1093,29 +1120,27 @@ private fun removeKeys(
             }
         }
         /*
-         * MARBLE_FRAGMENT_PROFILES_V208 — Mux on this engine.
-         *
-         * This block used to write *nothing*: it only appended a note saying Xray Mux.Cool is
-         * not sing-box smux, so the Mux switch in Settings was a dead control on this engine.
-         * The two are indeed different wire protocols and the numbers cannot be copied across —
-         * but they can be mapped, which is what [SingBoxTransportPolicy.multiplex] does.
+         * MARBLE_CORE_OPTIONS_V211 — the user's multiplex choice, written once.
          *
          * The pinned core accepts `multiplex` on exactly four outbound protocols (vless, vmess,
          * trojan, shadowsocks — `OutboundMultiplexOptions` in its own option files). Writing it
          * anywhere else is a config the core rejects at `sing-box check`, which kills the whole
-         * session rather than ignoring the field, so the protocol set below is a correctness
-         * gate and not a preference.
+         * session rather than ignoring the field, so the protocol set is a correctness gate and
+         * not a preference: on any other protocol the request is *reported* — [marbleProtocolNote]
+         * — instead of being silently written or silently dropped.
+         *
+         * Nothing here is derived any more. The object is the six fields the user set, in the
+         * field names `option/multiplex.go` declares.
          */
         val marbleMultiplex = SingBoxTransportPolicy.multiplex(settings)
         if (marbleMultiplex != null && protocol in MARBLE_SMUX_PROTOCOLS) {
             result.put(SingBoxTransportPolicy.MultiplexField, marbleMultiplex)
-            notes += "Mux mapped to sing-box smux (${marbleMultiplex.optString("protocol")}, ${settings.muxConcurrency} streams)."
-        } else if (
-            outbound.optJSONObject("mux")?.optBoolean("enabled", false) == true ||
-            outbound.optJSONObject("muxSettings")?.optBoolean("enabled", false) == true ||
-            settings.muxEnabled
-        ) {
-            notes += "Xray Mux.Cool is not sing-box smux and this protocol carries no smux at all, so multiplexing stays off."
+            notes += "Multiplexing on (${marbleMultiplex.optString("protocol")}, " +
+                "${settings.singBoxMuxMaxConnections} connection(s), " +
+                "${settings.singBoxMuxMaxStreams} streams each)."
+        } else if (marbleMultiplex != null) {
+            notes += "Multiplexing is off for this node: '$protocol' carries no multiplex in the " +
+                "pinned core, and writing the object anyway would be a rejected config."
         }
         if (protocol !in setOf("freedom", "direct")) {
             require(result.optString("server").isNotBlank()) { "config-unsupported: settings.address: missing server" }
@@ -1360,27 +1385,47 @@ private fun removeKeys(
 
     private fun inboundConfig(settings: AppSettings, socksPort: Int): JSONArray {
         val listen = if (settings.singBoxAllowLan) "0.0.0.0" else "127.0.0.1"
-        val inbounds = JSONArray().put(
-            JSONObject()
-                .put("type", "mixed")
-                .put("tag", INBOUND_TAG)
-                .put("listen", listen)
-                .put("listen_port", socksPort)
-                .put("tcp_fast_open", settings.tcpFastOpenEnabled)
-        )
+        // MARBLE_CORE_OPTIONS_V211 — `inbounds[].users` is the core's own credential list. It is
+        // written only when the user set both halves: a username with no password is a config the
+        // core refuses to decode, so a half-filled pair is reported by the settings screen (which
+        // disables Save on it) rather than guessed at here.
+        val users = inboundUsers(settings)
+        val mixed = JSONObject()
+            .put("type", "mixed")
+            .put("tag", INBOUND_TAG)
+            .put("listen", listen)
+            .put("listen_port", socksPort)
+            .put("tcp_fast_open", settings.tcpFastOpenEnabled)
+        if (users != null) mixed.put("users", users)
+        val inbounds = JSONArray().put(mixed)
         val httpPort = settings.singBoxHttpInboundPort
         if (httpPort in 1024..65535 && httpPort != socksPort) {
-            inbounds.put(
-                JSONObject()
-                    .put("type", "http")
-                    .put("tag", "http-in")
-                    .put("listen", listen)
-                    .put("listen_port", httpPort)
-                    // MARBLE_SOCKET_FLIGHT_V168 — parity with the mixed inbound.
-                    .put("tcp_fast_open", settings.tcpFastOpenEnabled)
-            )
+            val http = JSONObject()
+                .put("type", "http")
+                .put("tag", "http-in")
+                .put("listen", listen)
+                .put("listen_port", httpPort)
+                // MARBLE_SOCKET_FLIGHT_V168 — parity with the mixed inbound.
+                .put("tcp_fast_open", settings.tcpFastOpenEnabled)
+            if (users != null) http.put("users", JSONArray(users.toString()))
+            inbounds.put(http)
         }
         return inbounds
+    }
+
+    /**
+     * The `users` array for the local inbounds, or null when the user wants no credential check.
+     *
+     * The core types this as a list of `{username, password}`, and an empty list is *not* the same
+     * as an absent key: an empty array is accepted and means "no user can authenticate", which
+     * would lock the phone out of its own proxy. So a half-filled pair yields null (no `users`
+     * key at all) and both halves are required.
+     */
+    private fun inboundUsers(settings: AppSettings): JSONArray? {
+        val username = settings.singBoxInboundUsername.trim()
+        val password = settings.singBoxInboundPassword
+        if (username.isBlank() || password.isBlank()) return null
+        return JSONArray().put(JSONObject().put("username", username).put("password", password))
     }
 
     private fun dnsStrategy(settings: AppSettings): String =
@@ -1424,7 +1469,15 @@ private fun removeKeys(
         underlayHasIpv6: Boolean
     ): JSONObject {
         val rules = JSONArray()
-        if (settings.singBoxSniffEnabled) rules.put(JSONObject().put("action", "sniff"))
+        if (settings.singBoxSniffEnabled) {
+            val sniff = JSONObject().put("action", "sniff")
+            // MARBLE_CORE_OPTIONS_V211 — `override_destination` is the one field of the action
+            // that changes what the router sees: on, the destination is rewritten to the sniffed
+            // domain before any rule matches; off, the rules keep matching the address the app
+            // dialled. It is the user's switch because both readings are useful.
+            if (settings.singBoxSniffOverrideDestination) sniff.put("override_destination", true)
+            rules.put(sniff)
+        }
         // MARBLE_FAKE_IP_V184 — fakeip makes `resolve` mandatory, not an Exclave option: a
         // restored fake flow reaches the router's pre-match with a DOMAIN destination, and
         // preMatchFlow rejects that flow unless DestinationAddresses was populated

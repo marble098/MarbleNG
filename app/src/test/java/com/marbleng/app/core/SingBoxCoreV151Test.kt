@@ -554,18 +554,16 @@ class SingBoxCoreV151Test {
     }
 
     /**
-     * MARBLE_FRAGMENT_PROFILES_V208 — the pinned 1.14 core has three TLS-fragment fields, and
-     * which of them a recipe may ask for is the recipe's business.
+     * MARBLE_CORE_OPTIONS_V211 — a sing-box outbound carries the user's own options and nothing
+     * else.
      *
-     * The default fields (`tlshello` / `100-200` / `10-20`) ARE the mildest recipe, so this used
-     * to assert `fragment: true` for every profile: the core documents that field as packet-level
-     * fragmentation with "poor performance", tells you to try `record_fragment` first, and — with
-     * no CAP_NET_RAW on Android — makes every handshake wait the fallback delay. The mapping now
-     * gives a mild recipe record fragmentation only, and pays for packet fragmentation from
-     * strength 3 up.
+     * Fragmentation is gone with the feature it served, so no TLS-fragment key may appear on an
+     * outbound at all, whatever the settings say. Multiplexing is the other half of the same
+     * rule: it appears only when the user turned it on, and under the field name the pinned core
+     * declares (`multiplex`, never Xray's `mux`).
      */
     @Test
-    fun tlsFragmentUsesTheSupportedOneFourTlsField() {
+    fun noTlsFragmentKeysAndMultiplexOnlyFromTheUser() {
         val profile = jsonProfile("vless").let {
             val root = JSONObject(it.configJson)
             root.getJSONArray("outbounds")
@@ -576,43 +574,24 @@ class SingBoxCoreV151Test {
             it.copy(configJson = root.toString())
         }
 
-        // The mild default recipe: the field the core says to try first, and nothing else.
-        val mild = JSONObject(
-            build(profile, AppSettings(singBoxPreferParser = false, fragmentEnabled = true)).json
-        )
-        val mildTls = outbound(mild, SingBoxConfigBuilder.PROXY_TAG).optJSONObject("tls")
-        requireNotNull(mildTls) { "a TLS node must carry TLS options" }
-        assertTrue("record fragmentation is supported by the pinned 1.14 core",
-            mildTls.getBoolean(SingBoxTransportPolicy.RecordFragmentKey))
-        assertFalse("a strength-1 recipe must not pay for packet fragmentation",
-            mildTls.has(SingBoxTransportPolicy.FragmentKey))
-
-        // An aggressive rung of the ladder additionally asks for the packet-level split.
-        val aggressive = JSONObject(
-            build(
-                profile,
-                TransportAdaptation.withFragmentProfile(
-                    AppSettings(singBoxPreferParser = false),
-                    FragmentProfile.GFW_KNOCKER
-                )
-            ).json
-        )
-        val hardTls = outbound(aggressive, SingBoxConfigBuilder.PROXY_TAG).optJSONObject("tls")
-        requireNotNull(hardTls) { "a TLS node must carry TLS options" }
-        assertTrue(hardTls.getBoolean(SingBoxTransportPolicy.RecordFragmentKey))
-        assertTrue(hardTls.getBoolean(SingBoxTransportPolicy.FragmentKey))
-        assertTrue(
-            "the packet path needs the core's fallback wait",
-            hardTls.getString(SingBoxTransportPolicy.FallbackDelayKey).endsWith("ms")
-        )
-
-        // And a node with no recipe at all writes none of the three.
         val plain = JSONObject(build(profile, AppSettings(singBoxPreferParser = false)).json)
         val plainTls = outbound(plain, SingBoxConfigBuilder.PROXY_TAG).optJSONObject("tls")
         requireNotNull(plainTls) { "a TLS node must carry TLS options" }
-        assertFalse(plainTls.has(SingBoxTransportPolicy.RecordFragmentKey))
-        assertFalse(plainTls.has(SingBoxTransportPolicy.FragmentKey))
-        assertFalse(plainTls.has(SingBoxTransportPolicy.FallbackDelayKey))
+        assertFalse(plainTls.has("fragment"))
+        assertFalse(plainTls.has("record_fragment"))
+        assertFalse(plainTls.has("fragment_fallback_delay"))
+        val plainProxy = outbound(plain, SingBoxConfigBuilder.PROXY_TAG)
+        assertFalse("no multiplex object until the user asks for one", plainProxy.has("multiplex"))
+        assertFalse("Xray's field name is not sing-box's", plainProxy.has("mux"))
+
+        val muxed = JSONObject(
+            build(profile, AppSettings(singBoxPreferParser = false, singBoxMuxEnabled = true)).json
+        )
+        val proxy = outbound(muxed, SingBoxConfigBuilder.PROXY_TAG)
+        val multiplex = proxy.optJSONObject("multiplex")
+        requireNotNull(multiplex) { "an enabled user setting must reach the document" }
+        assertEquals("h2mux", multiplex.getString("protocol"))
+        assertEquals(4, multiplex.getInt("max_connections"))
     }
 
     /**

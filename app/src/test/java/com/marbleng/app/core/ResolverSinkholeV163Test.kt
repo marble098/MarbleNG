@@ -155,7 +155,9 @@ class ResolverSinkholeV163Test {
 
     @Test
     fun `no freedom hop ever carries the deprecated domainStrategy alias`() {
-        val settings = AppSettings(fragmentEnabled = true, fragmentPackets = "tlshello")
+        // MARBLE_CORE_OPTIONS_V211 — no fragment chain is generated any more, so this asserts
+        // the wider rule: *every* freedom hop the document ends up with is alias-free.
+        val settings = AppSettings()
         val root = JSONObject(XrayConfigHardener.harden(proxySource(), 21080, settings))
         val outbounds = root.getJSONArray("outbounds")
         var freedomSeen = 0
@@ -171,7 +173,7 @@ class ResolverSinkholeV163Test {
             assertFalse(legacy?.has("targetStrategy") == true)
             assertFalse(outbound.has("targetStrategy"))
         }
-        assertTrue("the fragment chain must contain a freedom hop", freedomSeen > 0)
+        assertTrue("the document must contain at least one freedom hop", freedomSeen > 0)
     }
 
     @Test

@@ -193,17 +193,6 @@ import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.core.AutoServerSelector
 import com.marbleng.app.core.AutoServerWeights
-import com.marbleng.app.core.TransportAdaptation
-// MARBLE_FRAGMENT_PROFILES_V208 — the ready recipes the Fragment & Mux page now offers,
-// their ladder order, and the one-sentence summary each row prints.
-import com.marbleng.app.core.FragmentLadder
-import com.marbleng.app.core.FragmentProfile
-import com.marbleng.app.core.MuxProfile
-import com.marbleng.app.core.summary
-import com.marbleng.app.core.TransportPair
-import com.marbleng.app.core.TransportMemoryRecord
-import com.marbleng.app.core.dayPartOf
-import com.marbleng.app.core.transportShapeOf
 import com.marbleng.app.core.ServerCandidate
 import com.marbleng.app.model.*
 import kotlinx.coroutines.Dispatchers
@@ -10487,17 +10476,6 @@ private object SettingsPages {
     const val ROUTING = "routing"
 
     /**
-     * MARBLE_FRAGMENT_MUX_PAGE_V206 — Fragment & Mux has its own page.
-     *
-     * It used to be two cards inside Engine & tunnel *with the same title*: one held the
-     * fragment/Mux values, the other held the learner that overrides them. Two controls called
-     * "Fragment & Mux" is not a hierarchy, it is a guess-the-card game — and the two cards
-     * disagreed by construction, because the values the user typed in one were silently
-     * replaced by the other. One subject, one page.
-     */
-    const val TRANSPORT = "transport"
-
-    /**
      * MARBLE_ROUTE_ATELIER_V207 — the Home "Tests" shortcut's destination.
      *
      * The shortcut used to open the Settings tab and stop, which is a general area rather than the
@@ -11467,7 +11445,7 @@ private fun settingsHubGroups(
                     // before the page is opened.
                     SettingsHubRow(
                         title = "Engine & tunnel",
-                        subtitle = "Core switch, Xray, sing-box, fragment and mux",
+                        subtitle = "Core switch, Xray and sing-box options",
                         tone = Aether.Amber,
                         badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
                         onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.ENGINE)) }
@@ -12678,12 +12656,17 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     val isXray = engine == CoreEngine.XRAY
     val tone = if (isXray) Aether.Emerald else Aether.Amethyst
 
+    // MARBLE_CORE_OPTIONS_V211 — this card is the cores' own surface, and every control in it is
+    // the user's. Nothing below is derived, defaulted away or rewritten on the way to a config:
+    // [CoreOptions] writes these fields verbatim into the document and [SingBoxTransportPolicy]
+    // does the same for the sing-box half. The card therefore states the same promise the words
+    // say: what you set here is what the core is told.
     Text(
-        if (isXray) {
-            trx("PattNG core options — switch the engine above to change this card.")
-        } else {
-            trx("Exclave core options for WARP, MASQUE, MTProxy, Mieru and TrustTunnel — switch the engine above to change this card.")
-        },
+        trx(
+            "Every option here is written to the core exactly as you set it, and nothing on this " +
+                "page is overridden automatically. " +
+                "The JSON box at the bottom wins over the rows."
+        ),
         color = Aether.InkMuted,
         style = settingsBodyStyle()
     )
@@ -12693,8 +12676,7 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
         InformationRow(trx("Control API"), trx("127.0.0.1 inside this app; read for URL test only"), Aether.CyanBright)
     }
 
-    // ── Log level ─────────────────────────────────────────────────────────────
-    // One picker; the values it offers are the ones the selected core understands.
+    // ── Log ───────────────────────────────────────────────────────────────────────────────────
     Text(trx("Log level"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
@@ -12719,8 +12701,21 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
             }
         }
     }
+    if (isXray) {
+        SettingSwitch(
+            title = trx("Log DNS answers"),
+            subtitle = trx("Ask the core to log every DNS query it resolves • noisy but decisive"),
+            checked = s.xrayDnsLog
+        ) { repo.updateSettings(repo.settings.copy(xrayDnsLog = it)) }
+    } else {
+        SettingSwitch(
+            title = trx("Timestamp log lines"),
+            subtitle = trx("Prefix every line so a report can be lined up with a session"),
+            checked = s.singBoxLogTimestamp
+        ) { repo.updateSettings(repo.settings.copy(singBoxLogTimestamp = it)) }
+    }
 
-    // ── Sniffing ──────────────────────────────────────────────────────────────
+    // ── Sniffing ──────────────────────────────────────────────────────────────────────────────
     SettingSwitch(
         title = trx("Sniffing"),
         subtitle = trx("Read HTTP/TLS/QUIC so routing sees the real host"),
@@ -12739,17 +12734,45 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
                     subtitle = trx("Sniff for routing, do not rewrite the destination"),
                     checked = s.xraySniffingRouteOnly
                 ) { repo.updateSettings(repo.settings.copy(xraySniffingRouteOnly = it)) }
+                SettingSwitch(
+                    title = trx("Metadata only"),
+                    subtitle = trx("Route from the sniffer's metadata without waiting for the payload"),
+                    checked = s.xraySniffMetadataOnly
+                ) { repo.updateSettings(repo.settings.copy(xraySniffMetadataOnly = it)) }
+                Text(trx("Sniffers, in the order the core applies them"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    listOf("http", "tls", "quic", "fakedns").forEach { sniffer ->
+                        val current = s.xraySniffDestOverride.split(',').map { it.trim() }.filter { it.isNotBlank() }
+                        CyberChoiceChip(
+                            text = sniffer.uppercase(),
+                            selected = sniffer in current,
+                            color = tone
+                        ) {
+                            val next = if (sniffer in current) current - sniffer else current + sniffer
+                            repo.updateSettings(repo.settings.copy(xraySniffDestOverride = next.joinToString(",")))
+                        }
+                    }
+                }
             } else {
                 SettingSwitch(
                     title = trx("Resolve destination"),
                     subtitle = trx("Resolve the domain to an IP before matching routing rules"),
                     checked = s.singBoxResolveDestination
                 ) { repo.updateSettings(repo.settings.copy(singBoxResolveDestination = it)) }
+                SettingSwitch(
+                    title = trx("Override destination"),
+                    subtitle = trx("Hand the router the sniffed domain instead of the dialled address"),
+                    checked = s.singBoxSniffOverrideDestination
+                ) { repo.updateSettings(repo.settings.copy(singBoxSniffOverrideDestination = it)) }
             }
         }
     }
 
-    // ── LAN exposure ──────────────────────────────────────────────────────────
+    // ── Inbounds ──────────────────────────────────────────────────────────────────────────────
     SettingSwitch(
         title = trx("Allow LAN inbound"),
         subtitle = trx("Bind the inbounds on 0.0.0.0 so other devices can use this phone"),
@@ -12772,20 +12795,238 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
             else repo.settings.copy(singBoxHttpInboundPort = port)
         )
     }
+    if (isXray) {
+        SettingSwitch(
+            title = trx("SOCKS UDP"),
+            subtitle = trx("Accept UDP ASSOCIATE on the local SOCKS port"),
+            checked = s.xraySocksUdpEnabled
+        ) { repo.updateSettings(repo.settings.copy(xraySocksUdpEnabled = it)) }
+    } else {
+        TinyField(
+            label = trx("Inbound username"),
+            value = s.singBoxInboundUsername,
+            modifier = Modifier.fillMaxWidth(),
+            onValue = { repo.updateSettings(repo.settings.copy(singBoxInboundUsername = it.take(64))) }
+        )
+        TinyField(
+            label = trx("Inbound password"),
+            value = s.singBoxInboundPassword,
+            modifier = Modifier.fillMaxWidth(),
+            onValue = { repo.updateSettings(repo.settings.copy(singBoxInboundPassword = it.take(64))) }
+        )
+        if (s.singBoxInboundUsername.isNotBlank() && s.singBoxInboundPassword.isBlank()) {
+            Text(
+                trx("A username without a password is not written: the core needs both or neither."),
+                color = Aether.Amber,
+                style = settingsBodyStyle()
+            )
+        }
+    }
 
-    // ── TCP Fast Open ─────────────────────────────────────────────────────────
-    // One switch, one field, both cores: CoreSocketPolicy writes it into the Xray sockopt and
-    // sing-box's tcp_fast_open alike. It is shown exactly once.
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+
+    // ── Multiplexing ──────────────────────────────────────────────────────────────────────────
+    Text(trx("Multiplexing"), color = Aether.Ink, style = MaterialTheme.typography.titleSmall)
+    if (isXray) {
+        SettingSwitch(
+            title = trx("Mux.Cool"),
+            subtitle = trx("Carry many streams over one connection to this node"),
+            checked = s.muxEnabled
+        ) { repo.updateSettings(repo.settings.copy(muxEnabled = it)) }
+        AnimatedVisibility(s.muxEnabled) {
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                NumberSetting(
+                    title = trx("Concurrency"),
+                    value = s.muxConcurrency,
+                    range = 1..128
+                ) { repo.updateSettings(repo.settings.copy(muxConcurrency = it.coerceIn(1, 128))) }
+                NumberSetting(
+                    title = trx("UDP concurrency"),
+                    value = s.muxXudpConcurrency,
+                    range = 0..128,
+                    suffix = if (s.muxXudpConcurrency == 0) " off" else ""
+                ) { repo.updateSettings(repo.settings.copy(muxXudpConcurrency = it.coerceIn(0, 128))) }
+                Text(trx("UDP to port 443"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    XrayMuxUdp443Modes.ALL.forEach { mode ->
+                        CyberChoiceChip(
+                            text = mode.uppercase(),
+                            selected = s.muxUdp443.equals(mode, ignoreCase = true),
+                            color = tone
+                        ) { repo.updateSettings(repo.settings.copy(muxUdp443 = mode)) }
+                    }
+                }
+            }
+        }
+    } else {
+        SettingSwitch(
+            title = trx("Multiplex"),
+            subtitle = trx("Carry many streams over one connection to this node"),
+            checked = s.singBoxMuxEnabled
+        ) { repo.updateSettings(repo.settings.copy(singBoxMuxEnabled = it)) }
+        AnimatedVisibility(s.singBoxMuxEnabled) {
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text(trx("Protocol"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    SingBoxMuxProtocols.ALL.forEach { protocol ->
+                        CyberChoiceChip(
+                            text = protocol.uppercase(),
+                            selected = s.singBoxMuxProtocol.equals(protocol, ignoreCase = true),
+                            color = tone
+                        ) { repo.updateSettings(repo.settings.copy(singBoxMuxProtocol = protocol)) }
+                    }
+                }
+                NumberSetting(
+                    title = trx("Max connections"),
+                    value = s.singBoxMuxMaxConnections,
+                    range = 1..128
+                ) { repo.updateSettings(repo.settings.copy(singBoxMuxMaxConnections = it.coerceIn(1, 128))) }
+                NumberSetting(
+                    title = trx("Min streams"),
+                    value = s.singBoxMuxMinStreams,
+                    range = 0..128
+                ) { repo.updateSettings(repo.settings.copy(singBoxMuxMinStreams = it.coerceIn(0, 128))) }
+                NumberSetting(
+                    title = trx("Max streams"),
+                    value = s.singBoxMuxMaxStreams,
+                    range = 1..1024
+                ) { repo.updateSettings(repo.settings.copy(singBoxMuxMaxStreams = it.coerceIn(1, 1024))) }
+                SettingSwitch(
+                    title = trx("Padding"),
+                    subtitle = trx("Pad multiplexed frames so their size stops being a signature"),
+                    checked = s.singBoxMuxPadding
+                ) { repo.updateSettings(repo.settings.copy(singBoxMuxPadding = it)) }
+            }
+        }
+        Text(
+            trx("REALITY and XTLS-Vision nodes negotiate their own flow control; multiplexing on top of them is slower, so the writers leave it off for those nodes and say so."),
+            color = Aether.InkFaint,
+            style = settingsBodyStyle()
+        )
+    }
+
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+
+    // ── The socket the network sees ───────────────────────────────────────────────────────────
     SettingSwitch(
         title = trx("TCP Fast Open"),
         subtitle = trx("Send data with the handshake • applies to both cores"),
         checked = s.tcpFastOpenEnabled
     ) { repo.updateSettings(repo.settings.copy(tcpFastOpenEnabled = it)) }
 
+    if (isXray) {
+        SettingSwitch(
+            title = trx("Disable Nagle"),
+            subtitle = trx("tcpNoDelay on every dial the core makes"),
+            checked = s.xrayTcpNoDelay
+        ) { repo.updateSettings(repo.settings.copy(xrayTcpNoDelay = it)) }
+        SettingSwitch(
+            title = trx("Multipath TCP"),
+            subtitle = trx("Offer MPTCP to the server, with a guaranteed plain-TCP fallback"),
+            checked = s.xrayTcpMptcp
+        ) { repo.updateSettings(repo.settings.copy(xrayTcpMptcp = it)) }
+        NumberSetting(
+            title = trx("Keep-alive interval"),
+            value = s.xrayTcpKeepAliveIntervalSec,
+            range = 0..600,
+            suffix = if (s.xrayTcpKeepAliveIntervalSec == 0) " core default" else "s"
+        ) { repo.updateSettings(repo.settings.copy(xrayTcpKeepAliveIntervalSec = it.coerceIn(0, 600))) }
+        TinyField(
+            label = trx("User timeout (ms, 0 = core default)"),
+            value = s.xrayTcpUserTimeoutMs.takeIf { it > 0 }?.toString() ?: "",
+            modifier = Modifier.fillMaxWidth(),
+            onValue = { text ->
+                val ms = text.filter(Char::isDigit).take(6).toIntOrNull() ?: 0
+                repo.updateSettings(repo.settings.copy(xrayTcpUserTimeoutMs = ms.coerceIn(0, 600_000)))
+            }
+        )
+        TinyField(
+            label = trx("Window clamp (bytes, 0 = off)"),
+            value = s.xrayTcpWindowClamp.takeIf { it > 0 }?.toString() ?: "",
+            modifier = Modifier.fillMaxWidth(),
+            onValue = { text ->
+                val clamp = text.filter(Char::isDigit).take(6).toIntOrNull() ?: 0
+                repo.updateSettings(repo.settings.copy(xrayTcpWindowClamp = clamp.coerceIn(0, 999_999)))
+            }
+        )
+        TinyField(
+            label = trx("TCP congestion control (blank = core default)"),
+            value = s.xrayTcpCongestion,
+            modifier = Modifier.fillMaxWidth(),
+            onValue = { repo.updateSettings(repo.settings.copy(xrayTcpCongestion = it.trim().take(32))) }
+        )
+        Text(trx("Dial address family"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            XrayDomainStrategies.ALL.forEach { strategy ->
+                CyberChoiceChip(
+                    text = strategy.uppercase(),
+                    selected = s.xraySockoptDomainStrategy.equals(strategy, ignoreCase = true),
+                    color = tone
+                ) { repo.updateSettings(repo.settings.copy(xraySockoptDomainStrategy = strategy)) }
+            }
+        }
+    }
+
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
-    // ── The options only this core has ────────────────────────────────────────
     if (isXray) {
+        // ── Routing and policy ────────────────────────────────────────────────────────────────
+        Text(trx("Routing"), color = Aether.Ink, style = MaterialTheme.typography.titleSmall)
+        // MARBLE_CORE_OPTIONS_V211 — `routing.domainStrategy` and `routing.domainMatcher` are the
+        // Routing page's own fields (`routeDomainStrategy`/`routeDomainMatcher`), written into the
+        // document by the hardener next to the rules they describe. A second pair of chips here
+        // would be a second writer for one key, and one of the two would silently lose — so this
+        // page names the control instead of duplicating it.
+        Text(
+            trx("Domain strategy and matcher stay on the Routing page, next to the rules they apply to."),
+            color = Aether.InkFaint,
+            style = MaterialTheme.typography.labelSmall
+        )
+
+        Text(trx("Policy (seconds, 0 = core default)"), color = Aether.Ink, style = MaterialTheme.typography.titleSmall)
+        NumberSetting(
+            title = trx("Handshake"),
+            value = s.xrayPolicyHandshakeSec,
+            range = 0..600,
+            suffix = if (s.xrayPolicyHandshakeSec == 0) " core default" else "s"
+        ) { repo.updateSettings(repo.settings.copy(xrayPolicyHandshakeSec = it.coerceIn(0, 600))) }
+        NumberSetting(
+            title = trx("Connection idle"),
+            value = s.xrayPolicyConnIdleSec,
+            range = 0..3600,
+            suffix = if (s.xrayPolicyConnIdleSec == 0) " core default" else "s"
+        ) { repo.updateSettings(repo.settings.copy(xrayPolicyConnIdleSec = it.coerceIn(0, 3_600))) }
+        NumberSetting(
+            title = trx("Uplink only"),
+            value = s.xrayPolicyUplinkOnlySec,
+            range = 0..600,
+            suffix = if (s.xrayPolicyUplinkOnlySec == 0) " core default" else "s"
+        ) { repo.updateSettings(repo.settings.copy(xrayPolicyUplinkOnlySec = it.coerceIn(0, 600))) }
+        NumberSetting(
+            title = trx("Downlink only"),
+            value = s.xrayPolicyDownlinkOnlySec,
+            range = 0..600,
+            suffix = if (s.xrayPolicyDownlinkOnlySec == 0) " core default" else "s"
+        ) { repo.updateSettings(repo.settings.copy(xrayPolicyDownlinkOnlySec = it.coerceIn(0, 600))) }
+        NumberSetting(
+            title = trx("Buffer size"),
+            value = s.xrayPolicyBufferSizeKb,
+            range = 0..1024,
+            suffix = if (s.xrayPolicyBufferSizeKb == 0) " core default" else " KB"
+        ) { repo.updateSettings(repo.settings.copy(xrayPolicyBufferSizeKb = it.coerceIn(0, 1024))) }
+
         SettingSwitch(
             title = trx("Maximum config compatibility"),
             subtitle = trx("Verify the final config with Xray before connecting"),
@@ -12836,6 +13077,57 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
             onValue = { repo.updateSettings(repo.settings.copy(singBoxConnectTimeoutSec = it.coerceIn(3, 60))) }
         )
     }
+
+    HorizontalDivider(color = Aether.GlassBorderSoft)
+
+    // ── The escape hatch ──────────────────────────────────────────────────────────────────────
+    // MARBLE_CORE_OPTIONS_V211 — a settings screen can never draw every field a core accepts, and
+    // a client that cannot express the last field makes it unreachable. This box is merged on top
+    // of the generated document (objects key by key, arrays and scalars replaced), and the blocks
+    // the app owns — Xray's `routing`, sing-box's `route`, and `inbounds`/`outbounds`/`dns`/`log`
+    // on both — are refused rather than half-merged: a tunnel that starts and then does something
+    // nobody asked for is worse than a sentence explaining why the box was ignored.
+    Text(
+        trx("Extra JSON (advanced)"),
+        color = Aether.Ink,
+        style = MaterialTheme.typography.titleSmall
+    )
+    OutlinedTextField(
+        value = if (isXray) s.xrayExtraJson else s.singBoxExtraJson,
+        onValueChange = { text ->
+            repo.updateSettings(
+                if (isXray) repo.settings.copy(xrayExtraJson = text)
+                else repo.settings.copy(singBoxExtraJson = text)
+            )
+        },
+        label = {
+            Text(
+                trx(
+                    if (isXray) "Merged into the Xray config"
+                    else "Merged into the sing-box config"
+                )
+            )
+        },
+        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+        minLines = 6,
+        maxLines = 18,
+        shape = RoundedCornerShape(17.dp),
+        colors = marbleOutlinedTextFieldColors(),
+        modifier = Modifier.fillMaxWidth()
+    )
+    // The refused set is the core's own: Xray calls its routing block `routing`, sing-box calls it
+    // `route`, so naming the wrong one would be worse than naming none.
+    val ownedBlocks = if (isXray) "inbounds, outbounds, routing, dns, log"
+    else "inbounds, outbounds, route, dns, log"
+    Text(
+        trx(
+            "Anything the rows above do not cover — stats, api, metrics, observatory, reverse, a " +
+                "per-outbound sockopt — belongs here. " +
+                "A key the app owns ($ownedBlocks) is refused as a whole with the reason."
+        ),
+        color = Aether.InkFaint,
+        style = settingsBodyStyle()
+    )
 }
 
 /**
@@ -13065,7 +13357,6 @@ private fun SpatialSettings(
     val informationListState = rememberLazyListState()
     val routingListState = rememberLazyListState()
     // MARBLE_FRAGMENT_MUX_PAGE_V206
-    val transportListState = rememberLazyListState()
     // MARBLE_DOCK_SLOT_V167
     val dockSlotListState = rememberLazyListState()
     // One scroll state per workspace tab; only the active tab's is shown at a time.
@@ -13097,9 +13388,6 @@ private fun SpatialSettings(
             // The card inside the workspace is named, not just the tab: the deep link says
             // "the Testing card", which is the first thing that page shows.
             page = SettingsPages.workspace(SettingsWorkspaceTab.TESTS, SettingsPages.TESTS_CARD)
-        } else if (focusSection == SettingsPages.TRANSPORT) {
-            // MARBLE_FRAGMENT_MUX_PAGE_V206 — the same deep link the Routing entry uses.
-            page = SettingsPages.TRANSPORT
         } else if (focusSection == SettingsPages.DOCK_SLOT) {
             // MARBLE_DOCK_SLOT_V167 — the fourth tab's Customize entry is a focus value too, and
             // it lands on the slot's own page rather than the hub.
@@ -13173,14 +13461,6 @@ private fun SpatialSettings(
                 SettingsRoutingPage(
                     repo = repo,
                     listState = routingListState,
-                    onBack = { page = SettingsPages.HUB }
-                )
-
-            // MARBLE_FRAGMENT_MUX_PAGE_V206 — the dedicated Fragment & Mux workspace.
-            target == SettingsPages.TRANSPORT ->
-                SettingsTransportPage(
-                    repo = repo,
-                    listState = transportListState,
                     onBack = { page = SettingsPages.HUB }
                 )
 
@@ -13474,18 +13754,6 @@ private fun settingsSections(
                     if (repo.coreStartError.isNotBlank()) {
                         InformationRow(trx("Last start error"), repo.coreStartError, Aether.Danger)
                     }
-                },
-                // MARBLE_FRAGMENT_MUX_PAGE_V206 — this card was one of TWO cards named
-                // "Fragment & Mux" on this page (the other was the learner, six rows down).
-                // Both are now one dedicated page; the card is only the door, and it answers
-                // the question the page is about before it is opened.
-                card(
-                    "Fragment & Mux",
-                    fragmentMuxCardSubtitle(repo),
-                    HomeIcon.SPARK,
-                    Aether.Amber
-                ) {
-                    FragmentMuxEntryCard(repo) { onNavigate(SettingsPages.TRANSPORT) }
                 },
                 // MARBLE_SETTINGS_DEDUP_V193 — the two per-core option cards are one surface now.
                 // "Sniffing", "Allow LAN inbound", "HTTP inbound port", "Log level" and "TCP Fast
@@ -14343,228 +14611,6 @@ private fun SplitTunnelSettings(repo:AppRepository){
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).kineticClickable(role=Role.Checkbox,onClick=onToggle).padding(horizontal=10.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(if(checked)Aether.Emerald.copy(alpha=.12f) else Aether.GlassStrong),contentAlignment=Alignment.Center){Text(app.label.trim().firstOrNull()?.uppercase()?:"•",color=if(checked)Aether.Emerald else Aether.InkMuted,style=MaterialTheme.typography.labelLarge)};Spacer(Modifier.width(11.dp));Column(Modifier.weight(1f)){Text(app.label,color=Aether.Ink,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis);Text(app.packageName,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)};Checkbox(checked,{onToggle()},colors=CheckboxDefaults.colors(checkedColor=Aether.Emerald,checkmarkColor=Aether.Void,uncheckedColor=Aether.GlassBorder))}
 }
 
-/**
- * A single number, or a `min-max` range — the two shapes every Fragment field accepts.
- *
- * Compiled once at class-load instead of per keystroke: the validation below runs inside
- * composition, and a `Regex` built from a literal in a composable is a fresh pattern object
- * every time the page recomposes.
- */
-private val FRAGMENT_NUMERIC_FIELD = Regex("""^\d+(-\d+)?$""")
-
-/**
- * MARBLE_FRAGMENT_MUX_PAGE_V206 — the fields used to take anything and say nothing.
- *
- * A Fragment value is free text that the core parses at connect time. `1--3`, `abc` and
- * `100-200-300` are all accepted by the UI, stored, and then silently ignored by the core —
- * so the user sets fragmentation, watches nothing change on the wire, and concludes the
- * feature does not work. A control that can hold an invalid value must be able to say so.
- */
-private fun fragmentFieldError(packets: String, length: String, interval: String): String = when {
-    !packets.trim().equals("tlshello", ignoreCase = true) &&
-        !FRAGMENT_NUMERIC_FIELD.matches(packets.trim()) ->
-        "\"Packets\" must be tlshello or a range such as 1-3."
-    !FRAGMENT_NUMERIC_FIELD.matches(length.trim()) ->
-        "\"Length\" must be a number or a range, such as 100-200."
-    !FRAGMENT_NUMERIC_FIELD.matches(interval.trim()) ->
-        "\"Interval\" must be a number or a range, such as 10-20."
-    else -> ""
-}
-
-/** True when the learner, not the user, is choosing what goes on the wire. */
-private fun transportLearnerOwnsWire(settings: AppSettings): Boolean =
-    settings.transportAdaptationEnabled &&
-        settings.transportProfileModeEnum == TransportProfileMode.AUTO
-
-/** The one-line answer the Engine card and the dedicated page both print. */
-private fun fragmentMuxCardSubtitle(repo: AppRepository): String {
-    val s = repo.settings
-    return when {
-        !s.transportAdaptationEnabled -> "Your values • learner off"
-        transportLearnerOwnsWire(s) -> "Learning • ${repo.transportMemory.size} remembered"
-        else -> "Your values • learner observing"
-    }
-}
-
-/**
- * MARBLE_FRAGMENT_MUX_PAGE_V206 — Settings › Fragment & Mux.
- *
- * What this page replaced, and why it had to be replaced:
- *
- *  1. **Two cards, one title.** Engine & tunnel carried *two* cards called "Fragment & Mux":
- *     the values, and — six rows further down — the learner that overrides those values. Same
- *     title, different subject, no way to tell them apart without opening both.
- *  2. **The two cards contradicted each other.** The learner rewrites fragment and Mux on
- *     every connect when it is in Automatic mode, so the numbers the user typed into the first
- *     card were not the numbers on the wire — and nothing on either card said so.
- *  3. **Performance: every keystroke rewrote every setting.** Each of the three Fragment
- *     fields called `updateSettings` per character; that rebuilt a ~250-key
- *     `SharedPreferences` editor, `apply()`d it, and re-created the notification channels — on
- *     the main thread — nine times for `100-200`. Dragging the Mux concurrency slider did the
- *     same at frame rate. Fixed at the source ([AppRepository.updateSettings]'s
- *     `coalesceWrite`) and at the call site below.
- *  4. **Performance: the memory list was rebuilt in composition.** `TransportAdaptationSettings`
- *     sorted the whole transport map and ran `String.format` per row *during* composition, so
- *     every recomposition of the card — each frame of each switch animation — re-sorted the
- *     map and re-formatted eight rows on the UI thread. Fixed with a remembered derivation.
- */
-@Composable
-private fun SettingsTransportPage(
-    repo: AppRepository,
-    onBack: () -> Unit,
-    listState: LazyListState = rememberLazyListState()
-) {
-    SettingsSubPage(
-        title = trx("Fragment & Mux"),
-        subtitle = trx("How packets are shaped and multiplexed"),
-        onBack = onBack,
-        listState = listState
-    ) {
-        // The answer first: what is on the wire right now, and who chose it. A settings page
-        // that opens with inputs instead of with the state those inputs produced makes the
-        // user infer the state — which is exactly how the two old cards read as contradictory.
-        FragmentMuxWireCard(repo)
-        // MARBLE_FRAGMENT_PROFILES_V208 — the recipes come before the learner and before the
-        // raw numbers, because that is the order the questions are actually asked: "which
-        // recipe?" is answerable from a list of named shapes, "which numbers?" is not. The raw
-        // fields still exist, one card down, as the Custom recipe.
-        SettingsHubCard(
-            title = trx("Fragment profile"),
-            subtitle = trx(fragmentProfileSubtitle(repo.settings)),
-            tone = Aether.Amber
-        ) {
-            FragmentProfileChooser(repo)
-        }
-        SettingsHubCard(
-            title = trx("Mux profile"),
-            subtitle = trx(muxProfileSubtitle(repo.settings)),
-            tone = Aether.CyanBright
-        ) {
-            MuxProfileChooser(repo)
-        }
-        SettingsHubCard(
-            title = trx("Learner"),
-            subtitle = if (repo.settings.transportAdaptationEnabled) {
-                trx("Measuring this operator")
-            } else {
-                trx("Off • your values only")
-            },
-            tone = Aether.Amethyst
-        ) {
-            TransportAdaptationSettings(repo)
-        }
-        // The eight raw fields are the Custom recipe: reachable in one tap from either chooser,
-        // and shown only while Custom is what the wire is running, so the page is not a wall of
-        // numbers nobody can interpret.
-        if (FragmentChoice.isCustom(repo.settings.fragmentProfileId) ||
-            MuxChoice.isCustom(repo.settings.muxProfileId)
-        ) {
-            SettingsHubCard(
-                title = trx("Custom values"),
-                subtitle = if (transportLearnerOwnsWire(repo.settings)) {
-                    trx("Fallback when the learner has nothing yet")
-                } else {
-                    trx("What goes on the wire")
-                },
-                tone = Aether.Amber
-            ) {
-                FragmentMuxSettings(repo)
-            }
-        }
-    }
-}
-
-/** MARBLE_FRAGMENT_PROFILES_V208 — the one line the fragment card answers before it is read. */
-private fun fragmentProfileSubtitle(settings: AppSettings): String {
-    val pair = TransportAdaptation.selectedFragment(settings)
-    return when {
-        transportLearnerOwnsWire(settings) -> "Learner is choosing • ${pair.label} is its fallback"
-        FragmentChoice.isNoChoice(settings.fragmentProfileId) ->
-            "Automatic • ${pair.label} is being applied"
-        FragmentChoice.isCustom(settings.fragmentProfileId) -> "Custom • ${pair.label}"
-        else -> pair.label
-    }
-}
-
-/** The Mux twin of [fragmentProfileSubtitle]. */
-private fun muxProfileSubtitle(settings: AppSettings): String {
-    val mux = TransportAdaptation.selectedMux(settings)
-    return when {
-        transportLearnerOwnsWire(settings) -> "Learner is choosing • ${mux.label} is its fallback"
-        MuxChoice.isNoChoice(settings.muxProfileId) -> "Automatic • ${mux.label} is being applied"
-        MuxChoice.isCustom(settings.muxProfileId) -> "Custom • ${mux.label}"
-        else -> mux.label
-    }
-}
-
-/**
- * MARBLE_FRAGMENT_PROFILES_V208 — the ready recipes, as a list a person can choose from.
- *
- * What this replaces: eight `FragmentProfile` recipes existed in the core and *none* of them
- * was reachable from the UI. The only controls were four raw core parameters — `tlshello`,
- * `100-200`, `10-20`, `517` — which is a config file, not a settings page. So the feature read
- * as broken: there was nothing to pick, and the numbers that were there get rewritten by the
- * automatic policies on their way to the core anyway.
- *
- * The ladder is shown in its own order (mild → aggressive) with the cost of each rung stated in
- * one sentence, and "Custom" is one entry in the same list rather than a separate mode — the
- * user never has to understand that a chooser and a text field are the same setting.
- */
-@Composable
-private fun FragmentProfileChooser(repo: AppRepository) {
-    val settings = repo.settings
-    val current = TransportAdaptation.selectedFragment(settings)
-    val custom = FragmentChoice.isCustom(settings.fragmentProfileId)
-    FragmentLadder.forEach { profile ->
-        TransportProfileRow(
-            title = profile.label,
-            summary = profile.summary,
-            selected = !custom && current == profile,
-            tone = Aether.Amber,
-            strength = profile.strength,
-            maxStrength = FragmentProfile.EXTREME.strength,
-            onClick = { repo.chooseFragmentProfile(profile.id) }
-        )
-    }
-    TransportProfileRow(
-        title = "Custom",
-        summary = "Set packets, length and interval yourself",
-        selected = custom,
-        tone = Aether.Amber,
-        strength = -1,
-        maxStrength = FragmentProfile.EXTREME.strength,
-        onClick = { repo.chooseFragmentProfile(FragmentChoice.CUSTOM) }
-    )
-}
-
-/** The Mux twin of [FragmentProfileChooser]. */
-@Composable
-private fun MuxProfileChooser(repo: AppRepository) {
-    val settings = repo.settings
-    val current = TransportAdaptation.selectedMux(settings)
-    val custom = MuxChoice.isCustom(settings.muxProfileId)
-    MuxProfile.entries.forEach { profile ->
-        TransportProfileRow(
-            title = profile.label,
-            summary = profile.summary,
-            selected = !custom && current == profile,
-            tone = Aether.CyanBright,
-            strength = profile.weight,
-            maxStrength = MuxProfile.entries.maxOf { it.weight },
-            onClick = { repo.chooseMuxProfile(profile.id) }
-        )
-    }
-    TransportProfileRow(
-        title = "Custom",
-        summary = "Set the stream counts yourself",
-        selected = custom,
-        tone = Aether.CyanBright,
-        strength = -1,
-        maxStrength = MuxProfile.entries.maxOf { it.weight },
-        onClick = { repo.chooseMuxProfile(MuxChoice.CUSTOM) }
-    )
-}
-
 /** MARBLE_SERVER_TILE_LAYOUT_V208 — the one line the Server cards card answers by itself. */
 private fun serverLayoutSubtitle(settings: AppSettings): String =
     if (settings.serversLayoutEnum == ServerLayout.GRID) {
@@ -14694,340 +14740,6 @@ private fun ServerLayoutPreview(layout: ServerLayout, tone: Color, active: Boole
                                     .background(ink.copy(alpha = .55f))
                             )
                         }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * One recipe row: a name, the one sentence that says what it does, and a cost ladder.
- *
- * The ladder is the honest part — fragmentation is not free, and a chooser that hides the price
- * of each rung invites the user to pick the most aggressive one "to be safe" and then pay for it
- * in throughput on a link that needed nothing. A negative [strength] draws no ladder at all
- * (that is the Custom row, whose cost is whatever the user typed).
- */
-@Composable
-private fun TransportProfileRow(
-    title: String,
-    summary: String,
-    selected: Boolean,
-    tone: Color,
-    strength: Int,
-    maxStrength: Int,
-    onClick: () -> Unit
-) {
-    val shape = RoundedCornerShape(13.dp)
-    // Resolved out here: a semantics block is not a composable scope, so `trx` cannot be called
-    // inside it. The row's own label is the same two strings, flattened into one announcement.
-    val rowLabel = "${trx(title)}، ${MarbleCopy.oneSentence(trx(summary))}"
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(if (selected) tone.copy(alpha = .10f) else homeCloudInsetFill())
-            .border(
-                1.dp,
-                if (selected) tone.copy(alpha = .40f) else homeCloudInsetBorder(),
-                shape
-            )
-            .kineticClickable(role = Role.RadioButton, boundedShape = shape, onClick = onClick)
-            .semantics { contentDescription = rowLabel }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp)
-    ) {
-        Column(
-            Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(1.dp)
-        ) {
-            Text(
-                trx(title),
-                color = if (selected) tone else Aether.Ink,
-                style = settingsRowTitleStyle(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one recipe, one sentence, enforced here
-                // rather than trusted to whoever writes the next summary.
-                MarbleCopy.oneSentence(trx(summary)),
-                color = Aether.InkMuted,
-                style = settingsBodyStyle(),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (strength >= 0 && maxStrength > 0) {
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                repeat(maxStrength) { index ->
-                    Box(
-                        Modifier
-                            .padding(top = 6.dp)
-                            .width(3.dp)
-                            .height((5 + index * 2).dp)
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(
-                                if (index < strength) {
-                                    tone.copy(alpha = .85f)
-                                } else {
-                                    Aether.InkFaint.copy(alpha = .28f)
-                                }
-                            )
-                    )
-                }
-            }
-        }
-        Box(
-            Modifier
-                .size(9.dp)
-                .clip(CircleShape)
-                .background(if (selected) tone else Aether.InkFaint.copy(alpha = .30f))
-        )
-    }
-}
-
-/** What is on the wire right now — the fact the whole page is about. */
-@Composable
-private fun FragmentMuxWireCard(repo: AppRepository) {
-    val s = repo.settings
-    val decision = repo.lastTransportDecision
-    // Derived once per change, not once per frame: `pairFromSettings` walks both profile enums.
-    val pair = remember(s, decision) {
-        decision?.pair ?: TransportAdaptation.pairFromSettings(s)
-    }
-    val learnerOwns = transportLearnerOwnsWire(s)
-    PrismWell(
-        modifier = Modifier.fillMaxWidth(),
-        tone = if (learnerOwns) Aether.Amethyst else Aether.Amber,
-        selected = learnerOwns,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
-    ) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                trx("ON THE WIRE NOW"),
-                color = Aether.InkFaint,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                "${pair.fragment.label} + ${pair.mux.label}",
-                color = Aether.Ink,
-                style = settingsRowTitleStyle(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                if (learnerOwns) {
-                    trx("Chosen by the learner for this operator and hour • the values below are its fallback")
-                } else {
-                    trx("Your values • the learner is only watching and remembering")
-                },
-                color = Aether.InkMuted,
-                style = settingsBodyStyle()
-            )
-            if (decision != null) {
-                Text(
-                    trx(decision.reason),
-                    color = Aether.InkFaint,
-                    style = settingsBodyStyle(),
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-/** The door from Engine & tunnel: one card, one title, one destination. */
-@Composable
-private fun FragmentMuxEntryCard(
-    repo: AppRepository,
-    onOpen: () -> Unit
-) {
-    val shape = RoundedCornerShape(14.dp)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(homeCloudInsetFill())
-            .border(1.dp, homeCloudInsetBorder(), shape)
-            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onOpen)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Box(
-            Modifier
-                .size(34.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(Aether.Amber.copy(alpha = .12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            HomeVectorIcon(HomeIcon.SPARK, Aether.Amber, Modifier.size(20.dp))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(
-                trx("Open the Fragment & Mux workspace"),
-                color = Aether.Ink,
-                style = settingsRowTitleStyle(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                fragmentMuxCardSubtitle(repo),
-                color = if (transportLearnerOwnsWire(repo.settings)) {
-                    Aether.Amethyst
-                } else {
-                    Aether.InkMuted
-                },
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        HomeVectorIcon(HomeIcon.MORE, Aether.Amber, Modifier.size(18.dp))
-    }
-}
-
-@Composable
-private fun FragmentMuxSettings(repo: AppRepository) {
-    // MARBLE_SETTINGS_WRITE_COALESCE_V206 — every control below that produces a *stream* of
-    // values (the three text fields, the two steppers) commits with `coalesceWrite`: the
-    // in-memory settings update on the keystroke so the UI never lags, and the ~250-key
-    // preferences rewrite happens once, off the main thread, when the typing stops. The
-    // switches stay immediate — one tap, one write, and a switch is a decision worth
-    // persisting at once.
-    SettingSwitch(
-        title = "Adaptive Fragment",
-        subtitle = "Try Fragment only after interference",
-        checked = repo.settings.adaptiveFragmentEnabled
-    ) { repo.updateSettings(repo.settings.copy(adaptiveFragmentEnabled = it)) }
-    SettingSwitch(
-        title = "Adaptive Mux",
-        subtitle = "Try Mux only on stable routes",
-        checked = repo.settings.adaptiveMuxEnabled
-    ) { repo.updateSettings(repo.settings.copy(adaptiveMuxEnabled = it)) }
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-
-    SettingSwitch(
-        title = "TLS ClientHello fragmentation",
-        subtitle = "Split the first packet on dial",
-        checked = repo.settings.fragmentEnabled
-    ) { enabled ->
-        // MARBLE_FRAGMENT_PROFILES_V208 — the switch and the chooser are one setting, so they
-        // must not be able to disagree: switching fragmentation off IS choosing the Off recipe,
-        // and switching it on with hand-typed numbers IS choosing Custom.
-        repo.updateSettings(
-            if (enabled) {
-                repo.settings.copy(fragmentEnabled = true, fragmentProfileId = FragmentChoice.CUSTOM)
-            } else {
-                TransportAdaptation.withFragmentProfile(repo.settings, FragmentProfile.OFF)
-            }
-        )
-    }
-
-    AnimatedVisibility(repo.settings.fragmentEnabled) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                TinyField(
-                    label = "Packets",
-                    value = repo.settings.fragmentPackets,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    repo.updateSettings(
-                        // Hand-editing a value is choosing Custom, whichever recipe was named.
-                        repo.settings.copy(fragmentPackets = it, fragmentProfileId = FragmentChoice.CUSTOM),
-                        coalesceWrite = true
-                    )
-                }
-                TinyField(
-                    label = "Length",
-                    value = repo.settings.fragmentLength,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    repo.updateSettings(
-                        // Hand-editing a value is choosing Custom, whichever recipe was named.
-                        repo.settings.copy(fragmentLength = it, fragmentProfileId = FragmentChoice.CUSTOM),
-                        coalesceWrite = true
-                    )
-                }
-                TinyField(
-                    label = "Interval",
-                    value = repo.settings.fragmentInterval,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    repo.updateSettings(
-                        // Hand-editing a value is choosing Custom, whichever recipe was named.
-                        repo.settings.copy(fragmentInterval = it, fragmentProfileId = FragmentChoice.CUSTOM),
-                        coalesceWrite = true
-                    )
-                }
-            }
-
-            // MARBLE_FRAGMENT_MUX_PAGE_V206 — say so when the values cannot go on the wire.
-            val fieldError = fragmentFieldError(
-                packets = repo.settings.fragmentPackets,
-                length = repo.settings.fragmentLength,
-                interval = repo.settings.fragmentInterval
-            )
-            if (fieldError.isNotBlank()) {
-                Text(
-                    trx(fieldError),
-                    color = Aether.Danger,
-                    style = settingsBodyStyle()
-                )
-            }
-        }
-    }
-
-    HorizontalDivider(color = Aether.GlassBorderSoft)
-
-    SettingSwitch(
-        title = "Mux / XUDP",
-        subtitle = "Reuse connections for small streams",
-        checked = repo.settings.muxEnabled
-    ) { enabled ->
-        repo.updateSettings(
-            if (enabled) {
-                repo.settings.copy(muxEnabled = true, muxProfileId = MuxChoice.CUSTOM)
-            } else {
-                TransportAdaptation.withMuxProfile(repo.settings, MuxProfile.OFF)
-            }
-        )
-    }
-
-    AnimatedVisibility(repo.settings.muxEnabled) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            NumberSetting("TCP concurrency", repo.settings.muxConcurrency, 1..128) { value ->
-                repo.updateSettings(
-                    repo.settings.copy(muxConcurrency = value, muxProfileId = MuxChoice.CUSTOM),
-                    coalesceWrite = true
-                )
-            }
-            NumberSetting("XUDP concurrency", repo.settings.muxXudpConcurrency, 1..1024) { value ->
-                repo.updateSettings(
-                    repo.settings.copy(muxXudpConcurrency = value, muxProfileId = MuxChoice.CUSTOM),
-                    coalesceWrite = true
-                )
-            }
-
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                listOf("reject", "allow", "skip").forEach { value ->
-                    CyberChoiceChip(
-                        text = "UDP443 ${value.uppercase()}",
-                        selected = repo.settings.muxUdp443 == value,
-                        color = Aether.Amethyst
-                    ) {
-                        repo.updateSettings(
-                            repo.settings.copy(muxUdp443 = value, muxProfileId = MuxChoice.CUSTOM)
-                        )
                     }
                 }
             }
@@ -17445,188 +17157,6 @@ private fun AutoServerWeightSlider(
     }
 }
 
-/**
- * MARBLE_FRAGMENT_MUX_REMEMBER_V206 — how much of the learner's memory one page shows.
- *
- * The map is bounded at [TransportAdaptation.MAX_CELLS] cells; the page shows the most recent
- * few, because a list of 96 operators is not a summary of anything.
- */
-private const val TRANSPORT_MEMORY_ROWS = 8
-
-/**
- * MARBLE_FRAGMENT_MUX_REMEMBER_V206 — one row of the learner's memory, already reduced to the
- * values the row draws.
- *
- * Everything here is a `String` or an `Int` on purpose: the row's own composition does no
- * formatting, no sorting and no enum lookup, so it can recompose as often as the page likes.
- */
-private data class TransportMemoryRow(
-    val carrier: String,
-    val dayPart: String,
-    val fragment: String,
-    val mux: String,
-    val observations: Int,
-    val qualityPercent: Int,
-    val drifting: Boolean
-)
-
-/**
- * MARBLE_TRANSPORT_ADAPTATION_V203 — the learner behind Fragment & Mux.
- *
- * The memory is shown, not hidden behind the switch: a user who can see that the product has
- * learned "MCI, evenings, skip-fragment chain" is a user who trusts it when it changes the
- * shape of their packets.
- *
- * MARBLE_FRAGMENT_MUX_PAGE_V206 — this card now lives on the dedicated Fragment & Mux page.
- */
-@Composable
-private fun TransportAdaptationSettings(repo: AppRepository) {
-    val s = repo.settings
-    val mode = s.transportProfileModeEnum
-    val memory = repo.transportMemory
-    // MARBLE_FRAGMENT_MUX_REMEMBER_V206 — the rows are derived ONCE per change of the memory,
-    // not once per recomposition.
-    //
-    // This card used to call `memory.values.sortedByDescending { ... }.take(8)` and
-    // `String.format(Locale.US, ...)` directly in its body. Composition is not a place for
-    // either: the card recomposes on every frame of the switch's animation, on every keystroke
-    // anywhere on the page, and on every transport-memory write — each time re-sorting the map
-    // (up to [TransportAdaptation.MAX_CELLS] entries), re-parsing eight pair ids into profile
-    // enums, and running eight `Formatter` passes (which allocate a `Formatter`, a
-    // `StringBuilder` and a `DecimalFormatSymbols` each) on the UI thread. The derivation is
-    // pure and depends on one input, so the work belongs behind `remember(memory)`.
-    val memoryRows = remember(memory) {
-        memory.values
-            .sortedByDescending { it.updatedAtMs }
-            .take(TRANSPORT_MEMORY_ROWS)
-            .map { record ->
-                TransportMemoryRow(
-                    carrier = record.carrierId,
-                    dayPart = record.dayPart.name.lowercase().replaceFirstChar { it.uppercase() },
-                    fragment = record.pair.fragment.label,
-                    mux = record.pair.mux.label,
-                    observations = record.observations,
-                    qualityPercent = (record.scoreEwma * 100.0).toInt().coerceIn(0, 100),
-                    drifting = record.drift >= TransportAdaptation.DRIFT_THRESHOLD
-                )
-            }
-    }
-
-    Text(
-        trx("Measures and remembers what your operator does to fragmented and multiplexed traffic."),
-        color = Aether.InkMuted,
-        style = settingsBodyStyle()
-    )
-
-    SettingSwitch(
-        title = "Learn from this operator",
-        subtitle = if (s.transportAdaptationEnabled) {
-            trx("On") + " • " + "${memory.size} " + trx("remembered")
-        } else {
-            trx("Off") + " • " + trx("fragment and Mux stay as you set them")
-        },
-        checked = s.transportAdaptationEnabled
-    ) { enabled ->
-        repo.updateSettings(repo.settings.copy(transportAdaptationEnabled = enabled))
-    }
-
-    AnimatedVisibility(s.transportAdaptationEnabled) {
-        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            HorizontalDivider(color = Aether.GlassBorderSoft)
-            Text(trx("Who decides"), color = Aether.Ink, style = settingsRowTitleStyle())
-            // Two chips, not three: the switch above already *is* "off". A third chip saying
-            // the same thing is a control that asks the user to answer one question twice, and
-            // the two answers can disagree.
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                listOf(TransportProfileMode.AUTO, TransportProfileMode.MANUAL).forEach { candidate ->
-                    CyberChoiceChip(
-                        text = trx(
-                            if (candidate == TransportProfileMode.AUTO) "Automatic" else "Manual"
-                        ),
-                        selected = mode == candidate,
-                        color = if (candidate == TransportProfileMode.AUTO) {
-                            Aether.Cyan
-                        } else {
-                            Aether.Amethyst
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        repo.updateSettings(repo.settings.copy(transportProfileMode = candidate.id))
-                    }
-                }
-            }
-            Text(
-                trx(
-                    when (mode) {
-                        TransportProfileMode.OFF -> "Fragment and Mux stay exactly as you set them."
-                        TransportProfileMode.AUTO -> "The learned profile for this operator and hour wins; your values are the starting point it improves on."
-                        TransportProfileMode.MANUAL -> "Your values go on the wire while Marble keeps observing in the background."
-                    }
-                ),
-                color = Aether.InkFaint,
-                style = settingsBodyStyle()
-            )
-
-            SettingSwitch(
-                title = "Keep exploring",
-                subtitle = "Spend a few connections on an unproven profile so a filter that changed gets found",
-                checked = s.transportAdaptationExplore
-            ) { repo.updateSettings(repo.settings.copy(transportAdaptationExplore = it)) }
-
-            repo.lastTransportDecision?.let { decision ->
-                HorizontalDivider(color = Aether.GlassBorderSoft)
-                Text(
-                    trx("On the wire now") + ": " + decision.pair.fragment.label + " + " +
-                        decision.pair.mux.label,
-                    color = Aether.Cyan,
-                    style = settingsRowTitleStyle()
-                )
-                Text(trx(decision.reason), color = Aether.InkFaint, style = settingsBodyStyle())
-            }
-
-            HorizontalDivider(color = Aether.GlassBorderSoft)
-            Text(
-                trx("What it remembers") + " (${memory.size})",
-                color = Aether.Ink,
-                style = settingsRowTitleStyle()
-            )
-            if (memory.isEmpty()) {
-                Text(
-                    trx("Nothing yet • it learns one line per operator and time of day, after the first connection on each."),
-                    color = Aether.InkFaint,
-                    style = settingsBodyStyle()
-                )
-            } else {
-                memoryRows.forEach { row ->
-                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                        Text(
-                            "${row.carrier} • ${trx(row.dayPart)}",
-                            color = Aether.Ink,
-                            style = settingsBodyStyle()
-                        )
-                        Text(
-                            "${row.fragment} + ${row.mux} • ${row.observations} " +
-                                trx("connections") + " • ${row.qualityPercent}% " +
-                                trx("quality") +
-                                if (row.drifting) " • " + trx("behaviour changed") else "",
-                            color = if (row.drifting) Aether.Amber else Aether.InkFaint,
-                            style = settingsBodyStyle()
-                        )
-                    }
-                }
-                CyberButton(
-                    label = trx("Forget everything it learned"),
-                    color = Aether.Danger,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !repo.busy
-                ) {
-                    repo.forgetTransportMemory()
-                }
-            }
-        }
-    }
-}
-
 /** One budget row: a title, its consequence in one line, and the exact values as chips. */
 @Composable
 private fun PingBudgetChoiceRow(
@@ -19160,7 +18690,7 @@ private fun IranModeSettings(repo: AppRepository) {
 
     SettingSwitch(
         "Apply countermeasures",
-        "Fragment, DNS order, MTU, failover",
+        "DNS order, MTU, failover, routing",
         settings.iranModeCountermeasures
     ) { repo.updateSettings(settings.copy(iranModeCountermeasures = it)) }
 

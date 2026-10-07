@@ -22,19 +22,15 @@ def read(path: str) -> str:
     return raw.decode("utf-8")
 
 def workflow(name: str) -> str:
-    """The workflow as it will run once `docs/workflows-pending/` has been installed.
+    """The live workflow, and only the live workflow.
 
-    The token this branch pushes with cannot write `.github/workflows/*` — GitHub refuses a
-    `workflows`-less App token — so workflow changes are staged under `docs/workflows-pending/`
-    with a replace table in the README there. Invariants read the staged copy when one exists: it
-    is the exact file a maintainer is about to copy into place, and asserting the live file instead
-    would either fail the PR for a change that is already written or silently stop checking it.
-    Every staged copy is a complete file derived from the live one, so invariants about what a
-    workflow already does keep holding against it.
+    MARBLE_TOOLCHAIN_AUTOPILOT_V211 — this function used to prefer a copy under
+    `docs/workflows-pending/`, on the belief that the branch token could not write
+    `.github/workflows/*`. It can: the V211 work pushed workflow changes to this branch and watched
+    them run. The staged copies were meanwhile **stale against the live files** while every
+    invariant read them in preference to the real thing, which is the one failure mode the
+    convention could not survive. The directory is gone and the checks below assert that.
     """
-    pending = ROOT / "docs" / "workflows-pending" / name
-    if pending.is_file():
-        return read(f"docs/workflows-pending/{name}")
     return read(f".github/workflows/{name}")
 
 files = {
@@ -217,7 +213,10 @@ files = {
     "homeStyles": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStyles.kt"),
     "atelier": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeAtelier.kt"),
     "studio": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
-    "adaptation": read("app/src/main/java/com/marbleng/app/core/TransportAdaptation.kt"),
+    # MARBLE_CORE_OPTIONS_V211 — the cores' own options, written once and never rewritten. The
+    # learner that used to live in `TransportAdaptation.kt` is gone with the fragment feature it
+    # served; this is its replacement, and it is the only writer of the per-core fields.
+    "coreOptions": read("app/src/main/java/com/marbleng/app/core/CoreOptions.kt"),
     # MARBLE_SERVER_TILE_LAYOUT_V208 — the compact server grid, its policy and its test.
     "serverTiles": read("app/src/main/java/com/marbleng/app/ui/MarbleServerTiles.kt"),
     "serverTilesTest": read("app/src/test/java/com/marbleng/app/ui/ServerTileLayoutV208Test.kt"),
@@ -241,14 +240,14 @@ files = {
     # MARBLE_FRAGMENT_PROFILES_V208 — the rewritten Fragment & Mux stack: the wire policy, the
     # profile ladder and the tests that pin both.
     "singBoxWirePolicy": read("app/src/main/java/com/marbleng/app/core/SingBoxTransportPolicy.kt"),
-    "fragmentProfileTest": read(
-        "app/src/test/java/com/marbleng/app/core/FragmentProfileLadderV208Test.kt"
+    "coreOptionsTest": read(
+        "app/src/test/java/com/marbleng/app/core/CoreOptionsV211Test.kt"
     ),
     "singBoxWireTest": read(
         "app/src/test/java/com/marbleng/app/core/SingBoxTransportPolicyV208Test.kt"
     ),
     "copyTest": read("app/src/test/java/com/marbleng/app/ui/MarbleCopyV208Test.kt"),
-    "fragmentProfileDoc": read("docs/FRAGMENT_PROFILES_V208.md"),
+    "coreOptionsDoc": read("docs/CORE_OPTIONS_V211.md"),
     "serverTileDoc": read("docs/SERVER_TILE_LAYOUT_V208.md"),
     # MARBLE_SERVER_TILE_TRUTH_V210 / MARBLE_HOME_ROUTE_PING_V210 / MARBLE_FLOATING_ACTIONS_V210
     # / MARBLE_SETTINGS_SECTIONS_V210 — the V210 pass: what a server box may claim, which server
@@ -303,6 +302,14 @@ files = {
     "native": read("scripts/prepare-native.sh"),
     "build": workflow("build.yml"),
     "gradle": read("app/build.gradle.kts"),
+    # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — one version file, read by the settings script, the module
+    # build, the wrapper and the workflows; one workflow that resolves and writes it.
+    "settingsGradle": read("settings.gradle.kts"),
+    "resolveToolchain": read("scripts/resolve-toolchain.py"),
+    "rootGradle": read("build.gradle.kts"),
+    "gradlewScript": read("gradlew"),
+    "toolchainPins": read("gradle/toolchain.properties"),
+    "updateToolchain": workflow("update-toolchain.yml"),
     "verify": workflow("verify.yml"),
     "updateCores": workflow("update-cores.yml"),
     # MARBLE_HIGH_JITTER_SHIELD_V206 — the second jitter instrument: the robust estimator, the
@@ -315,8 +322,6 @@ files = {
         "app/src/test/java/com/marbleng/app/core/HighJitterShieldTest.kt"
     ),
     "highJitterShieldDoc": read("docs/HIGH_JITTER_SHIELD_V206.md"),
-    # MARBLE_FRAGMENT_MUX_PAGE_V206 — the dedicated Fragment & Mux page and its chapter.
-    "fragmentMuxDoc": read("docs/FRAGMENT_MUX_PAGE_V206.md"),
     # MARBLE_NOTIFICATION_CHANNELS_ONCE_V206 — the notifier is a production source too: it was
     # rebuilt on every settings write, i.e. on every keystroke of every settings field.
     "notifier": read("app/src/main/java/com/marbleng/app/core/SmartNotifier.kt"),
@@ -325,10 +330,6 @@ files = {
 workflow_sources = "\n".join(
     path.read_text(encoding="utf-8")
     for path in sorted((ROOT / ".github" / "workflows").glob("*.yml"))
-) + "\n" + "\n".join(
-    # Staged copies count too: a workflow that cannot be pushed yet must still pin its actions.
-    path.read_text(encoding="utf-8")
-    for path in sorted((ROOT / "docs" / "workflows-pending").glob("*.yml"))
 )
 
 checks = []
@@ -733,7 +734,7 @@ check(
     and "homeShowLiveQuality" not in appearance_body
     and "homeShowRouteRibbon" not in appearance_body,
 )
-check("fragment inner hops avoid legacy chainEnabled", "chainEnabled" not in files["dpiPolicy"])
+check("no legacy chainEnabled resurrects the fragment dialers", "chainEnabled" not in files["dpiPolicy"])
 check(
     "tunnel management helper rejects cleartext",
     "Only HTTPS management requests are allowed while a tunnel is active" in files["socks"],
@@ -1700,18 +1701,44 @@ check(
     and "tfogo_checklinkname0" in _release_tags
     and "MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161" in files["go127Doc"],
 )
-_pending_workflows = sorted(
-    path.name for path in (ROOT / "docs" / "workflows-pending").glob("*.yml")
-)
-_pending_readme = read("docs/workflows-pending/README.md")
+# MARBLE_TOOLCHAIN_AUTOPILOT_V211 — the staging convention is retired: the branch token writes
+# `.github/workflows/*` directly, so a copy of a workflow anywhere else is a version that drifts.
+# What the staged copies used to carry is asserted here, against the live files.
 check(
-    "staged workflow changes are documented for whoever installs them",
-    bool(_pending_workflows)
-    and all(name in _pending_readme for name in _pending_workflows)
-    and all(f".github/workflows/{name}" in _pending_readme for name in _pending_workflows)
-    # Nothing may be staged and then forgotten: a staged workflow has to still be a workflow.
-    and all("jobs:" in workflow(name) for name in _pending_workflows),
+    "the workflow staging convention is retired and its fixes live in the workflows themselves",
+    not (ROOT / "docs" / "workflows-pending").exists()
+    and "scripts/inject-singbox-go127-fix.py" in files["verify"]
+    and "go-version-file" in files["verify"]
+    and "scripts/inject-singbox-android-fix.py" in files["updateCores"]
+    and "scripts/inject-singbox-go127-fix.py" in files["updateCores"],
 )
+check(
+    "V211 the build reads one version file and updates itself to the newest pre-release",
+    # One file names every version: the plugin half in pluginManagement, the library half in the
+    # module, the distribution in the wrapper.
+    "gradle/toolchain.properties" in files["settingsGradle"]
+    and 'id("com.android.application") version pin("agp"' in files["settingsGradle"]
+    and 'pin("kotlin"' in files["settingsGradle"]
+    and "toolchainVersion(" in files["gradle"]
+    and 'toolchainVersion("composeBom"' in files["gradle"]
+    and 'toolchainVersion("kotlin"' not in files["settingsGradle"]
+    and "gradle/toolchain.properties" in files["gradlewScript"]
+    # Nothing else names one: a second copy is a version that drifts.
+    and "9.9.0-milestone-2" not in files["settingsGradle"]
+    and "9.2.1" not in files["rootGradle"]
+    and "2.3.10" not in files["rootGradle"]
+    and 'V=9.5.1' not in files["gradlewScript"]
+    # The autopilot: resolve, prove the app compiles, then push. It is the only writer.
+    and "python3 scripts/resolve-toolchain.py --write" in files["updateToolchain"]
+    and ":app:compileDebugKotlin" in files["updateToolchain"]
+    and "if: steps.moved.outputs.moved == 'yes' && success()" in files["updateToolchain"]
+    and "git push origin HEAD:main" in files["updateToolchain"]
+    and "MARBLE_TOOLCHAIN_AUTOPILOT" in files["resolveToolchain"]
+    # And every workflow takes Gradle from that file rather than from a literal.
+    and 'gradle-version: ${{ steps.toolchain.outputs.gradle }}' in files["verify"]
+    and 'gradle-version: ${{ steps.toolchain.outputs.gradle }}' in files["build"],
+)
+
 _core_lock = json.loads(files["coreLock"])
 check(
     "core-lock pins the sing-box source commit and the local patch level",
@@ -1969,9 +1996,16 @@ check(
 # The second core is compiled from pinned source in the same job, so its module cache has to be
 # keyed on its own checksum too — otherwise a fork bump reuses a stale dependency tree and the
 # build fails in a way that looks like a network problem.
+# MARBLE_TOOLCHAIN_AUTOPILOT_V211 — the second core is compiled from pinned source by
+# `scripts/prepare-native.sh`, which clones the fork itself into the bootstrap tree and verifies
+# the commit before compiling; the release workflow no longer clones it in a step of its own, so
+# the sing-box half of this invariant belongs to the script that does the work.
 check(
-    "sing-box Go cache follows the pinned dependency checksum",
-    ".bootstrap/singbox/go.sum" in build_go_cache,
+    "sing-box is built from the pinned source commit, and the cache follows the pinned checksum",
+    "singbox-src" in files["native"]
+    and ".singbox.commit" in files["native"]
+    and "sing-box source is not the pinned commit" in files["native"]
+    and ".bootstrap/xray/go.sum" in build_go_cache,
 )
 check(
     "workflow JavaScript actions use Node 24 generations",
@@ -2556,9 +2590,7 @@ check(
 )
 # Google retired the legacy 'tools' SDK package (2026-09) while setup-android@v4 defaults its
 # packages input to 'tools platform-tools'; every run then died at 'Set up Android SDK' before
-# any repo code was compiled. The App token cannot write .github/workflows/, so — per the
-# docs/workflows-pending convention — the fix ships in the staged complete copies that
-# workflow(name) prefers. Every v4 call site in a staged file must name surviving packages.
+# any repo code was compiled. Every v4 call site in a live workflow must name surviving packages.
 def _setup_android_pins_packages(wf: str) -> bool:
     return (
         wf.count("uses: android-actions/setup-android@v4") >= 1
@@ -2567,7 +2599,7 @@ def _setup_android_pins_packages(wf: str) -> bool:
     )
 
 check(
-    "V168 CI: staged workflows never rely on the retired default 'tools' SDK package",
+    "V168 CI: workflows never rely on the retired default 'tools' SDK package",
     _setup_android_pins_packages(workflow("verify.yml"))
     and _setup_android_pins_packages(workflow("build.yml"))
     and all(
@@ -2593,7 +2625,7 @@ check(
     "V183 imported outbounds can never collide with the tags the hardener emits",
     "renameReservedImportedTags(old)" in files["hardener"]
     and 'internal val RESERVED_OUTBOUND_TAGS: Set<String> = setOf(' in files["hardener"]
-    and '"block", "direct", "dns-out", "fragment-direct", "tls-fragment"' in files["hardener"]
+    and '"block", "direct", "dns-out"' in files["hardener"]
     and 'internal fun importedAliasFor(tag: String): String = "import-$tag"' in files["hardener"]
     and "if (tag in byTag) {" in files["hardener"]
     and 'private val infra = setOf("freedom", "direct", "blackhole", "block", "dns", "loopback")' in files["hardener"]
@@ -3128,64 +3160,90 @@ check(
 )
 
 # ---------------------------------------------------------------------------
-# MARBLE_FRAGMENT_MUX_PAGE_V206
+# MARBLE_CORE_OPTIONS_V211
 # ---------------------------------------------------------------------------
-# Fragment & Mux used to be two cards with the same title, one of which silently overrode the
-# other; every keystroke in them rewrote all ~250 preferences and re-created the notification
-# channels on the main thread.
+# The fragment feature is deleted, not disabled: no page, no card, no learner, no generated
+# dialer, and no settings key. A user who wants a shape on the wire writes it in the core's own
+# options — which is exactly what the second half of this block pins.
 check(
-    "V206 Fragment & Mux is one dedicated page with one door",
-    'const val TRANSPORT = "transport"' in files["ui"]
-    and "@Composable\nprivate fun SettingsTransportPage(" in files["ui"]
-    and "FragmentMuxEntryCard(repo)" in files["ui"]
-    and "fun fragmentMuxCardSubtitle(" in files["ui"]
-    # One subject, one copy of each: the two identically-titled cards are gone.
-    and files["ui"].count("FragmentMuxSettings(repo)") == 1
-    and files["ui"].count("TransportAdaptationSettings(repo)") == 1,
+    "V211 the fragment feature is gone from the product",
+    'const val TRANSPORT = "transport"' not in files["ui"]
+    and "SettingsTransportPage" not in files["ui"]
+    and "FragmentMuxEntryCard" not in files["ui"]
+    and "FragmentProfileChooser" not in files["ui"]
+    and "MuxProfileChooser" not in files["ui"]
+    and "FragmentMuxSettings" not in files["ui"]
+    and "TransportAdaptationSettings" not in files["ui"]
+    and "transportAdaptationEnabled" not in files["ui"]
+    and "fragmentEnabled" not in files["models"]
+    and "fragmentPackets" not in files["models"]
+    and "FragmentChoice" not in files["models"]
+    and "MuxChoice" not in files["models"]
+    and "TransportProfileMode" not in files["models"]
+    and not Path("app/src/main/java/com/marbleng/app/core/TransportAdaptation.kt").exists(),
 )
+
 check(
-    "V206 the wire state is stated before the controls that produce it",
-    "@Composable\nprivate fun FragmentMuxWireCard(" in files["ui"]
-    and "fun transportLearnerOwnsWire(" in files["ui"]
-    and "transportAdaptationEnabled" in files["ui"],
+    "V211 no writer constructs a fragment outbound any more",
+    "fragmentOutbound" not in files["hardener"]
+    and "tlsFragmentOutbound" not in files["hardener"]
+    and 'fragmentPackets' not in files["hardener"]
+    and 'fragmentLength' not in files["hardener"]
+    and '"fragment-direct"' not in files["hardener"]
+    and '"tls-fragment"' not in files["hardener"]
+    and "fragmentEnabled" not in files["repo"]
+    and "settleTransportSession" not in files["repo"]
+    # The imported-hop guard survives, because a hand-imported chain is still the user's config.
+    and '"block", "direct", "dns-out"' in files["hardener"],
 )
+
 check(
-    "V206 settings writes are coalesced instead of running once per keystroke",
-    "fun updateSettings(v: AppSettings, coalesceWrite: Boolean = false)" in files["repo"]
-    and "private fun scheduleSettingsWrite()" in files["repo"]
-    and "fun flushSettings()" in files["repo"]
-    and "SETTINGS_WRITE_DEBOUNCE_MS" in files["repo"]
-    # The one place a coalesced write must not be lost: the activity stopping.
-    and "app.repo.flushSettings()" in files["main"]
-    # And the fields that produce a stream of values ask for it.
-    and "coalesceWrite = true" in files["ui"],
+    "V211 the cores' options are the user's, written once",
+    "object CoreOptions" in files["coreOptions"]
+    and "fun xraySniffing(" in files["coreOptions"]
+    and "fun xrayUserSockopt(" in files["coreOptions"]
+    and "fun xrayPolicy(" in files["coreOptions"]
+    and "fun merge(" in files["coreOptions"]
+    and "inbounds" in files["coreOptions"]
+    # The UI exposes the whole surface, including both extra-JSON editors.
+    and "CoreEngineOptions(" in files["ui"]
+    and "xrayExtraJson" in files["ui"]
+    and "singBoxExtraJson" in files["ui"]
+    and "xraySockoptDomainStrategy" in files["ui"]
+    and "singBoxMuxProtocol" in files["ui"],
 )
+
 check(
-    "V206 the notification channels are created once, not once per settings write",
-    # The channel table is a compile-time constant; rebuilding it per keystroke was four binder
-    # calls into system_server per character, on the main thread.
-    "MARBLE_NOTIFICATION_CHANNELS_ONCE_V206" in files["notifier"]
-    and "channelsEnsured" in files["notifier"]
-    and "if (channelsEnsured.get()) return" in files["notifier"]
-    and files["notifier"].count("manager.createNotificationChannels(") == 1,
+    "V211 the sing-box wire policy keeps the core's own field names",
+    "object SingBoxTransportPolicy" in files["singBoxWirePolicy"]
+    and 'const val MultiplexField: String = "multiplex"' in files["singBoxWirePolicy"]
+    and "fun multiplex(" in files["singBoxWirePolicy"]
+    and "applyFragment" not in files["singBoxWirePolicy"]
+    and "record_fragment" not in files["singBoxWirePolicy"]
+    and 'val MARBLE_SMUX_PROTOCOLS: Set<String> = setOf("vless", "vmess", "trojan", "shadowsocks")'
+    in files["singBoxBuilder"]
+    and "protocol in MARBLE_SMUX_PROTOCOLS" in files["singBoxBuilder"],
 )
+
 check(
-    "V206 a Fragment value that cannot go on the wire says so",
-    "fun fragmentFieldError(" in files["ui"]
-    and "FRAGMENT_NUMERIC_FIELD" in files["ui"],
+    "V211 the extra-JSON escape hatch is a total refusal or a clean merge",
+    "protectedKeys: Set<String> = PROTECTED_KEYS" in files["coreOptions"]
+    and "PROTECTED_KEYS: Set<String> = setOf(" in files["coreOptions"]
+    # sing-box's routing block is called `route`, so the builder passes its own set: the Xray
+    # names would have guarded the wrong key and left the computed rule graph replaceable.
+    and "SINGBOX_PROTECTED_KEYS: Set<String> = setOf(" in files["coreOptions"]
+    and "CoreOptions.SINGBOX_PROTECTED_KEYS" in files["singBoxBuilder"]
+    and "applyXrayRoutingStrategy" not in files["hardener"]
+    and "extra-json-refused" in files["hardener"]
+    and "extra-json-refused" in files["singBoxBuilder"]
+    and "extra-json-merged" in files["hardener"]
+    and "extra-json-merged" in files["singBoxBuilder"],
 )
+
 check(
-    "V206 the learner's memory is derived once per change, not once per recomposition",
-    "private const val TRANSPORT_MEMORY_ROWS" in files["ui"]
-    and "private data class TransportMemoryRow(" in files["ui"]
-    and "val memoryRows = remember(memory)" in files["ui"]
-    and "String.format(\n                                    java.util.Locale.US"
-    not in files["ui"],
-)
-check(
-    "V206 the Fragment & Mux chapter is written down",
-    "MARBLE_FRAGMENT_MUX_PAGE_V206" in files["fragmentMuxDoc"]
-    and "FRAGMENT_MUX_PAGE_V206.md" in files["readme"],
+    "V211 the chapter is written down",
+    "MARBLE_CORE_OPTIONS_V211" in files["coreOptionsDoc"]
+    and "CORE_OPTIONS_V211.md" in files["readme"],
 )
 
 # ---------------------------------------------------------------------------
@@ -3352,53 +3410,6 @@ check(
 )
 
 # ---------------------------------------------------------------------------
-# MARBLE_FRAGMENT_PROFILES_V208
-# ---------------------------------------------------------------------------
-check(
-    "V208 Fragment and Mux are selectable ladders, not two checkboxes",
-    "enum class FragmentProfile(" in files["adaptation"]
-    and "enum class MuxProfile(" in files["adaptation"]
-    and "fun withFragmentProfile(" in files["adaptation"]
-    and "fun withMuxProfile(" in files["adaptation"]
-    and "fun applyUserChoice(" in files["adaptation"]
-    and "fun muxIsUnsafeFor(" in files["adaptation"]
-    # Blank means "the policies decide", `custom` means "my numbers" — a recipe that cannot tell
-    # those two apart is the bug this chapter exists to fix.
-    and "object FragmentChoice" in files["models"]
-    and "object MuxChoice" in files["models"]
-    and "FragmentProfileChooser(" in files["ui"]
-    and "MuxProfileChooser(" in files["ui"],
-)
-
-check(
-    "V208 the user's recipe is applied after the policies, never overwritten by them",
-    # The order IS the fix: `DpiEvasionPolicy.heal` rewrites the fragment numbers on its way to the
-    # config builder, so a choice applied before it is an input and not a decision.
-    "TransportAdaptation.applyUserChoice(" in files["repo"]
-    and files["repo"].index("TransportAdaptation.applyUserChoice(")
-    > files["repo"].index("DpiEvasionPolicy.heal"),
-)
-
-check(
-    "V208 the Fragment & Mux wire mapping matches the pinned sing-box schema",
-    "object SingBoxTransportPolicy" in files["singBoxWirePolicy"]
-    and 'const val RecordFragmentKey: String = "record_fragment"' in files["singBoxWirePolicy"]
-    and 'const val FragmentKey: String = "fragment"' in files["singBoxWirePolicy"]
-    and 'const val FallbackDelayKey: String = "fragment_fallback_delay"'
-    in files["singBoxWirePolicy"]
-    and 'const val MultiplexField: String = "multiplex"' in files["singBoxWirePolicy"]
-    # A misspelt key is not a warning: the core refuses to decode the outbound.
-    and "tls.put(RecordFragmentKey, true)" in files["singBoxWirePolicy"]
-    and "tls.put(FragmentKey, true)" in files["singBoxWirePolicy"]
-    and "fun applyFragment(" in files["singBoxWirePolicy"]
-    and "fun multiplex(" in files["singBoxWirePolicy"]
-    # `multiplex` is a fatal decode error on an outbound that does not declare it.
-    and 'val MARBLE_SMUX_PROTOCOLS: Set<String> = setOf("vless", "vmess", "trojan", "shadowsocks")'
-    in files["singBoxBuilder"]
-    and "protocol in MARBLE_SMUX_PROTOCOLS" in files["singBoxBuilder"],
-)
-
-# ---------------------------------------------------------------------------
 # MARBLE_SERVER_TILE_LAYOUT_V208
 # ---------------------------------------------------------------------------
 check(
@@ -3427,13 +3438,12 @@ check(
     all(
         marker in files["readme"]
         for marker in (
-            "FRAGMENT_PROFILES_V208.md",
+            "CORE_OPTIONS_V211.md",
             "SERVER_TILE_LAYOUT_V208.md",
             "HOME_ONE_PING_V208.md",
             "SETTINGS_ONE_LINE_COPY_V208.md",
         )
     )
-    and "MARBLE_FRAGMENT_PROFILES_V208" in files["fragmentProfileDoc"]
     and "MARBLE_SERVER_TILE_LAYOUT_V208" in files["serverTileDoc"]
     and "MARBLE_HOME_ONE_PING_V208" in files["homeOnePingDoc"]
     and "MARBLE_SETTINGS_ONE_LINE_COPY_V208" in files["settingsCopyDoc"],

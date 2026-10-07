@@ -8,6 +8,9 @@ on:
 
 permissions:
   contents: read
+  # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — a red run publishes what failed as a comment on the pull
+  # request, because a log download is not available to every reader of this repository.
+  pull-requests: write
 
 concurrency:
   group: marbleng-source-verify-${{ github.ref }}
@@ -16,7 +19,10 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 — the sing-box pinned-source smoke downloads
+    # the fork's Go modules and links the whole core on the host, which the previous
+    # 25-minute budget did not have room for.
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -27,6 +33,16 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/*.sh
+
+      # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — what the newest published pre-release of every
+      # component this build is made of actually is, printed on every source verification. The
+      # resolver is the same file the scheduled updater writes `gradle/toolchain.properties`
+      # with, and the report is informational: the pins are the build's floor, and a repository
+      # that is unreachable must not turn into a red release.
+      - name: Report newest toolchain versions
+        continue-on-error: true
+        shell: bash
+        run: python3 scripts/resolve-toolchain.py
 
       - name: Validate core lock
         shell: bash
@@ -91,6 +107,14 @@ jobs:
           cp native/rankhelper/main.go "$XRAY_TMP/main/marble_rank.go"
           python3 scripts/inject-xray-realtime.py "$XRAY_TMP"
 
+          # MARBLE_CORE_CONFIG_SUPERSET_V165 — the one policy patch MarbleNG applies to its core must
+          # be proven against the pinned tag, in CI, before an APK is ever built: if upstream renames
+          # `requiresTransportSecurity` the injector fails with an anchor message instead of shipping
+          # a core that refuses every plaintext node.
+          python3 scripts/inject-xray-config-superset.py "$XRAY_TMP"
+          cp native/xraypatch/marble_outbound_policy_test.go "$XRAY_TMP/infra/conf/marble_outbound_policy_test.go"
+          grep -F 'if marbleAllowsUnencryptedOutbound() {' "$XRAY_TMP/infra/conf/xray.go" >/dev/null
+
           python3 - "$XRAY_TMP/main/main.go" <<'PYXRAY'
           from pathlib import Path
           import sys
@@ -110,7 +134,170 @@ jobs:
           (
             cd "$XRAY_TMP"
             env GOTOOLCHAIN=auto go test ./transport/internet ./main
+            # Only MarbleNG's own cases in `infra/conf`: compiling the package is the point (it
+            # proves the patch is syntactically and type-wise sound at the pinned tag), while
+            # upstream's own suite in that package is not MarbleNG's to keep green here.
+            env GOTOOLCHAIN=auto go test -run 'TestMarble' ./infra/conf
           )
+
+      # ======================================================================
+      # sing-box pinned-source smoke — the run #247 class of failure
+      # ======================================================================
+      # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 — the release build resolves its Go
+      # toolchain from the pinned Xray's go.mod, and the core-lock bot bumped that
+      # pin (v26.7.28 -> v26.9.9, `go 1.26` -> `go 1.27`) straight to main with a
+      # GITHUB_TOKEN push that triggers no build. The first build after the bump
+      # (run #247, the merge of PR #135) then died at the sing-box link step,
+      # because the pinned sing-box's v2rayxhttp still linknamed a pre-1.27
+      # x/net/http2 symbol. A PR-time gate never sees the pinned sing-box's link
+      # surface unless it builds it — with the same toolchain the release build
+      # will use — so this smoke does exactly that: clone the pinned commit,
+      # inject both backports, run the injected regression tests, and link the
+      # whole core with the release tag set on the host.
+      - name: Clone the pinned sing-box source and the pinned Xray toolchain pin
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SINGBOX_REPO="$(jq -r '.singbox.repo' core-lock.json)"
+          SINGBOX_TAG="$(jq -r '.singbox.tag' core-lock.json)"
+          SINGBOX_COMMIT="$(jq -r '.singbox.commit // empty' core-lock.json)"
+          XRAY_TAG="$(jq -r '.xray.tag' core-lock.json)"
+
+          [[ -n "$SINGBOX_TAG" && "$SINGBOX_TAG" != "null" ]]
+          [[ -n "$SINGBOX_COMMIT" && "$SINGBOX_COMMIT" != "null" ]]
+          [[ -n "$XRAY_TAG" && "$XRAY_TAG" != "null" ]]
+
+          SB_TMP="$RUNNER_TEMP/singbox-link-smoke"
+          XRAY_PIN="$RUNNER_TEMP/xray-toolchain-pin"
+
+          rm -rf "$SB_TMP" "$XRAY_PIN"
+          mkdir -p "$XRAY_PIN"
+
+          git clone --quiet --depth 1 --branch "$SINGBOX_TAG" \
+            "https://github.com/${SINGBOX_REPO}.git" "$SB_TMP"
+
+          # The pin is the commit, not the tag: a re-pointed tag must fail here rather
+          # than quietly compile a different core than the one the backports were read
+          # against.
+          [[ "$(git -C "$SB_TMP" rev-parse HEAD)" == "$SINGBOX_COMMIT" ]] || {
+            echo "::error::Pinned sing-box tag $SINGBOX_TAG is not the pinned commit $SINGBOX_COMMIT."
+            exit 1
+          }
+
+          # The toolchain pin is the only thing taken from Xray: build.yml's setup-go
+          # resolves the release toolchain from exactly this go.mod. Whatever Go this
+          # runner had before is irrelevant — the pinned Xray's directive is the
+          # toolchain the release build will compile the core with.
+          git clone --quiet --depth 1 --branch "$XRAY_TAG" \
+            https://github.com/XTLS/Xray-core.git "$XRAY_PIN/xray"
+
+          test -s "$XRAY_PIN/xray/go.mod"
+
+          echo "Pinned sing-box: $SINGBOX_TAG @ $SINGBOX_COMMIT"
+          echo "Pinned Xray    : $XRAY_TAG (toolchain pin)"
+          grep '^go ' "$XRAY_PIN/xray/go.mod"
+
+      - name: Set up the pinned Xray Go toolchain
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: "${{ runner.temp }}/xray-toolchain-pin/xray/go.mod"
+          cache: false
+
+      - name: sing-box pinned-source smoke (inject, regression tests, host link)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SB_TMP="$RUNNER_TEMP/singbox-link-smoke"
+
+          (
+            cd "$SB_TMP"
+
+            # Both backports, exactly as the release build applies them.
+            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-android-fix.py" "$SB_TMP"
+            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-go127-fix.py" "$SB_TMP"
+
+            # Every patched site must carry its marker, or the release build's grep
+            # has nothing to find and an unpatched file ships silently.
+            for patched in \
+              protocol/direct/outbound.go \
+              route/network.go \
+              dns/transport/dhcp/dhcp.go \
+              route/rule/rule_default_interface_address.go \
+              route/rule/rule_network_interface_address.go
+            do
+              grep -F 'MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157' "$patched" >/dev/null
+            done
+
+            grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' transport/v2rayxhttp/dialer.go >/dev/null
+            if [[ -d common/force_close ]]; then
+              # v1.14.1-extended-2.7.2 and newer: the fork ships the three-way split
+              # itself as a shared package; the injector verified it (build tags and
+              # every pulled symbol) instead of writing variant files here.
+              test -f common/force_close/force_close_legacy.go
+              test -f common/force_close/force_close_go127.go
+              test -f common/force_close/force_close_go127_stub.go
+              grep -F 'func ResetTransport(' common/force_close/force_close.go >/dev/null
+              grep -F '//go:build go1.27 && badlinkname' \
+                common/force_close/force_close_go127.go >/dev/null
+            else
+              for variant in \
+                force_close_legacy.go \
+                force_close_go127.go \
+                force_close_go127_stub.go
+              do
+                grep -F 'MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161' "transport/v2rayxhttp/$variant" >/dev/null
+              done
+            fi
+
+            # Idempotence: a second run must be a no-op, or the release build's single
+            # run is not the tree these tests are about to validate. "already patched"
+            # is the older pin's marker; "already verified" is the 2.7.2+ verifier's.
+            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-android-fix.py" "$SB_TMP" | grep -E 'already patched|already verified'
+            python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-go127-fix.py" "$SB_TMP" | grep -E 'already patched|already verified'
+
+            # The injected crash regression tests (nil interface monitor).
+            env GOTOOLCHAIN=auto CGO_ENABLED=0 go test ./protocol/direct ./route
+
+            # The MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 link pin: compiles AND links
+            # the force-close variant the running toolchain selects, with the same
+            # badlinkname tag the release build uses. From 2.7.2 on the linknames
+            # live in the fork's common/force_close package, so it is pinned too.
+            FORCE_CLOSE_PKGS=(./transport/v2rayxhttp)
+            if [[ -d common/force_close ]]; then FORCE_CLOSE_PKGS+=(./common/force_close); fi
+            env GOTOOLCHAIN=auto CGO_ENABLED=0 go test \
+              -tags badlinkname -ldflags "-checklinkname=0" \
+              "${FORCE_CLOSE_PKGS[@]}"
+          )
+
+          # The release tag set, read from the file that owns it — never duplicated
+          # here, or this smoke would drift from the build it guards.
+          SINGBOX_TAGS="$(
+            sed -n 's/^SINGBOX_TAGS="\([^"]*\)".*/\1/p' "$GITHUB_WORKSPACE/scripts/prepare-native.sh" | head -n1
+          )"
+
+          [[ -n "$SINGBOX_TAGS" ]] || {
+            echo "::error::Could not read SINGBOX_TAGS from scripts/prepare-native.sh."
+            exit 1
+          }
+
+          (
+            cd "$SB_TMP"
+            env \
+              GOTOOLCHAIN=auto \
+              CGO_ENABLED=0 \
+              GOOS=linux \
+              GOARCH=amd64 \
+              go build \
+                -tags "$SINGBOX_TAGS" \
+                -ldflags "-checklinkname=0" \
+                -o "$RUNNER_TEMP/singbox-link-smoke-bin" \
+                ./cmd/sing-box
+          )
+
+          test -s "$RUNNER_TEMP/singbox-link-smoke-bin"
+          echo "[OK] pinned sing-box links under the pinned Xray's toolchain with the release tags"
 
       - name: Reject malformed Compose function types
         shell: bash
@@ -193,8 +380,8 @@ jobs:
       - name: Source-wide Marble system integrity audit
         shell: bash
         run: |
-          set -euo pipefail
-          python3 scripts/system-integrity-check.py
+          set -o pipefail
+          python3 scripts/system-integrity-check.py 2>&1 | tee integrity.log
 
       - name: Verify Prism Product UI invariants
         shell: bash
@@ -424,7 +611,12 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: 'platform-tools'
+          # MARBLE_SOCKET_FLIGHT_V168 CI unblock: Google retired the legacy
+          # 'tools' SDK package (2026-09); the action defaults to
+          # 'tools platform-tools' and sdkmanager exits 1 on the missing
+          # package. platform-tools still exists; the later step installs
+          # the platform/build-tools this build needs.
+          packages: "platform-tools"
 
       - name: Install compile SDK
         shell: bash
@@ -433,16 +625,71 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "9.5.1"
-
-      - name: Unit tests and Kotlin compilation
+      - name: Read the pinned Gradle version
+        id: toolchain
         shell: bash
         run: |
           set -euo pipefail
+          version="$(sed -n 's/^gradle=//p' gradle/toolchain.properties | tail -n 1)"
+          echo "gradle=${version:-9.5.1}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.toolchain.outputs.gradle }}
+
+      - name: Unit tests and Kotlin compilation
+        shell: bash
+        # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — the compiler is the only thing that can prove a
+        # toolchain bump, so its output is kept and published where a human (or the branch that
+        # is editing this file) can read it without a log download.
+        run: |
+          set -o pipefail
           gradle --no-daemon \
             :app:testDebugUnitTest \
             :app:compileDebugKotlin \
-            :app:compileReleaseKotlin
+            :app:compileReleaseKotlin 2>&1 | tee gradle-ci.log
+
+      - name: Publish what failed where a reader can see it
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          body="$(mktemp)"
+          {
+            echo "### Source verification failed"
+            echo
+            echo "\`${{ github.sha }}\` · run [#${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            echo
+            if [ -s integrity.log ]; then
+              echo "**Invariants**"
+              echo
+              echo '```'
+              grep -E '^\[FAIL\]|^checks=|^Failed invariants|^ - ' integrity.log | tail -n 40 || true
+              echo '```'
+              echo
+            fi
+            if [ -s gradle-ci.log ]; then
+              echo "**Compiler / tests**"
+              echo
+              echo '```'
+              grep -E "^(e: |w: .*error)|FAILED|Execution failed|Caused by|^> |error:" gradle-ci.log | tail -n 80 || true
+              echo '```'
+              echo
+              echo '<details><summary>last 60 lines of the Gradle output</summary>'
+              echo
+              echo '```'
+              tail -n 60 gradle-ci.log
+              echo '```'
+              echo '</details>'
+            fi
+          } > "$body"
+          pr="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "${{ github.head_ref }}" --json number --jq '.[0].number' || true)"
+          if [ -n "$pr" ]; then
+            gh pr comment "$pr" --repo "$GITHUB_REPOSITORY" --body-file "$body"
+          else
+            echo "no pull request for this ref"
+            tail -n 120 "$body"
+          fi

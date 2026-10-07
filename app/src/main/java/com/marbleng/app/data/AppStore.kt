@@ -3,8 +3,6 @@ package com.marbleng.app.data
 import android.content.Context
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.IpFamilyScan
-import com.marbleng.app.core.TransportAdaptation
-import com.marbleng.app.core.TransportMemoryRecord
 import com.marbleng.app.core.parseCoreEngine
 import com.marbleng.app.model.*
 import org.json.JSONArray
@@ -310,30 +308,15 @@ class AppStore(context: Context) {
     fun saveAutoServerCursor(cursor: Int) =
         prefs.edit().putInt("autoServerCursor", cursor.coerceAtLeast(0)).apply()
 
-    // MARBLE_TRANSPORT_ADAPTATION_V203 — what each operator taught us, across restarts.
-    //
-    // The table is bounded twice: aged cells are dropped on read, and the newest cells win on
-    // write. A phone that roams across four operators a day writes four cells a day, and a
-    // year of that is still smaller than one subscription payload.
-    val transportMemoryLimit: Int get() = 96
-
-    fun loadTransportMemory(): Map<String, TransportMemoryRecord> {
-        val out = LinkedHashMap<String, TransportMemoryRecord>()
-        val root = runCatching { JSONObject(prefs.getString("transportMemory", "{}") ?: "{}") }
-            .getOrNull() ?: return out
-        for (key in root.keys()) {
-            val entry = runCatching { root.getJSONObject(key) }.getOrNull() ?: continue
-            val record = runCatching { TransportMemoryRecord.fromJson(entry) }.getOrNull() ?: continue
-            if (record.carrierId.isNotBlank()) out[key] = record
-        }
-        return TransportAdaptation.prune(out, System.currentTimeMillis())
-    }
-
-    fun saveTransportMemory(cells: Map<String, TransportMemoryRecord>) {
-        val pruned = TransportAdaptation.prune(cells, System.currentTimeMillis())
-        val out = JSONObject()
-        pruned.forEach { (key, record) -> out.put(key, record.toJson()) }
-        prefs.edit().putString("transportMemory", out.toString()).apply()
+    /**
+     * MARBLE_CORE_OPTIONS_V211 — the operator memory table is gone with the learner that wrote
+     * it. What it stored was a learned fragment/Mux pair, and the product no longer has a
+     * fragment shape to learn: the two cores' options are the user's settings, written to the
+     * config verbatim. A preferences file from an older build simply still contains the key; it
+     * is never read again (and `resetSettings` drops it with everything else).
+     */
+    fun dropTransportMemory() {
+        if (prefs.contains("transportMemory")) prefs.edit().remove("transportMemory").apply()
     }
 
     // MARBLE_EXACT_LAST_PROFILE_V38
@@ -675,31 +658,51 @@ class AppStore(context: Context) {
         adaptiveMssEnabled = prefs.getBoolean("adaptiveMssEnabled", true),
         tcpMaxSeg = prefs.getInt("tcpMaxSeg", 0).coerceIn(0, 9000),
 
-        fragmentEnabled = prefs.getBoolean("fragmentEnabled", false),
-        fragmentPackets = prefs.getString("fragmentPackets", "tlshello") ?: "tlshello",
-        fragmentLength = prefs.getString("fragmentLength", "100-200") ?: "100-200",
-        fragmentInterval = prefs.getString("fragmentInterval", "10-20") ?: "10-20",
-        fragmentMaxSplit = prefs.getString("fragmentMaxSplit", "") ?: "",
-        fragmentInnerEnabled = prefs.getBoolean("fragmentInnerEnabled", false),
-        fragmentInnerPackets = prefs.getString("fragmentInnerPackets", "1-1") ?: "1-1",
-        fragmentInnerLength = prefs.getString("fragmentInnerLength", "1") ?: "1",
-        fragmentInnerInterval = prefs.getString("fragmentInnerInterval", "4") ?: "4",
-        fragmentInnerMaxSplit = prefs.getString("fragmentInnerMaxSplit", "517") ?: "517",
-        // MARBLE_FRAGMENT_PROFILES_V208 — the recipe behind those eight values. A build that
-        // never stored one resolves to "off", which is exactly what the fields it inherited say.
-        fragmentProfileId = prefs.getString("fragmentProfileId", FragmentChoice.NO_CHOICE)
-            ?: FragmentChoice.NO_CHOICE,
-        muxProfileId = prefs.getString("muxProfileId", MuxChoice.NO_CHOICE)
-            ?: MuxChoice.NO_CHOICE,
-
-
         // doh.sb is intentionally absent: its addresses are not stable enough to pin in Xray
 
 
         muxEnabled = prefs.getBoolean("muxEnabled", false),
-        muxConcurrency = prefs.getInt("muxConcurrency", 8),
-        muxXudpConcurrency = prefs.getInt("muxXudpConcurrency", 16),
-        muxUdp443 = prefs.getString("muxUdp443", "skip") ?: "skip",
+        muxConcurrency = prefs.getInt("muxConcurrency", 8).coerceIn(1, 128),
+        muxXudpConcurrency = prefs.getInt("muxXudpConcurrency", 16).coerceIn(1, 128),
+        muxUdp443 = XrayMuxUdp443Modes.parse(prefs.getString("muxUdp443", "skip") ?: "skip"),
+
+        // MARBLE_CORE_OPTIONS_V211 — every reader below is a *value the user set*, validated
+        // against the vocabulary its own core accepts. Nothing here is a policy knob: the
+        // automatic layers no longer rewrite a core option, so what is stored is what is written
+        // into the config.
+        xrayDnsLog = prefs.getBoolean("xrayDnsLog", false),
+        xraySniffDestOverride = prefs.getString("xraySniffDestOverride", "http,tls,quic")
+            ?: "http,tls,quic",
+        xraySniffMetadataOnly = prefs.getBoolean("xraySniffMetadataOnly", false),
+        xraySocksUdpEnabled = prefs.getBoolean("xraySocksUdpEnabled", true),
+        xraySockoptDomainStrategy = XrayDomainStrategies.parse(
+            prefs.getString("xraySockoptDomainStrategy", "AsIs") ?: "AsIs"
+        ),
+        xrayTcpNoDelay = prefs.getBoolean("xrayTcpNoDelay", false),
+        xrayTcpKeepAliveIntervalSec = prefs.getInt("xrayTcpKeepAliveIntervalSec", 0).coerceIn(0, 7200),
+        xrayTcpUserTimeoutMs = prefs.getInt("xrayTcpUserTimeoutMs", 0).coerceIn(0, 600_000),
+        xrayTcpCongestion = prefs.getString("xrayTcpCongestion", "") ?: "",
+        xrayTcpMptcp = prefs.getBoolean("xrayTcpMptcp", true),
+        xrayTcpWindowClamp = prefs.getInt("xrayTcpWindowClamp", 0).coerceIn(0, 65535),
+        xrayPolicyHandshakeSec = prefs.getInt("xrayPolicyHandshakeSec", 0).coerceIn(0, 3600),
+        xrayPolicyConnIdleSec = prefs.getInt("xrayPolicyConnIdleSec", 0).coerceIn(0, 86_400),
+        xrayPolicyUplinkOnlySec = prefs.getInt("xrayPolicyUplinkOnlySec", 0).coerceIn(0, 86_400),
+        xrayPolicyDownlinkOnlySec = prefs.getInt("xrayPolicyDownlinkOnlySec", 0).coerceIn(0, 86_400),
+        xrayPolicyBufferSizeKb = prefs.getInt("xrayPolicyBufferSizeKb", 0).coerceIn(0, 65_536),
+        xrayExtraJson = prefs.getString("xrayExtraJson", "") ?: "",
+        singBoxLogTimestamp = prefs.getBoolean("singBoxLogTimestamp", false),
+        singBoxSniffOverrideDestination = prefs.getBoolean("singBoxSniffOverrideDestination", false),
+        singBoxInboundUsername = prefs.getString("singBoxInboundUsername", "") ?: "",
+        singBoxInboundPassword = prefs.getString("singBoxInboundPassword", "") ?: "",
+        singBoxMuxEnabled = prefs.getBoolean("singBoxMuxEnabled", false),
+        singBoxMuxProtocol = SingBoxMuxProtocols.parse(
+            prefs.getString("singBoxMuxProtocol", "h2mux") ?: "h2mux"
+        ),
+        singBoxMuxMaxConnections = prefs.getInt("singBoxMuxMaxConnections", 4).coerceIn(1, 128),
+        singBoxMuxMinStreams = prefs.getInt("singBoxMuxMinStreams", 4).coerceIn(0, 128),
+        singBoxMuxMaxStreams = prefs.getInt("singBoxMuxMaxStreams", 32).coerceIn(1, 1024),
+        singBoxMuxPadding = prefs.getBoolean("singBoxMuxPadding", false),
+        singBoxExtraJson = prefs.getString("singBoxExtraJson", "") ?: "",
 
         iranModePolicy = enumValue("iranModePolicy", IranModePolicy.OFF),
         iranModeCountermeasures = prefs.getBoolean("iranModeCountermeasures", true),
@@ -750,8 +753,6 @@ class AppStore(context: Context) {
         adaptiveThroughputEnabled = prefs.getBoolean("adaptiveThroughputEnabled", true),
         adaptiveThroughputMaxBytes = prefs.getInt("adaptiveThroughputMaxBytes", 4 * 1024 * 1024),
         udpProbeEnabled = prefs.getBoolean("udpProbeEnabled", true),
-        adaptiveMuxEnabled = prefs.getBoolean("adaptiveMuxEnabled", true),
-        adaptiveFragmentEnabled = prefs.getBoolean("adaptiveFragmentEnabled", true),
         thermalAwareEnabled = prefs.getBoolean("thermalAwareEnabled", true),
         workloadProfile = enumValue("workloadProfile", WorkloadProfile.AUTO),
 
@@ -828,17 +829,7 @@ class AppStore(context: Context) {
             prefs.getString("autoServerScope", AutoServerScope.DEFAULT.id) ?: AutoServerScope.DEFAULT.id
         ).id,
         autoServerSwitchMarginPercent = prefs.getInt("autoServerSwitchMarginPercent", 15)
-            .coerceIn(0, 100),
-
-        // MARBLE_TRANSPORT_ADAPTATION_V203 — learning is on; overriding the user's own fragment
-        // and Mux values is not, until they say so (AUTO is the default only because OFF would
-        // make the memory useless, and MANUAL keeps observing without ever overriding).
-        transportAdaptationEnabled = prefs.getBoolean("transportAdaptationEnabled", true),
-        transportProfileMode = parseTransportProfileMode(
-            prefs.getString("transportProfileMode", TransportProfileMode.DEFAULT.id)
-                ?: TransportProfileMode.DEFAULT.id
-        ).id,
-        transportAdaptationExplore = prefs.getBoolean("transportAdaptationExplore", true)
+            .coerceIn(0, 100)
         )
     }
 
@@ -964,74 +955,46 @@ class AppStore(context: Context) {
         .putBoolean("adaptiveMssEnabled", s.adaptiveMssEnabled)
         .putInt("tcpMaxSeg", s.tcpMaxSeg.coerceIn(0, 9000))
 
-        .putBoolean("fragmentEnabled", s.fragmentEnabled)
-        .putString("fragmentPackets", s.fragmentPackets)
-        .putString("fragmentLength", s.fragmentLength)
-        .putString("fragmentInterval", s.fragmentInterval)
-        .putString("fragmentMaxSplit", s.fragmentMaxSplit)
-        .putBoolean("fragmentInnerEnabled", s.fragmentInnerEnabled)
-        .putString("fragmentInnerPackets", s.fragmentInnerPackets)
-        .putString("fragmentInnerLength", s.fragmentInnerLength)
-        .putString("fragmentInnerInterval", s.fragmentInnerInterval)
-        .putString("fragmentInnerMaxSplit", s.fragmentInnerMaxSplit)
-        .putString("fragmentProfileId", s.fragmentProfileId)
-        .putString("muxProfileId", s.muxProfileId)
-
-
-
-
-        .putBoolean("muxEnabled", s.muxEnabled)
-        .putInt("muxConcurrency", s.muxConcurrency)
-        .putInt("muxXudpConcurrency", s.muxXudpConcurrency)
-        .putString("muxUdp443", s.muxUdp443)
-
-        .putString("iranModePolicy", s.iranModePolicy.name)
-        .putBoolean("iranModeCountermeasures", s.iranModeCountermeasures)
-        .putBoolean("iranDomesticDirect", s.iranDomesticDirect)
-        .putBoolean("iranDeepProbeEnabled", s.iranDeepProbeEnabled)
-        .putBoolean("iranModeNotify", false)
-
-        .putBoolean("intelligenceEnabled", s.intelligenceEnabled)
-        .putBoolean("configCompatibilityMode", s.configCompatibilityMode)
+        // MARBLE_CORE_CONFIG_SUPERSET_V165 — the consent gate for a cleartext public node. It was
+        // read on every load and never written, so the switch could not survive a restart.
         .putBoolean("allowUnencryptedPublicOutbound", s.allowUnencryptedPublicOutbound)
-        .putBoolean("verifiedPerformanceTuning", s.verifiedPerformanceTuning)
-        .putBoolean("connectTuningEnabled", s.connectTuningEnabled)
-        .putInt("connectTuningBudgetSec", s.connectTuningBudgetSec.coerceIn(0, 20))
-        .putInt("connectTuningMethods", s.connectTuningMethods.coerceIn(1, 8))
-        .putBoolean("liveTuningEnabled", s.liveTuningEnabled)
-        .putInt("liveTuningIntervalSec", s.liveTuningIntervalSec.coerceIn(60, 3600))
-        .putInt("liveTuningPingTriggerMs", s.liveTuningPingTriggerMs.coerceIn(80, 1200))
-        .putInt("liveTuningMinGainPercent", s.liveTuningMinGainPercent.coerceIn(5, 80))
-        .putBoolean("adaptiveBufferEnabled", s.adaptiveBufferEnabled)
-        .putBoolean("identityGuardEnabled", s.identityGuardEnabled)
-        .putBoolean("identityGuardStrictNoFailover", s.identityGuardStrictNoFailover)
-        .putInt("identityGuardSameRouteRetries", s.identityGuardSameRouteRetries.coerceIn(0, 5))
-        .putBoolean("continuousOptimizerEnabled", s.continuousOptimizerEnabled)
-        .putInt("optimizerIntervalSec", s.optimizerIntervalSec.coerceIn(60, 900))
-        .putInt("optimizerCandidateCount", s.optimizerCandidateCount.coerceIn(2, 8))
-        .putInt("optimizerDeepScanEvery", s.optimizerDeepScanEvery.coerceIn(3, 20))
-        .putInt("optimizerSwitchCooldownSec", s.optimizerSwitchCooldownSec.coerceIn(60, 1800))
-        .putInt("optimizerConfirmations", s.optimizerConfirmations.coerceIn(1, 3))
-        .putBoolean("optimizerAvoidHeavyTraffic", s.optimizerAvoidHeavyTraffic)
-        .putBoolean("healthHistoryEnabled", s.healthHistoryEnabled)
-        .putBoolean("raceConnectEnabled", s.raceConnectEnabled)
-        .putInt("raceWidth", s.raceWidth)
-        .putBoolean("smartFallbackEnabled", s.smartFallbackEnabled)
-        .putInt("fallbackCount", s.fallbackCount)
-        .putBoolean("autoReconnectAfterKillSwitch", s.autoReconnectAfterKillSwitch)
-        .putBoolean("networkChangeRecoveryEnabled", s.networkChangeRecoveryEnabled)
-        .putBoolean("adaptiveMtuEnabled", s.adaptiveMtuEnabled)
-        .putInt("mtuMin", s.mtuMin)
-        .putInt("mtuMax", s.mtuMax)
-        .putBoolean("dnsHijackEnabled", s.dnsHijackEnabled)
-        .putBoolean("dnsFakeIpEnabled", s.dnsFakeIpEnabled)
-        .putBoolean("adaptiveDnsEnabled", s.adaptiveDnsEnabled)
-        .putBoolean("adaptiveDualStackEnabled", s.adaptiveDualStackEnabled)
-        .putBoolean("adaptiveThroughputEnabled", s.adaptiveThroughputEnabled)
-        .putInt("adaptiveThroughputMaxBytes", s.adaptiveThroughputMaxBytes)
-        .putBoolean("udpProbeEnabled", s.udpProbeEnabled)
-        .putBoolean("adaptiveMuxEnabled", s.adaptiveMuxEnabled)
-        .putBoolean("adaptiveFragmentEnabled", s.adaptiveFragmentEnabled)
+
+        // MARBLE_CORE_OPTIONS_V211 — the two cores' own options. Every value is written back
+        // exactly as it was set (the readers above are the only place a range is enforced), so an
+        // upgrade cannot silently move a number the user chose.
+        .putBoolean("muxEnabled", s.muxEnabled)
+        .putInt("muxConcurrency", s.muxConcurrency.coerceIn(1, 128))
+        .putInt("muxXudpConcurrency", s.muxXudpConcurrency.coerceIn(1, 128))
+        .putString("muxUdp443", XrayMuxUdp443Modes.parse(s.muxUdp443))
+        .putBoolean("xrayDnsLog", s.xrayDnsLog)
+        .putString("xraySniffDestOverride", s.xraySniffDestOverride)
+        .putBoolean("xraySniffMetadataOnly", s.xraySniffMetadataOnly)
+        .putBoolean("xraySocksUdpEnabled", s.xraySocksUdpEnabled)
+        .putString("xraySockoptDomainStrategy", XrayDomainStrategies.parse(s.xraySockoptDomainStrategy))
+        .putBoolean("xrayTcpNoDelay", s.xrayTcpNoDelay)
+        .putInt("xrayTcpKeepAliveIntervalSec", s.xrayTcpKeepAliveIntervalSec)
+        .putInt("xrayTcpUserTimeoutMs", s.xrayTcpUserTimeoutMs)
+        .putString("xrayTcpCongestion", s.xrayTcpCongestion)
+        .putBoolean("xrayTcpMptcp", s.xrayTcpMptcp)
+        .putInt("xrayTcpWindowClamp", s.xrayTcpWindowClamp)
+        .putInt("xrayPolicyHandshakeSec", s.xrayPolicyHandshakeSec)
+        .putInt("xrayPolicyConnIdleSec", s.xrayPolicyConnIdleSec)
+        .putInt("xrayPolicyUplinkOnlySec", s.xrayPolicyUplinkOnlySec)
+        .putInt("xrayPolicyDownlinkOnlySec", s.xrayPolicyDownlinkOnlySec)
+        .putInt("xrayPolicyBufferSizeKb", s.xrayPolicyBufferSizeKb)
+        .putString("xrayExtraJson", s.xrayExtraJson)
+        .putBoolean("singBoxLogTimestamp", s.singBoxLogTimestamp)
+        .putBoolean("singBoxSniffOverrideDestination", s.singBoxSniffOverrideDestination)
+        .putString("singBoxInboundUsername", s.singBoxInboundUsername)
+        .putString("singBoxInboundPassword", s.singBoxInboundPassword)
+        .putBoolean("singBoxMuxEnabled", s.singBoxMuxEnabled)
+        .putString("singBoxMuxProtocol", SingBoxMuxProtocols.parse(s.singBoxMuxProtocol))
+        .putInt("singBoxMuxMaxConnections", s.singBoxMuxMaxConnections.coerceIn(1, 128))
+        .putInt("singBoxMuxMinStreams", s.singBoxMuxMinStreams.coerceIn(0, 128))
+        .putInt("singBoxMuxMaxStreams", s.singBoxMuxMaxStreams.coerceIn(1, 1024))
+        .putBoolean("singBoxMuxPadding", s.singBoxMuxPadding)
+        .putString("singBoxExtraJson", s.singBoxExtraJson)
+
         .putBoolean("thermalAwareEnabled", s.thermalAwareEnabled)
         .putString("workloadProfile", s.workloadProfile.name)
 
@@ -1090,9 +1053,6 @@ class AppStore(context: Context) {
         .putInt("autoServerSwitchMarginPercent", s.autoServerSwitchMarginPercent.coerceIn(0, 100))
 
         // MARBLE_TRANSPORT_ADAPTATION_V203
-        .putBoolean("transportAdaptationEnabled", s.transportAdaptationEnabled)
-        .putString("transportProfileMode", s.transportProfileModeEnum.id)
-        .putBoolean("transportAdaptationExplore", s.transportAdaptationExplore)
         .apply()
 
     /**

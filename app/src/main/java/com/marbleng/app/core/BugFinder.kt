@@ -798,7 +798,6 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 appendLine("xrayLastStartError=${sanitize(xray.lastStartError)}")
                 appendLine("listenerBound=$listener")
                 appendLine("socksPort=$port")
-                appendLine("fragment=${settings.fragmentEnabled}")
                 appendLine("mux=${settings.muxEnabled}")
                 appendLine("dnsStrategy=${settings.dnsQueryStrategy}")
                 appendLine("routing=${settings.routingMode}")

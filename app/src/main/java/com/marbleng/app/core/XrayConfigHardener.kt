@@ -269,14 +269,13 @@ object XrayConfigHardener {
         var firstTag = ""
         // MARBLE_CORE_CONFIG_SUPERSET_V165 — which hops arrived as a chain hop, recorded from the
         // document as imported. Both the V146 liveness profile and the freedom resolution plan below
-        // ask "is this hop's socket owned by another hop", and the answer must be the user's: the
-        // fragment pass further down writes `sockopt.dialerProxy` of Marble's own onto the proxy hop,
-        // so reading the live field would retune every fragment user's keep-alives and strip the
-        // innermost hop's `domainStrategy` — two silent behaviour changes hiding inside a compat fix.
+        // ask "is this hop's socket owned by another hop", and the answer has to be the imported
+        // document's own shape rather than the live field: a `sockopt.dialerProxy` an imported hop
+        // already carries must not be mistaken for one this app wrote.
         val importedChainHops = mutableSetOf<String>()
 
         // MARBLE_RESERVED_TAG_COLLISION_V183 — the hardener appends its own `block`, `direct`,
-        // `dns-out`, `fragment-direct` and `tls-fragment` outbounds below, and the core's outbound
+        // `dns-out` outbounds below, and the core's outbound
         // manager refuses a document that names one tag twice (`app/proxyman/outbound: existing tag
         // found: block`, exit code 23). An imported serverless-style document routinely ships its
         // own `block`/`direct`/`dns-out`, so an imported hop that would collide is renamed here and
@@ -368,147 +367,23 @@ object XrayConfigHardener {
             }
         }
 
-        // Overlay the live fragment recipe onto imported hops that already shred TLS.
-        keep.forEach { tag ->
-            val outbound = byTag[tag] ?: return@forEach
-            if (!hasFragment(outbound)) return@forEach
-            if (tag == "middle-fragment" || tag == "freedom-middle") {
-                overlayFragment(
-                    outbound,
-                    packets = settings.fragmentInnerPackets,
-                    length = settings.fragmentInnerLength,
-                    interval = settings.fragmentInnerInterval,
-                    maxSplit = settings.fragmentInnerMaxSplit
-                )
-            } else {
-                val inner = tag != firstTag && settings.fragmentInnerEnabled
-                overlayFragment(
-                    outbound,
-                    packets = if (inner) settings.fragmentInnerPackets else settings.fragmentPackets,
-                    length = if (inner) settings.fragmentInnerLength else settings.fragmentLength,
-                    interval = if (inner) settings.fragmentInnerInterval else settings.fragmentInterval,
-                    maxSplit = if (inner) settings.fragmentInnerMaxSplit else settings.fragmentMaxSplit
-                )
-            }
-        }
-
-        val selectedAlreadyFragments = byTag[firstTag]?.let { selected ->
-            hasFragment(selected) ||
-                selected.optJSONObject("streamSettings")
-                    ?.optJSONObject("sockopt")
-                    ?.optString("dialerProxy")
-                    ?.let { hop -> byTag[hop]?.let(::hasFragment) } == true
-        } == true
+        // MARBLE_CORE_OPTIONS_V211 — Marble no longer writes a fragment shape of its own, and it
+        // no longer rewrites one an imported document arrived with. What a config says about its
+        // own fragment dialer is the operator's business: the pass that used to overlay the
+        // settings' recipe onto every imported `freedom`-with-`fragment` hop is gone, and the only
+        // thing this file still does with a fragment hop is *keep* it (see `keep` above), because
+        // dropping a hop the document's `dialerProxy` points at is a fatal load error.
 
         // Iran Mode is armed whenever the mode is on with countermeasures enabled. It is decided
-        // ONCE, before both the fragment construction below and the per-outbound liveness pass,
-        // so the generated fragment dialer and every proxy hop receive the same liveness profile.
+        // ONCE, before the per-outbound liveness pass, so every proxy hop and every imported
+        // fragment dialer receive the same liveness profile.
         val iranActive = settings.iranModePolicy != IranModePolicy.OFF &&
             settings.iranModeCountermeasures
 
-        // Fragment is attached as a Freedom dialer only to a physical proxy hop.
-        // For a two-hop chain, the exit already has proxySettings -> entry, so Fragment lands
-        // on the entry hop and never destroys the exit transport layer.
-        val fragmentOutbound = if (settings.fragmentEnabled && !selectedAlreadyFragments) {
-            val innerPackets = if (settings.fragmentInnerEnabled) {
-                settings.fragmentInnerPackets.ifBlank { "1-1" }
-            } else {
-                settings.fragmentPackets.ifBlank { "tlshello" }
-            }
-            val innerLength = if (settings.fragmentInnerEnabled) {
-                settings.fragmentInnerLength.ifBlank { "1" }
-            } else {
-                settings.fragmentLength.ifBlank { "100-200" }
-            }
-            val innerInterval = if (settings.fragmentInnerEnabled) {
-                settings.fragmentInnerInterval.ifBlank { "4" }
-            } else {
-                settings.fragmentInterval.ifBlank { "10-20" }
-            }
-            val innerMaxSplit = if (settings.fragmentInnerEnabled) {
-                settings.fragmentInnerMaxSplit.ifBlank { "517" }
-            } else {
-                settings.fragmentMaxSplit
-            }
-            JSONObject()
-                .put("tag", "fragment-direct")
-                .put("protocol", "freedom")
-                .put(
-                    "settings",
-                    JSONObject().put(
-                        "fragment",
-                        fragmentSettings(innerPackets, innerLength, innerInterval, innerMaxSplit)
-                    )
-                )
-                .also { freedom ->
-                    // MARBLE_SOCKET_FLIGHT_V168 — this freedom hop, not the proxy hop, opens the
-                    // real TCP socket to the server when fragmentation is on. The pinned Xray
-                    // applies THIS hop's sockopt to that dial, so without the block below every
-                    // fragmented connection ran with a naked socket (no liveness, no user
-                    // timeout, no MPTCP) and a filtered link's stalls killed it silently.
-                    val physical = JSONObject()
-                    CoreSocketPolicy.writeXrayPhysicalTcpSockopt(
-                        physical,
-                        settings,
-                        iranActive
-                    )
-                    freedom.put("streamSettings", JSONObject().put("sockopt", physical))
-                }
-        } else {
-            null
-        }
-
-        val tlsFragmentOutbound = if (
-            fragmentOutbound != null &&
-            settings.fragmentInnerEnabled
-        ) {
-            JSONObject()
-                .put("tag", "tls-fragment")
-                .put("protocol", "freedom")
-                .put(
-                    "settings",
-                    JSONObject().put(
-                        "fragment",
-                        fragmentSettings(
-                            settings.fragmentPackets.ifBlank { "tlshello" },
-                            settings.fragmentLength.ifBlank { "6" },
-                            settings.fragmentInterval.ifBlank { "0" },
-                            settings.fragmentMaxSplit
-                        )
-                    )
-                )
-                .put(
-                    "streamSettings",
-                    JSONObject().put(
-                        "sockopt",
-                        JSONObject().put("dialerProxy", "fragment-direct")
-                    )
-                )
-        } else {
-            null
-        }
-
-        if (fragmentOutbound != null) {
-            val attachTag = if (tlsFragmentOutbound != null) "tls-fragment" else "fragment-direct"
-            keep.forEach { tag ->
-                val outbound = byTag[tag] ?: return@forEach
-                val protocol = outbound.optString("protocol").lowercase()
-                val method = outbound.optJSONObject("streamSettings")?.optString("method")?.lowercase().orEmpty()
-                if (!fragmentEligible(protocol, method)) return@forEach
-                val alreadyChained = outbound.optJSONObject("proxySettings")
-                    ?.optString("tag")
-                    ?.isNotBlank() == true
-
-                val stream = outbound.optJSONObject("streamSettings")
-                    ?: JSONObject().also { outbound.put("streamSettings", it) }
-                val sockopt = stream.optJSONObject("sockopt")
-                    ?: JSONObject().also { stream.put("sockopt", it) }
-
-                if (!alreadyChained && sockopt.optString("dialerProxy").isBlank()) {
-                    sockopt.put("dialerProxy", attachTag)
-                }
-            }
-        }
+        // MARBLE_CORE_OPTIONS_V211 — Marble no longer generates dialers of its own; the fragment
+        // ones went with the feature they existed for. `CoreSocketPolicy` still tunes the socket of
+        // every hop that opens one, including an imported dialer, because that hop is where the
+        // real TCP connection is made.
 
         val needsDirect = RoutingEngine.needsDirectOutbound(settings) ||
             settings.routeDirectDomains.isNotBlank() ||
@@ -635,6 +510,14 @@ object XrayConfigHardener {
                     }
                 }
 
+                // MARBLE_CORE_OPTIONS_V211 — the last writer is the user. The liveness profile and
+                // the address-family plan above fill what the settings left empty; anything the
+                // user actually set is written here, after them, so no automatic pass can replace a
+                // chosen socket option with its own.
+                outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")?.let { sockopt ->
+                    CoreOptions.applyXrayUserSockopt(sockopt, settings)
+                }
+
                 out.put(outbound)
             }
         }
@@ -683,11 +566,10 @@ object XrayConfigHardener {
             // once, where the engine reads it.
             writeFreedomResolveStrategy(outbound, hopPlan.endpointStrategy)
 
-            // MARBLE_SOCKET_FLIGHT_V168 — the TERMINAL fragment freedom hop (the one with no
-            // dialerProxy of its own) opens the real TCP socket to the server, just like the
-            // generated "fragment-direct". Keep-alive/user-timeout written on the proxy hop never
-            // reach this socket, so omissions are filled here; an intermediate fragment hop that
-            // chains onward is left exactly as imported.
+            // MARBLE_SOCKET_FLIGHT_V168 — a TERMINAL freedom hop (the one with no dialerProxy of
+            // its own) opens the real TCP socket to the server. Keep-alive/user-timeout written on
+            // the proxy hop never reach this socket, so omissions are filled here; an imported hop
+            // that chains onward is left exactly as its author wrote it.
             if (hasFragment(outbound)) {
                 val freedomSockopt = outbound.optJSONObject("streamSettings")
                     ?.optJSONObject("sockopt")
@@ -698,6 +580,7 @@ object XrayConfigHardener {
                         settings,
                         iranActive
                     )
+                    CoreOptions.applyXrayUserSockopt(freedomSockopt, settings)
                 }
             }
         }
@@ -710,8 +593,6 @@ object XrayConfigHardener {
             byTag[tag]?.let { CoreSocketPolicy.applyDefaultUtlsFingerprint(it) }
         }
 
-        if (tlsFragmentOutbound != null) out.put(tlsFragmentOutbound)
-        if (fragmentOutbound != null) out.put(fragmentOutbound)
 
         if (needsDirect) {
             // Direct routes must honour the same family plan as the tunnel: a freedom outbound left
@@ -757,22 +638,16 @@ object XrayConfigHardener {
         // a `fakedns` result even under `routeOnly`, and `FakeDNSPostProcessingStage` requires
         // the `fakedns` destOverride entry whenever a `fakedns` nameserver is in use.
         val fakeIpArmed = FakeIpPolicy.isDnsPathArmed(settings) && settings.xraySniffingEnabled
-        fun sniffing(): JSONObject = JSONObject()
-            .put("enabled", settings.xraySniffingEnabled)
-            .put("routeOnly", settings.xraySniffingRouteOnly)
-            .put(
-                "destOverride",
-                JSONArray(
-                    if (fakeIpArmed) listOf("http", "tls", "quic", "fakedns")
-                    else listOf("http", "tls", "quic")
-                )
-            )
+        // MARBLE_CORE_OPTIONS_V211 — the protocol set, `metadataOnly` and `routeOnly` are the
+        // user's: [CoreOptions.xraySniffing] writes exactly what Settings holds and adds the
+        // `fakedns` entry only when the pool the app itself armed requires it.
+        fun sniffing(): JSONObject = CoreOptions.xraySniffing(settings, fakeIpArmed)
         val inbound = JSONObject()
             .put("tag", "socks-in")
             .put("listen", listen)
             .put("port", socksPort)
             .put("protocol", "socks")
-            .put("settings", JSONObject().put("udp", true))
+            .put("settings", CoreOptions.xraySocksSettings(settings))
             .put("sniffing", sniffing())
         // MARBLE_SOCKET_FLIGHT_V168 — offer Fast Open on the loopback listener too, matching the
         // sing-box inbound, so the HEV→core leg never becomes the only connection without it.
@@ -981,16 +856,16 @@ object XrayConfigHardener {
         // floor (so an unmeasured link behaves exactly as before) and to the 10 s ceiling the
         // official XTLS reference configuration uses. A fragmenting selected outbound keeps the
         // upstream schedule because there the 1-byte first-write pacing, not the link, dominates.
-        // MARBLE_INTELLIGENCE_V141 — a fragmenting selected outbound (the app's own fragment
-        // feature or a hand-imported fragment chain) keeps the upstream XTLS schedule because
-        // there the 1-byte first-write pacing, not the link, dominates the DoH budget.
-        val selectedFragmented = settings.fragmentEnabled &&
-            byTag[firstTag]
-                ?.optJSONObject("settings")
-                ?.optJSONObject("fragment")
-                ?.optString("packets")
-                ?.trim()
-                ?.let { it != "0" && it.toIntOrNull() != 0 } == true
+        // MARBLE_INTELLIGENCE_V141 — a hand-imported fragment chain keeps the upstream XTLS
+        // schedule because there the 1-byte first-write pacing, not the link, dominates the DoH
+        // budget. MARBLE_CORE_OPTIONS_V211 — this now asks the *document*, not the settings: the
+        // product writes no fragment shape of its own any more.
+        val selectedFragmented = byTag[firstTag]
+            ?.optJSONObject("settings")
+            ?.optJSONObject("fragment")
+            ?.optString("packets")
+            ?.trim()
+            ?.let { it != "0" && it.toIntOrNull() != 0 } == true
         fun dnsTimeoutMs(index: Int): Long =
             LinkDeadlinePolicy.dnsServerTimeoutMs(
                 evidence = link,
@@ -1158,15 +1033,16 @@ object XrayConfigHardener {
             .put("domainStrategy", domainStrategy)
             .put("domainMatcher", domainMatcher)
             .put("rules", rules)
+        // MARBLE_CORE_OPTIONS_V211 — exactly one writer for `routing.domainStrategy` and
+        // `routing.domainMatcher`: the Routing page's own fields read just above. The core options
+        // page points at that pair instead of carrying a second one, because a duplicate control
+        // for the same key is not an option the user owns — it is one of the two silently losing.
         src.put("routing", routingObj)
         // Runtime logs are for actionable failures. Xray prints compatibility/deprecation
         // advisories for transports such as HTTPUpgrade/WebSocket even when those transports are
         // still required by the remote server. Marble must not rewrite a client transport without
         // matching server-side support, so keep compatibility and surface only errors here.
-        val logLevel = settings.xrayLogLevel.trim().lowercase().let { raw ->
-            if (raw in setOf("none", "error", "warning", "info", "debug")) raw else "error"
-        }
-        src.put("log", JSONObject().put("loglevel", logLevel))
+        src.put("log", CoreOptions.xrayLog(settings))
 
         /*
          * Remove unrelated runtime subsystems from imported full JSON configs. They are not needed
@@ -1196,6 +1072,18 @@ object XrayConfigHardener {
         // single policy here means a stored profile is repaired on its next connect instead of
         // requiring the user to re-import it, and it makes the invariant structural: no config
         // can reach the core with a TLS block Xray refuses.
+        // MARBLE_CORE_OPTIONS_V211 — the session timeouts and buffer size the core applies to its
+        // own flows, and then the user's own JSON on top of everything this file computed.
+        CoreOptions.xrayPolicy(settings)?.let { policy -> src.put("policy", policy) }
+        val extra = CoreOptions.merge(src, settings.xrayExtraJson)
+        if (extra.error.isNotBlank()) {
+            // Refused, and the document is untouched: the reason travels with the config so Bug
+            // Finder can print it instead of a dead session with no explanation.
+            RuntimeDiagnostics.coreOption("xray", "extra-json-refused", extra.error)
+        } else if (extra.changed) {
+            RuntimeDiagnostics.coreOption("xray", "extra-json-merged", extra.applied.joinToString(","))
+        }
+
         TlsPinningPolicy.sanitizeConfigDocument(src)
         verify(src, socksPort, firstTag, needsDirect, settings, underlayHasIpv6)
         return src.toString(2)
@@ -1285,6 +1173,48 @@ object XrayConfigHardener {
      * node is always measured over the same family it will be used over — and so that "IPv6 enabled"
      * cannot mean one thing in the tunnel and another in the probes.
      */
+    /**
+     * MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the single supported home of a freedom/direct hop's
+     * resolve strategy. `sockopt.domainStrategy` is what the pinned Xray core actually reads for
+     * both TCP dials and UDP packets; `settings.domainStrategy` and `settings.targetStrategy` are
+     * a deprecated alias that the core migrates with a start-up warning today and rejects
+     * tomorrow. A hand-imported config that still carries the alias is cleaned here too, so the
+     * emitted document never triggers the migration path. When the plan is `AsIs` nothing is
+     * written and any imported alias is dropped, exactly as the core would migrate it.
+     */
+    internal fun writeFreedomResolveStrategy(outbound: JSONObject, strategy: String) {
+        outbound.optJSONObject("settings")?.let { settingsObject ->
+            settingsObject.remove("domainStrategy")
+            settingsObject.remove("targetStrategy")
+        }
+        outbound.remove("targetStrategy")
+        val streamObject = outbound.optJSONObject("streamSettings")
+            ?: JSONObject().also { outbound.put("streamSettings", it) }
+        val sockoptObject = streamObject.optJSONObject("sockopt")
+            ?: JSONObject().also { streamObject.put("sockopt", it) }
+        if (strategy.isBlank() || strategy.equals("AsIs", true)) {
+            sockoptObject.remove("domainStrategy")
+        } else {
+            sockoptObject.put("domainStrategy", strategy)
+        }
+    }
+
+    /**
+     * Iranian DNS-injector / null-answer ranges that must never be dialled. Matches the official
+     * XTLS serverless_for_Iran.jsonc block list plus the well-known 10.10.34.34–36 injectors.
+     */
+    private val IRAN_POISON_BLOCK_IPS = listOf(
+        "10.10.34.0/24",
+        "2001:4188:2:600::/64",
+        "0.0.0.0",
+        "::"
+    )
+
+    private fun hasNoises(outbound: JSONObject): Boolean {
+        val noises = outbound.optJSONObject("settings")?.optJSONArray("noises") ?: return false
+        return noises.length() > 0
+    }
+
     private fun applyAddressFamily(
         outbound: JSONObject,
         settings: AppSettings,
@@ -1354,79 +1284,13 @@ object XrayConfigHardener {
     private fun dnsHostLiteral(value: String): String =
         if (value.contains(':') && !value.startsWith("[")) "[$value]" else value
 
-    private fun fragmentEligible(protocol: String, method: String): Boolean =
-        protocol in setOf("http", "shadowsocks", "socks", "trojan", "vless", "vmess") &&
-            method !in setOf("hysteria", "mkcp")
-
-    /**
-     * Iranian DNS-injector / null-answer ranges that must never be dialled. Matches the official
-     * XTLS serverless_for_Iran.jsonc block list plus the well-known 10.10.34.34–36 injectors.
-     */
-    private val IRAN_POISON_BLOCK_IPS = listOf(
-        "10.10.34.0/24",
-        "2001:4188:2:600::/64",
-        "0.0.0.0",
-        "::"
-    )
-
-    /**
-     * MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the single supported home of a freedom/direct hop's
-     * resolve strategy. `sockopt.domainStrategy` is what the pinned Xray core actually reads for
-     * both TCP dials and UDP packets; `settings.domainStrategy` and `settings.targetStrategy` are
-     * a deprecated alias that the core migrates with a start-up warning today and rejects
-     * tomorrow. A hand-imported config that still carries the alias is cleaned here too, so the
-     * emitted document never triggers the migration path. When the plan is `AsIs` nothing is
-     * written and any imported alias is dropped, exactly as the core would migrate it.
-     */
-    internal fun writeFreedomResolveStrategy(outbound: JSONObject, strategy: String) {
-        outbound.optJSONObject("settings")?.let { settingsObject ->
-            settingsObject.remove("domainStrategy")
-            settingsObject.remove("targetStrategy")
-        }
-        outbound.remove("targetStrategy")
-        val streamObject = outbound.optJSONObject("streamSettings")
-            ?: JSONObject().also { outbound.put("streamSettings", it) }
-        val sockoptObject = streamObject.optJSONObject("sockopt")
-            ?: JSONObject().also { streamObject.put("sockopt", it) }
-        if (strategy.isBlank() || strategy.equals("AsIs", true)) {
-            sockoptObject.remove("domainStrategy")
-        } else {
-            sockoptObject.put("domainStrategy", strategy)
-        }
-    }
-
-    private fun hasNoises(outbound: JSONObject): Boolean {
-        val noises = outbound.optJSONObject("settings")?.optJSONArray("noises") ?: return false
-        return noises.length() > 0
-    }
-
-    private fun dohHost(url: String): String = url.trim()
-        .substringAfter("https://", "")
-        .substringBefore('/')
-        .substringBefore('?')
-        .trim()
-
-    private fun isIpLiteralHost(host: String): Boolean {
-        val clean = host.removePrefix("[").removeSuffix("]")
-        if (clean.contains(':')) {
-            // Rough but sufficient IPv6 shape check: hex groups plus at most one "::".
-            val parts = clean.split("::", limit = 2)
-            if (parts.size > 2) return false
-            return parts.all { group ->
-                group.isEmpty() || group.split(':').all { it.matches(Regex("[0-9a-fA-F]{1,4}")) }
-            }
-        }
-        if (!clean.matches(Regex("\\d{1,3}(\\.\\d{1,3}){3}"))) return false
-        return clean.split('.').all { (it.toIntOrNull() ?: -1) in 0..255 }
-    }
-
     /**
      * MARBLE_RESERVED_TAG_COLLISION_V183 — outbound tags [harden] emits itself. An imported hop that
      * carries one of these names is renamed to `import-<tag>` before the graph is read, and every
      * `sockopt.dialerProxy` / `proxySettings.tag` that pointed at it is rewritten to match.
      */
     internal val RESERVED_OUTBOUND_TAGS: Set<String> = setOf(
-        "block", "direct", "dns-out", "fragment-direct", "tls-fragment"
+        "block", "direct", "dns-out"
     )
 
     internal fun importedAliasFor(tag: String): String = "import-$tag"
@@ -1474,39 +1338,6 @@ object XrayConfigHardener {
     private fun hasFragment(outbound: JSONObject): Boolean {
         val fragment = outbound.optJSONObject("settings")?.optJSONObject("fragment") ?: return false
         return fragment.optString("packets").isNotBlank()
-    }
-
-    private fun overlayFragment(
-        outbound: JSONObject,
-        packets: String,
-        length: String,
-        interval: String,
-        maxSplit: String
-    ) {
-        val settingsObject = outbound.optJSONObject("settings")
-            ?: JSONObject().also { outbound.put("settings", it) }
-        settingsObject.put("fragment", fragmentSettings(packets, length, interval, maxSplit))
-    }
-
-    private fun fragmentSettings(
-        packets: String,
-        length: String,
-        interval: String,
-        maxSplit: String
-    ): JSONObject {
-        val fragment = JSONObject()
-            .put("packets", packets)
-            .put("length", length)
-            .put("interval", interval)
-        putMaxSplit(fragment, maxSplit)
-        return fragment
-    }
-
-    private fun putMaxSplit(fragment: JSONObject, maxSplit: String) {
-        val trimmed = maxSplit.trim()
-        if (trimmed.isBlank()) return
-        trimmed.toIntOrNull()?.let { fragment.put("maxSplit", it) }
-            ?: fragment.put("maxSplit", trimmed)
     }
 
     private fun addDomainRule(rules: JSONArray, values: List<String>, outboundTag: String) {
