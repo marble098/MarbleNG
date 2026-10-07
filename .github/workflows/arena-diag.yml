@@ -1,0 +1,15 @@
+name: Arena diagnostics
+on:
+  workflow_dispatch:
+  push:
+    branches: [arena/b26531a4-marbleng]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Print newest toolchain versions
+        run: python3 scripts/resolve-toolchain.py || true
