@@ -99,10 +99,12 @@ class XrayConfigHardenerTest {
         return root.toString()
     }
 
-    private fun fragmentChainSettings() = AppSettings(
-        fragmentEnabled = true,
-        fragmentInnerEnabled = true
-    )
+    /**
+     * MARBLE_CORE_OPTIONS_V211 — the product no longer writes a fragment shape of its own, so
+     * these regressions run against the *imported* chain only: a hand-imported freedom fragment
+     * hop (the `handImportedFreedomChain()` document) must still be hardened exactly as before.
+     */
+    private fun fragmentChainSettings() = AppSettings()
 
     private fun outbound(root: JSONObject, tag: String): JSONObject {
         val outs = root.getJSONArray("outbounds")
@@ -187,11 +189,6 @@ class XrayConfigHardenerTest {
     @Test
     fun `generic fragment mode keeps endpoint resolution on the node`() {
         val settings = AppSettings(
-            fragmentEnabled = true,
-            fragmentInnerEnabled = true,
-            fragmentPackets = "tlshello",
-            fragmentLength = "100-200",
-            fragmentInterval = "10-20",
             routingMode = com.marbleng.app.model.RoutingMode.PROXY_ALL
         )
         // The generic path must still harden a hand-imported fragment chain under PROXY_ALL:
@@ -251,29 +248,6 @@ class XrayConfigHardenerTest {
         val hardened = harden(fragmentChainSettings())
         val rules = hardened.getJSONObject("routing").getJSONArray("rules")
         assertFalse("poison injector range must not appear", rules.toString().contains("10.10.34.0/24"))
-    }
-
-    @Test
-    fun `no default recipe emits the tlshello record rewriter`() {
-        // Runtime regression (real Xray v26.7.28): the "tlshello" fragment mode rewrites the
-        // ClientHello into complete tiny TLS records (Xray-core #4370) and servers RST that
-        // shape. Every recipe the connection ladder can pick must use the packet split instead.
-        val states = listOf(
-            IranModeState(active = true),
-            IranModeState(active = true, techniques = setOf(CensorTechnique.SNI_FILTERING)),
-            IranModeState(
-                active = true,
-                techniques = setOf(CensorTechnique.SNI_FILTERING, CensorTechnique.TCP_RESET)
-            ),
-            IranModeState(active = true, techniques = setOf(CensorTechnique.NATIONAL_INTRANET))
-        )
-        states.forEach { state ->
-            val recipe = DpiEvasionPolicy.connectionRecipe(state)
-            assertFalse(
-                "connectionRecipe must never emit tlshello",
-                recipe.packets.equals("tlshello", ignoreCase = true)
-            )
-        }
     }
 
     /**

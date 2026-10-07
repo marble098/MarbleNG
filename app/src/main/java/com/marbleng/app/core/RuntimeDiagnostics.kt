@@ -140,6 +140,22 @@ class RuntimeDiagnostics(private val context: Context) {
 
         fun reportFolderLabel(): String = publicPath.ifBlank { "Downloads/marbleng/report" }
 
+        /**
+         * MARBLE_CORE_OPTIONS_V211 — the static log line for the two config writers.
+         *
+         * [XrayConfigHardener] and [SingBoxConfigBuilder] are pure functions: they have no
+         * [RuntimeDiagnostics] instance to call through, and the one decision they must make
+         * visible — whether the user's extra JSON was merged or refused — is part of the
+         * connection's contract. This entry point writes to the same ring and the same rolling
+         * report as [event] without needing a context.
+         */
+        fun coreOption(core: String, event: String, detail: String = "") {
+            val payload = if (detail.isBlank()) "core=$core" else "core=$core | $detail"
+            val message = "COREOPTIONS | $event | $payload"
+            runCatching { Log.i("MarbleNG/COREOPTIONS", message) }
+            enqueueLine(message)
+        }
+
         fun status(): DiagnosticEngineStatus = DiagnosticEngineStatus(
             debugEnabled = debugEnabled,
             queued = queue.size,

@@ -216,12 +216,9 @@ object SingBoxTransportTranslator {
             if (source.optString("spiderX").isNotBlank()) notes += "REALITY spiderX camouflage crawling is Xray-only; authentication/key/short ID are preserved."
             if (source.optString("mldsa65Verify").isNotBlank()) unsupported("realitySettings.mldsa65Verify", "the pinned core cannot preserve this verification")
         } else {
-            // MARBLE_FRAGMENT_PROFILES_V208 — the recipe, mapped to the three TLS-fragment
-            // fields the pinned extended core actually has, instead of one boolean that ignored
-            // every number the user chose. Mild recipes get record-level fragmentation only;
-            // the aggressive rungs additionally pay for packet-level fragmentation. See
-            // [SingBoxTransportPolicy] for why the split sits where it does.
-            SingBoxTransportPolicy.applyFragment(result, settings)
+            // MARBLE_CORE_OPTIONS_V211 — no fragmentation is injected into a translated outbound
+            // any more. The carried settings are REALITY/TLS identity, and the multiplex object
+            // is written once by [SingBoxConfigBuilder] from the user's own fields.
             source.optJSONArray("certificates")?.let { certs ->
                 if (certs.length() > 0 && !source.optBoolean("disableSystemRoot", false)) {
                     unsupported("tlsSettings.certificates", "sing-box's per-outbound CA bundle replaces rather than appends system roots; keep Xray or supply an explicit complete trust bundle")

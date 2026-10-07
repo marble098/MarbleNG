@@ -2176,10 +2176,6 @@ fun resetTelemetry() {
             if (s == "DISCONNECTED") {
                 autoFailoverArmed.set(false)
                 finishUsageSession()
-                // MARBLE_TRANSPORT_ADAPTATION_V203 — the teardown is when a connection becomes
-                // evidence. A session is one observation: what the operator did to the pair we
-                // chose, for the whole time we used it.
-                settleTransportSession()
             }
             if (s != "CONNECTED") {
                 activeProfileId = ""
@@ -2385,42 +2381,12 @@ fun resetTelemetry() {
                 iranMode
             )
         }
-        /*
-         * MARBLE_TRANSPORT_ADAPTATION_V203 — the learned fragment/Mux profile lands here, after
-         * every other policy and before Identity Guard, because that is the order the old stack
-         * already established: Iran Mode and DPI evasion decide what the *link* needs, and this
-         * decides the shape of the bytes that answer it.
-         *
-         * The decision is taken even in MANUAL mode — it is then the user's own values, not a
-         * learned pair — because that is what lets the teardown credit the session. A user who
-         * sets their own numbers and later flips to Automatic arrives with a month of evidence
-         * about their operator instead of an empty table.
-         */
-        /*
-         * MARBLE_FRAGMENT_PROFILES_V208 — and this is the part that makes the Fragment & Mux
-         * page a control instead of a suggestion.
-         *
-         * Before V208 the user's own values were the *starting* settings: Iran Mode, the DPI
-         * ladder and the intelligence engine each rewrote `fragmentEnabled` / `fragmentPackets`
-         * on their way past, so a recipe chosen in Settings routinely never reached the config
-         * builder and the page read as broken — because on the wire it was. Now:
-         *
-         *   * the learner in Automatic mode still owns the wire (unchanged, and it is the one
-         *     case where something other than the user is meant to decide);
-         *   * otherwise the user's choice is applied LAST, over whatever the automatic policies
-         *     produced — and only when the user actually made one, because a blank choice means
-         *     "no opinion", not "off".
-         */
-        val shaped = if (
-            settings.transportAdaptationEnabled &&
-            settings.transportProfileModeEnum == TransportProfileMode.AUTO
-        ) {
-            TransportAdaptation.applyTo(tuned, decideTransportPair(profile).pair)
-        } else {
-            if (settings.transportAdaptationEnabled) decideTransportPair(profile)
-            TransportAdaptation.applyUserChoice(tuned, settings, profile)
-        }
-        return IdentityGuard.apply(shaped)
+        // MARBLE_CORE_OPTIONS_V211 — this is where the transport-adaptation learner used to
+        // rewrite the fragment and Mux values on their way to the config builders. That learner
+        // is gone with the feature it served: the two cores' options are the user's, they are
+        // written verbatim, and the only thing Identity Guard still does is bound what may leave
+        // the device. `tuned` is the last word the automatic policies get.
+        return IdentityGuard.apply(tuned)
     }
 
     /**
@@ -4213,10 +4179,6 @@ private fun postToMain(block: () -> Unit) {
         privacy = null
         runCatching { scanIranMode() }
         ensureIpFamilyEvidence(p)
-        // MARBLE_TRANSPORT_ADAPTATION_V203 — a new session settles the previous one before it
-        // starts, so a rapid server switch still credits the pair that carried the last session
-        // instead of dropping its evidence on the floor.
-        settleTransportSession()
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
@@ -4230,7 +4192,6 @@ private fun postToMain(block: () -> Unit) {
         privacy = null
         runCatching { scanIranMode() }
         ensureIpFamilyEvidence(p)
-        settleTransportSession()
         setRuntimeState("CONNECTING", p.name)
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_START)
@@ -4823,265 +4784,6 @@ private fun postToMain(block: () -> Unit) {
     // to the winner, which is why the connect step stays here, on the main looper, next to
     // every other place this product opens a tunnel.
     // ─────────────────────────────────────────────────────────────────────────
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_TRANSPORT_ADAPTATION_V203
-    //
-    // Fragment and Mux are the two knobs that decide whether a filtered link carries traffic
-    // at all, and until now both were static: a table of operator recipes written down once
-    // and a triple of user constants. [TransportAdaptation] supplies the learner; this block
-    // supplies the two things only the repository has — the identity of the network we are
-    // on, and the outcome of the connection we just finished.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * The pair that is on the wire for the session currently up, or about to be.
-     *
-     * Set at connect time and consumed at teardown, so the observation always credits the pair
-     * that actually carried the traffic — never the pair the learner would pick *now*, which is
-     * how a bandit ends up rewarding decisions it did not make.
-     */
-    @Volatile
-    var activeTransportPair: TransportPair? = null
-        private set
-
-    /** The decision behind [activeTransportPair], for the diagnostics log and the settings page. */
-    var lastTransportDecision: TransportDecision? by mutableStateOf(null)
-        private set
-
-    /**
-     * The learner's working copy of the memory table.
-     *
-     * This is the field the engine itself reads and writes, and it is `@Volatile` rather than
-     * Compose state for one reason: [decideTransportPair] is called from
-     * [effectiveSettingsFor], which `MARBLE_CONNECT_OFF_MAIN_V144` deliberately moved onto the
-     * connection worker — so the learner runs off the main thread, and a snapshot-backed
-     * `mutableStateOf` is not the right thing to touch there. [transportMemory] is the
-     * main-thread mirror the Settings page composes.
-     */
-    @Volatile
-    private var transportMemoryEngine: Map<String, TransportMemoryRecord> =
-        runCatching { store.loadTransportMemory() }.getOrDefault(emptyMap())
-
-    /**
-     * Every operator/time-of-day cell we have learned, for the Settings page.
-     *
-     * Initialized from the engine copy at construction — not in an `init` block placed above,
-     * which would be overwritten by this property's own initializer.
-     */
-    var transportMemory: Map<String, TransportMemoryRecord> by mutableStateOf(transportMemoryEngine)
-        private set
-
-    /** Store the table, hand it to the learner, and show it on the main thread. */
-    private fun publishTransportMemory(cells: Map<String, TransportMemoryRecord>) {
-        transportMemoryEngine = cells
-        postToMain { transportMemory = cells }
-    }
-
-    /** Reload the learned table from disk after an external restore. */
-    fun refreshTransportMemory() {
-        publishTransportMemory(runCatching { store.loadTransportMemory() }.getOrDefault(emptyMap()))
-    }
-
-    /**
-     * MARBLE_TRANSPORT_ADAPTATION_V203 — throw the whole table away.
-     *
-     * A user who moved country, changed SIM, or simply does not want the product to remember
-     * how their network behaves must be able to make that true in one tap. The next connection
-     * starts from the severity prior, which is where a fresh install starts too.
-     */
-    fun forgetTransportMemory() {
-        io.execute {
-            runCatching { store.saveTransportMemory(emptyMap()) }
-            activeTransportPair = null
-            publishTransportMemory(emptyMap())
-            postToMain {
-                lastTransportDecision = null
-                message = "Forgot every learned fragment and Mux profile"
-            }
-            diagnostics.event("TRANSPORT", "memory-cleared", "cells" to 0)
-        }
-    }
-
-    /**
-     * Who we are talking through, as a stable key.
-     *
-     * MCC/MNC when the phone will tell us (it is what the SIM and the serving network actually
-     * are), the detected ISP's short name otherwise, and one shared "unknown" cell when neither
-     * is available — because a per-connection unique key would give the learner a brand new
-     * operator every time it asked.
-     */
-    fun currentCarrierKey(): String {
-        val operatorCode = runCatching {
-            val telephony = context.getSystemService(android.telephony.TelephonyManager::class.java)
-            telephony?.networkOperator.orEmpty()
-        }.getOrDefault("")
-        return TransportAdaptation.carrierKeyOf(
-            operatorCode = operatorCode,
-            ispShortName = iranMode.ispShortName,
-            carrierName = iranMode.carrierName
-        )
-    }
-
-    /**
-     * Choose the fragment/Mux pair for one connection and remember the choice.
-     *
-     * Called from [effectiveSettingsFor], which is the single funnel every config writer reads,
-     * so the decision cannot be bypassed by one path or applied twice by another.
-     */
-    private fun decideTransportPair(profile: ProxyProfile): TransportDecision {
-        val dayPart = dayPartOf(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY))
-        val decision = if (!settings.transportAdaptationEnabled ||
-            settings.transportProfileModeEnum != TransportProfileMode.AUTO
-        ) {
-            // MANUAL still records what it is about to send. Otherwise a user who sets their
-            // own values, runs them for a month and then flips to Automatic would land on a
-            // blank table — and the month they spent proving what works on their operator
-            // would be the one piece of evidence the learner never saw.
-            TransportDecision(
-                pair = TransportAdaptation.pairFromSettings(settings),
-                reason = "user values"
-            )
-        } else {
-            val carrier = currentCarrierKey()
-            val cell = transportMemoryEngine[TransportMemoryRecord.keyOf(carrier, dayPart)]
-            val picked = TransportAdaptation.decide(
-                memory = cell,
-                shape = transportShapeOf(profile),
-                severity = iranMode.severity,
-                explore = settings.transportAdaptationExplore,
-                nowMs = System.currentTimeMillis()
-            )
-            diagnostics.event(
-                "TRANSPORT",
-                "profile-chosen",
-                "carrier" to carrier.take(24),
-                "dayPart" to dayPart.id,
-                "pair" to picked.pair.id,
-                "exploring" to picked.exploring,
-                "drifted" to picked.drifted,
-                "reason" to picked.reason.take(120)
-            )
-            picked
-        }
-        // The wire field is volatile and safe to set here; the read-out is Compose state, so it
-        // is published on the main thread instead of written from the connection worker.
-        activeTransportPair = decision.pair
-        postToMain { lastTransportDecision = decision }
-        return decision
-    }
-
-    /**
-     * MARBLE_FRAGMENT_PROFILES_V208 — pick a ready fragment recipe, or go back to your own
-     * numbers.
-     *
-     * The recipe is *materialised* into the eight fragment fields rather than stored beside
-     * them, so the one chooser reaches both cores, the benchmark engine and the connection tuner
-     * through the values they already read — there is no second path that could apply a
-     * different recipe to a different engine. Choosing "Custom" keeps the fields exactly as the
-     * user typed them and simply stops naming a recipe.
-     */
-    fun chooseFragmentProfile(profileId: String) {
-        val named = TransportAdaptation.namedFragment(profileId)
-        val next = if (named != null) {
-            TransportAdaptation.withFragmentProfile(settings, named)
-        } else {
-            settings.copy(
-                fragmentProfileId = if (FragmentChoice.isCustom(profileId)) {
-                    FragmentChoice.CUSTOM
-                } else {
-                    FragmentChoice.NO_CHOICE
-                }
-            )
-        }
-        updateSettings(next)
-        diagnostics.event("TRANSPORT", "fragment-profile-chosen", "id" to next.fragmentProfileId.take(24))
-        setRuntimeMessage(fragmentProfileMessage(next))
-    }
-
-    /** The Mux twin of [chooseFragmentProfile]. */
-    fun chooseMuxProfile(profileId: String) {
-        val named = TransportAdaptation.namedMux(profileId)
-        val next = if (named != null) {
-            TransportAdaptation.withMuxProfile(settings, named)
-        } else {
-            settings.copy(
-                muxProfileId = if (MuxChoice.isCustom(profileId)) {
-                    MuxChoice.CUSTOM
-                } else {
-                    MuxChoice.NO_CHOICE
-                }
-            )
-        }
-        updateSettings(next)
-        diagnostics.event("TRANSPORT", "mux-profile-chosen", "id" to next.muxProfileId.take(24))
-        // Packet shaping is read once, when the core starts: a recipe chosen under a live tunnel
-        // is on the wire from the next connection, and saying so beats a silent no-op.
-        if (state == "CONNECTED") setRuntimeMessage("Mux profile saved • reconnect to put it on the wire")
-    }
-
-    /** The one line the fragment chooser answers with. */
-    private fun fragmentProfileMessage(next: AppSettings): String {
-        val pair = TransportAdaptation.pairFromSettings(next)
-        return when {
-            state != "CONNECTED" -> "${pair.fragment.label} • applies on the next connection"
-            else -> "${pair.fragment.label} • reconnect to put it on the wire"
-        }
-    }
-
-    /**
-     * Credit the finished session to the pair that carried it.
-     *
-     * One observation per connection, built from the session's own evidence: whether it stayed
-     * up, the latency and jitter the live monitor measured, and the throughput the byte counters
-     * saw. A session that never came up is still an observation — "this pair does not complete on
-     * this operator at this hour" is the most valuable thing the learner can be told.
-     */
-    fun settleTransportSession() {
-        val pair = activeTransportPair ?: return
-        activeTransportPair = null
-        if (!settings.transportAdaptationEnabled) return
-        val carrier = currentCarrierKey()
-        val dayPart = dayPartOf(java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY))
-        val latency = livePingMs.toDouble()
-        val jitter = liveJitterMs.toDouble()
-        val throughput = liveDownBps.toDouble()
-        val success = liveRouteScore >= 0 && latency > 0.0 &&
-            (liveRouteSuccessPercent <= 0 || liveRouteSuccessPercent >= 50)
-        io.execute {
-            runCatching {
-                val cells = transportMemoryEngine.toMutableMap()
-                val key = TransportMemoryRecord.keyOf(carrier, dayPart)
-                val updated = TransportAdaptation.observe(
-                    memory = cells[key],
-                    carrierId = carrier,
-                    dayPart = dayPart,
-                    pair = pair,
-                    success = success,
-                    latencyMs = latency,
-                    jitterMs = jitter,
-                    throughputBytesPerSecond = throughput,
-                    nowMs = System.currentTimeMillis(),
-                    severity = iranMode.severity
-                )
-                cells[key] = updated
-                store.saveTransportMemory(cells)
-                diagnostics.event(
-                    "TRANSPORT",
-                    "profile-observed",
-                    "carrier" to carrier.take(24),
-                    "dayPart" to dayPart.id,
-                    "pair" to pair.id,
-                    "success" to success,
-                    "latency" to latency.toInt(),
-                    "quality" to String.format(Locale.US, "%.3f", updated.scoreEwma),
-                    "observations" to updated.observations,
-                    "drift" to String.format(Locale.US, "%.3f", updated.drift)
-                )
-                publishTransportMemory(store.loadTransportMemory())
-            }
-        }
-    }
 
     /** The pool the selector is allowed to choose from, for the scope the user picked. */
     fun autoServerPool(): List<ProxyProfile> = when (settings.autoServerScopeEnum) {

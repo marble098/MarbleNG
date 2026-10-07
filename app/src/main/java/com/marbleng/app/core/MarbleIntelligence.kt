@@ -92,8 +92,6 @@ data class NodeHealthRecord(
     val udpEwma: Double = 0.0,
     val connectMsEwma: Double = 0.0,
     val failureStreak: Int = 0,
-    val preferredFragment: Boolean = false,
-    val preferredMux: Boolean = false,
     val lastSuccessAt: Long = 0L,
     val lastSeenAt: Long = 0L,
     // MARBLE_IRAN_AWARE_PING — Layer 0/1/3 evidence columns.
@@ -268,8 +266,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
                 udp_ewma REAL NOT NULL DEFAULT 0,
                 connect_ms_ewma REAL NOT NULL DEFAULT 0,
                 failure_streak INTEGER NOT NULL DEFAULT 0,
-                preferred_fragment INTEGER NOT NULL DEFAULT 0,
-                preferred_mux INTEGER NOT NULL DEFAULT 0,
                 last_success_at INTEGER NOT NULL DEFAULT 0,
                 last_seen_at INTEGER NOT NULL DEFAULT 0,
                 injected_reset_rate REAL NOT NULL DEFAULT 0,
@@ -355,8 +351,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             udpEwma = c.getDouble(i("udp_ewma")),
             connectMsEwma = c.getDouble(i("connect_ms_ewma")),
             failureStreak = c.getInt(i("failure_streak")),
-            preferredFragment = c.getInt(i("preferred_fragment")) != 0,
-            preferredMux = c.getInt(i("preferred_mux")) != 0,
             lastSuccessAt = c.getLong(i("last_success_at")),
             lastSeenAt = c.getLong(i("last_seen_at")),
             injectedResetRate = if (c.getColumnIndex("injected_reset_rate") >= 0) c.getDouble(i("injected_reset_rate")) else 0.0,
@@ -490,24 +484,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("udp_ewma", ewma(old?.udpEwma, result.udpSuccess.toDouble(), 0.0))
             put("connect_ms_ewma", old?.connectMsEwma ?: 0.0)
             put("failure_streak", if (result.success > 0) 0 else (old?.failureStreak ?: 0) + 1)
-            put(
-                "preferred_fragment",
-                when {
-                    result.usedFragment -> 1
-                    result.success >= 75 -> 0
-                    old?.preferredFragment == true -> 1
-                    else -> 0
-                }
-            )
-            put(
-                "preferred_mux",
-                when {
-                    result.usedMux -> 1
-                    result.success >= 75 -> 0
-                    old?.preferredMux == true -> 1
-                    else -> 0
-                }
-            )
             put("last_success_at", if (result.success > 0) now else old?.lastSuccessAt ?: 0L)
             put("last_seen_at", now)
         }
@@ -575,8 +551,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("udp_ewma", old?.udpEwma ?: 0.0)
             put("connect_ms_ewma", connectEwma)
             put("failure_streak", if (success) 0 else (old?.failureStreak ?: 0) + 1)
-            put("preferred_fragment", if (old?.preferredFragment == true) 1 else 0)
-            put("preferred_mux", if (old?.preferredMux == true) 1 else 0)
             put("last_success_at", if (success) now else old?.lastSuccessAt ?: 0L)
             put("last_seen_at", now)
         }
@@ -693,8 +667,6 @@ private class HealthDb(context: Context) : SQLiteOpenHelper(context, "marble-int
             put("udp_ewma", old?.udpEwma ?: 0.0)
             put("connect_ms_ewma", old?.connectMsEwma ?: 0.0)
             put("failure_streak", (old?.failureStreak ?: 0) + 1)
-            put("preferred_fragment", if (old?.preferredFragment == true) 1 else 0)
-            put("preferred_mux", if (old?.preferredMux == true) 1 else 0)
             put("last_success_at", old?.lastSuccessAt ?: 0L)
             put("last_seen_at", System.currentTimeMillis())
         }
@@ -2314,8 +2286,7 @@ class MarbleIntelligence(private val context: Context) {
             reliability * 0.46 + latency * 0.20 + jitter * 0.22 + connect * 0.12
 
         val resilience =
-            reliability * 0.50 + udp * 0.18 + latency * 0.14 + jitter * 0.18 +
-                if (h.preferredFragment) 5.0 else 0.0
+            reliability * 0.50 + udp * 0.18 + latency * 0.14 + jitter * 0.18
 
         val measured =
             when (settings.workloadProfile) {

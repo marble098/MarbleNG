@@ -23,10 +23,12 @@ import kotlin.math.min
 data class AccelerationPlan(
     val methodId: String = DIRECT,
     val label: String = "Direct baseline",
-    val fragment: Boolean = false,
-    val fragmentPackets: String = "",
-    val fragmentLength: String = "",
-    val fragmentInterval: String = "",
+    /**
+     * MARBLE_CORE_OPTIONS_V211 — the fragment fields that used to live here are gone with the
+     * feature. What is left is a plan over the options a *measurement* can legitimately choose
+     * between: the endpoint address family, TCP Fast Open, an MSS and — only when the user has
+     * multiplexing on — which concurrency to run it at.
+     */
     val mux: Boolean = false,
     val muxConcurrency: Int = 0,
     val muxXudpConcurrency: Int = 0,
@@ -40,18 +42,10 @@ data class AccelerationPlan(
 ) {
     /** True when the method changes nothing, i.e. the node was already configured optimally. */
     val neutral: Boolean
-        get() = !fragment && !mux && dnsQueryStrategy.isBlank() && !tcpFastOpen && tcpMaxSeg <= 0
+        get() = !mux && dnsQueryStrategy.isBlank() && !tcpFastOpen && tcpMaxSeg <= 0
 
     fun applyTo(base: AppSettings): AppSettings {
         var next = base
-        if (fragment) {
-            next = next.copy(
-                fragmentEnabled = true,
-                fragmentPackets = fragmentPackets.ifBlank { base.fragmentPackets },
-                fragmentLength = fragmentLength.ifBlank { base.fragmentLength },
-                fragmentInterval = fragmentInterval.ifBlank { base.fragmentInterval }
-            )
-        }
         if (mux) {
             next = next.copy(
                 muxEnabled = true,
@@ -68,10 +62,6 @@ data class AccelerationPlan(
     fun toJson(): JSONObject = JSONObject()
         .put("methodId", methodId)
         .put("label", label)
-        .put("fragment", fragment)
-        .put("fragmentPackets", fragmentPackets)
-        .put("fragmentLength", fragmentLength)
-        .put("fragmentInterval", fragmentInterval)
         .put("mux", mux)
         .put("muxConcurrency", muxConcurrency)
         .put("muxXudpConcurrency", muxXudpConcurrency)
@@ -89,10 +79,6 @@ data class AccelerationPlan(
         fun fromJson(o: JSONObject) = AccelerationPlan(
             methodId = o.optString("methodId", DIRECT),
             label = o.optString("label", "Direct baseline"),
-            fragment = o.optBoolean("fragment"),
-            fragmentPackets = o.optString("fragmentPackets"),
-            fragmentLength = o.optString("fragmentLength"),
-            fragmentInterval = o.optString("fragmentInterval"),
             mux = o.optBoolean("mux"),
             muxConcurrency = o.optInt("muxConcurrency"),
             muxXudpConcurrency = o.optInt("muxXudpConcurrency"),
@@ -142,7 +128,8 @@ data class TuningReport(
  *
  * Where [MarbleIntelligence] predicts from history and [ContinuousRouteOptimizer] compares *other*
  * nodes, this class improves the node the user actually selected. It executes a bounded set of
- * transport methods (TLS fragmentation shapes, Mux connection reuse, DNS address family) against
+ * transport methods (Mux concurrency when the user runs Mux, DNS address family, TCP Fast Open,
+ * MSS) against
  * that single node through throwaway Xray instances, measures real HTTPS latency and real
  * throughput for each, and keeps the winner only when it beats the untouched baseline by a
  * material margin. Because the exit node never changes, acceleration is safe to run with
@@ -295,8 +282,6 @@ class ConnectionTuner(
     ): List<AccelerationPlan> {
         val snapshot = intelligence.currentSnapshot()
         val health = intelligence.healthOf(profile.id)
-        val tlsLike = profile.security.contains("tls", true) ||
-            profile.security.contains("reality", true)
         val udpNative = profile.scheme.equals("hysteria2", true) ||
             profile.scheme.equals("hysteria", true) ||
             profile.transport.contains("hysteria", true)
@@ -310,58 +295,17 @@ class ConnectionTuner(
         val highRtt = (health?.latencyEwma ?: 0.0) >= 150.0
         val struggling = (health?.failureStreak ?: 0) > 0 || (health?.successEwma ?: 100.0) < 70.0
 
-        val fragmentMethods = if (tlsLike && !udpNative) {
+        // MARBLE_CORE_OPTIONS_V211 — the tuner competes *concurrency values inside a choice the
+        // user already made*, never the choice itself: multiplexing has to be on in Settings for
+        // any of these to exist, and the two candidates are the numbers around the user's own.
+        val muxMethods = if (muxEligible && base.muxEnabled) {
             listOf(
                 AccelerationPlan(
-                    methodId = "fragment-tlshello",
-                    label = "TLS hello fragmentation",
-                    fragment = true,
-                    fragmentPackets = "tlshello",
-                    fragmentLength = "100-200",
-                    fragmentInterval = "10-20"
-                ),
-                AccelerationPlan(
-                    methodId = "fragment-short",
-                    label = "Short-packet fragmentation",
-                    fragment = true,
-                    fragmentPackets = "1-3",
-                    fragmentLength = "40-90",
-                    fragmentInterval = "5-10"
-                ),
-                AccelerationPlan(
-                    methodId = "fragment-sni",
-                    label = "SNI tlshello length 6",
-                    fragment = true,
-                    fragmentPackets = "tlshello",
-                    fragmentLength = "6",
-                    fragmentInterval = "0"
-                ),
-                AccelerationPlan(
-                    methodId = "fragment-iran-max",
-                    label = "Iran max slice",
-                    fragment = true,
-                    fragmentPackets = "1-3",
-                    fragmentLength = "5-15",
-                    fragmentInterval = "15-30"
-                )
-            ).filterNot { plan ->
-                base.fragmentEnabled &&
-                    plan.fragmentPackets == base.fragmentPackets &&
-                    plan.fragmentLength == base.fragmentLength &&
-                    plan.fragmentInterval == base.fragmentInterval
-            }
-        } else {
-            emptyList()
-        }
-
-        val muxMethods = if (muxEligible && !base.muxEnabled) {
-            listOf(
-                AccelerationPlan(
-                    methodId = "mux-reuse",
-                    label = "Mux connection reuse",
+                    methodId = "mux-16",
+                    label = "Mux concurrency 16",
                     mux = true,
-                    muxConcurrency = 8,
-                    muxXudpConcurrency = 16
+                    muxConcurrency = 16,
+                    muxXudpConcurrency = 32
                 ),
                 AccelerationPlan(
                     methodId = "mux-light",
@@ -414,22 +358,19 @@ class ConnectionTuner(
         } else emptyList()
 
         val comboMethods = buildList {
-            val fragment = fragmentMethods.firstOrNull()
             val mux = muxMethods.lastOrNull()
             // A combo inherits whichever family the tuner ranked first; hard-coding "-dns-v4" here is
             // how an IPv6-preferred network silently got tested and tuned back onto IPv4.
             val dns = dnsMethods.firstOrNull()
-            if (fragment != null && dns != null) add(fragment.copy(methodId="fragment-${dns.methodId}", label="TLS fragmentation + ${dns.label.lowercase()}", dnsQueryStrategy=dns.dnsQueryStrategy))
-            if (mux != null && dns != null) add(mux.copy(methodId="mux-${dns.methodId}", label="Light Mux + ${dns.label.lowercase()}", dnsQueryStrategy=dns.dnsQueryStrategy))
-            if (fragment != null && mux != null) add(fragment.copy(methodId="fragment-mux-light", label="TLS fragmentation + light Mux", mux=true, muxConcurrency=4, muxXudpConcurrency=8))
+            if (mux != null && dns != null) add(mux.copy(methodId="mux-${dns.methodId}", label="Mux concurrency + ${dns.label.lowercase()}", dnsQueryStrategy=dns.dnsQueryStrategy))
             val tfo = tfoMethods.firstOrNull(); val mss = mssMethods.firstOrNull()
             if (tfo != null && mss != null) add(tfo.copy(methodId = "tfo-mss", label = "TCP Fast Open + PMTU MSS", tcpMaxSeg = mss.tcpMaxSeg))
         }
 
         val ordered = when {
-            struggling -> fragmentMethods + mssMethods + tfoMethods + dnsMethods + muxMethods + comboMethods
-            highRtt -> tfoMethods + mssMethods + muxMethods + dnsMethods + fragmentMethods + comboMethods
-            else -> tfoMethods + mssMethods + dnsMethods + muxMethods + fragmentMethods + comboMethods
+            struggling -> mssMethods + tfoMethods + dnsMethods + muxMethods + comboMethods
+            highRtt -> tfoMethods + mssMethods + muxMethods + dnsMethods + comboMethods
+            else -> tfoMethods + mssMethods + dnsMethods + muxMethods + comboMethods
         }
 
         val budget = base.connectTuningMethods.coerceIn(1, 8)

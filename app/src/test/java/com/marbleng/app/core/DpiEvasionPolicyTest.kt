@@ -6,7 +6,24 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * MARBLE_CORE_OPTIONS_V211 — what [DpiEvasionPolicy] is allowed to decide now.
+ *
+ * The fragment ladder that used to live here is gone with the feature: the two cores' options are
+ * the user's, written verbatim, and no policy may rewrite them. What this object still owns is the
+ * two decisions that are *not* a core option — the TUN segment ceiling on a filtered carrier, and
+ * the timing budgets a measured lossy link earns — and these tests pin exactly that boundary.
+ */
 class DpiEvasionPolicyTest {
+    private fun cellularIsp(severity: FilterSeverity) = IranIsp(
+        asn = 0,
+        name = "Mobile operator",
+        persianName = "اپراتور همراه",
+        shortName = "MCI",
+        kind = IranIspKind.MOBILE,
+        severity = severity
+    )
+
     @Test
     fun neverCleartextRejectsHttp() {
         assertTrue(DpiEvasionPolicy.neverCleartext("https://example.com/sub"))
@@ -15,162 +32,86 @@ class DpiEvasionPolicyTest {
     }
 
     @Test
-    fun healDoesNotWeakenAHealthyRecipe() {
-        val base = DpiEvasionPolicy.applyRecipe(AppSettings(), DpiEvasionPolicy.TLSHELLO_SNI)
+    fun aHealthyMeasuredPathEarnsNothing() {
+        val base = AppSettings(
+            mtuMax = 1500,
+            mtuMin = 1280,
+            benchTimeoutSec = 9,
+            tcpPrecheckTimeoutMs = 2_000
+        )
         val healed = DpiEvasionPolicy.heal(
             base,
-            DpiEvasionPolicy.PathEvidence(
-                pingMs = 80,
-                jitterMs = 4,
-                successPercent = 100,
-                samples = 6
-            ),
+            DpiEvasionPolicy.PathEvidence(pingMs = 80, jitterMs = 4, successPercent = 100, samples = 6),
             IranModeState()
         )
-        assertEquals(base.fragmentPackets, healed.fragmentPackets)
-        assertEquals(base.fragmentLength, healed.fragmentLength)
-        assertTrue(DpiEvasionPolicy.recipeFrom(healed).rank >= DpiEvasionPolicy.TLSHELLO_SNI.rank)
+        assertEquals("nothing may change on a healthy path", base, healed)
     }
 
     @Test
-    fun healEscalatesOnPacketLoss() {
-        val base = DpiEvasionPolicy.applyRecipe(AppSettings(), DpiEvasionPolicy.TLSHELLO)
+    fun plainHighPingWidensTimeoutsWithoutTouchingAnythingElse() {
+        val base = AppSettings(benchTimeoutSec = 9, tcpPrecheckTimeoutMs = 2_000, mtuMax = 1500)
         val healed = DpiEvasionPolicy.heal(
             base,
-            DpiEvasionPolicy.PathEvidence(
-                pingMs = 90,
-                jitterMs = 6,
-                successPercent = 40,
-                samples = 4
-            ),
+            DpiEvasionPolicy.PathEvidence(pingMs = 320, jitterMs = 6, successPercent = 100, samples = 6),
             IranModeState()
         )
-        assertEquals(DpiEvasionPolicy.MAX_SLICE.packets, healed.fragmentPackets)
-        assertEquals(DpiEvasionPolicy.MAX_SLICE.length, healed.fragmentLength)
-        assertTrue(healed.mtuMax <= 1280)
-    }
-
-    /**
-     * MARBLE_FAKE_IP_V184 — a slow but stable link (high ping, no loss, no jitter) is distance
-     * and capacity, not a packet-level defect. heal() must not arm the fragment recipe or cap
-     * the MTU for it: WhatsApp-style flows pay a fresh handshake per connection, and shredding
-     * every ClientHello into paced 10-30 byte records on a merely slow link made interactive
-     * apps measurably worse. Only the timing budgets widen.
-     */
-    @Test
-    fun healDoesNotFragmentOnPlainHighPing() {
-        val base = DpiEvasionPolicy.applyRecipe(AppSettings(), DpiEvasionPolicy.TLSHELLO)
-        val healed = DpiEvasionPolicy.heal(
-            base,
-            DpiEvasionPolicy.PathEvidence(
-                pingMs = 320,
-                jitterMs = 5,
-                successPercent = 100,
-                samples = 6
-            ),
-            IranModeState()
-        )
-        assertEquals(base.fragmentPackets, healed.fragmentPackets)
-        assertEquals(base.fragmentLength, healed.fragmentLength)
-        assertTrue(
-            "MTU ceiling must not drop for a slow-but-stable link",
-            healed.mtuMax >= 1500
-        )
-        assertTrue("slow links keep the widened bench budget", healed.benchTimeoutSec >= 14)
-        assertTrue("slow links keep the widened precheck budget", healed.tcpPrecheckTimeoutMs >= 3_000)
-    }
-
-    /**
-     * The re-gating must not disarm the real defects: sustained jitter still escalates the
-     * fragment recipe (RECORD_SPLIT) and caps the MTU at 1360.
-     */
-    @Test
-    fun healStillEscalatesOnJitter() {
-        val base = DpiEvasionPolicy.applyRecipe(AppSettings(), DpiEvasionPolicy.TLSHELLO)
-        val healed = DpiEvasionPolicy.heal(
-            base,
-            DpiEvasionPolicy.PathEvidence(
-                pingMs = 90,
-                jitterMs = 40,
-                successPercent = 100,
-                samples = 6
-            ),
-            IranModeState()
-        )
-        assertEquals(DpiEvasionPolicy.RECORD_SPLIT.packets, healed.fragmentPackets)
-        assertEquals(DpiEvasionPolicy.RECORD_SPLIT.length, healed.fragmentLength)
-        assertTrue(healed.mtuMax <= 1360)
-    }
-
-    /**
-     * SNI + TCP-reset DPI uses the chained fragment recipe. The outer hop is the packet
-     * split (1-1/1-3/5-10), NOT Xray's "tlshello" record-rewriter: real servers (Fastly,
-     * Cloudflare, GitHub, AWS — RST, verified on v26.7.28) and Iran's 2026 DPI reject that
-     * shape (Xray #4370, #5969). The recipe still chains directly-dialing fragmentation.
-     */
-    @Test
-    fun sniPlusResetUsesChainedFragmentSplit() {
-        val recipe = DpiEvasionPolicy.connectionRecipe(
-            IranModeState(
-                active = true,
-                techniques = setOf(CensorTechnique.SNI_FILTERING, CensorTechnique.TCP_RESET)
-            )
-        )
-        assertEquals("1-1", recipe.packets)
-        assertEquals("1-3", recipe.length)
-        assertEquals("5-10", recipe.interval)
-        assertTrue(recipe.innerEnabled)
-        assertEquals("1-1", recipe.innerPackets)
-        assertEquals("4", recipe.innerInterval)
-        assertEquals("517", recipe.innerMaxSplit)
-    }
-
-    @Test
-    fun iranShieldCountermeasuresStayTypedAgainstState() {
-        val lines = IranShield.countermeasures(
-            IranModeState(
-                active = true,
-                techniques = setOf(CensorTechnique.SNI_FILTERING)
-            )
-        )
-        assertTrue(lines.isNotEmpty())
-        assertTrue(
-            lines.any {
-                it.contains("fragment", ignoreCase = true) ||
-                    it.contains("shred", ignoreCase = true) ||
-                    it.contains("TLS", ignoreCase = true)
-            }
-        )
-    }
-
-    @Test
-    fun githubRawAndGistUseJsdelivrMirrors() {
-        val raw = DpiAwareFetcher.candidateUrls(
-            "https://raw.githubusercontent.com/owner/repo/main/list.txt"
-        )
+        assertTrue(healed.benchTimeoutSec > base.benchTimeoutSec)
+        assertTrue(healed.tcpPrecheckTimeoutMs > base.tcpPrecheckTimeoutMs)
         assertEquals(
-            listOf(
-                "https://raw.githubusercontent.com/owner/repo/main/list.txt",
-                "https://cdn.jsdelivr.net/gh/owner/repo@main/list.txt"
-            ),
-            raw
+            "distance is not packet loss: the MTU clamp belongs to the carrier, not to a ping",
+            base.mtuMax,
+            healed.mtuMax
         )
-        val gist = DpiAwareFetcher.candidateUrls(
-            "https://gist.githubusercontent.com/owner/abc123/raw/deadbeef/nodes.txt"
-        )
-        assertTrue(gist.any { it.startsWith("https://cdn.jsdelivr.net/gh/") })
-        assertTrue(gist.all { it.startsWith("https://") })
     }
 
     @Test
-    fun candidateUrlsRejectCleartext() {
-        var threw = false
-        try {
-            DpiAwareFetcher.candidateUrls("http://provider.example/sub")
-        } catch (_: IllegalArgumentException) {
-            threw = true
-        }
-        assertTrue(threw)
+    fun lossAndJitterClampTheTunSegmentUnderTheCarrierCeiling() {
+        val cellular = IranModeState(
+            active = true,
+            isp = cellularIsp(FilterSeverity.MODERATE)
+        )
+        val lossy = DpiEvasionPolicy.heal(
+            AppSettings(mtuMax = 1500, mtuMin = 1280),
+            DpiEvasionPolicy.PathEvidence(pingMs = 120, jitterMs = 8, successPercent = 55, samples = 8),
+            cellular
+        )
+        assertTrue("loss must clamp below the carrier ceiling", lossy.mtuMax <= 1280)
+        assertTrue(lossy.mtuMax >= lossy.mtuMin)
+
+        val jittery = DpiEvasionPolicy.heal(
+            AppSettings(mtuMax = 1500, mtuMin = 1280),
+            DpiEvasionPolicy.PathEvidence(pingMs = 120, jitterMs = 60, successPercent = 100, samples = 8),
+            cellular
+        )
+        assertTrue(jittery.mtuMax <= 1380)
     }
 
+    @Test
+    fun throttlingTechniqueWidensTheTimingBudgets() {
+        val healed = DpiEvasionPolicy.heal(
+            AppSettings(benchTimeoutSec = 9, tcpPrecheckTimeoutMs = 2_000),
+            DpiEvasionPolicy.PathEvidence(),
+            IranModeState(active = true, techniques = setOf(CensorTechnique.THROTTLING))
+        )
+        assertTrue(healed.benchTimeoutSec >= 14)
+        assertTrue(healed.tcpPrecheckTimeoutMs >= 3_000)
+    }
+
+    @Test
+    fun mtuCeilingFollowsSeverityAndCarrier() {
+        assertEquals(
+            "an unfiltered link keeps the standard MTU",
+            1500,
+            DpiEvasionPolicy.mtuCeiling(IranModeState(), cellular = false)
+        )
+        val cellular = IranModeState(active = true, isp = cellularIsp(FilterSeverity.MODERATE))
+        assertEquals(1380, DpiEvasionPolicy.mtuCeiling(cellular, cellular = true))
+        assertEquals(1420, DpiEvasionPolicy.mtuCeiling(IranModeState(active = true), cellular = false))
+        val clampdown = IranModeState(
+            active = true,
+            isp = cellularIsp(FilterSeverity.MODERATE),
+            techniques = setOf(CensorTechnique.NATIONAL_INTRANET)
+        )
+        assertEquals("a national blackout is the strictest tier", 1280, DpiEvasionPolicy.mtuCeiling(clampdown, cellular = true))
+    }
 }

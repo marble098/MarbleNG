@@ -792,15 +792,14 @@ class MarbleVpnService : VpnService() {
             "profile" to profile.name,
             "port" to port,
             "mode" to activeMode,
-            "fragment" to settings.fragmentEnabled,
             "mux" to settings.muxEnabled,
             "dnsStrategy" to settings.dnsQueryStrategy,
             "linkRttMs" to linkEvidence.rttMs.toInt(),
             "linkJitterMs" to linkEvidence.jitterMs.toInt(),
             "linkSamples" to linkEvidence.samples,
-            "dnsTimeoutMs" to LinkDeadlinePolicy.dnsServerTimeoutMs(
-                linkEvidence, 0, settings.fragmentEnabled
-            )
+            // MARBLE_CORE_OPTIONS_V211 — no fragment chain exists to pay its pacing overhead,
+            // so the deadline is the measured link's alone.
+            "dnsTimeoutMs" to LinkDeadlinePolicy.dnsServerTimeoutMs(linkEvidence, 0, fragmented = false)
         )
 
         val coreStartNs = System.nanoTime()

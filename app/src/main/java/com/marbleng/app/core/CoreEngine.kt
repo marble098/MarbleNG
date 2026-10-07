@@ -72,7 +72,7 @@ object CoreEngineInfo {
 
     fun summary(engine: CoreEngine): String = when (engine) {
         CoreEngine.XRAY ->
-            "Xray-core with Reality, XHTTP, fragment and the full MarbleNG tuning stack."
+            "Xray-core with Reality, XHTTP and the full MarbleNG tuning stack."
         CoreEngine.SINGBOX ->
             "The extended sing-box fork: WARP, MASQUE, MTProxy, Mieru, TrustTunnel, mKCP and " +
                 "a native URL test through its Clash API."

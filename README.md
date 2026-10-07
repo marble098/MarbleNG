@@ -341,13 +341,6 @@ bar left composition and replayed its spring entrance), and there is **one** pin
 pings the current group, shows no latency number, and every other ping surface on the page is a
 display.
 
-`docs/FRAGMENT_PROFILES_V208.md` — Fragment & Mux, rewritten. The user's recipe used to be an
-*input* that the DPI ladder and Iran Mode overwrote on the way to the config builder, sing-box
-reduced it to one boolean (`fragment: true` — the expensive one, which costs a 500 ms handshake wait
-on Android) and never wrote multiplexing at all. There is now an eight-rung fragment ladder plus
-six multiplexing recipes, a blank/custom/recipe distinction, the choice applied last, and an honest
-mapping onto the three TLS-fragment fields and the `multiplex` object the pinned core actually has.
-
 `docs/SERVER_TILE_LAYOUT_V208.md` — servers can be read as **compact boxes** on the Servers page and
 in the Home server box, two-up on a phone and four-up on a tablet, or as the rows they have always
 been; Settings › General › Server cards chooses.
@@ -382,6 +375,24 @@ Navigation and Language & text; Connection owns Engine, Routing and Automatic co
 the flat page had is still there, plus an *Expand all* / *Collapse all* control in the header, and
 a section nobody has touched is open — so one added in a later release opens too.
 
+### The V211 pass
+
+`docs/CORE_OPTIONS_V211.md` — the Fragment section is **deleted**, not hidden. It changed nothing a
+user could feel because three automatic layers (the DPI ladder, Iran Mode, the traffic learner)
+rewrote its numbers on the way to the config builder: the value on screen was never the value on the
+wire, so the control could not fail visibly. The page, the card, the ladders, the learner file, the
+generated `fragment-direct`/`tls-fragment` dialers, the sing-box `record_fragment`/`fragment` keys
+and every settings field behind them are gone. In their place: **the cores' own options**, written
+once, in the core's own vocabulary — log, sniffing and dest-override order, inbounds and inbound
+users, SOCKS UDP, Xray Mux.Cool (concurrency, XUDP concurrency, UDP/443) and sing-box multiplex
+(protocol, max connections, min/max streams, padding), the full `sockopt` surface, routing strategy
+and matcher, the five `policy` timeouts, sing-box's parser/unified-delay/cache/connect timeout — and
+a JSON escape hatch that deep-merges anything the screen does not model, with a **total refusal**
+(and a sentence) when the patch names a subsystem Marble owns. The last writer is the user: a value
+left neutral stays absent so the automatic layers can fill it, and a value that is set survives
+them. An *imported* document keeps whatever fragment chain it arrived with — the app no longer
+writes one, but it still refuses to rewrite the user's own.
+
 `docs/HIGH_JITTER_SHIELD_V206.md` is the chapter before them. Very high jitter was being answered with
 a mean that one stalled packet destroys, a verdict that is a single bit, thresholds that ignore
 what is normal for the link in front of us, and a response whose cost grew with the severity. The
@@ -391,15 +402,6 @@ is relative to a baseline the link earns while it is calm, the mitigation is one
 that attacks fast, releases slowly and holds after an escalation, and what it spends on extra
 probes is capped by a hard per-minute budget. The chapter also records the five defects found in
 the first cut of the shield itself and what each one became.
-
-`docs/FRAGMENT_MUX_PAGE_V206.md` is the chapter before it. Settings › Engine carried **two cards
-called "Fragment & Mux"** — the values, and the learner that silently overrode them — so the
-section is now one dedicated page that states what is on the wire and who chose it *before* the
-controls that produce it. The same chapter is a performance post-mortem: every keystroke in those
-fields used to rewrite all ~250 preferences and re-create every notification channel (four binder
-calls into `system_server`) on the main thread, and the learner's memory list was sorted and
-`String.format`-ed inside composition — so the writes are now coalesced off the main thread, the
-channels are built once per process, and the rows are derived once per change.
 
 ## Main navigation
 
@@ -513,7 +515,7 @@ Main areas include:
 - Marble Intelligence
 - DNS
 - Routing
-- Fragmentation & Mux
+- Core options (Xray and sing-box)
 - Chain proxy
 - Bug Finder
 
@@ -776,20 +778,24 @@ The manual editor exposes fields for:
 - MTU
 - userspace mode
 
-## Fragmentation and Mux
+## Core options (Xray and sing-box)
 
-Expert controls include:
+Settings › Connection › Engine carries one page per running core. Expert controls include:
 
-- TLS ClientHello fragmentation
-- fragment packets
-- fragment length
-- fragment interval
-- Mux
-- TCP concurrency
-- XUDP concurrency
-- UDP/443 policy
-- adaptive Fragment
-- adaptive Mux
+- Xray: log level and DNS log, sniffing with the dest-override order, LAN and HTTP inbound port,
+  SOCKS UDP, Mux.Cool (concurrency, XUDP concurrency, UDP/443), the whole `sockopt` surface
+  (domain strategy, TCP no-delay, keep-alive, user timeout, congestion control, MPTCP, window
+  clamp), routing strategy and domain matcher, the five `policy` timeouts and the buffer size, and
+  an extra-JSON editor
+- sing-box: log level and timestamps, sniffing and destination override, LAN and HTTP inbound port,
+  inbound username/password, multiplex (protocol, max connections, min/max streams, padding),
+  connectivity options (parser, unified delay, cache file, connect timeout), and an extra-JSON
+  editor
+
+Everything the screen does not model can be written into the extra-JSON editor: objects merge key by
+key, arrays and scalars replace, and a patch that names a subsystem Marble manages (`inbounds`,
+`outbounds`, `routing`, `dns`, `log`) is refused as a whole, with the reason shown, leaving the
+generated document untouched.
 
 ## Chain proxy
 

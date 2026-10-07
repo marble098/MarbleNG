@@ -38,8 +38,6 @@ object IranShield {
         }
     }
 
-    private fun fragmentProfile(state: IranModeState) = DpiEvasionPolicy.connectionRecipe(state)
-
     /**
      * Rewrites the effective settings used for a connection while Iran Mode is active.
      *
@@ -55,28 +53,16 @@ object IranShield {
         if (!state.active) return base
 
         val tier = tier(state)
-        val fragment = fragmentProfile(state)
-        val autoFragment = shouldAutoFragment(profile)
-        val udpBlocked = CensorTechnique.UDP_BLOCKED in state.techniques
         val cellular = state.isp?.kind == IranIspKind.MOBILE
 
         var next = if (!base.iranModeCountermeasures) base else base.copy(
-            // --- Anti-DPI transport shaping -------------------------------------------------
-            // Clear HTTP-like transports already have their own framing. Do not mutate
-            // XHTTP/VLESS-ENC first writes merely because Iran Mode is active. Explicit user
-            // Fragment settings are still preserved via base.*.
-            fragmentEnabled = if (autoFragment) true else base.fragmentEnabled,
-            fragmentPackets = if (autoFragment) fragment.packets else base.fragmentPackets,
-            fragmentLength = if (autoFragment) fragment.length else base.fragmentLength,
-            fragmentInterval = if (autoFragment) fragment.interval else base.fragmentInterval,
-            fragmentMaxSplit = if (autoFragment) fragment.maxSplit else base.fragmentMaxSplit,
-            fragmentInnerEnabled = if (autoFragment) fragment.innerEnabled else base.fragmentInnerEnabled,
-            fragmentInnerPackets = if (fragment.innerEnabled) fragment.innerPackets else base.fragmentInnerPackets,
-            fragmentInnerLength = if (fragment.innerEnabled) fragment.innerLength else base.fragmentInnerLength,
-            fragmentInnerInterval = if (fragment.innerEnabled) fragment.innerInterval else base.fragmentInnerInterval,
-            fragmentInnerMaxSplit = if (fragment.innerEnabled) fragment.innerMaxSplit else base.fragmentInnerMaxSplit,
-            adaptiveFragmentEnabled =
-                if (autoFragment) true else base.adaptiveFragmentEnabled,
+            // MARBLE_CORE_OPTIONS_V211 — the transport shaping block that used to sit here
+            // (Iran Mode writing the user's fragment recipe and switching Mux off) is gone. Iran
+            // Mode now changes *timing, routing and resilience* — the things a filtered link
+            // actually needs from the app — and leaves every core option exactly as the user set
+            // it. The one exception that survives is the Mux/XTLS-Vision rule below, and it is a
+            // statement about the wire rather than a preference: Vision already negotiates its own
+            // flow control, so multiplexing on top of it is slower and a louder fingerprint.
 
             // --- Encrypted resolution ---------------------------------------------------------
             // Preserve Marble Intelligence's network-scoped measured order. Hard-coding Google
@@ -106,20 +92,17 @@ object IranShield {
             val mtuCeiling = DpiEvasionPolicy.mtuCeiling(state, cellular)
             next = next.copy(mtuMax = min(next.mtuMax, mtuCeiling).coerceAtLeast(next.mtuMin))
 
-            // QUIC/UDP is dropped nationally during clampdowns; failing it fast makes apps fall back
-            // to TCP through the tunnel instead of stalling on retransmits.
-            if (udpBlocked || tier >= 3) {
-                next = next.copy(muxUdp443 = "reject")
-            }
-
             if (base.workloadProfile == WorkloadProfile.AUTO && tier >= 2) {
                 next = next.copy(workloadProfile = WorkloadProfile.STEALTH)
             }
 
             // XTLS Vision negotiates its own flow control; multiplexing on top of it is both slower
-            // and a stronger fingerprint, so it is never left on for a Vision/REALITY path.
+            // and a stronger fingerprint, so it is not left on for a Vision/REALITY path. The
+            // *stored* setting is untouched — this is the connection's config, not the user's
+            // screen, and `SingBoxTransportPolicy.muxIsUnsafeFor` states the same rule for the
+            // other engine so the two can never disagree.
             if (profile != null && usesVisionOrReality(profile)) {
-                next = next.copy(muxEnabled = false)
+                next = next.copy(muxEnabled = false, singBoxMuxEnabled = false)
             }
         }
 
@@ -213,7 +196,6 @@ object IranShield {
         val tier = tier(state)
         val out = mutableListOf<String>()
 
-        out += fragmentProfile(state).description
         // MARBLE_V80: Updated descriptions reflecting new capabilities
         out += "Multi-layer censorship-aware DNS with parallel resolution, anti-poisoning, and automatic blacklist of degraded providers"
         out += "Plaintext :53 hijacked into the tunnel so the ISP resolver cannot inject block pages"
@@ -228,8 +210,12 @@ object IranShield {
         out += "Profile security audit: VMess without forward secrecy is deprioritized"
         out += "Iran-aware optimizer: 2.5x longer cooldowns and higher switch thresholds"
 
+        // MARBLE_CORE_OPTIONS_V211 — the QUIC/UDP-443 line reported a countermeasure that used to
+        // flip `muxUdp443` behind the user's back. That flip is gone (the Mux fields are the
+        // user's), so the report states the *route* instead, which is still shaped by this policy:
+        // clampdowns are matched by the routing rules, not by a rewritten core option.
         if (CensorTechnique.UDP_BLOCKED in state.techniques || tier >= 3) {
-            out += "QUIC/UDP-443 rejected at the tunnel so apps fall back to TCP instead of stalling"
+            out += "UDP-heavy routes are deprioritised while datagram transit is filtered"
         }
         if (CensorTechnique.PROTOCOL_ALLOWLIST in state.techniques) {
             out += "Non-allowlisted destination ports deprioritised — only 80/443 style paths are raced"
@@ -244,18 +230,6 @@ object IranShield {
             out += "MTU capped for mobile DPI so shredded records are not reassembled downstream"
         }
         return out
-    }
-
-    private fun shouldAutoFragment(profile: ProxyProfile?): Boolean {
-        if (profile == null) return true
-        val security = profile.security.lowercase()
-        val transport = profile.transport.lowercase()
-        val clearHttpLike =
-            security == "none" &&
-                transport in setOf(
-                    "xhttp", "splithttp", "grpc", "ws", "websocket", "httpupgrade"
-                )
-        return !clearHttpLike
     }
 
     private fun usesVisionOrReality(profile: ProxyProfile): Boolean =

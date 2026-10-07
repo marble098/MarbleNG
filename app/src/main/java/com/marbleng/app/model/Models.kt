@@ -77,7 +77,7 @@ data class BenchmarkResult(
     val streamingScore: Double = 0.0,
     val stabilityScore: Double = 0.0,
     val resilienceScore: Double = 0.0,
-    val usedFragment: Boolean = false,
+    /** True when the probe that produced this row ran a Mux concurrency the user had not set. */
     val usedMux: Boolean = false,
     /**
      * Evidence tier shown in Library. SMART is the endpoint-gate/Smart verdict; TUNNEL proves the
@@ -138,7 +138,6 @@ data class BenchmarkResult(
         put("streamingScore", streamingScore)
         put("stabilityScore", stabilityScore)
         put("resilienceScore", resilienceScore)
-        put("usedFragment", usedFragment)
         put("usedMux", usedMux)
         put("probeKind", probeKind)
         put("jitterMs", jitterMs)
@@ -171,7 +170,6 @@ data class BenchmarkResult(
             streamingScore = o.optDouble("streamingScore"),
             stabilityScore = o.optDouble("stabilityScore"),
             resilienceScore = o.optDouble("resilienceScore"),
-            usedFragment = o.optBoolean("usedFragment"),
             usedMux = o.optBoolean("usedMux"),
             probeKind = o.optString("probeKind").takeIf { it.isNotBlank() } ?: "TUNNEL",
             jitterMs = o.optDouble("jitterMs"),
@@ -340,34 +338,80 @@ fun parseServerLayout(raw: String): ServerLayout =
         }
 
 /**
- * MARBLE_FRAGMENT_PROFILES_V208 — the two values a fragment choice can hold that are *not* a
- * recipe.
+ * MARBLE_CORE_OPTIONS_V211 — every list a per-core option surface draws is a value here.
  *
- * The model layer owns the sentinels and the core layer owns the recipes, so `Models.kt` stays
- * free of a dependency on `core` while both agree on one spelling of "no recipe" and "your own
- * numbers". A blank stored value (a backup restored from an older build) reads as [OFF] — the
- * honest answer for an install that never chose a recipe — and never as a guess.
+ * The two pinned cores do not share a vocabulary — Xray spells its log levels
+ * `error`/`warning` and sing-box spells them `warn`/`fatal`, Xray calls multiplexing `mux` and
+ * sing-box calls it `multiplex` — so the lists live in the model as data and the writers index
+ * them by name. A control that offers a value its own core would reject is a control that
+ * silently does nothing, which is exactly what this chapter exists to remove.
  */
-object FragmentChoice {
-    /** No recipe named yet: the automatic policies decide. Not the same as fragmentation off. */
-    const val NO_CHOICE: String = ""
+object XrayLogLevels {
+    val ALL: List<String> = listOf("none", "error", "warning", "info", "debug")
 
-    /** The hand-typed values in the fragment fields are what goes on the wire. */
-    const val CUSTOM: String = "custom"
-
-    fun isCustom(raw: String): Boolean = raw.trim().equals(CUSTOM, ignoreCase = true)
-
-    fun isNoChoice(raw: String): Boolean = raw.isBlank()
+    fun parse(raw: String): String =
+        ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "error"
 }
 
-/** The Mux twin of [FragmentChoice]. */
-object MuxChoice {
-    const val NO_CHOICE: String = ""
-    const val CUSTOM: String = "custom"
+/** sing-box `log.level`, in the order the core's own documentation lists them. */
+object SingBoxLogLevels {
+    val ALL: List<String> = listOf("trace", "debug", "info", "warn", "error", "fatal", "panic")
 
-    fun isCustom(raw: String): Boolean = raw.trim().equals(CUSTOM, ignoreCase = true)
+    fun parse(raw: String): String =
+        ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "warn"
+}
 
-    fun isNoChoice(raw: String): Boolean = raw.isBlank()
+/**
+ * Xray `sockopt.domainStrategy` — how a destination name becomes an address for the dial.
+ *
+ * The list is the core's, verbatim (`common/session` + `infra/conf/transport_internet.go`):
+ * `AsIs`, `UseIP`, `UseIPv4`, `UseIPv6`, `ForceIP`, `ForceIPv4`, `ForceIPv6`.
+ */
+object XrayDomainStrategies {
+    val ALL: List<String> = listOf(
+        "AsIs", "UseIP", "UseIPv4", "UseIPv6", "ForceIP", "ForceIPv4", "ForceIPv6"
+    )
+
+    fun parse(raw: String): String =
+        ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "AsIs"
+}
+
+/** Xray `routing.domainStrategy` — the same vocabulary minus the forcing modes. */
+object XrayRoutingDomainStrategies {
+    val ALL: List<String> = listOf("AsIs", "IPIfNonMatch", "IPOnDemand")
+
+    fun parse(raw: String): String =
+        ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "AsIs"
+}
+
+/** Xray `routing.domainMatcher` ("" = core default). */
+object XrayDomainMatchers {
+    val ALL: List<String> = listOf("", "hybrid", "linear")
+
+    fun parse(raw: String): String =
+        ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: ""
+}
+
+/**
+ * sing-box `multiplex.protocol`.
+ *
+ * `h2mux` is what the fork's own docs recommend below a dozen streams, `yamux` above it and for
+ * anything that must survive a lossy path, `smux` is the protocol Marble's earlier translator
+ * wrote and is kept so a restored backup keeps dialling.
+ */
+object SingBoxMuxProtocols {
+    val ALL: List<String> = listOf("h2mux", "smux", "yamux")
+
+    fun parse(raw: String): String =
+        ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "h2mux"
+}
+
+/** Xray `mux.xudpProxyUDP443`: what a multiplexed UDP flow to port 443 does. */
+object XrayMuxUdp443Modes {
+    val ALL: List<String> = listOf("skip", "allow", "reject")
+
+    fun parse(raw: String): String =
+        ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "skip"
 }
 
 /**
@@ -1371,43 +1415,12 @@ fun parseAutoServerScope(raw: String): AutoServerScope =
             else -> AutoServerScope.DEFAULT
         }
 
-/**
- * MARBLE_TRANSPORT_ADAPTATION_V203 — who chooses the fragment/Mux profile of a connection.
- *
- *  - [OFF]    the values in Settings are the values on the wire, exactly as before this existed.
- *  - [AUTO]   the learned profile for the current operator and hour wins; the Settings values
- *             become the starting point the learner improves on.
- *  - [MANUAL] the learner keeps observing and remembering (so switching back to AUTO is
- *             informed from day one) but never overrides what the user set.
- */
-enum class TransportProfileMode(val id: String) {
-    OFF("off"),
-    AUTO("auto"),
-    MANUAL("manual");
-
-    companion object {
-        val DEFAULT: TransportProfileMode get() = AUTO
-    }
-}
-
-fun parseTransportProfileMode(raw: String): TransportProfileMode =
-    TransportProfileMode.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: when (raw.trim().uppercase()) {
-            "DISABLED", "NONE", "STATIC" -> TransportProfileMode.OFF
-            "LEARN", "ADAPTIVE", "LEARNING" -> TransportProfileMode.AUTO
-            "FIXED", "USER", "OVERRIDE" -> TransportProfileMode.MANUAL
-            else -> TransportProfileMode.DEFAULT
-        }
-
 /** Extension readers so the engine never parses a raw string twice. */
 val AppSettings.autoServerStrategyEnum: AutoServerStrategy
     get() = parseAutoServerStrategy(autoServerStrategy)
 
 val AppSettings.autoServerScopeEnum: AutoServerScope
     get() = parseAutoServerScope(autoServerScope)
-
-val AppSettings.transportProfileModeEnum: TransportProfileMode
-    get() = parseTransportProfileMode(transportProfileMode)
 
 /** MARBLE_SERVER_TILE_LAYOUT_V208 — the parsed server silhouette; the string is only storage. */
 val AppSettings.serversLayoutEnum: ServerLayout
@@ -1737,46 +1750,123 @@ data class AppSettings(
     /** 0 = kernel/default unless a measured Marble Turbo plan supplies an MSS. */
     val tcpMaxSeg: Int = 0,
 
-    val fragmentEnabled: Boolean = false,
-    val fragmentPackets: String = "tlshello",
-    val fragmentLength: String = "100-200",
-    val fragmentInterval: String = "10-20",
-    val fragmentMaxSplit: String = "",
-    val fragmentInnerEnabled: Boolean = false,
-    val fragmentInnerPackets: String = "1-1",
-    val fragmentInnerLength: String = "1",
-    val fragmentInnerInterval: String = "4",
-    val fragmentInnerMaxSplit: String = "517",
-
     // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_FRAGMENT_PROFILES_V208 — the named recipe behind the eight fields above.
+    // MARBLE_CORE_OPTIONS_V211 — the two cores' own options, and nothing else.
     //
-    // The eight fragment values and the four Mux values were the *only* way to configure packet
-    // shaping, and they were raw core parameters: `tlshello`, `100-200`, `10-20`, `517`. Nobody
-    // knows what those numbers do on their own operator, so in practice nobody touched them, and
-    // the feature read as broken because it was never reachable in a form a person could choose.
+    // What this replaced: four raw Fragment fields plus a learner that rewrote them. Packet
+    // fragmentation is gone from the product entirely — the chapter that shipped it is the
+    // chapter that showed why: the numbers were applied by whichever policy ran last, so the
+    // control could not fail visibly and the user could not tell their own setting from the
+    // engine's. Every value below is the user's, is written to the core verbatim, and is never
+    // rewritten by any automatic policy on its way to the config builder.
     //
-    // These two ids name the recipe the fields currently hold. `custom` means the fields are the
-    // user's own; anything else is one of the ready profiles in
-    // [com.marbleng.app.core.FragmentProfile] / [com.marbleng.app.core.MuxProfile], and picking
-    // one *writes* its wire values into the fields — so every consumer that already reads the
-    // fields (both cores, the benchmark engine, the tuner, the wire read-out) applies the recipe
-    // without a second code path that could disagree with the first.
+    // The vocabulary of each field is its core's own (see [XrayLogLevels],
+    // [SingBoxMuxProtocols], [XrayDomainStrategies]) and the writers index those lists by name,
+    // so a value that a core would reject cannot be stored in the first place.
     // ─────────────────────────────────────────────────────────────────────────
-    /**
-     * [com.marbleng.app.core.FragmentProfile] id, `custom` for the hand-typed values, or blank
-     * for "no choice yet" — the only value under which the automatic policies may shape packets
-     * on their own. Blank is not "off": an install that never opened the page must not have
-     * fragmentation switched off behind its back.
-     */
-    val fragmentProfileId: String = FragmentChoice.NO_CHOICE,
-    /** The Mux twin of [fragmentProfileId]. */
-    val muxProfileId: String = MuxChoice.NO_CHOICE,
 
+    /** Xray `mux.enabled` — Mux.Cool over one TCP connection. */
     val muxEnabled: Boolean = false,
+    /** Xray `mux.concurrency`: how many streams share one connection (1..128). */
     val muxConcurrency: Int = 8,
+    /** Xray `mux.xudpConcurrency`: how many UDP flows share one multiplexed connection. */
     val muxXudpConcurrency: Int = 16,
+    /** Xray `mux.xudpProxyUDP443`: [XrayMuxUdp443Modes]. */
     val muxUdp443: String = "skip",
+
+    // ── Xray: log ────────────────────────────────────────────────────────────
+    /** Xray `log.dnsLog` — write every DNS query the core answers to its own log stream. */
+    val xrayDnsLog: Boolean = false,
+
+    // ── Xray: sniffing ───────────────────────────────────────────────────────
+    /**
+     * Xray `sniffing.destOverride` as a comma-separated set of `http`, `tls`, `quic`, `fakedns`.
+     *
+     * The core applies the list in order and stops at the first protocol that answers, so this is
+     * the user's choice of *which* sniffers run, not a boolean the writer invented.
+     */
+    val xraySniffDestOverride: String = "http,tls,quic",
+    /** Xray `sniffing.metadataOnly` — route from the sniffer's metadata without the payload. */
+    val xraySniffMetadataOnly: Boolean = false,
+
+    // ── Xray: local inbounds ─────────────────────────────────────────────────
+    /** Xray SOCKS inbound `settings.udp` — accept UDP ASSOCIATE on the local SOCKS port. */
+    val xraySocksUdpEnabled: Boolean = true,
+
+    // ── Xray: sockopt (the socket the physical network actually sees) ────────
+    /** Xray `sockopt.domainStrategy`: [XrayDomainStrategies]. */
+    val xraySockoptDomainStrategy: String = "AsIs",
+    /** Xray `sockopt.tcpNoDelay` — disable Nagle on the dial. */
+    val xrayTcpNoDelay: Boolean = false,
+    /** Xray `sockopt.tcpKeepAliveInterval`, seconds. 0 leaves the core's own value. */
+    val xrayTcpKeepAliveIntervalSec: Int = 0,
+    /** Xray `sockopt.tcpUserTimeout`, milliseconds. 0 leaves the core's own value. */
+    val xrayTcpUserTimeoutMs: Int = 0,
+    /** Xray `sockopt.tcpCongestion`; blank leaves the core's value. */
+    val xrayTcpCongestion: String = "",
+    /** Xray `sockopt.tcpMptcp` — offer Multipath TCP, falling back to plain TCP automatically. */
+    val xrayTcpMptcp: Boolean = true,
+    /** Xray `sockopt.tcpWindowClamp`; 0 disables the clamp. */
+    val xrayTcpWindowClamp: Int = 0,
+
+    // ── Xray: routing ────────────────────────────────────────────────────────
+    /** Xray `routing.domainStrategy`: [XrayRoutingDomainStrategies]. */
+    val xrayRoutingDomainStrategy: String = "AsIs",
+    /** Xray `routing.domainMatcher`: [XrayDomainMatchers] (blank = the core's default). */
+    val xrayRoutingDomainMatcher: String = "",
+
+    // ── Xray: policy ─────────────────────────────────────────────────────────
+    /** Xray `policy.levels.0.handshake`, seconds. 0 leaves the core's own value. */
+    val xrayPolicyHandshakeSec: Int = 0,
+    /** Xray `policy.levels.0.connIdle`, seconds. 0 leaves the core's own value. */
+    val xrayPolicyConnIdleSec: Int = 0,
+    /** Xray `policy.levels.0.uplinkOnly`, seconds. 0 leaves the core's own value. */
+    val xrayPolicyUplinkOnlySec: Int = 0,
+    /** Xray `policy.levels.0.downlinkOnly`, seconds. 0 leaves the core's own value. */
+    val xrayPolicyDownlinkOnlySec: Int = 0,
+    /** Xray `policy.levels.0.bufferSize`, kilobytes. 0 leaves the core's own value. */
+    val xrayPolicyBufferSizeKb: Int = 0,
+
+    /**
+     * MARBLE_CORE_OPTIONS_V211 — the escape hatch: JSON merged on top of the generated document.
+     *
+     * The two cores accept far more than any settings screen can draw, and a client that cannot
+     * express the last field is a client that makes the field unreachable. This object is deep
+     * merged into the final config (objects merge key by key, arrays and scalars replace), so
+     * anything the surface above does not model — `stats`, `api`, `burstObservatory`,
+     * `reverse`, a per-outbound `sockopt`, a whole `inbounds` entry — is the user's to write.
+     */
+    val xrayExtraJson: String = "",
+
+    // ── sing-box: log, sniffing, inbounds ────────────────────────────────────
+    /** sing-box `log.timestamp`. */
+    val singBoxLogTimestamp: Boolean = false,
+    /**
+     * sing-box sniff action `override_destination` — hand the destination to the router already
+     * rewritten to the sniffed domain. Off keeps the connection at the address the app dialled.
+     */
+    val singBoxSniffOverrideDestination: Boolean = false,
+    /** sing-box `inbounds[].users` username for the mixed/HTTP inbounds; blank = no auth. */
+    val singBoxInboundUsername: String = "",
+    /** The password half of [singBoxInboundUsername]. */
+    val singBoxInboundPassword: String = "",
+
+    // ── sing-box: multiplex (smux/h2mux/yamux) ───────────────────────────────
+    /** sing-box `multiplex.enabled`. */
+    val singBoxMuxEnabled: Boolean = false,
+    /** sing-box `multiplex.protocol`: [SingBoxMuxProtocols]. */
+    val singBoxMuxProtocol: String = "h2mux",
+    /** sing-box `multiplex.max_connections` — how many TCP connections carry the streams. */
+    val singBoxMuxMaxConnections: Int = 4,
+    /** sing-box `multiplex.min_streams` — streams one connection must carry before another opens. */
+    val singBoxMuxMinStreams: Int = 4,
+    /** sing-box `multiplex.max_streams` — the ceiling the core enforces per connection. */
+    val singBoxMuxMaxStreams: Int = 32,
+    /** sing-box `multiplex.padding` — pad the multiplexed frames. */
+    val singBoxMuxPadding: Boolean = false,
+
+    /** The sing-box twin of [xrayExtraJson], merged into the sing-box document. */
+    val singBoxExtraJson: String = "",
 
     // Iran Mode. Detection is automatic; countermeasures and domestic-direct routing can be
     // switched off independently for users who want detection reporting only.
@@ -1868,8 +1958,12 @@ data class AppSettings(
     val adaptiveThroughputEnabled: Boolean = true,
     val adaptiveThroughputMaxBytes: Int = 4 * 1024 * 1024,
     val udpProbeEnabled: Boolean = true,
-    val adaptiveMuxEnabled: Boolean = true,
-    val adaptiveFragmentEnabled: Boolean = true,
+    /**
+     * MARBLE_CORE_OPTIONS_V211 — the adaptive Mux/MTU switches are down to the one that is
+     * about the *path*, not about a core option. Multiplexing and packet shaping are the user's
+     * (see the Mux fields above and the per-core options): an engine that turns them on by
+     * itself is an engine whose settings screen cannot be trusted.
+     */
     val thermalAwareEnabled: Boolean = true,
     val workloadProfile: WorkloadProfile = WorkloadProfile.AUTO,
 
@@ -2000,37 +2094,6 @@ data class AppSettings(
      * not a reason to drop a working tunnel.
      */
     val autoServerSwitchMarginPercent: Int = 15,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_TRANSPORT_ADAPTATION_V203 — fragment/Mux profiles that learn the operator.
-    //
-    // Filtering is not a constant: it is a behaviour of one operator, at one hour, on one link.
-    // These three switches are the consent for a system that remembers it. See
-    // [com.marbleng.app.core.TransportAdaptation].
-    // ─────────────────────────────────────────────────────────────────────────
-    /**
-     * Master switch: false keeps the fragment/Mux values exactly as the user left them, and
-     * observes nothing.
-     *
-     * It ships OFF. Not because learning is optional but because the alternative is a silent
-     * behaviour change: a learner switched on by default would turn fragmentation on for
-     * everyone whose operator reads as HEAVY, on their next connection, before they had ever
-     * been asked. The switch is the ask.
-     */
-    val transportAdaptationEnabled: Boolean = false,
-    /**
-     * [com.marbleng.app.core.TransportProfileMode] id: off, auto, manual.
-     *
-     * AUTO once the master switch is on: the mode is a sub-choice, not a second gate, so the
-     * user is never asked the same question twice. OFF is kept in the enum because a restored
-     * backup may carry it, and it must read as "off" rather than as a default.
-     */
-    val transportProfileMode: String = TransportProfileMode.AUTO.id,
-    /**
-     * Spend a bounded share of connections on an unproven profile so a filter that changed
-     * behaviour last Tuesday can be discovered before it becomes a week of red rows.
-     */
-    val transportAdaptationExplore: Boolean = true,
 
     /** Continuous non-blocking diagnostic export to Downloads/marbleng/report. */
     val debugModeEnabled: Boolean = false

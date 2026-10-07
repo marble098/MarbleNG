@@ -1,0 +1,128 @@
+name: Update toolchain
+# MARBLE_TOOLCHAIN_AUTOPILOT_V211 — the build updates itself to the newest published pre-release
+# of every component it is made of: Gradle, AGP, Kotlin, the Compose BOM, the androidx libraries,
+# jsch, ZXing, org.json and JUnit.
+#
+# One file holds them (`gradle/toolchain.properties`), one script resolves them
+# (`scripts/resolve-toolchain.py`), and everything else in the tree reads that file — so this job
+# is the whole update: resolve, prove the result compiles, commit, push.
+#
+# It pushes only after `:app:compileDebugKotlin` succeeds, because a toolchain bump is the one
+# change that can break every line of the product at once. A component whose move is bigger than
+# its compatibility line (a new androidx minor, a new Gradle/AGP/Kotlin major) is still written —
+# that is what "newest pre-release" means — but the compile step is what makes it safe to land
+# without a human: if the newest pre-release does not build, nothing is pushed and the report is
+# left in the log.
+on:
+  schedule:
+    - cron: '43 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: marbleng-toolchain-updater
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+
+      - name: Resolve the newest pre-release of every component
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/resolve-toolchain.py --write
+          echo
+          echo "Pins after the resolve:"
+          python3 scripts/resolve-toolchain.py --offline
+
+      - name: Did anything move?
+        id: moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- gradle/toolchain.properties; then
+            echo "moved=no" >> "$GITHUB_OUTPUT"
+            echo "MARBLE_TOOLCHAIN_AUTOPILOT: already at the newest pre-release of everything."
+          else
+            echo "moved=yes" >> "$GITHUB_OUTPUT"
+            git diff -- gradle/toolchain.properties
+          fi
+
+      - name: Set up JDK 17
+        if: steps.moved.outputs.moved == 'yes'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        if: steps.moved.outputs.moved == 'yes'
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools"
+
+      - name: Install compile SDK
+        if: steps.moved.outputs.moved == 'yes'
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+
+      - name: Read the pinned Gradle version
+        if: steps.moved.outputs.moved == 'yes'
+        id: toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^gradle=//p' gradle/toolchain.properties | tail -n 1)"
+          echo "gradle=${version:-9.5.1}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Gradle
+        if: steps.moved.outputs.moved == 'yes'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.toolchain.outputs.gradle }}
+
+      - name: Prove the new toolchain compiles the app
+        if: steps.moved.outputs.moved == 'yes'
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon :app:compileDebugKotlin 2>&1 | tee toolchain-ci.log
+
+      - name: Publish the compiler errors when the newest pre-release does not build
+        if: failure() && steps.moved.outputs.moved == 'yes'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "MARBLE_TOOLCHAIN_AUTOPILOT: nothing was committed — the newest pre-release of one"
+          echo "of these components does not compile. The error lines follow."
+          grep -E "^(e: |error:)|FAILED|Execution failed" toolchain-ci.log | tail -n 60 || true
+
+      - name: Commit and push
+        if: steps.moved.outputs.moved == 'yes' && success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "marble-toolchain-bot"
+          git config user.email "toolchain-bot@users.noreply.github.com"
+          git add gradle/toolchain.properties
+          {
+            echo "toolchain: update to the newest pre-release of every component"
+            echo
+            echo "MARBLE_TOOLCHAIN_AUTOPILOT_V211 — resolved by scripts/resolve-toolchain.py and"
+            echo "proved by :app:compileDebugKotlin before this commit was made."
+            echo
+            python3 scripts/resolve-toolchain.py --offline
+          } > /tmp/commit-msg
+          git commit -F /tmp/commit-msg
+          git push origin HEAD:main

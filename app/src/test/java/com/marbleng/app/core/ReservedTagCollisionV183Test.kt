@@ -91,7 +91,7 @@ class ReservedTagCollisionV183Test {
 
     @Test
     fun `an imported block outbound no longer collides with the one the hardener adds`() {
-        val settings = AppSettings(routingMode = RoutingMode.PROXY_ALL, fragmentEnabled = false)
+        val settings = AppSettings(routingMode = RoutingMode.PROXY_ALL)
         val config = JSONObject(XrayConfigHardener.harden(serverlessWithReservedTags(), 21080, settings))
         val emitted = tags(config)
 
@@ -107,7 +107,7 @@ class ReservedTagCollisionV183Test {
 
     @Test
     fun `the imported fragment chain survives the rename with its dialerProxy intact`() {
-        val settings = AppSettings(routingMode = RoutingMode.PROXY_ALL, fragmentEnabled = false)
+        val settings = AppSettings(routingMode = RoutingMode.PROXY_ALL)
         val config = JSONObject(XrayConfigHardener.harden(serverlessWithReservedTags(), 21080, settings))
         val selected = outbound(config, XrayConfigHardener.importedAliasFor("tls-fragment"))
         assertNotNull("the imported tls-fragment hop is the selected exit under its alias", selected)
