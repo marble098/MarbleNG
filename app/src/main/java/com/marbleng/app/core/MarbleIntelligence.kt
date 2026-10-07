@@ -239,7 +239,10 @@ object ProtocolFitness {
 
     /**
      * Multiplexing on top of a multiplexed/record-chunked transport under noise stacks two
-     * head-of-line blockers; the config must not arm it on a measured noisy link.
+     * head-of-line blockers.
+     *
+     * MARBLE_CORE_OPTIONS_V211 — this is an *advisory* fact, not a veto. The Mux switch belongs to
+     * the user, so a measured noisy link no longer turns it off on the way to the config builder.
      */
     fun prefersMuxOff(profile: ProxyProfile, link: LinkEvidence): Boolean {
         if (!noisy(link)) return false
@@ -1829,17 +1832,15 @@ class MarbleIntelligence(private val context: Context) {
                 tuned
             }
 
-        // MARBLE_INTELLIGENCE_V141 — protocol fitness: multiplexing on top of a record-chunked
-        // transport under measured noise stacks two head-of-line blockers, which is how VLESS+xhttp
-        // turned jitter into teardowns on the broken log while the hysteria2 reference stayed up.
-        val muxGuarded = if (ProtocolFitness.prefersMuxOff(profile, link)) {
-            accelerated.copy(muxEnabled = false)
-        } else {
-            accelerated
-        }
-
+        // MARBLE_CORE_OPTIONS_V211 — multiplexing on top of a record-chunked transport under
+        // measured noise stacks two head-of-line blockers, which is the fact
+        // [ProtocolFitness.prefersMuxOff] records. It used to *act* on that fact by turning the
+        // user's Mux switch off for the connection, which is exactly the defect this release
+        // removed: the switch was the app's, not the user's. The fact is still computed — the
+        // settings screen is where it belongs — and nothing rewrites a core option here.
+        //
         // Iran Mode is applied last so its countermeasures win over generic adaptive tuning.
-        val shielded = IranShield.apply(muxGuarded, profile, iranState, iranGeoIpReady)
+        val shielded = IranShield.apply(accelerated, profile, iranState, iranGeoIpReady)
         val healed = DpiEvasionPolicy.heal(
             shielded,
             DpiEvasionPolicy.PathEvidence(

@@ -8,6 +8,9 @@ on:
 
 permissions:
   contents: read
+  # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — a red run publishes what failed as a comment on the pull
+  # request, because a log download is not available to every reader of this repository.
+  pull-requests: write
 
 concurrency:
   group: marbleng-source-verify-${{ github.ref }}
@@ -198,7 +201,7 @@ jobs:
       - name: Set up the pinned Xray Go toolchain
         uses: actions/setup-go@v7
         with:
-          go-version-file: "${RUNNER_TEMP}/xray-toolchain-pin/xray/go.mod"
+          go-version-file: "${{ runner.temp }}/xray-toolchain-pin/xray/go.mod"
           cache: false
 
       - name: sing-box pinned-source smoke (inject, regression tests, host link)
