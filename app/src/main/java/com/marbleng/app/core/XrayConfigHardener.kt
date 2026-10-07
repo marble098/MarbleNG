@@ -1173,29 +1173,45 @@ object XrayConfigHardener {
      * cannot mean one thing in the tunnel and another in the probes.
      */
     /**
-     * MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — write a freedom/direct hop's resolution strategy
-     * where the pinned core reads it: `streamSettings.sockopt.domainStrategy`.
-     *
-     * The `settings.domainStrategy` / `settings.targetStrategy` pair is the deprecated alias the
-     * core still migrates with a warning on every start, so both keys are removed here and a blank
-     * [strategy] means "leave the field absent" (the core's own default) rather than writing `""`.
-     * The caller passes the value `AddressFamilyPolicy` planned for this hop, which is also what
-     * the config audit below re-reads.
+     * MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the single supported home of a freedom/direct hop's
+     * resolve strategy. `sockopt.domainStrategy` is what the pinned Xray core actually reads for
+     * both TCP dials and UDP packets; `settings.domainStrategy` and `settings.targetStrategy` are
+     * a deprecated alias that the core migrates with a start-up warning today and rejects
+     * tomorrow. A hand-imported config that still carries the alias is cleaned here too, so the
+     * emitted document never triggers the migration path. When the plan is `AsIs` nothing is
+     * written and any imported alias is dropped, exactly as the core would migrate it.
      */
     internal fun writeFreedomResolveStrategy(outbound: JSONObject, strategy: String) {
-        val settingsObject = outbound.optJSONObject("settings")
-        settingsObject?.remove("domainStrategy")
-        settingsObject?.remove("targetStrategy")
-        outbound.remove("targetStrategy")
-        if (strategy.isBlank()) {
-            outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")?.remove("domainStrategy")
-            return
+        outbound.optJSONObject("settings")?.let { settingsObject ->
+            settingsObject.remove("domainStrategy")
+            settingsObject.remove("targetStrategy")
         }
-        val stream = outbound.optJSONObject("streamSettings")
+        outbound.remove("targetStrategy")
+        val streamObject = outbound.optJSONObject("streamSettings")
             ?: JSONObject().also { outbound.put("streamSettings", it) }
-        val sockopt = stream.optJSONObject("sockopt")
-            ?: JSONObject().also { stream.put("sockopt", it) }
-        sockopt.put("domainStrategy", strategy)
+        val sockoptObject = streamObject.optJSONObject("sockopt")
+            ?: JSONObject().also { streamObject.put("sockopt", it) }
+        if (strategy.isBlank() || strategy.equals("AsIs", true)) {
+            sockoptObject.remove("domainStrategy")
+        } else {
+            sockoptObject.put("domainStrategy", strategy)
+        }
+    }
+
+    /**
+     * Iranian DNS-injector / null-answer ranges that must never be dialled. Matches the official
+     * XTLS serverless_for_Iran.jsonc block list plus the well-known 10.10.34.34–36 injectors.
+     */
+    private val IRAN_POISON_BLOCK_IPS = listOf(
+        "10.10.34.0/24",
+        "2001:4188:2:600::/64",
+        "0.0.0.0",
+        "::"
+    )
+
+    private fun hasNoises(outbound: JSONObject): Boolean {
+        val noises = outbound.optJSONObject("settings")?.optJSONArray("noises") ?: return false
+        return noises.length() > 0
     }
 
     private fun applyAddressFamily(

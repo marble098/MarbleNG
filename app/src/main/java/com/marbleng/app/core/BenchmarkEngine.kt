@@ -798,27 +798,13 @@ class BenchmarkEngine(
             return benchmarkResult(p, direct, effective.muxEnabled && !s.muxEnabled)
         }
         // MARBLE_CORE_OPTIONS_V211 — nothing here flips a setting the user did not set. The
-        // baseline is exactly their configuration, and the only thing a measurement may propose is
-        // a Mux *concurrency* candidate, and only while their own multiplexing is on.
+        // baseline is exactly their configuration, and the adaptive-mux experiment that used to
+        // live here — turning the user's Mux switch on for a measurement and keeping it when the
+        // number looked better — is gone with the fragment stack that made the Mux switch a
+        // suggestion in the first place. The benchmark measures what the user configured.
         val baselineSettings = effective.copy(muxEnabled = s.muxEnabled)
-        var chosenSettings = baselineSettings
-        var chosen = measure(p, port, baselineSettings, true)
-        var usedMux = false
-
-        val learnedMux = effective.muxEnabled && !s.muxEnabled
-        if (s.adaptiveMuxEnabled && !s.muxEnabled && canMux(p) && chosen.success > 0 &&
-            (learnedMux || chosen.latency >= 120.0) && (intelligence?.thermalBudget(s) ?: 1.0) >= 0.60) {
-            val probeSettings = chosenSettings.copy(
-                muxEnabled = true,
-                benchSamples = min(2, s.benchSamples.coerceAtLeast(1)),
-                benchBytes = min(256 * 1024, s.benchBytes.coerceAtLeast(64 * 1024)),
-                adaptiveThroughputEnabled = false,
-                udpProbeEnabled = false
-            )
-            val candidate = measure(p, port + 2, probeSettings, true)
-            if (materiallyBetter(candidate, chosen)) { chosen = candidate; usedMux = true }
-        }
-        return benchmarkResult(p, chosen, usedMux)
+        val chosen = measure(p, port, baselineSettings, true)
+        return benchmarkResult(p, chosen, false)
     }
 
     private fun benchmarkResult(profile: ProxyProfile, m: Measurement, usedMux: Boolean) = BenchmarkResult(
