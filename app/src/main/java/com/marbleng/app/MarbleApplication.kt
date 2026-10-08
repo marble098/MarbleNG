@@ -23,8 +23,14 @@ class MarbleApplication : Application() {
 
         // MARBLE_GEO_ASSET_INDEX_V136 — index the managed geo databases off the main thread so
         // the routing editor opens with live suggestions, validation and the route simulator.
-        java.util.concurrent.Executors.newSingleThreadExecutor().execute {
-            runCatching { xray.refreshGeoAssetIndex() }
+        Thread(
+            { runCatching { xray.refreshGeoAssetIndex(repo.settings) } },
+            "marble-geo-asset-index"
+        ).apply {
+            // The executor was never shut down, so its idle non-daemon worker lived for the whole
+            // process after one index pass. This one-shot worker owns no long-lived pool or queue.
+            isDaemon = true
+            start()
         }
 
         RuntimeDiagnostics.setDebugEnabled(this, repo.settings.debugModeEnabled)

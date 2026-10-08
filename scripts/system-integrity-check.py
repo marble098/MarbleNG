@@ -121,6 +121,7 @@ files = {
     "identity": read("app/src/main/java/com/marbleng/app/core/IdentityGuard.kt"),
     "shield": read("app/src/main/java/com/marbleng/app/core/IranShield.kt"),
     "intel": read("app/src/main/java/com/marbleng/app/core/MarbleIntelligence.kt"),
+    "resolverCatalog": read("app/src/main/java/com/marbleng/app/core/DnsResolverCatalog.kt"),
     "manual": read("app/src/main/java/com/marbleng/app/core/ManualConfigBuilder.kt"),
     "parser": read("app/src/main/java/com/marbleng/app/core/ProxyParser.kt"),
     # MARBLE_CORE_CONFIG_SUPERSET_V165 — the "can the selected core load this?" boundary, the lossless
@@ -1529,9 +1530,11 @@ check(
 # infrastructure to promote, or "demote last, promote first" is a shuffle of dead endpoints.
 check(
     "the stock DoH pool carries diverse fallbacks beyond the big three",
-    'dns.adguard-dns.com' in files["intel"]
-    and '149.112.112.112' in files["intel"]
-    and '1.0.0.1' in files["intel"],
+    '149.112.112.112' in files["resolverCatalog"]
+    and '1.0.0.1' in files["resolverCatalog"]
+    and "fun isXrayBootstrapSafe(endpoint: String)" in files["resolverCatalog"]
+    and "DnsResolverCatalog.isXrayBootstrapSafe(url)" in files["hardener"]
+    and "DnsResolverCatalog.candidates" in files["intel"],
 )
 # MARBLE_SINGBOX_PROTOCOLS_V153 — the second engine consumes Marble Intelligence's own resolver
 # order, not the raw candidate list, so demoted endpoints stay last even when the builder does not
@@ -2241,11 +2244,11 @@ check(
     and "const val CERT_BROKEN_TTL_MS" in files["resolverPolicy"]
     and "val measuredDnsExcludedEndpoints: String" in files["models"]
     and "measuredDnsExcludedEndpoints = dnsExcluded.joinToString" in files["intel"]
-    and "ResolverEvidencePolicy.withoutExcluded(candidates, evidence, now)" in files["intel"]
+    and "ResolverEvidencePolicy.withoutExcluded(candidates, evidence, nowMs)" in files["intel"]
     and "settings.measuredDnsExcludedEndpoints" in files["hardener"]
     and "ResolverEvidencePolicy.isDomesticResolver(url)" in files["hardener"]
     and "ResolverEvidencePolicy.isDomesticResolver(url)" in files["singBoxBuilder"]
-    and 'settings.measuredDnsParallel) "parallel" else "sequential"' in files["singBoxBuilder"]
+    and 'settings.measuredSingBoxDnsParallel) "parallel" else "sequential"' in files["singBoxBuilder"]
     and "MARBLE_RESOLVER_SINKHOLE_V163" in files["sinkholeDoc"]
     and "class ResolverSinkholeV163Test" in files["sinkholeTest"],
 )
@@ -3703,7 +3706,8 @@ check(
     and 'const val PRIMARY_GEOSITE_FILE: String = "geosite.dat"' in files["geoRegistry"]
     and "const val MAX_SOURCES: Int = 6" in files["geoRegistry"]
     and "fun geoTokens(" in files["routingEngine"]
-    and "file.isEmpty() || file in ready" in files["routingEngine"]
+    and "if (file !in ready) return@filter false" in files["routingEngine"]
+    and "settings.measuredGeoTagsByFile[file]" in files["routingEngine"]
     and "fun readyGeoAssetFiles(" in files["xray"]
     and "measuredGeoReadyFiles" in files["xray"]
     # The set is additive: enabling a source adds it, choosing a primary re-orders it, and neither

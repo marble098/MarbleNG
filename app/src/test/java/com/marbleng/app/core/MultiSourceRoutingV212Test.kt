@@ -207,6 +207,51 @@ class MultiSourceRoutingV212Test {
     }
 
     @Test
+    fun measuredTagMembershipBelongsToItsOwnReadyFile() {
+        val settings = AppSettings(
+            geoAssetSourceIds = "chocolate4u-iran,loyalsoldier",
+            geoMultiSourceEnabled = true,
+            measuredGeoReadyFiles = "geosite.dat,geosite-loyalsoldier.dat",
+            measuredGeoMembershipKnown = true,
+            measuredGeoTagsByFile = mapOf(
+                "geosite.dat" to setOf("ir", "category-ads-all"),
+                "geosite-loyalsoldier.dat" to setOf("category-social-media")
+            )
+        )
+        assertEquals(
+            listOf("geosite:ir"),
+            RoutingEngine.geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, "ir")
+        )
+        assertEquals(
+            listOf("ext:geosite-loyalsoldier.dat:category-social-media"),
+            RoutingEngine.geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, "category-social-media")
+        )
+        assertTrue(
+            "a tag in a sibling database must not leak into another file's reference",
+            RoutingEngine.geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, "category-ads-all")
+                .none { it.startsWith("ext:geosite-loyalsoldier.dat:") }
+        )
+        assertTrue(
+            "no matching file membership means no emitted reference",
+            RoutingEngine.geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, "unknown-tag").isEmpty()
+        )
+    }
+
+    @Test
+    fun anExplicitEmptyMeasuredFileSetNeverFallsBackToCanonicalFiles() {
+        val settings = AppSettings(
+            geoAssetSourceIds = "chocolate4u-iran,loyalsoldier",
+            geoMultiSourceEnabled = true,
+            measuredGeoReadyFiles = "",
+            measuredGeoMembershipKnown = true,
+            measuredGeoTagsByFile = emptyMap()
+        )
+        assertTrue(RoutingEngine.readyGeoFiles(settings).isEmpty())
+        assertTrue(RoutingEngine.geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, "ir").isEmpty())
+        assertTrue(RoutingEngine.geoTokens(settings, GeoAssetRegistry.Kind.GEOIP, "ir").isEmpty())
+    }
+
+    @Test
     fun theSimulatorAnswersWithThePrecisionLayerWhenThatIsWhatDecided() {
         // The page that has to explain "why did a domestic site go through the tunnel" is the
         // simulator, so the layer has to appear in it — and only when it is what answered.

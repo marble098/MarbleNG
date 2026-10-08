@@ -536,6 +536,39 @@ object ResolverEvidencePolicy {
     }
 
     /**
+     * Exact emission order for a bounded config pool. Healthy candidates are rotated first; if the
+     * whole candidate set is demoted, rotate that bounded set by network/epoch instead of silently
+     * pinning the first failed resolver at the primary slot for the full demotion TTL.
+     */
+    fun orderForEmission(
+        candidates: List<String>,
+        evidence: List<EndpointEvidence>,
+        nowMs: Long,
+        seed: String
+    ): List<String> {
+        val distinct = candidates.map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy(::normalize)
+        if (distinct.size < 2 || seed.isBlank()) return order(distinct, evidence, nowMs, seed)
+        val (healthy, failing) = distinct.partition { !isDemoted(it, evidence, nowMs) }
+        val epoch = (nowMs / ROTATION_EPOCH_MS).toInt()
+        val group = healthy.ifEmpty { distinct }
+        val shift = Math.floorMod(seed.hashCode() xor epoch, group.size)
+        val rotated = group.drop(shift) + group.take(shift)
+        return if (healthy.isEmpty()) rotated else rotated + failing
+    }
+
+    /** Select the exact bounded list the writer will emit; failures outside it cannot arm fan-out. */
+    fun selectForEmission(
+        candidates: List<String>,
+        evidence: List<EndpointEvidence>,
+        nowMs: Long,
+        seed: String,
+        limit: Int
+    ): List<String> = orderForEmission(candidates, evidence, nowMs, seed)
+        .take(limit.coerceAtLeast(0))
+
+    /**
      * Dynamic per-operator blacklist: an operator whose *every* observed endpoint is demoted is a
      * failure domain, not four unrelated failures. The operator is removed from the emitted pool
      * until [OPERATOR_BLACKLIST_TTL_MS] has passed.

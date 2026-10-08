@@ -139,13 +139,11 @@ object CensorshipAwareDnsResolver {
         Triple("cloudflare-doh", "https://1.1.1.1/dns-query", DnsStage.DOH),
         Triple("google-doh", "https://8.8.8.8/dns-query", DnsStage.DOH),
         Triple("quad9-doh", "https://9.9.9.9/dns-query", DnsStage.DOH),
-        Triple("adguard-doh", "https://dns.adguard-dns.com/dns-query", DnsStage.DOH),
         Triple("cloudflare-fallback", "https://1.0.0.1/dns-query", DnsStage.DOH)
     )
 
     private val DEFAULT_FALLBACK_DOH = listOf(
-        Triple("quad9-doh-ip", "https://149.112.112.112/dns-query", DnsStage.FALLBACK_DOH),
-        Triple("quad9-secondary", "https://149.112.112.112/dns-query", DnsStage.FALLBACK_DOH)
+        Triple("quad9-doh-ip", "https://149.112.112.112/dns-query", DnsStage.FALLBACK_DOH)
     )
 
     // Known Iranian block-page address ranges for anti-poisoning validation
@@ -248,7 +246,7 @@ object CensorshipAwareDnsResolver {
         // MARBLE_RESOLVER_SINKHOLE_V163 — a domestic anti-sanction resolver (dns.shecan.ir …) is
         // never raced for a tunnel-endpoint lookup: it answers node hostnames with the operator's
         // own injector addresses. It stays a locality probe target, nothing more.
-        if (settings.dnsPrimaryDoH.isNotBlank() &&
+        if (DnsResolverCatalog.isXrayBootstrapSafe(settings.dnsPrimaryDoH) &&
             !ResolverEvidencePolicy.isDomesticResolver(settings.dnsPrimaryDoH)
         ) {
             val existing = resolvers.any { it.endpoint == settings.dnsPrimaryDoH }
@@ -256,7 +254,7 @@ object CensorshipAwareDnsResolver {
                 resolvers += ResolverHealth("user-primary", DnsStage.DOH, settings.dnsPrimaryDoH)
             }
         }
-        if (settings.dnsSecondaryDoH.isNotBlank() &&
+        if (DnsResolverCatalog.isXrayBootstrapSafe(settings.dnsSecondaryDoH) &&
             !ResolverEvidencePolicy.isDomesticResolver(settings.dnsSecondaryDoH)
         ) {
             val existing = resolvers.any { it.endpoint == settings.dnsSecondaryDoH }

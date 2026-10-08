@@ -640,14 +640,22 @@ object RoutingEngine {
      * emitted, and a missing `ext:` file is a config the core refuses to load.
      */
     fun readyGeoFiles(settings: AppSettings): Set<String> {
-        val parsed = settings.measuredGeoReadyFiles
+        val raw = settings.measuredGeoReadyFiles.trim()
+        // Empty means a legacy/offline caller has not measured the files; `none` is an explicit
+        // connection-time observation that no complete database was available.
+        if (raw.equals("none", ignoreCase = true)) return emptySet()
+        val parsed = raw
             .split(',', '\n', ';')
             .map { it.trim() }
-            .filter { it.isNotBlank() && it.endsWith(".dat") }
+            .filter { it.matches(Regex("[A-Za-z0-9._-]+\\.dat")) && !it.contains("..") }
             .distinct()
-        return parsed.ifEmpty {
+        return if (raw.isEmpty() && !settings.measuredGeoMembershipKnown) {
             setOf(GeoAssetRegistry.PRIMARY_GEOIP_FILE, GeoAssetRegistry.PRIMARY_GEOSITE_FILE)
-        }.toSet()
+        } else if (raw.isEmpty()) {
+            emptySet()
+        } else {
+            parsed.toSet()
+        }
     }
 
     /**
@@ -660,9 +668,17 @@ object RoutingEngine {
      */
     fun geoTokens(settings: AppSettings, kind: GeoAssetRegistry.Kind, tag: String): List<String> {
         val ready = readyGeoFiles(settings)
+        val cleanTag = GeoAssetRegistry.tagOf(tag).trim().lowercase()
         return GeoAssetRegistry.tokensFor(settings, kind, tag).filter { token ->
-            val file = GeoAssetRegistry.fileOf(token)
-            file.isEmpty() || file in ready
+            val file = GeoAssetRegistry.fileOf(token).ifEmpty {
+                if (kind == GeoAssetRegistry.Kind.GEOIP) GeoAssetRegistry.PRIMARY_GEOIP_FILE
+                else GeoAssetRegistry.PRIMARY_GEOSITE_FILE
+            }
+            if (kind == GeoAssetRegistry.Kind.GEOIP && cleanTag == "private") return@filter true
+            if (file !in ready) return@filter false
+            if (!settings.measuredGeoMembershipKnown) return@filter true
+            settings.measuredGeoTagsByFile[file]
+                ?.any { it.equals(cleanTag, ignoreCase = true) } == true
         }
     }
 

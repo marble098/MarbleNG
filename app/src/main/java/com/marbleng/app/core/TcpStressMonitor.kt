@@ -2,16 +2,15 @@ package com.marbleng.app.core
 
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * TCP Stress Monitor & Adaptive MTU/MSS Engine for MarbleNG.
  *
- * Problem addressed: Logs showed `stressed=true` with high `retransDelta`, high `lost`,
- * many `unacked` segments, and MSS dropping to 524 or even 256. This indicates
- * path MTU issues, fragmentation, or throttling on the route. The system needs
- * to detect these conditions and automatically tune MTU/MSS downward to stabilize.
+ * The kernel counters are observations, not packet percentages: `lost` is an instantaneous
+ * aggregate, `unacked` may be one segment, and the reported minimum MSS can belong to a different
+ * socket than the reported PMTU. They are therefore not sufficient on their own to resize the
+ * tunnel. This monitor requires bounded, repeated transport pressure before changing MTU; stable
+ * PMTU learning remains the responsibility of [PathMtuPolicy].
  *
  * This engine provides:
  * 1. Continuous TCP stress monitoring from live session telemetry
@@ -76,19 +75,18 @@ class TcpStressMonitor {
     private val consecutiveStressed = AtomicInteger(0)
     private val consecutiveHealthy = AtomicInteger(0)
 
-    // Per-profile learned MTU levels (persisted across sessions on same network)
+    // In-process per-profile levels; durable PMTU memory is owned by MarbleIntelligence.
     private val learnedLevels = mutableMapOf<String, MtuLevel>()
 
     // Thresholds
     private val stressRetransmitThreshold = 0.05   // 5% retransmit = stressed
     private val stressLossThreshold = 0.05          // 5% loss = stressed
     private val stressMssRatioThreshold = 0.55      // Below 55% = stressed
-    private val healthyRetransmitThreshold = 0.02   // 2% = healthy
-    private val healthyLossThreshold = 0.02
     private val stressConfirmSamples = 3            // 3 stressed samples in a row = confirmed
     private val recoveryConfirmSamples = 5          // 5 healthy samples = recovery candidate
-    private val stressDurationBeforeAction = 30_000L  // 30s of stress before reducing MTU
-    private val recoveryDurationBeforeAction = 120_000L  // 2 min healthy before increasing MTU
+    private val stressDurationBeforeAction = 30_000L  // 30s of ordinary stress before reducing MTU
+    private val severeStressDurationBeforeAction = 10_000L // even severe evidence must persist
+    private val recoveryDurationBeforeAction = 120_000L  // 2 min uninterrupted health before increasing MTU
 
     /**
      * Record a new stress observation from the live session.
@@ -103,10 +101,11 @@ class TcpStressMonitor {
         rttMs: Int,
         profileId: String,
         networkKey: String,
-        nowMs: Long = System.currentTimeMillis()
+        nowMs: Long = System.currentTimeMillis(),
+        currentMtu: Int? = null
     ) {
         if (this.profileId != profileId || this.networkKey != networkKey) {
-            resetForProfile(profileId, networkKey)
+            resetForProfile(profileId, networkKey, currentMtu)
         }
 
         val sample = StressSample(nowMs, retransmitRate, lossRate, mssRatio, unackedSegments, stressed, rttMs)
@@ -114,17 +113,18 @@ class TcpStressMonitor {
         while (samples.size > maxSamples) samples.removeAt(0)
 
         if (stressed || isStressed(sample)) {
+            // A single healthy sample breaks the timer for recovery; stress must start a fresh
+            // uninterrupted interval rather than inheriting an old timestamp.
+            healthyStartedAt.set(0L)
             consecutiveStressed.incrementAndGet()
             consecutiveHealthy.set(0)
-            if (stressStartedAt.get() == 0L) {
-                stressStartedAt.set(nowMs)
-            }
+            if (stressStartedAt.get() == 0L) stressStartedAt.set(nowMs)
         } else {
+            // Conversely, a new stress sample invalidates the healthy-recovery interval.
+            stressStartedAt.set(0L)
             consecutiveHealthy.incrementAndGet()
             consecutiveStressed.set(0)
-            if (healthyStartedAt.get() == 0L) {
-                healthyStartedAt.set(nowMs)
-            }
+            if (healthyStartedAt.get() == 0L) healthyStartedAt.set(nowMs)
         }
     }
 
@@ -144,7 +144,29 @@ class TcpStressMonitor {
         val anyStressed = recentSamples.any { it.stressed }
 
         // Check if we should reduce MTU
-        val stressDuration = if (stressStartedAt.get() > 0) nowMs - stressStartedAt.get() else 0
+        val stressDuration = if (stressStartedAt.get() > 0) {
+            (nowMs - stressStartedAt.get()).coerceAtLeast(0L)
+        } else 0L
+        val severeSignal = avgLoss > 0.15 || avgRetransmit > 0.20
+        val confirmedSevere = severeSignal &&
+            consecutiveStressed.get() >= stressConfirmSamples &&
+            stressDuration >= severeStressDurationBeforeAction
+        if (confirmedSevere && currentLevel != MtuLevel.MINIMUM) {
+            val nextLevel = MtuLevel.stepDown(currentLevel) ?: MtuLevel.MINIMUM
+            currentLevel = nextLevel
+            learnedLevels[profileKey()] = currentLevel
+            stressStartedAt.set(0L)
+            consecutiveStressed.set(0)
+            return TuningDecision(
+                shouldReduceMtu = true,
+                shouldIncreaseMtu = false,
+                recommendedLevel = currentLevel,
+                reason = "severe-stress-confirmed: retrans=${String.format("%.1f%%", avgRetransmit * 100)}, " +
+                    "loss=${String.format("%.1f%%", avgLoss * 100)}",
+                urgency = TuningDecision.Urgency.CRITICAL
+            )
+        }
+
         val confirmedStress = consecutiveStressed.get() >= stressConfirmSamples &&
             stressDuration >= stressDurationBeforeAction
 
@@ -161,23 +183,7 @@ class TcpStressMonitor {
                     recommendedLevel = currentLevel,
                     reason = "stress-confirmed: retrans=${String.format("%.1f%%", avgRetransmit * 100)}, " +
                         "loss=${String.format("%.1f%%", avgLoss * 100)}, mss=${String.format("%.0f%%", avgMssRatio * 100)}",
-                    urgency = if (avgLoss > 0.10) TuningDecision.Urgency.CRITICAL else TuningDecision.Urgency.HIGH
-                )
-            }
-        }
-
-        // Critical: immediate action needed for severe stress
-        if (avgLoss > 0.15 || avgRetransmit > 0.20 || avgMssRatio < 0.30) {
-            if (currentLevel != MtuLevel.MINIMUM) {
-                val nextLevel = MtuLevel.stepDown(currentLevel) ?: MtuLevel.MINIMUM
-                currentLevel = nextLevel
-                learnedLevels[profileKey()] = currentLevel
-                return TuningDecision(
-                    shouldReduceMtu = true,
-                    shouldIncreaseMtu = false,
-                    recommendedLevel = currentLevel,
-                    reason = "critical-stress: immediate MTU reduction needed",
-                    urgency = TuningDecision.Urgency.CRITICAL
+                    urgency = TuningDecision.Urgency.HIGH
                 )
             }
         }
@@ -218,7 +224,6 @@ class TcpStressMonitor {
     private fun isStressed(sample: StressSample): Boolean {
         return sample.retransmitRate > stressRetransmitThreshold ||
             sample.lossRate > stressLossThreshold ||
-            sample.mssRatio < stressMssRatioThreshold ||
             sample.stressed
     }
 
@@ -259,18 +264,20 @@ class TcpStressMonitor {
      * Initialize for a profile/network combination, restoring learned state.
      */
     @Synchronized
-    fun resetForProfile(profileId: String, networkKey: String) {
+    fun resetForProfile(profileId: String, networkKey: String, currentMtu: Int? = null) {
         this.profileId = profileId
         this.networkKey = networkKey
         samples.clear()
-        stressStartedAt.set(0)
-        healthyStartedAt.set(0)
+        stressStartedAt.set(0L)
+        healthyStartedAt.set(0L)
         consecutiveStressed.set(0)
         consecutiveHealthy.set(0)
 
-        // Restore learned level if available
-        val learned = learnedLevels[profileKey()]
-        currentLevel = learned ?: MtuLevel.FULL
+        // The live tunnel is the source of truth (it may already include a previously learned PMTU).
+        // Use the monitor's prior level only when there is no valid active MTU to seed it with.
+        currentLevel = currentMtu?.takeIf { it in 1280..9000 }?.let { MtuLevel.fromMtu(it) }
+            ?: learnedLevels[profileKey()]
+            ?: MtuLevel.FULL
     }
 
     private fun profileKey(): String = "$profileId@$networkKey"

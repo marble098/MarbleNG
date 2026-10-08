@@ -280,7 +280,7 @@ class ResolverSinkholeV163Test {
             dnsPrimaryDoH = shecan,
             dnsSecondaryDoH = google,
             measuredDnsExcludedEndpoints = google,
-            measuredDnsParallel = true
+            measuredSingBoxDnsParallel = true
         )
         val config = JSONObject(
             SingBoxConfigBuilder.build(
