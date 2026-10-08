@@ -1368,7 +1368,7 @@ class MarbleIntelligence(private val context: Context) {
     /** The single selector used by both the live sing-box writer and its DNS-race verdict. */
     private fun selectSingBoxResolvers(
         candidates: List<String>,
-        evidence: List<EndpointEvidence>,
+        evidence: List<ResolverEvidencePolicy.EndpointEvidence>,
         nowMs: Long,
         seed: String,
         limit: Int
