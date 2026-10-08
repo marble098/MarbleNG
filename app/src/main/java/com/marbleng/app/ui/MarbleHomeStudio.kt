@@ -79,6 +79,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.model.ConnectionPingState
+// MARBLE_HOME_PING_CONTROLS_V212 — which measurement each ping surface runs.
+import com.marbleng.app.model.HomePingAction
+import com.marbleng.app.model.parseHomePingAction
 import kotlinx.coroutines.delay
 import kotlin.math.max
 
@@ -252,7 +255,11 @@ internal fun HomeLivePingMeter(
     tone: Color,
     modifier: Modifier = Modifier,
     active: Boolean = true,
-    visible: Boolean = true
+    visible: Boolean = true,
+    // MARBLE_HOME_PING_CONTROLS_V212 — the verb this gauge runs when it is tapped, which is a
+    // setting and not a constant. It is passed in rather than read from the repository here so
+    // every Home presentation resolves it the same way, from the same evidence block.
+    pingAction: HomePingAction = HomePingAction.ROUTE
 ) {
     val t = Tr.now
     val measuring = evidence.pingState == ConnectionPingState.MEASURING
@@ -301,6 +308,11 @@ internal fun HomeLivePingMeter(
     }
     // Resolved in composable scope: the semantics lambda below is not a composable context.
     val spokenPing = homePingLabel(evidence)
+    // MARBLE_HOME_PING_CONTROLS_V212 — the gauge is a control, so it carries the product's own
+    // enabled-ness rule for a ping control: a measurement already in flight is not interrupted by
+    // a second tap, and the control says so by going quiet instead of lying about the tap.
+    val tappable = visible && homePingTappable(evidence)
+    val spokenAction = homePingActionLabel(pingAction)
 
     // MARBLE_LIVE_PING_FIXED_SLOT_V135 — opacity is the ONLY reveal: the slot this column
     // occupies is identical in every state, so nothing around the meter can ever move.
@@ -338,9 +350,26 @@ internal fun HomeLivePingMeter(
             )
             .border(1.dp, tone.copy(alpha = .30f), shape)
             // MARBLE_HOME_ONE_PING_V208 — a gauge that also happens to be a button is two
-            // controls in one silhouette. This one is the gauge; the header's ping button is the
-            // button, and it measures the group the route belongs to.
-            .semantics { contentDescription = "${t.livePing}: $spokenPing" }
+            // controls in one silhouette.
+            //
+            // MARBLE_HOME_PING_CONTROLS_V212 — and the report reopened exactly that decision, with
+            // the better argument: a 150 dp rounded surface with a number on it, sitting where a
+            // button sits, under a thumb that is looking at a latency, is a button whether the
+            // design calls it one or not. An object that never answers is not a calm instrument,
+            // it is a dead key. So the gauge is a control, and the ambiguity the V208 note was
+            // protecting against is gone for a different reason: the verb is not fixed by the
+            // silhouette any more, it is the user's setting, and the label says what it is.
+            .semantics {
+                contentDescription = "${t.livePing}: $spokenPing — $spokenAction"
+            }
+            .kineticClickable(
+                enabled = tappable,
+                role = Role.Button,
+                pressScale = .97f,
+                boundedShape = shape,
+                releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+                onClick = { runHomePingAction(pingAction, actions) }
+            )
             .padding(horizontal = 11.dp, vertical = 9.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -495,7 +524,10 @@ internal fun HomeLivePingSlab(
             evidence = evidence,
             actions = actions,
             tone = tone,
-            visible = evidence.connected
+            visible = evidence.connected,
+            // MARBLE_HOME_PING_CONTROLS_V212 — the gauge is a control, and its verb is the one
+            // the user chose for the gauge surface.
+            pingAction = evidence.pingGaugeAction
         )
     }
 }
@@ -538,7 +570,9 @@ private fun StageMeter(
         evidence = evidence,
         actions = actions,
         tone = tone,
-        visible = visible
+        visible = visible,
+        // MARBLE_HOME_PING_CONTROLS_V212
+        pingAction = evidence.pingGaugeAction
     )
 }
 
@@ -558,12 +592,18 @@ internal fun HomeShortcutDeck(
     evidence: HomeEvidence,
     actions: HomeActions,
     accent: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // MARBLE_HOME_PING_CONTROLS_V212 — the pill's verb is a setting, like every other ping
+    // surface's. The deck's other three members are controls, and a fourth that looks identical
+    // and does nothing is the exact inconsistency the report named.
+    pingAction: HomePingAction = HomePingAction.GROUP
 ) {
     val t = Tr.now
     val pingTone = homePingTone(evidence, accent)
     val measuring = evidence.pingState == ConnectionPingState.MEASURING
     val pingValue = homePingLabel(evidence)
+    val pingTappable = homePingTappable(evidence)
+    val pingSpoken = homePingActionLabel(pingAction)
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -593,8 +633,15 @@ internal fun HomeShortcutDeck(
         }
 
         // Ping is a permanent member of the deck — always visible, always labelled.
-        // MARBLE_HOME_ONE_PING_V208 — and it is a *member of the deck*, not a second ping
-        // button: it reports the measurement, the header's one control takes it.
+        // MARBLE_HOME_ONE_PING_V208 — and it is a *member of the deck*.
+        //
+        // MARBLE_HOME_PING_CONTROLS_V212 — and it is a *button* in it. The V208 note kept it a
+        // display on the reasoning that one page needs one ping verb; the report that reopened it
+        // is the answer to that: the deck's three neighbours are 38 dp round controls and this one
+        // is a 38 dp pill that sits in the same row with the same fill and hairline. Users pressed
+        // it, nothing happened, and the product's explanation was invisible. It takes the tap now,
+        // and the tap is the user's choice of measurement — so "one verb per page" holds, it just
+        // stopped being a decision the layout made on the user's behalf.
         val pingShape = RoundedCornerShape(13.dp)
         Row(
             modifier = Modifier
@@ -603,7 +650,15 @@ internal fun HomeShortcutDeck(
                 .clip(pingShape)
                 .background(Aether.VoidElevated)
                 .border(1.dp, pingTone.copy(alpha = .34f), pingShape)
-                .semantics { contentDescription = "${t.livePing} $pingValue" }
+                .semantics { contentDescription = "${t.livePing} $pingValue — $pingSpoken" }
+                .kineticClickable(
+                    enabled = pingTappable,
+                    role = Role.Button,
+                    pressScale = .94f,
+                    boundedShape = pingShape,
+                    releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+                    onClick = { runHomePingAction(pingAction, actions) }
+                )
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp)

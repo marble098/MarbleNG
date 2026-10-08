@@ -33,12 +33,12 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -233,6 +233,20 @@ internal fun ServerTile(
     locationCode: String,
     locationProvisional: Boolean,
     modifier: Modifier = Modifier,
+    // MARBLE_SERVER_TILE_PARITY_V212 — the two things the compact box was missing against the row
+    // it is supposed to be an alternative to:
+    //
+    //  1. [familyChip] is the measured address-family verdict (`v4`, `v6`, `v4+v6`). On the row it
+    //     is the answer to "can this node do IPv6?", which is the question the whole IPv6 policy
+    //     depends on; a box that hides it makes the grid a worse tool than the list, and the only
+    //     way to see it was to switch the layout back.
+    //  2. [trailing] is the row's own menu, composed by the caller. It is a slot rather than a
+    //     parameter list so the tile stays a presentation: it does not learn about renaming,
+    //     moving, QR or deleting — it only reserves the place where the page's menu goes. A box
+    //     with no menu was a box that could be selected and nothing else.
+    familyChip: String? = null,
+    familyTone: Color? = null,
+    trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
     // A smaller radius than the subscription container gives the server card its own clear level.
@@ -310,9 +324,11 @@ internal fun ServerTile(
             // the one beside it (MARBLE_SERVER_TILE_TRUTH_V210).
             .fillMaxHeight()
             .heightIn(min = 84.dp)
-            .clip(shape)
-            .background(fill)
-            .border(1.dp, rim, shape)
+            // MARBLE_SURFACE_DEPTH_V212 — the boxes were still on the pre-V191 plane: a flat fill
+            // and a 1 dp hairline, while the Home cards around them sit on a light. Same fill,
+            // same rim, same states — now on the one depth contract every other surface wears, so
+            // the grid stops reading as a cheaper material than the page it is on.
+            .marbleSurfaceDepth(shape = shape, fill = fill, rim = rim, lifted = active || selected)
             .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
             .semantics {
                 contentDescription = listOfNotNull(
@@ -347,6 +363,13 @@ internal fun ServerTile(
                 scheme = profile.scheme,
                 modifier = Modifier.weight(1f, fill = false)
             )
+            // MARBLE_SERVER_TILE_PARITY_V212 — the page's own menu, at the trailing edge. The slot
+            // is only occupied when the page has actions to offer, so the Home route picker (whose
+            // rows carry no menu either) keeps its quiet boxes.
+            if (trailing != null) {
+                Spacer(Modifier.weight(1f))
+                trailing()
+            }
         }
         // MARBLE_SERVER_TILE_TRUTH_V210 — one line, always. The name is the only field whose
         // length the product does not control, and a second line used to make this tile taller
@@ -375,6 +398,12 @@ internal fun ServerTile(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
+            // MARBLE_SERVER_TILE_PARITY_V212 — the measured address family, on the box that owns
+            // it. Same rule as the row: only a real measurement earns a chip, because inventing
+            // "v4" from a hostname is the guess the scan replaced.
+            if (familyChip != null && familyTone != null) {
+                ServerStateChip(trx(familyChip), familyTone)
+            }
             ServerPingStat(
                 latencyMs = latency,
                 measured = measured != null,

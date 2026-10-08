@@ -403,6 +403,40 @@ that attacks fast, releases slowly and holds after an escalation, and what it sp
 probes is capped by a hard per-minute budget. The chapter also records the five defects found in
 the first cut of the shield itself and what each one became.
 
+### The V212 pass
+
+Four chapters, all four from one review of the connection page, the servers grid and the routing
+page:
+
+`docs/HOME_PING_CONTROLS_V212.md` — the connection page's ping buttons were **two controls and one
+verb**, and the surface that was not the header did nothing when pressed. Every ping surface is a
+control now, and each one's verb is a setting: Settings › Home › **Ping controls** points the latency
+gauge, the shortcut pill and the header pulse at *measure this server*, *measure this subscription*,
+*measure every server* or *open ping settings*. One mapping turns a stored verb into an action and
+one function names it, so a control cannot say one thing and do another — which is what the V208
+collapse was protecting against, and what a dead button did not deliver.
+
+`docs/SERVER_TILE_PARITY_V212.md` — the compact server box was missing two things the row has: the
+**measured address family** (`v4`/`v6`/`v4+v6`, and only when a scan answered) and the server's own
+**menu**. The box takes both, through one shared menu and one shared colour, so the layout preference
+chooses a silhouette and not a set of answers.
+
+`docs/MULTI_SOURCE_ROUTING_V212.md` — routing reads a **set** of geo databases instead of one
+chosen by replacement, and it can separate domestic traffic more finely than any geo tag allows.
+The primary source keeps the canonical `geoip.dat`/`geosite.dat` so a fresh install still routes
+from the bundled copy; every other source is addressed by its own file, which is what the core's
+`ext:` loader is for; a token is emitted only for a file that is on disk; and
+`IranPrecisionPack` — 104 curated domestic domains, the `.ir` TLD and 46 brand stems, deliberately
+**no CIDR ranges** — is emitted last, so a rule the user wrote always outranks the product's
+opinion. Preferences move to schema **v3**.
+
+`docs/SURFACE_DEPTH_V212.md` — "the app looks dry" had a specific cause: the V191 depth contract
+(one cool shadow, a lit rim, a whisper wash) lived *inside* the Home card, so every other surface
+was still on the pre-V191 plane. It is now `Modifier.marbleSurfaceDepth`, the server grid wears it,
+and the two full-screen dismissals answer Android's **predictive back** progress instead of snapping
+when the gesture commits. The libraries were already the newest there are — Compose BOM
+`2026.09.00` — so this chapter is about mechanisms, not dependencies.
+
 ## Main navigation
 
 MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.

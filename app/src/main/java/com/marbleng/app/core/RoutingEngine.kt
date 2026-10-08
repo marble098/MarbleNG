@@ -1,11 +1,13 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.GeoPrecision
 import com.marbleng.app.model.RoutingDefaults
 import com.marbleng.app.model.RoutingMode
 import com.marbleng.app.model.RoutingOutbound
 import com.marbleng.app.model.RoutingRule
 import com.marbleng.app.model.RoutingRuleKind
+import com.marbleng.app.model.parseGeoPrecision
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.Inet6Address
@@ -523,28 +525,37 @@ object RoutingEngine {
 
         implicit.adsTag?.let { ads ->
             normalizeGeoSite(ads)?.let { token ->
-                if (mark("geosite", token)) addDomainRule(rulesOut, listOf(token), "block")
+                // MARBLE_MULTI_SOURCE_ROUTING_V212 — the ad category is asked of every enabled
+                // database, so "block ads" is as complete as the union of the sources.
+                geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
+                    .filter { mark("geosite", it) }
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { tokens -> addDomainRule(rulesOut, tokens, "block") }
             }
         }
         implicit.directIpTags.forEach { tag ->
             val token = normalizeGeoIp(tag) ?: return@forEach
             if (token == "geoip:private") {
                 addIpRule(rulesOut, PRIVATE_CIDRS, "direct")
-            } else if (mark("geoip", token)) {
-                addIpRule(rulesOut, listOf(token), "direct")
+            } else {
+                geoTokens(settings, GeoAssetRegistry.Kind.GEOIP, token)
+                    .filter { mark("geoip", it) }
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { tokens -> addIpRule(rulesOut, tokens, "direct") }
             }
         }
         implicit.directSiteTags.forEach { tag ->
             normalizeGeoSite(tag)?.let { token ->
-                if (mark("geosite", token)) addDomainRule(rulesOut, listOf(token), "direct")
+                geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
+                    .filter { mark("geosite", it) }
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { tokens -> addDomainRule(rulesOut, tokens, "direct") }
             }
         }
 
         // MARBLE_ROUTING_SEPARATE_V143 — user-authored custom rules are opt-in. The built-in
         // mode/ads/bypass rules above always stay active; only the custom layer is gated.
-        if (!settings.customRoutingEnabled) return
-
-        for (rule in emittableUserRules(settings)) {
+        if (settings.customRoutingEnabled) for (rule in emittableUserRules(settings)) {
             val tag = outboundTag(rule.outbound, proxyTag)
             val ports = (if (rule.kind == RoutingRuleKind.PORT) rule.matcher.trim() else rule.port)
                 .trim()
@@ -565,15 +576,20 @@ object RoutingEngine {
             when (rule.kind) {
                 RoutingRuleKind.GEOSITE -> {
                     val token = normalizeGeoSite(rule.matcher) ?: continue
-                    if (!mark("geosite", token)) continue
-                    putRule { it.put("domain", JSONArray(listOf(token))) }
+                    val tokens = geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
+                        .filter { mark("geosite", it) }
+                    if (tokens.isEmpty()) continue
+                    putRule { it.put("domain", JSONArray(tokens)) }
                 }
                 RoutingRuleKind.GEOIP -> {
                     val token = normalizeGeoIp(rule.matcher) ?: continue
                     if (token == "geoip:private") {
                         addIpRule(rulesOut, PRIVATE_CIDRS, tag)
-                    } else if (mark("geoip", token)) {
-                        putRule { it.put("ip", JSONArray(listOf(token))) }
+                    } else {
+                        val tokens = geoTokens(settings, GeoAssetRegistry.Kind.GEOIP, token)
+                            .filter { mark("geoip", it) }
+                        if (tokens.isEmpty()) continue
+                        putRule { it.put("ip", JSONArray(tokens)) }
                     }
                 }
                 RoutingRuleKind.DOMAIN -> {
@@ -593,6 +609,14 @@ object RoutingEngine {
                 }
             }
         }
+
+        // MARBLE_MULTI_SOURCE_ROUTING_V212 — the curated domestic knowledge, last. Order is the
+        // whole contract here: the core takes the FIRST rule that matches, so a domain the user
+        // blocked or proxied by hand has already been emitted (and marked) by the time this runs,
+        // and the product's own "keep domestic traffic here" answer can neither override it nor
+        // duplicate it. Emitting it earlier would have made an invisible product rule win over a
+        // rule the user wrote in Settings.
+        applyPrecisionRules(rulesOut, settings, seen)
     }
 
     fun outboundTag(outbound: RoutingOutbound, proxyTag: String): String = when (outbound) {
@@ -600,6 +624,101 @@ object RoutingEngine {
         RoutingOutbound.DIRECT -> "direct"
         RoutingOutbound.BLOCK -> "block"
     }
+
+    // ---------------------------------------------------------------------------------------
+    // MARBLE_MULTI_SOURCE_ROUTING_V212 — several databases, fail-closed emission
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * The asset files that are actually on disk right now.
+     *
+     * The connect path writes them into a transient settings field (the same pattern as
+     * `measuredIpv6Unhealthy` and `measuredDnsDemotedEndpoints`): readiness is a fact about this
+     * session's filesystem, not a preference, so it travels with the settings the writer reads
+     * and is never persisted. An empty value means "assume only the canonical pair", which is the
+     * safe reading — a source that has not reported itself is a source whose rules are not
+     * emitted, and a missing `ext:` file is a config the core refuses to load.
+     */
+    fun readyGeoFiles(settings: AppSettings): Set<String> {
+        val parsed = settings.measuredGeoReadyFiles
+            .split(',', '\n', ';')
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it.endsWith(".dat") }
+            .distinct()
+        return parsed.ifEmpty {
+            setOf(GeoAssetRegistry.PRIMARY_GEOIP_FILE, GeoAssetRegistry.PRIMARY_GEOSITE_FILE)
+        }.toSet()
+    }
+
+    /**
+     * Every token one geo tag expands to, one per source that can answer it and whose database is
+     * on disk. The primary is the canonical `geoip:tag` / `geosite:tag` form; every other source
+     * names its own file with `ext:`, which is exactly what the core's geo loader reads.
+     *
+     * An empty result means the tag cannot be emitted at all right now — the caller skips the rule
+     * rather than writing a reference to a file that does not exist.
+     */
+    fun geoTokens(settings: AppSettings, kind: GeoAssetRegistry.Kind, tag: String): List<String> {
+        val ready = readyGeoFiles(settings)
+        return GeoAssetRegistry.tokensFor(settings, kind, tag).filter { token ->
+            val file = GeoAssetRegistry.fileOf(token)
+            file.isEmpty() || file in ready
+        }
+    }
+
+    /**
+     * The curated domestic rules: the TLD as a suffix, every named domestic service as a root
+     * domain, and — at the strongest precision level — the brand keywords.
+     *
+     * These are literal domains, so they need no geo database at all: the one class of routing that
+     * keeps working when every download is blocked. They are emitted as a small number of rules
+     * (not one rule per domain) because a rule is matched as a unit, and forty rules of one domain
+     * each is forty times the matcher work for the same answer.
+     */
+    fun applyPrecisionRules(rulesOut: JSONArray, settings: AppSettings, seen: MutableSet<String>) {
+        // Every entry here is a DIRECT rule, so it only belongs in a mode whose whole job is
+        // keeping domestic traffic here. In CUSTOM the user's own list is the policy and a
+        // product-authored direct rule would silently outrank it; in PROXY_ALL nothing is direct
+        // by design. [precisionActive] is the one answer both engines and the UI read.
+        if (!precisionActive(settings)) return
+        val precision = parseGeoPrecision(settings.geoPrecision)
+        val suffixes = IranPrecisionPack.suffixes(precision)
+        val domains = IranPrecisionPack.domains(precision)
+        val keywords = IranPrecisionPack.keywords(precision)
+
+        val tokens = ArrayList<String>(suffixes.size + domains.size + keywords.size)
+        suffixes.forEach { suffix ->
+            val token = "domain:$suffix"
+            if (seen.add("domain:$token")) tokens += token
+        }
+        domains.forEach { domain ->
+            val token = "domain:$domain"
+            if (seen.add("domain:$token")) tokens += token
+        }
+        keywords.forEach { keyword ->
+            val token = "keyword:$keyword"
+            if (seen.add("domain:$token")) tokens += token
+        }
+        if (tokens.isEmpty()) return
+
+        // Chunked so one enormous `domain` array cannot exceed what the core will parse in a
+        // single rule, and so a rule that is ever rejected by a future core costs one chunk.
+        tokens.chunked(PRECISION_RULE_CHUNK).forEach { chunk ->
+            addDomainRule(rulesOut, chunk, "direct")
+        }
+    }
+
+    /** Domains per emitted precision rule: large enough to be few rules, small enough to parse. */
+    const val PRECISION_RULE_CHUNK: Int = 120
+
+    /**
+     * True when the routing layer separates domestic traffic with the curated knowledge rather
+     * than with geo tags alone. Bug Finder and the routing page both read this one answer.
+     */
+    fun precisionActive(settings: AppSettings): Boolean =
+        settings.routingMode == RoutingMode.GEO_DIRECT &&
+            settings.iranDomesticDirect &&
+            parseGeoPrecision(settings.geoPrecision) != GeoPrecision.STANDARD
 
     val PRIVATE_CIDRS = listOf(
         "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
@@ -693,6 +812,17 @@ object RoutingEngine {
         val steps = mutableListOf<RouteStep>()
         var verdict: RoutingOutbound? = null
         var reason = ""
+
+        // MARBLE_MULTI_SOURCE_ROUTING_V212 — the precision level of this simulation, and the one
+        // place that turns "a geo tag matched" into "this database matched", which is the answer a
+        // user needs when a domestic destination went through the tunnel.
+        val precision = parseGeoPrecision(settings.geoPrecision)
+
+        /** " • from Chocolate4U Iran, Loyalsoldier", or "" when nothing indexed can say. */
+        fun provenanceNote(kind: GeoAssetIndex.Kind, tag: String): String {
+            val sources = GeoAssetIndex.sourcesFor(kind, tag)
+            return if (sources.isEmpty()) "" else " • from " + sources.joinToString(", ")
+        }
 
         fun decide(outbound: RoutingOutbound, why: String) {
             if (verdict == null) {
@@ -828,12 +958,44 @@ object RoutingEngine {
         }
         implicit.directSiteTags.forEach { tag ->
             val token = normalizeGeoSite(tag) ?: return@forEach
-            val hit = matchDomainTokens(listOf(token))
+            // MARBLE_MULTI_SOURCE_ROUTING_V212 — one step per source, named: "which database
+            // answered?" is the first question a user asks about a domestic site that got proxied.
+            val tokens = geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
+                .ifEmpty { listOfNotNull(normalizeGeoSite(token)) }
+            val hit = matchDomainTokens(tokens)
             steps += RouteStep(
-                "Geo direct (domains)", token,
-                RoutingOutbound.DIRECT.takeIf { hit == true }, hit
+                "Geo direct (domains)",
+                tokens.joinToString(", ") + provenanceNote(
+                    GeoAssetIndex.Kind.GEOSITE,
+                    GeoAssetRegistry.tagOf(token)
+                ),
+                RoutingOutbound.DIRECT.takeIf { hit == true },
+                hit
             )
             if (hit == true) decide(RoutingOutbound.DIRECT, "Matched $token (geo direct policy)")
+        }
+
+        // MARBLE_MULTI_SOURCE_ROUTING_V212 — the curated domestic layer, reported where it runs:
+        // after the geo tags and before the user's own rules. It is the layer that answers for the
+        // domestic service no database has listed yet, so a simulator that skipped it would keep
+        // printing "proxy" for exactly the destinations this feature exists for.
+        if (precisionActive(settings) && domainForMatch != null) {
+            val category = IranPrecisionPack.categoryOf(domainForMatch, precision)
+            val byTld = domainForMatch == IranPrecisionPack.TLD_SUFFIX ||
+                domainForMatch.endsWith("." + IranPrecisionPack.TLD_SUFFIX)
+            val byKeyword = IranPrecisionPack.keywords(precision)
+                .any { it.length >= 4 && domainForMatch.contains(it) }
+            if (category != null || byTld || byKeyword) {
+                val detail = when {
+                    category != null -> "${category.label} • ${IranPrecisionPack.summary(precision)}"
+                    byTld -> "Domestic TLD (.${IranPrecisionPack.TLD_SUFFIX})"
+                    else -> "Domestic brand keyword"
+                }
+                steps += RouteStep(
+                    "Domestic precision", detail, RoutingOutbound.DIRECT, true
+                )
+                decide(RoutingOutbound.DIRECT, "Matched the curated domestic-destination rules")
+            }
         }
 
         // 5. The user's own rules, in priority order.

@@ -338,6 +338,102 @@ fun parseServerLayout(raw: String): ServerLayout =
         }
 
 /**
+ * MARBLE_HOME_PING_CONTROLS_V212 — what one Home ping control does when it is tapped.
+ *
+ * The report: *"the home page has two ping buttons; one of them is not clickable and the other
+ * is. Both must be clickable, and Settings must be able to say what each one does."*
+ *
+ * The finding behind it is that the product had already decided the question twice, in opposite
+ * directions. V208 declared the gauge a *readout* ("a gauge that also happens to be a button is
+ * two controls in one silhouette") and made the shortcut-deck pill a display too, leaving the
+ * header's pulse as the only verb. But both of those surfaces are the two things a user's thumb
+ * actually lands on while looking at a latency number, and an object that looks pressable, sits
+ * where a button sits and never answers is not a calm instrument — it is a dead key.
+ *
+ * So the rule now is the inverse: **every ping surface on Home is a control**, and the difference
+ * between them is not "clickable or not" but *which measurement it runs*. That is a preference,
+ * so it lives in [AppSettings] — three fields, one per surface — and this enum is the vocabulary
+ * of all three:
+ *
+ *  - [ROUTE]   measure the one server the page is showing (the tunnel while one is up, the
+ *              selected route while it is down). The narrowest, most honest question.
+ *  - [GROUP]   sweep the subscription the route belongs to, so the page's own number can be
+ *              compared against its peers.
+ *  - [LIBRARY] sweep the whole library: the bulk verb that used to live only on the Servers page.
+ *  - [TESTS]   open the Tests workspace instead of measuring: for a user whose answer is "show me
+ *              how measurement is configured", not "measure again".
+ *
+ * Two controls may be pointed at the same action — that is the user's choice, not a defect — and
+ * every action is a real destination, so no control can ever be a no-op again.
+ */
+enum class HomePingAction(val id: String) {
+    ROUTE("route"),
+    GROUP("group"),
+    LIBRARY("library"),
+    TESTS("tests");
+
+    companion object {
+        val DEFAULT: HomePingAction get() = ROUTE
+    }
+}
+
+/** Lenient parser: an older or mistyped id resolves to a real action, never to a dead button. */
+fun parseHomePingAction(raw: String): HomePingAction =
+    HomePingAction.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().lowercase()) {
+            "node", "server", "route", "live", "current", "single" -> HomePingAction.ROUTE
+            "group", "subscription", "source", "batch" -> HomePingAction.GROUP
+            "all", "library", "everything", "sweep" -> HomePingAction.LIBRARY
+            "tests", "test", "settings", "open" -> HomePingAction.TESTS
+            else -> HomePingAction.DEFAULT
+        }
+
+/**
+ * MARBLE_MULTI_SOURCE_ROUTING_V212 — how finely the routing layer separates traffic.
+ *
+ * The report: *"routing sends Iranian traffic direct, but it is still weak: some Iranian sites and
+ * apps still go through the proxy."*
+ *
+ * The cause is not one bad rule, it is one *database*. Every geo database is a snapshot somebody
+ * published, and the `.ir` category in any of them is a list of domains somebody maintained. An
+ * Iranian banking portal added last month, a messenger that publishes on a CDN, a ride-hailing app
+ * that talks to an unlisted API host — none of them are in a category that a rule can name, so
+ * they fall through to the proxy default. No single source can close that gap, and neither can a
+ * union of sources, because they all share the same blind spot.
+ *
+ * Precision is therefore a dial, not a switch:
+ *
+ *  - [STANDARD]  the geo tags the user configured, and nothing else. This is the old behaviour,
+ *                kept for a user who wants exactly the routing they can see.
+ *  - [ENHANCED]  the geo tags *plus* the product's own curated Iranian-destination knowledge
+ *                ([com.marbleng.app.core.IranPrecisionPack]) — domestic TLDs, banks, government,
+ *                messengers, ride-hailing, e-commerce, CDN and ISP ranges. The shipped default,
+ *                because it is the level at which "Iranian traffic stays direct" is actually true.
+ *  - [MAXIMUM]   [ENHANCED] plus keyword-level matching for the domestic suffixes, so a host
+ *                nobody has ever published still reads as domestic. It costs a little matching
+ *                time on every new connection, which is why it is a choice and not the default.
+ */
+enum class GeoPrecision(val id: String) {
+    STANDARD("standard"),
+    ENHANCED("enhanced"),
+    MAXIMUM("maximum");
+
+    companion object {
+        val DEFAULT: GeoPrecision get() = ENHANCED
+    }
+}
+
+/** Lenient parser: an unknown precision resolves to the shipped default, never to "no rules". */
+fun parseGeoPrecision(raw: String): GeoPrecision =
+    GeoPrecision.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().lowercase()) {
+            "off", "none", "basic", "geo", "tags" -> GeoPrecision.STANDARD
+            "high", "max", "strict", "aggressive", "keyword" -> GeoPrecision.MAXIMUM
+            "normal", "balanced", "default", "curated" -> GeoPrecision.ENHANCED
+            else -> GeoPrecision.DEFAULT
+        }
+
+/**
  * MARBLE_CORE_OPTIONS_V211 — every list a per-core option surface draws is a value here.
  *
  * The two pinned cores do not share a vocabulary — Xray spells its log levels
@@ -1284,8 +1380,13 @@ object RoutingDefaults {
      * v2 — MARBLE_SMART_FAMILY_V136: installs migrated by v1 had IPv6 forced off; the smart
      * address-family policy makes IPv6-on safe (underlay gate + per-node measurement), so this
      * schema turns both family switches on exactly once. Any later user choice persists.
+     *
+     * v3 — MARBLE_MULTI_SOURCE_ROUTING_V212: routing reads a *set* of geo databases and separates
+     * domestic traffic with curated knowledge as well as geo tags. The set is seeded from the
+     * single source the install already used, and the precision dial lands on ENHANCED. Nothing
+     * that was working changes; a source the user adds later is theirs to keep.
      */
-    const val PREFS_SCHEMA_VERSION = 2
+    const val PREFS_SCHEMA_VERSION = 3
     const val SOURCE_CHOCOLATE4U = "chocolate4u-iran"
     const val STALE_ASSET_MS = 7L * 24L * 60L * 60L * 1000L
 
@@ -1309,6 +1410,16 @@ object RoutingDefaults {
             label = "v2fly",
             geoIpUrl = "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat",
             geoSiteUrl = "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat"
+        ),
+        // MARBLE_MULTI_SOURCE_ROUTING_V212 — a source that publishes ONE family is a source. This
+        // one exists so the interesting combination is reachable: v2fly's address database, which
+        // is the most conservatively maintained one there is, beside the Iranian domain database
+        // that actually knows domestic services. Picking it never costs the other source's family.
+        GeoAssetSource(
+            id = "v2fly-geoip",
+            label = "v2fly geoip only",
+            geoIpUrl = "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat",
+            geoSiteUrl = ""
         ),
         GeoAssetSource(
             id = "custom",
@@ -1606,6 +1717,25 @@ data class AppSettings(
      */
     val homeAmbientBackdrop: Boolean = true,
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARBLE_HOME_PING_CONTROLS_V212 — three ping surfaces on Home, three verbs.
+    //
+    // Every ping surface on the connection page is a control. Which measurement each one runs is
+    // the user's decision, stored per surface so the two cannot drift into being the same button
+    // twice (see [HomePingAction]). The defaults keep the product's shipped meaning: the gauge and
+    // the header pulse answer "is *this* server alive?", the shortcut pill answers "how does the
+    // rest of my subscription compare?" — but both are now tappable, and both are re-pointable.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** The latency gauge on Home ([com.marbleng.app.ui.HomeLivePingMeter]). */
+    val homePingGaugeAction: String = HomePingAction.ROUTE.id,
+
+    /** The ping pill of the Home shortcut deck. */
+    val homePingChipAction: String = HomePingAction.GROUP.id,
+
+    /** The pulse control in the Home header. */
+    val homePingHeaderAction: String = HomePingAction.ROUTE.id,
+
     // Optional smart alerts. Foreground-service status is managed separately while connected.
     val smartNotificationsEnabled: Boolean = true,
     val notifyConnectionEvents: Boolean = false,
@@ -1622,6 +1752,29 @@ data class AppSettings(
     // mode continues to apply while the dedicated Routing page stays disabled.
     val customRoutingEnabled: Boolean = false,
     val geoAssetSourceId: String = RoutingDefaults.SOURCE_CHOCOLATE4U,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARBLE_MULTI_SOURCE_ROUTING_V212 — the routing layer reads several geo databases at once.
+    //
+    // [geoAssetSourceId] stays: it is the *primary* source, the one the APK bundles and the one
+    // that keeps working on a fresh install with no network. [geoAssetSourceIds] is the ordered
+    // set of every source the routing layer consults, primary first, and it is what the config
+    // writers turn into one `ext:<file>:<tag>` reference per source for Xray and one rule set per
+    // source for sing-box. A source that is enabled but not (yet) on disk is skipped by the
+    // fail-closed gate rather than killing the core, so "more sources" can never cost the tunnel.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Comma-separated, ordered list of enabled geo asset source ids; the first is the primary. */
+    val geoAssetSourceIds: String = RoutingDefaults.SOURCE_CHOCOLATE4U,
+
+    /** User-defined extra sources, as a JSON array of {id,label,geoIpUrl,geoSiteUrl}. */
+    val geoCustomSourcesJson: String = "",
+
+    /** How finely domestic traffic is separated. See [GeoPrecision]. */
+    val geoPrecision: String = GeoPrecision.DEFAULT.id,
+
+    /** False = read only the primary source, which is the pre-V212 behaviour. */
+    val geoMultiSourceEnabled: Boolean = true,
     val routingRulesJson: String = "",
     val geoIpUrl: String = RoutingDefaults.GEOIP_URL,
     val geoSiteUrl: String = RoutingDefaults.GEOSITE_URL,
@@ -1723,6 +1876,20 @@ data class AppSettings(
      * and never need to appear here.
      */
     val measuredDnsExcludedEndpoints: String = "",
+
+    /**
+     * MARBLE_MULTI_SOURCE_ROUTING_V212 — *transient*, never persisted. Comma-separated names of
+     * the geo asset files that are on disk and structurally valid for this session
+     * (`geoip.dat`, `geosite-loyalsoldier.dat`, …).
+     *
+     * It travels inside the settings object for the same reason the resolver verdicts do: the
+     * routing writer expands one geo tag into one `ext:<file>:<tag>` reference per enabled source,
+     * and a reference to a file that is not there makes the core refuse the whole config. Readiness
+     * is a fact about this session's filesystem, so it is deliberately absent from
+     * [com.marbleng.app.data.AppStore]: a list restored after a reboot would describe files a
+     * cleanup or a failed refresh already removed.
+     */
+    val measuredGeoReadyFiles: String = "",
 
     // Realtime transport adaptation. MARBLE_REALTIME_ENGINE_V70
     val adaptiveHappyEyeballsEnabled: Boolean = true,
