@@ -163,6 +163,9 @@ class MultiSourceRoutingV212Test {
     @Test
     fun precisionNeverDuplicatesADomainTheUserAlreadyRouted() {
         val settings = AppSettings(
+            // The user's own rules are opt-in, so the test has to opt in: the point is the
+            // interaction between the user's rule and the product's, not one of them alone.
+            customRoutingEnabled = true,
             routingRulesJson = RoutingEngine.serializeRules(
                 listOf(
                     RoutingRule(
@@ -190,6 +193,7 @@ class MultiSourceRoutingV212Test {
         // v2fly-geoip publishes geoip only: enabling it must not create a geosite reference.
         val settings = AppSettings(
             geoAssetSourceIds = "chocolate4u-iran,v2fly-geoip",
+            geoMultiSourceEnabled = true,
             measuredGeoReadyFiles = "geoip.dat,geosite.dat,geoip-v2fly-geoip.dat"
         )
         assertEquals(

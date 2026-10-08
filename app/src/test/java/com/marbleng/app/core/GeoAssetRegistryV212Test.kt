@@ -227,10 +227,10 @@ class GeoAssetRegistryV212Test {
 
     @Test
     fun bytesReadTheWayTheAssetCardSays() {
-        assertEquals("0 KB", GeoAssetRegistry.formatBytes(0))
-        assertEquals("512 B", GeoAssetRegistry.formatBytes(512))
-        assertEquals("4 KB", GeoAssetRegistry.formatBytes(4_096))
-        assertEquals("5.7 MB", GeoAssetRegistry.formatBytes(5_976_883))
+        assertEquals("0 KB", GeoAssetRegistry.formatBytes(0L))
+        assertEquals("512 B", GeoAssetRegistry.formatBytes(512L))
+        assertEquals("4 KB", GeoAssetRegistry.formatBytes(4_096L))
+        assertEquals("5.7 MB", GeoAssetRegistry.formatBytes(5_976_883L))
     }
 
     private fun loyalsoldier(): GeoAssetRegistry.SourceSpec =

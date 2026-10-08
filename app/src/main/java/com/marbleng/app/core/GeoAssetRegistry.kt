@@ -416,7 +416,9 @@ object GeoAssetRegistry {
         bytes <= 0L -> "0 KB"
         bytes < 1024L -> "$bytes B"
         bytes < 1024L * 1024L -> "${bytes / 1024L} KB"
-        else -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
+        // Locale-pinned: a decimal comma on a runner whose locale is not English would make the
+        // asset card, the summary line and this file's own test disagree about the same number.
+        else -> "%.1f MB".format(java.util.Locale.US, bytes / (1024.0 * 1024.0))
     }
 
     /** [com.marbleng.app.model.GeoAssetSource] → the registry's own shape. */

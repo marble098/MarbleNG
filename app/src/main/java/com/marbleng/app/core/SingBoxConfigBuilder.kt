@@ -1510,10 +1510,6 @@ private fun removeKeys(
             rules.put(JSONObject().put("ip_cidr", JSONArray(IRAN_POISON_BLOCK_IPS)).put("action", "reject"))
         }
         val usedSets = linkedSetOf<String>()
-        fun action(rule: JSONObject, outbound: RoutingOutbound): JSONObject = rule.apply {
-            if (outbound == RoutingOutbound.BLOCK) put("action", "reject")
-            else put("action", "route").put("outbound", if (outbound == RoutingOutbound.DIRECT) DIRECT_TAG else PROXY_TAG)
-        }
         fun domainRules(raw: String, outbound: RoutingOutbound) {
             val fields = linkedMapOf<String, JSONArray>()
             splitTokens(raw).forEach { token ->
@@ -1650,6 +1646,19 @@ private fun removeKeys(
      * the user nothing to search their settings for, and does not even say whether the rule
      * that was dropped was a geoip one or a geosite one.
      */
+    /**
+     * The route shape sing-box expects for one rule.
+     *
+     * This was a local function inside [routeRules] until the domestic-precision layer needed the
+     * same shape from outside it — and a local function is not visible outside its own body, which
+     * is exactly the kind of thing a compiler catches and a source-reading does not. It is one
+     * rule shape, so it is one function.
+     */
+    private fun action(rule: JSONObject, outbound: RoutingOutbound): JSONObject = rule.apply {
+        if (outbound == RoutingOutbound.BLOCK) put("action", "reject")
+        else put("action", "route").put("outbound", if (outbound == RoutingOutbound.DIRECT) DIRECT_TAG else PROXY_TAG)
+    }
+
     /**
      * MARBLE_MULTI_SOURCE_ROUTING_V212 — the domestic-precision layer, in sing-box's own idiom.
      *
