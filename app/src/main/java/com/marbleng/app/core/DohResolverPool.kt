@@ -214,7 +214,7 @@ class DohResolverPool(
             return RaceOutcome(success = false, failures = emptyList())
         }
 
-        val deadline = System.currentTimeMillis() + overallDeadlineMs
+        val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(overallDeadlineMs.coerceAtLeast(0L))
         val ordered = providers.sortedBy { it.internal } // public providers race first
 
         // Poll COMPLETIONS, not futures in provider order. Waiting on the first provider's
@@ -236,10 +236,10 @@ class DohResolverPool(
                 pending[future] = provider
             }
             while (pending.isNotEmpty()) {
-                val budgetMs = deadline - System.currentTimeMillis()
-                if (budgetMs <= 0) break
+                val budgetNanos = deadlineNanos - System.nanoTime()
+                if (budgetNanos <= 0L) break
                 val finished = try {
-                    completion.poll(budgetMs, TimeUnit.MILLISECONDS)
+                    completion.poll(budgetNanos, TimeUnit.NANOSECONDS)
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     failures += Provider("race-cancelled", "") to DohTransportResult(success = false,

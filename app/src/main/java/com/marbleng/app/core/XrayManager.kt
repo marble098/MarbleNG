@@ -11,6 +11,7 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.URL
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 
 /** Status of the two Xray geo data files used by managed routing. */
@@ -88,6 +89,7 @@ class XrayManager(private val context: Context) {
     }
     private val lifecycleLock = Any()
     private val assetLock = ReentrantLock()
+    private val geoIndexRefreshQueued = AtomicBoolean(false)
 
     /** Process-wide ownership of every throwaway local Xray listener. */
     private val temporaryPortLock = Any()
@@ -400,28 +402,58 @@ class XrayManager(private val context: Context) {
      * union the config writer actually emits, which is the whole reason a second source is worth
      * switching on.
      */
-    fun refreshGeoAssetIndex(settings: AppSettings) {
-        runCatching {
-            val files = ArrayList<GeoAssetIndex.IndexedFile>()
-            GeoAssetRegistry.resolve(settings).forEachIndexed { index, spec ->
-                val primary = index == 0
-                listOf(GeoAssetRegistry.Kind.GEOSITE, GeoAssetRegistry.Kind.GEOIP).forEach { kind ->
-                    if (!spec.provides(kind)) return@forEach
-                    files += GeoAssetIndex.IndexedFile(
-                        File(assetsDir, GeoAssetRegistry.fileName(spec, kind, primary)),
-                        if (kind == GeoAssetRegistry.Kind.GEOSITE) {
-                            GeoAssetIndex.Kind.GEOSITE
-                        } else {
-                            GeoAssetIndex.Kind.GEOIP
-                        }
-                    )
+    fun refreshGeoAssetIndex(settings: AppSettings): GeoAssetIndex.Snapshot? {
+        assetLock.lock()
+        try {
+            return runCatching {
+                val files = ArrayList<GeoAssetIndex.IndexedFile>()
+                GeoAssetRegistry.resolve(settings).forEachIndexed { index, spec ->
+                    val primary = index == 0
+                    listOf(GeoAssetRegistry.Kind.GEOSITE, GeoAssetRegistry.Kind.GEOIP).forEach { kind ->
+                        if (!spec.provides(kind)) return@forEach
+                        files += GeoAssetIndex.IndexedFile(
+                            File(assetsDir, GeoAssetRegistry.fileName(spec, kind, primary)),
+                            if (kind == GeoAssetRegistry.Kind.GEOSITE) {
+                                GeoAssetIndex.Kind.GEOSITE
+                            } else {
+                                GeoAssetIndex.Kind.GEOIP
+                            }
+                        )
+                    }
                 }
+                if (files.isEmpty()) GeoAssetIndex.update(assetsDir)
+                else GeoAssetIndex.update(assetsDir, files)
+            }.getOrNull()
+        } finally {
+            assetLock.unlock()
+        }
+    }
+
+    /**
+     * Refreshes the index off the connect path. Asset writes take the same lease, so a background
+     * parse can never publish tag evidence from a half-replaced file. The cache is per process;
+     * duplicate reconnect requests coalesce into one worker.
+     */
+    private fun scheduleGeoAssetIndexRefresh(settings: AppSettings) {
+        if (!geoIndexRefreshQueued.compareAndSet(false, true)) return
+        runCatching {
+            Thread({
+                try {
+                    assetLock.lock()
+                    try {
+                        refreshGeoAssetIndex(settings)
+                    } finally {
+                        assetLock.unlock()
+                    }
+                } finally {
+                    geoIndexRefreshQueued.set(false)
+                }
+            }, "MarbleGeoAssetIndex").apply {
+                isDaemon = true
+                start()
             }
-            if (files.isEmpty()) {
-                GeoAssetIndex.update(assetsDir)
-            } else {
-                GeoAssetIndex.update(assetsDir, files)
-            }
+        }.onFailure {
+            geoIndexRefreshQueued.set(false)
         }
     }
 
@@ -432,18 +464,59 @@ class XrayManager(private val context: Context) {
      * on, so a file that is missing or half-written cannot produce an `ext:` reference — the one
      * failure mode that would turn a routing preference into a core that refuses to start.
      */
-    fun readyGeoAssetFiles(settings: AppSettings): List<String> {
-        val ready = ArrayList<String>()
-        GeoAssetRegistry.resolve(settings).forEachIndexed { index, spec ->
-            val primary = index == 0
+    private data class ReadyGeoAssets(
+        val files: List<String>,
+        val tagsByFile: Map<String, Set<String>>,
+        val geoIpReady: Boolean = false,
+        val geoSiteReady: Boolean = false,
+        val geoIpBytes: Long = 0L,
+        val geoSiteBytes: Long = 0L
+    )
+
+    /**
+     * A file is usable only after a full, fresh parse produced exact tag membership. A header/size
+     * check alone accepts truncated protobufs and says nothing about whether a requested tag exists.
+     */
+    private fun indexedGeoAssets(
+        settings: AppSettings,
+        refresh: Boolean = true
+    ): ReadyGeoAssets {
+        val index = (if (refresh) refreshGeoAssetIndex(settings) else GeoAssetIndex.current())
+            ?: return ReadyGeoAssets(emptyList(), emptyMap())
+        val ready = linkedMapOf<String, Set<String>>()
+        var geoIpReady = false
+        var geoSiteReady = false
+        var geoIpBytes = 0L
+        var geoSiteBytes = 0L
+        GeoAssetRegistry.resolve(settings).forEachIndexed { indexInSelection, spec ->
+            val primary = indexInSelection == 0
             listOf(GeoAssetRegistry.Kind.GEOIP, GeoAssetRegistry.Kind.GEOSITE).forEach { kind ->
                 if (!spec.provides(kind)) return@forEach
                 val file = File(assetsDir, GeoAssetRegistry.fileName(spec, kind, primary))
-                if (file.isFile && looksLikeGeoDatabase(file)) ready += file.name
+                val indexedKind = if (kind == GeoAssetRegistry.Kind.GEOIP) {
+                    GeoAssetIndex.Kind.GEOIP
+                } else {
+                    GeoAssetIndex.Kind.GEOSITE
+                }
+                if (!index.isUsableFile(file, indexedKind)) return@forEach
+                val tags = index.tagsForFile(file.name, indexedKind) ?: return@forEach
+                ready[file.name] = tags
+                if (kind == GeoAssetRegistry.Kind.GEOIP) {
+                    geoIpReady = true
+                    geoIpBytes += file.length()
+                } else {
+                    geoSiteReady = true
+                    geoSiteBytes += file.length()
+                }
             }
         }
-        return ready
+        return ReadyGeoAssets(
+            ready.keys.toList(), ready, geoIpReady, geoSiteReady, geoIpBytes, geoSiteBytes
+        )
     }
+
+    fun readyGeoAssetFiles(settings: AppSettings): List<String> =
+        indexedGeoAssets(settings).files
 
     /** The source-by-source state of the geo databases, for the routing page. */
     fun geoSourceStates(settings: AppSettings): List<GeoAssetRegistry.SourceState> {
@@ -523,66 +596,31 @@ class XrayManager(private val context: Context) {
     private fun prepareRoutingAssetsForConnect(settings: AppSettings): RoutingAssetStatus {
         val needGeoIp = requiresGeoIp(settings)
         val needGeoSite = requiresGeoSite(settings)
-        if (!needGeoIp && !needGeoSite) return routingAssetStatus()
-
-        // MARBLE_CONNECT_ASSET_LOCK_V132 — a connect must never be gated on the geo-asset
-        // updater.
-        //
-        // The default routing policy (GEO_DIRECT + ad blocking) needs BOTH geoip.dat and
-        // geosite.dat, so the old code took the global asset lock on literally every connect.
-        // `prepareRoutingAssets()` holds that lock for two HTTPS downloads (15 s connect /
-        // 60 s read timeout each, plus a jsDelivr retry), so any routing-asset refresh running
-        // in the background turned every connect attempt during that window into
-        // `IllegalStateException: Routing assets are being updated; retry after preparation
-        // finishes` — a perfectly healthy server that answers in another client failed here
-        // with a message that named nothing the user could act on.
-        //
-        // The lock is only ever needed to WRITE an asset that is missing. When everything the
-        // selected policy needs is already on disk there is nothing to protect against, so the
-        // connect path reads the status and moves on.
         val present = routingAssetStatus()
-        val complete =
-            (!needGeoIp || present.geoIpReady) && (!needGeoSite || present.geoSiteReady)
-        if (complete) return present
+        if (!needGeoIp && !needGeoSite) return present
 
-        val acquired = try {
-            assetLock.tryLock(250L, TimeUnit.MILLISECONDS)
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-            false
-        }
-        // MARBLE_GEO_READY_GATE_V145 — a background asset refresh can no longer veto a connect.
-        // The old `check(acquired)` turned "the updater happens to hold the lock right now" into
-        // a failed connection with a message the user cannot act on. Losing the race simply
-        // means the assets are not ready yet, and the geo gate downgrades the policy for this
-        // session instead of refusing to open the tunnel.
-        if (!acquired) return present
+        // Connection setup performs only bounded local checks and optional APK copies. Protobuf
+        // parsing is intentionally deferred to the index worker; a missing/stale index simply gates
+        // geo rules for this connection and never delays the SOCKS listener.
+        val primaryIsBundled = GeoAssetRegistry.resolve(settings).firstOrNull()?.bundled == true
+        if (!primaryIsBundled) return present
 
-        try {
-            assetsDir.mkdirs()
-            var status = routingAssetStatus()
-
-            if (needGeoIp && !status.geoIpReady) {
-                val destination = File(assetsDir, "geoip.dat")
-                if (copyBundledAsset("geoip.dat", destination)) {
-                    sourceMarker("geoip.dat").writeText("apk://xray/geoip.dat")
-                    refreshFailureMarker("geoip.dat").delete()
-                }
+        assetsDir.mkdirs()
+        if (needGeoIp && !present.geoIpReady) {
+            val destination = File(assetsDir, "geoip.dat")
+            if (copyBundledAsset("geoip.dat", destination)) {
+                sourceMarker("geoip.dat").writeText("apk://xray/geoip.dat")
+                refreshFailureMarker("geoip.dat").delete()
             }
-
-            status = routingAssetStatus()
-            if (needGeoSite && !status.geoSiteReady) {
-                val destination = File(assetsDir, "geosite.dat")
-                if (copyBundledAsset("geosite.dat", destination)) {
-                    sourceMarker("geosite.dat").writeText("apk://xray/geosite.dat")
-                    refreshFailureMarker("geosite.dat").delete()
-                }
-            }
-
-            return routingAssetStatus()
-        } finally {
-            assetLock.unlock()
         }
+        if (needGeoSite && !present.geoSiteReady) {
+            val destination = File(assetsDir, "geosite.dat")
+            if (copyBundledAsset("geosite.dat", destination)) {
+                sourceMarker("geosite.dat").writeText("apk://xray/geosite.dat")
+                refreshFailureMarker("geosite.dat").delete()
+            }
+        }
+        return routingAssetStatus()
     }
 
     private fun ensureAsset(name: String, remoteUrl: String, force: Boolean) {
@@ -898,67 +936,82 @@ class XrayManager(private val context: Context) {
         val needGeoSite = requiresGeoSite(settings)
         val shouldPrepareAssets =
             needGeoIp || needGeoSite || settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank()
-        val status = if (shouldPrepareAssets) prepareRoutingAssets(settings, force = false) else routingAssetStatus()
-
-        // MARBLE_GEO_READY_GATE_V145 — verification describes the policy the engine will really
-        // load, which is the gated one while an asset is still downloading. Reporting a hard
-        // failure here for a file the user cannot produce was never actionable advice.
-        val gated = RoutingEngine.withGeoAssetGate(
-            settings,
-            geoIpReady = status.geoIpReady,
-            geoSiteReady = status.geoSiteReady
-        )
-        val downgrade = RoutingEngine.geoDowngradeReason(
-            settings,
-            geoIpReady = status.geoIpReady,
-            geoSiteReady = status.geoSiteReady
-        )
-
-        val sourceConfig = if (profile.scheme.equals("ssh", true)) {
-            SshProfileCodec.xrayClientConfig(19090)
-        } else {
-            profile.configJson
+        if (shouldPrepareAssets) prepareRoutingAssets(settings, force = false)
+        // Hold the asset lease for the index, generated config and -test process, so validation
+        // cannot inspect one file set and then hand Xray another one during a refresh.
+        val assetLease = try {
+            assetLock.tryLock(250L, TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
         }
-
-        val config = File(context.cacheDir, "routing-policy-verify.json")
-        val verifyLog = File(context.cacheDir, "routing-policy-verify.log")
-        verifyLog.delete()
-
         return try {
-            config.writeText(XrayConfigHardener.harden(
-                sourceConfig, 19091, gated, underlayHasIpv6 = underlayHasIpv6()
-            ))
-            val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
-                .redirectOutput(ProcessBuilder.Redirect.appendTo(verifyLog))
-                .start()
+            val indexed = if (assetLease) indexedGeoAssets(settings, refresh = false)
+                else ReadyGeoAssets(emptyList(), emptyMap())
+            val geoIpReady = assetLease && indexed.geoIpReady
+            val geoSiteReady = assetLease && indexed.geoSiteReady
 
-            if (!testProcess.waitFor(12, TimeUnit.SECONDS)) {
-                stopProcess(testProcess)
-                error("Xray routing verification timed out")
-            }
-            if (testProcess.exitValue() != 0) {
-                val hint = runCatching {
-                    verifyLog.useLines { lines ->
-                        lines.filter { it.isNotBlank() }.toList().takeLast(6).joinToString(" | ")
-                    }.take(1200)
-                }.getOrDefault("routing verifier log unavailable")
-                error("Xray rejected the routing/geo policy: $hint")
+            // Verification uses the exact same freshness, parse and per-file tag-membership evidence
+            // as the live start path. If assets are busy, geo rules are omitted rather than checked
+            // against a stale filename or a different core-visible snapshot.
+            val gated = RoutingEngine.withGeoAssetGate(settings, geoIpReady, geoSiteReady)
+            val effectiveSettings = gated.copy(
+                measuredGeoReadyFiles = indexed.files.joinToString(",").ifEmpty { "none" },
+                measuredGeoTagsByFile = indexed.tagsByFile,
+                measuredGeoMembershipKnown = true
+            )
+            val downgrade = RoutingEngine.geoDowngradeReason(settings, geoIpReady, geoSiteReady)
+
+            val sourceConfig = if (profile.scheme.equals("ssh", true)) {
+                SshProfileCodec.xrayClientConfig(19090)
+            } else {
+                profile.configJson
             }
 
-            val ipState = when {
-                status.geoIpReady -> "READY ${status.geoIpBytes / 1024} KiB"
-                needGeoIp -> "DOWNLOADING"
-                else -> "NOT REQUIRED"
+            val config = File(context.cacheDir, "routing-policy-verify.json")
+            val verifyLog = File(context.cacheDir, "routing-policy-verify.log")
+            verifyLog.delete()
+
+            try {
+                config.writeText(XrayConfigHardener.harden(
+                    sourceConfig, 19091, effectiveSettings, underlayHasIpv6 = underlayHasIpv6()
+                ))
+                val testProcess = createProcessBuilder("run", "-test", "-c", config.absolutePath)
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(verifyLog))
+                    .start()
+
+                if (!testProcess.waitFor(12, TimeUnit.SECONDS)) {
+                    stopProcess(testProcess)
+                    error("Xray routing verification timed out")
+                }
+                if (testProcess.exitValue() != 0) {
+                    val hint = runCatching {
+                        verifyLog.useLines { lines ->
+                            lines.filter { it.isNotBlank() }.toList().takeLast(6).joinToString(" | ")
+                        }.take(1200)
+                    }.getOrDefault("routing verifier log unavailable")
+                    error("Xray rejected the routing/geo policy: $hint")
+                }
+
+                val ipState = when {
+                    geoIpReady -> "READY ${indexed.geoIpBytes / 1024} KiB"
+                    needGeoIp && !assetLease -> "PAUSED (assets busy)"
+                    needGeoIp -> "UNAVAILABLE"
+                    else -> "NOT REQUIRED"
+                }
+                val siteState = when {
+                    geoSiteReady -> "READY ${indexed.geoSiteBytes / 1024} KiB"
+                    needGeoSite && !assetLease -> "PAUSED (assets busy)"
+                    needGeoSite -> "UNAVAILABLE"
+                    else -> "NOT REQUIRED"
+                }
+                val note = if (downgrade.isBlank()) "" else " • $downgrade"
+                "Routing verified by Xray • GeoIP $ipState • GeoSite $siteState$note"
+            } finally {
+                runCatching { config.delete() }
             }
-            val siteState = when {
-                status.geoSiteReady -> "READY ${status.geoSiteBytes / 1024} KiB"
-                needGeoSite -> "DOWNLOADING"
-                else -> "NOT REQUIRED"
-            }
-            val note = if (downgrade.isBlank()) "" else " • $downgrade"
-            "Routing verified by Xray • GeoIP $ipState • GeoSite $siteState$note"
         } finally {
-            runCatching { config.delete() }
+            if (assetLease) assetLock.unlock()
         }
     }
 
@@ -985,8 +1038,18 @@ class XrayManager(private val context: Context) {
         logFile.parentFile?.mkdirs()
         beginLiveLogSession()
         val config = runtimeConfig
+        // Hold a short-lived read lease over the exact geo snapshots from verification through the
+        // core's listener startup. If a refresh owns the lock, skip all geo assets for this session
+        // rather than racing a replacement between tag validation and Xray's file read.
+        val assetLease = try {
+            assetLock.tryLock(250L, TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
 
-        return runCatching {
+        return try {
+            runCatching {
             publishStartState(ticket.generation, "port-check")
             if (!portAvailable(port)) {
                 // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — the old refusal ("Local port $port is
@@ -1011,48 +1074,34 @@ class XrayManager(private val context: Context) {
 
             // Connection-critical path: local filesystem + process spawn only. Never remote HTTP.
             publishStartState(ticket.generation, "assets-local")
-            val assetStatus = prepareRoutingAssetsForConnect(settings)
+            if (assetLease) prepareRoutingAssetsForConnect(settings)
+            val indexedAssets = if (assetLease) indexedGeoAssets(settings, refresh = false)
+                else ReadyGeoAssets(emptyList(), emptyMap())
+            val geoIpReady = indexedAssets.geoIpReady
+            val geoSiteReady = indexedAssets.geoSiteReady
+            if ((requiresGeoIp(settings) && !geoIpReady) ||
+                (requiresGeoSite(settings) && !geoSiteReady)
+            ) {
+                scheduleGeoAssetIndexRefresh(settings)
+            }
 
-            /*
-             * MARBLE_GEO_READY_GATE_V145 — a missing geo database costs the geo split, never
-             * the connection.
-             *
-             * This used to `error(…)` when the selected policy needed geoip.dat/geosite.dat and
-             * neither a downloaded nor a bundled copy existed, so a fresh install on a censored
-             * link (where the very first asset download is the thing that fails) could not
-             * connect at all, and the failure named a file no user can produce. Geo routing is
-             * an optimisation layered on top of a working tunnel; [RoutingEngine.withGeoAssetGate]
-             * removes exactly the rules that need the absent database and leaves everything else
-             * — including the user's own settings on disk — untouched. The moment the asset
-             * lands, the next connect runs the full policy again with no user action.
-             */
+            // Missing, stale, malformed, or tag-incomplete data disables only the dependent geo
+            // rules. Literal/user routing and the tunnel itself remain available.
             val gated = RoutingEngine.withGeoAssetGate(
                 settings,
-                geoIpReady = assetStatus.geoIpReady,
-                geoSiteReady = assetStatus.geoSiteReady
+                geoIpReady = geoIpReady,
+                geoSiteReady = geoSiteReady
             )
-            /*
-             * MARBLE_MULTI_SOURCE_ROUTING_V212 — tell the writer which geo databases are really on
-             * disk before it writes a single rule. Every enabled source expands a geo tag into one
-             * `ext:<file>:<tag>` reference, and a reference to a file that is not there makes the
-             * core refuse the whole config — so the set of ready files is measured here, at the
-             * only point that has looked at the filesystem, and travels inside the settings the
-             * same way the resolver verdicts do. Never persisted, never restored.
-             */
             val effectiveSettings = gated.copy(
-                measuredGeoReadyFiles = readyGeoAssetFiles(settings).joinToString(",")
+                // `none` is an explicit measured verdict; empty is reserved for legacy callers that
+                // have not measured the filesystem and still assume only the canonical pair.
+                measuredGeoReadyFiles = indexedAssets.files.joinToString(",").ifEmpty { "none" },
+                measuredGeoTagsByFile = indexedAssets.tagsByFile,
+                measuredGeoMembershipKnown = true
             )
-            if (effectiveSettings !== settings) {
-                runCatching {
-                    logFile.appendText(
-                        "\n[MarbleNG] " +
-                            RoutingEngine.geoDowngradeReason(
-                                settings,
-                                assetStatus.geoIpReady,
-                                assetStatus.geoSiteReady
-                            ) + "\n"
-                    )
-                }
+            val downgrade = RoutingEngine.geoDowngradeReason(settings, geoIpReady, geoSiteReady)
+            if (downgrade.isNotBlank()) {
+                runCatching { logFile.appendText("\n[MarbleNG] $downgrade\n") }
             }
             if (!startStillCurrent(ticket.generation)) return@runCatching false
 
@@ -1118,9 +1167,12 @@ class XrayManager(private val context: Context) {
             } else {
                 publishStartState(ticket.generation, "ready", "")
             }
-        }.getOrElse { error ->
-            detachOwnedProcess(ticket.generation)?.let(::stopProcess)
-            failStart(ticket.generation, "${error::class.java.simpleName}: ${error.message ?: "Xray startup failed"}")
+            }.getOrElse { error ->
+                detachOwnedProcess(ticket.generation)?.let(::stopProcess)
+                failStart(ticket.generation, "${error::class.java.simpleName}: ${error.message ?: "Xray startup failed"}")
+            }
+        } finally {
+            if (assetLease) assetLock.unlock()
         }
     }
 

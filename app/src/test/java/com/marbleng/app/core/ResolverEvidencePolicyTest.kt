@@ -219,6 +219,22 @@ class ResolverEvidencePolicyTest {
     }
 
     @Test
+    fun `all-demoted emitted pools rotate within their bounded failure domain`() {
+        val evidence = observe(
+            List(4) { deadlineLine(cloudflare) } +
+                List(4) { deadlineLine(google) } +
+                List(4) { deadlineLine(quad9) }
+        )
+        val wifi = ResolverEvidencePolicy.selectForEmission(pool, evidence, t0, "wifi:test", limit = 2)
+        val cellular = ResolverEvidencePolicy.selectForEmission(pool, evidence, t0, "cellular:test", limit = 2)
+        assertEquals(2, wifi.size)
+        assertEquals(2, cellular.size)
+        assertTrue(wifi.all { it in pool })
+        assertTrue(cellular.all { it in pool })
+        assertTrue("the first timed-out endpoint must not be pinned for the full demotion TTL", wifi != cellular)
+    }
+
+    @Test
     fun `endpoint matching is case and whitespace insensitive like the config writer`() {
         val evidence = observe(List(4) { deadlineLine("HTTPS://1.1.1.1/DNS-QUERY") })
         assertTrue(

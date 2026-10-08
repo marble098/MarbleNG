@@ -1890,6 +1890,22 @@ data class AppSettings(
      * cleanup or a failed refresh already removed.
      */
     val measuredGeoReadyFiles: String = "",
+    /**
+     * MARBLE_GEO_TAG_MEMBERSHIP_V213 — *transient*, never persisted. Exact tag membership by
+     * database file, captured from a complete, current parse immediately before Xray starts. A
+     * filename alone is not proof that `ext:<file>:<tag>` exists in that file.
+     */
+    val measuredGeoTagsByFile: Map<String, Set<String>> = emptyMap(),
+    val measuredGeoMembershipKnown: Boolean = false,
+
+    /**
+     * MARBLE_RESOLVER_POOL_ALIGN_V213 — *transient*, never persisted. The exact ordered HTTPS
+     * resolver subset the Xray writer is to emit for this session; its evidence and parallel-query
+     * verdict are calculated from this same subset.
+     */
+    val measuredDnsResolverOrder: String = "",
+    /** Transient parallel-fallback verdict over the exact bounded resolver list sing-box emits. */
+    val measuredSingBoxDnsParallel: Boolean = false,
 
     // Realtime transport adaptation. MARBLE_REALTIME_ENGINE_V70
     val adaptiveHappyEyeballsEnabled: Boolean = true,

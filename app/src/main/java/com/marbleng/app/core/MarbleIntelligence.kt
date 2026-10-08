@@ -1346,10 +1346,7 @@ class MarbleIntelligence(private val context: Context) {
 
     /** Every encrypted resolver Marble may emit: the user's pair first, then independent stock. */
     fun dnsCandidatePool(settings: AppSettings): List<String> =
-        (listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH) + STOCK_DOH_RESOLVERS)
-            .map { it.trim() }
-            .filter { it.startsWith("https://") }
-            .distinctBy { ResolverEvidencePolicy.normalize(it) }
+        DnsResolverCatalog.candidates(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
 
     /**
      * MARBLE_SINGBOX_PROTOCOLS_V153 — the ordered encrypted resolver list the sing-box config
@@ -1359,25 +1356,43 @@ class MarbleIntelligence(private val context: Context) {
      * without releasing the whole stock list into every config. Demoted endpoints stay last (they
      * are never deleted), and the layout rotates with the network seed like the Xray hardener.
      */
+    private fun singBoxDnsCandidates(settings: AppSettings): List<String> =
+        (listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH) + STOCK_DOH_RESOLVERS + "tls://9.9.9.9")
+            .map(String::trim)
+            .filter {
+                it.startsWith("https://", ignoreCase = true) || it.startsWith("tls://", ignoreCase = true) ||
+                    it.startsWith("quic://", ignoreCase = true) || it.startsWith("h3://", ignoreCase = true)
+            }
+            .distinctBy(ResolverEvidencePolicy::normalize)
+
+    /** The single selector used by both the live sing-box writer and its DNS-race verdict. */
+    private fun selectSingBoxResolvers(
+        candidates: List<String>,
+        evidence: List<ResolverEvidencePolicy.EndpointEvidence>,
+        nowMs: Long,
+        seed: String,
+        limit: Int
+    ): List<String> {
+        // MARBLE_RESOLVER_SINKHOLE_V163 — expired-certificate and domestic endpoints are not
+        // "demoted", they are out: the extended core's fallback server would otherwise still
+        // handshake against them on every lookup that reaches that rank.
+        val survivors = ResolverEvidencePolicy.withoutExcluded(candidates, evidence, nowMs)
+        val demoted = ResolverEvidencePolicy.demoted(survivors, evidence, nowMs).toSet()
+        val eligible = survivors.filter { it !in demoted }
+        // If all peers have underlay failures, keep a bounded evidence-ordered set for tunneled
+        // attempts. Underlay censorship is not proof that the same resolver fails via the proxy.
+        return ResolverEvidencePolicy.order(eligible.ifEmpty { survivors }, evidence, nowMs, seed)
+            .take(limit.coerceIn(1, 3))
+    }
+
     fun singBoxResolverPool(settings: AppSettings, limit: Int = 3): List<String> {
-        val candidates = (listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH) + STOCK_DOH_RESOLVERS + "tls://9.9.9.9")
-            .map(String::trim).filter { it.startsWith("https://") || it.startsWith("tls://") || it.startsWith("quic://") || it.startsWith("h3://") }.distinct()
+        val candidates = singBoxDnsCandidates(settings)
         if (!settings.adaptiveDnsEnabled) {
             return candidates.filterNot { ResolverEvidencePolicy.isDomesticResolver(it) }
                 .ifEmpty { candidates }.take(limit.coerceIn(1, 3))
         }
         val now = System.currentTimeMillis()
-        val evidence = resolverEvidence()
-        // MARBLE_RESOLVER_SINKHOLE_V163 — expired-certificate and domestic endpoints are not
-        // "demoted", they are out: the extended core's fallback server would otherwise still
-        // handshake against them on every lookup that reaches that rank.
-        val survivors = ResolverEvidencePolicy.withoutExcluded(candidates, evidence, now)
-        val demoted = ResolverEvidencePolicy.demoted(survivors, evidence, now).toSet()
-        val eligible = survivors.filter { it !in demoted }
-        // If all peers have underlay failures, keep a bounded evidence-ordered set for tunneled
-        // attempts. Underlay censorship is not proof that the same resolver fails via the proxy.
-        return ResolverEvidencePolicy.order(eligible.ifEmpty { survivors }, evidence, now,
-            seed = currentSnapshot().key()).take(limit.coerceIn(1, 3))
+        return selectSingBoxResolvers(candidates, resolverEvidence(), now, currentSnapshot().key(), limit)
     }
 
     /** Endpoints of [settings]' resolver pool that are currently demoted on this network. */
@@ -1754,12 +1769,55 @@ class MarbleIntelligence(private val context: Context) {
         } else {
             emptyList()
         }
-        val dnsParallel = base.adaptiveDnsEnabled && (
-            storm ||
-                ResolverEvidencePolicy.parallelQueryJustified(
-                    resolverPool, endpointEvidence, nowMs
-                )
+        // Mirror XrayConfigHardener's exact candidate assembly and three-provider cap. Evidence for
+        // a stock fallback outside that emitted list must not turn on parallel fan-out.
+        val dnsEmissionCandidates = if (base.adaptiveDnsEnabled) {
+            val excluded = dnsExcluded.map(ResolverEvidencePolicy::normalize).toSet()
+            val configured = listOf(dnsOrdered.first, dnsOrdered.second)
+                .map(String::trim)
+                .filter(DnsResolverCatalog::isXrayBootstrapSafe)
+                .filterNot { ResolverEvidencePolicy.isDomesticResolver(it) }
+                .filterNot { ResolverEvidencePolicy.normalize(it) in excluded }
+                .distinctBy(ResolverEvidencePolicy::normalize)
+            val configuredOrFallback = configured.ifEmpty { DnsResolverCatalog.STOCK_DOH.take(2) }
+            (configuredOrFallback + DnsResolverCatalog.STOCK_DOH)
+                .filterNot { ResolverEvidencePolicy.isDomesticResolver(it) }
+                .filterNot { ResolverEvidencePolicy.normalize(it) in excluded }
+                .distinctBy(ResolverEvidencePolicy::normalize)
+        } else {
+            emptyList()
+        }
+        val dnsEmissionOrder = if (base.adaptiveDnsEnabled) {
+            ResolverEvidencePolicy.selectForEmission(
+                dnsEmissionCandidates,
+                endpointEvidence,
+                nowMs,
+                seed = n.key(),
+                limit = 3
             )
+        } else {
+            emptyList()
+        }
+        val dnsParallel = base.adaptiveDnsEnabled && dnsEmissionOrder.size >= 2 && (
+            storm || ResolverEvidencePolicy.parallelQueryJustified(
+                dnsEmissionOrder, endpointEvidence, nowMs
+            )
+        )
+        // sing-box has a different safe resolver universe: its hostname DoH endpoints carry an
+        // explicit encrypted bootstrap resolver. Compute its race verdict from that exact bounded
+        // output rather than reusing the Xray IP-literal order above.
+        val singBoxEmissionOrder = if (base.adaptiveDnsEnabled) {
+            selectSingBoxResolvers(
+                singBoxDnsCandidates(base), endpointEvidence, nowMs, n.key(), limit = 3
+            )
+        } else {
+            emptyList()
+        }
+        val singBoxDnsParallel = base.adaptiveDnsEnabled && singBoxEmissionOrder.size >= 2 && (
+            storm || ResolverEvidencePolicy.parallelQueryJustified(
+                singBoxEmissionOrder, endpointEvidence, nowMs
+            )
+        )
 
         // The underlay decides which records are even worth asking for; the plan then decides the
         // family order for the tunnel, the delay test and the probers in one place. A measured IPv6
@@ -1821,7 +1879,9 @@ class MarbleIntelligence(private val context: Context) {
             measuredIpv6Unhealthy = measuredV6Healthy == false,
             measuredDnsDemotedEndpoints = dnsDemoted.joinToString(","),
             measuredDnsExcludedEndpoints = dnsExcluded.joinToString(","),
-            measuredDnsParallel = dnsParallel
+            measuredDnsParallel = dnsParallel,
+            measuredDnsResolverOrder = dnsEmissionOrder.joinToString(","),
+            measuredSingBoxDnsParallel = singBoxDnsParallel
         )
 
         // Only a freshly measured acceleration plan may change generic transport tuning.
@@ -3088,7 +3148,7 @@ class MarbleIntelligence(private val context: Context) {
         // MARBLE_IRAN_AWARE_PING_RESOLVERS — the emitted pool rotates on a 10-minute epoch (network
         // key as seed) so no single resolver signature is stable enough to be fingerprinted, while
         // demoted endpoints still always stay last.
-        val ordered = ResolverEvidencePolicy.order(
+        val ordered = ResolverEvidencePolicy.orderForEmission(
             ResolverEvidencePolicy.withoutExcluded(dnsCandidatePool(settings), evidence, nowMs),
             evidence,
             nowMs,
@@ -3163,20 +3223,13 @@ class MarbleIntelligence(private val context: Context) {
          * original stock endpoints (1.1.1.1, 8.8.8.8, 9.9.9.9 — deadline storms and EOF on a
          * censored cellular link), which left the intelligence nothing healthy to promote: every
          * candidate was failing, so the "demote last, promote first" order was a shuffle of dead
-         * endpoints. The pool now mirrors the ladder [CensorshipAwareDnsResolver] already races:
-         * AdGuard and Quad9's 149.112.112.112 answer on different infrastructure than the big
-         * three, and Cloudflare's 1.0.0.1 sibling survives filters that eat 1.1.1.1. (Shecan's
-         * certificate expired 2026-07-10 and is no longer a candidate.) Diversity is the
-         * remedy when an operator disrupts a resolver *set*, not one resolver.
+         * endpoints. The pool adds Quad9's second literal (149.112.112.112) and Cloudflare's
+         * 1.0.0.1 sibling. Hostname-only AdGuard is deliberately not a stock Xray endpoint: Xray
+         * sets SkipDNSResolve while dialing a remote DoH server, so a hostname there bypasses its
+         * own DNS client and falls through to the system dialer. Shecan's expired certificate
+         * remains excluded. Every fallback must be both encrypted and bootstrap-safe.
          */
-        val STOCK_DOH_RESOLVERS = listOf(
-            "https://1.1.1.1/dns-query",
-            "https://8.8.8.8/dns-query",
-            "https://9.9.9.9/dns-query",
-            "https://dns.adguard-dns.com/dns-query",
-            "https://149.112.112.112/dns-query",
-            "https://1.0.0.1/dns-query"
-        )
+        val STOCK_DOH_RESOLVERS = DnsResolverCatalog.STOCK_DOH
 
         /** The learned resolver order stays valid for this long before it must be re-measured. */
         const val DNS_WINNER_TTL_MS = 7L * 24L * 60L * 60L * 1000L

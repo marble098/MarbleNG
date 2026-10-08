@@ -1280,7 +1280,7 @@ private fun removeKeys(
         // endpoint in the pool, the peers race (`parallel`) exactly as the Xray hardener arms
         // `enableParallelQuery`: a sequential walk would otherwise pay the failing peer's whole
         // slice on every cold lookup before a healthy peer is even asked.
-        val remoteStrategy = if (settings.adaptiveDnsEnabled && settings.measuredDnsParallel) "parallel" else "sequential"
+        val remoteStrategy = if (settings.adaptiveDnsEnabled && settings.measuredSingBoxDnsParallel) "parallel" else "sequential"
         servers.put(JSONObject().put("type", "fallback").put("tag", DNS_REMOTE_TAG)
             .put("servers", remoteTags).put("strategy", remoteStrategy).put("timeout", timeout))
         val rules = JSONArray()

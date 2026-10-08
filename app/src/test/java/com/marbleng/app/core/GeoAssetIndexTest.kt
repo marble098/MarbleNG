@@ -167,6 +167,34 @@ class GeoAssetIndexTest {
     }
 
     @Test
+    fun `tag provenance is per file and becomes unknown when a file changes`() {
+        val dir = tmp.newFolder()
+        val primary = File(dir, "geosite.dat").apply {
+            writeBytes(geositeFile(geoSite("ir", listOf(domain(2, "example.ir")))))
+        }
+        val second = File(dir, "geosite-extra.dat").apply {
+            writeBytes(geositeFile(geoSite("social", listOf(domain(2, "social.example")))))
+        }
+        val snapshot = GeoAssetIndex.update(
+            dir,
+            listOf(
+                GeoAssetIndex.IndexedFile(primary, GeoAssetIndex.Kind.GEOSITE),
+                GeoAssetIndex.IndexedFile(second, GeoAssetIndex.Kind.GEOSITE)
+            )
+        )!!
+
+        assertEquals(listOf("geosite.dat"), snapshot.filesFor(GeoAssetIndex.Kind.GEOSITE, "ir"))
+        assertEquals(listOf("geosite-extra.dat"), snapshot.filesFor(GeoAssetIndex.Kind.GEOSITE, "social"))
+        assertTrue(snapshot.filesFor(GeoAssetIndex.Kind.GEOSITE, "missing").isEmpty())
+        assertEquals(true, GeoAssetIndex.matchesGeosite("www.example.ir"))
+
+        second.writeBytes(geositeFile(geoSite("changed-tag", listOf(domain(2, "different.example.net")))))
+        assertTrue(snapshot.filesFor(GeoAssetIndex.Kind.GEOSITE, "social").isEmpty())
+        assertTrue(GeoAssetIndex.known(GeoAssetIndex.Kind.GEOSITE, "social") == false)
+        assertNull("the simulator cannot trust a stale slice", GeoAssetIndex.matchesGeosite("www.example.ir"))
+    }
+
+    @Test
     fun `a corrupted file degrades to no index instead of crashing`() {
         val site = geositeFile(geoSite("google", listOf(domain(2, "google.com"))))
         val dir = tmp.newFolder()
@@ -174,9 +202,62 @@ class GeoAssetIndexTest {
         File(dir, "geoip.dat").writeBytes(byteArrayOf(0xFF.toByte(), 0xFF.toByte(), 0x01))
 
         val snapshot = GeoAssetIndex.update(dir)
-        // The well-formed entries still landed; the junk ended the scan where it started.
         assertTrue(snapshot != null)
-        assertTrue(snapshot!!.geoip.isEmpty())
+        assertTrue("a partial protobuf cannot publish stale tag membership", snapshot!!.geosite.isEmpty())
+        assertTrue(snapshot.geoip.isEmpty())
+        assertFalse(snapshot.files.any { it.parsedSuccessfully })
+    }
+
+    @Test
+    fun `valid nested domain attributes do not invalidate a geosite file`() {
+        val attribute = ByteArrayOutputStream().apply {
+            write(lenField(1, "key".toByteArray()))
+            write(varintField(2, 1L))
+        }.toByteArray()
+        val attributedDomain = ByteArrayOutputStream().apply {
+            write(varintField(1, 2L))
+            write(lenField(2, "example.com".toByteArray()))
+            write(lenField(3, attribute))
+        }.toByteArray()
+        val dir = tmp.newFolder()
+        File(dir, "geosite.dat").writeBytes(geositeFile(geoSite("example", listOf(attributedDomain))))
+
+        val snapshot = GeoAssetIndex.update(dir)!!
+        assertTrue(snapshot.files.single { it.kind == GeoAssetIndex.Kind.GEOSITE }.parsedSuccessfully)
+        assertTrue(GeoAssetIndex.known(GeoAssetIndex.Kind.GEOSITE, "example") == true)
+        assertEquals(true, GeoAssetIndex.matchesGeosite("www.example.com"))
+    }
+
+    @Test
+    fun `wrong wire type on a known domain field cannot publish a valid-looking tag`() {
+        // Domain.value is a protobuf string (wire type 2). A varint in that field would be ignored
+        // by the previous permissive scanner, even though Xray's generated decoder rejects it.
+        val malformedDomain = ByteArrayOutputStream().apply {
+            write(varintField(1, 2L))
+            write(varintField(2, 1L))
+        }.toByteArray()
+        val dir = tmp.newFolder()
+        File(dir, "geosite.dat").writeBytes(geositeFile(geoSite("google", listOf(malformedDomain))))
+
+        val snapshot = GeoAssetIndex.update(dir)!!
+        assertTrue(snapshot.geosite.isEmpty())
+        assertFalse(snapshot.files.single { it.kind == GeoAssetIndex.Kind.GEOSITE }.parsedSuccessfully)
+        assertTrue(GeoAssetIndex.known(GeoAssetIndex.Kind.GEOSITE, "google") == false)
+        assertNull(GeoAssetIndex.matchesGeosite("google.com"))
+    }
+
+    @Test
+    fun `invalid utf8 in a protobuf string rejects the complete file`() {
+        val invalidUtf8Domain = ByteArrayOutputStream().apply {
+            write(varintField(1, 2L))
+            write(lenField(2, byteArrayOf(0xC3.toByte(), 0x28)))
+        }.toByteArray()
+        val dir = tmp.newFolder()
+        File(dir, "geosite.dat").writeBytes(geositeFile(geoSite("google", listOf(invalidUtf8Domain))))
+
+        val snapshot = GeoAssetIndex.update(dir)!!
+        assertTrue(snapshot.geosite.isEmpty())
+        assertFalse(snapshot.files.single { it.kind == GeoAssetIndex.Kind.GEOSITE }.parsedSuccessfully)
     }
 
     @Test

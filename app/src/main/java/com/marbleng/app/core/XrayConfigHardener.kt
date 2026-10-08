@@ -714,9 +714,9 @@ object XrayConfigHardener {
             }
         }.distinct().take(MAX_BOOTSTRAP_DNS_IPS)
 
-        val stockCloudflareDoh = "https://1.1.1.1/dns-query"
-        val stockGoogleDoh = "https://8.8.8.8/dns-query"
-        val stockQuad9Doh = "https://9.9.9.9/dns-query"
+        val stockDoh = DnsResolverCatalog.STOCK_DOH
+        val stockCloudflareDoh = stockDoh[0]
+        val stockGoogleDoh = stockDoh[1]
         // MARBLE_RESOLVER_SINKHOLE_V163 — two classes of endpoint never enter the tunnel's
         // resolver graph, whatever rank they would have held:
         //  - a domestic anti-sanction resolver (dns.shecan.ir & co.) — asking it through the exit
@@ -733,11 +733,12 @@ object XrayConfigHardener {
             .filter { it.isNotBlank() }
             .toSet()
         fun resolverAllowed(url: String): Boolean =
-            !ResolverEvidencePolicy.isDomesticResolver(url) &&
+            DnsResolverCatalog.isXrayBootstrapSafe(url) &&
+                !ResolverEvidencePolicy.isDomesticResolver(url) &&
                 ResolverEvidencePolicy.normalize(url) !in excludedResolvers
         val genericDoh = listOf(settings.dnsPrimaryDoH, settings.dnsSecondaryDoH)
             .map { it.trim() }
-            .filter { it.startsWith("https://") }
+            .filter { it.startsWith("https://", ignoreCase = true) }
             .filter(::resolverAllowed)
             .distinct()
         val configuredRemoteDoh = genericDoh.ifEmpty {
@@ -772,11 +773,23 @@ object XrayConfigHardener {
         }
 
         val remoteDoh = if (settings.adaptiveDnsEnabled) {
-            demoteLast(
-                (configuredRemoteDoh + listOf(stockCloudflareDoh, stockGoogleDoh, stockQuad9Doh))
-                    .filter(::resolverAllowed)
-                    .distinctBy { it.lowercase() }
-            ).take(3)
+            val candidates = (configuredRemoteDoh + stockDoh)
+                .filter(::resolverAllowed)
+                .distinctBy { ResolverEvidencePolicy.normalize(it) }
+            val candidateKeys = candidates.map(ResolverEvidencePolicy::normalize).toSet()
+            val measuredOrder = settings.measuredDnsResolverOrder
+                .split(',', '\n', ';')
+                .map { it.trim() }
+                .filter {
+                    it.startsWith("https://", ignoreCase = true) && resolverAllowed(it) &&
+                        ResolverEvidencePolicy.normalize(it) in candidateKeys
+                }
+                .distinctBy { ResolverEvidencePolicy.normalize(it) }
+            val fallbackOrder = demoteLast(candidates)
+            (measuredOrder + fallbackOrder.filterNot { candidate ->
+                val key = ResolverEvidencePolicy.normalize(candidate)
+                measuredOrder.any { ResolverEvidencePolicy.normalize(it) == key }
+            }).take(3)
         } else {
             configuredRemoteDoh
                 .take(2)

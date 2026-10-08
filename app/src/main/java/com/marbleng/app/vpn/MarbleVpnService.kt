@@ -41,6 +41,7 @@ import com.marbleng.app.core.SmartNotificationKind
 import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.core.TransportTelemetry
 import com.marbleng.app.core.TcpStressMonitor
+import com.marbleng.app.core.TcpStressTelemetryPolicy
 import com.marbleng.app.core.TurboBackoffPolicy
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.SingBoxConfigBuilder
@@ -1329,6 +1330,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         (application as MarbleApplication).repo.beginRouteMeasurement()
         monitorWorker.execute {
             val repo = (application as MarbleApplication).repo
+            tcpStressMonitor.resetForProfile(
+                activeProfileId,
+                repo.intelligence.currentSnapshot().key(),
+                activeMtu
+            )
             var lastUp = -1L
             var lastDown = -1L
             var lastT = System.nanoTime()
@@ -1429,22 +1435,25 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 if (tick % 2 == 0 && activeEngine == CoreEngine.XRAY) {
                     TransportTelemetry.latest(xray.transportTelemetryFile)?.takeIf { it.fresh() }?.let { transport ->
                         val liveSettings = activeSettings ?: repo.settings
-                        val stressed = transport.retransDelta >= 2 || transport.lost > 0 ||
-                            transport.rttVarMs >= maxOf(20, transport.rttMs / 3)
+                        val liveNetwork = repo.intelligence.currentSnapshot()
+                        val assessment = TcpStressTelemetryPolicy.assess(
+                            sample = transport,
+                            activeMtu = activeMtu,
+                            hasIpv6 = liveNetwork.hasIpv6
+                        )
+                        val stressed = assessment.stressed
                         if (stressed) routeProbeRequested.set(true)
 
-                        val retransRate = if (transport.unacked > 0) transport.retransDelta.toDouble() / transport.unacked.toDouble() else 0.0
-                        val lossRate = if (transport.unacked > 0) transport.lost.toDouble() / (transport.lost + transport.unacked).toDouble() else 0.0
-                        val mssRatio = if (activeMtu > 0) transport.mss.toDouble() / activeMtu.toDouble() else 1.0
                         tcpStressMonitor.observe(
-                            retransmitRate = retransRate,
-                            lossRate = lossRate,
-                            mssRatio = mssRatio,
+                            retransmitRate = assessment.retransmitRate,
+                            lossRate = assessment.lossRate,
+                            mssRatio = assessment.mssRatio,
                             unackedSegments = transport.unacked,
-                            stressed = stressed,
+                            stressed = assessment.mtuRelevantStress,
                             rttMs = transport.rttMs,
                             profileId = activeProfileId,
-                            networkKey = repo.intelligence.currentSnapshot().key()
+                            networkKey = liveNetwork.key(),
+                            currentMtu = activeMtu
                         )
                         val stressDecision = tcpStressMonitor.evaluate()
                         if (stressDecision.shouldReduceMtu) {
@@ -1507,8 +1516,15 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                             "sockets" to transport.sockets, "rttMs" to transport.rttMs,
                             "p95RttMs" to transport.p95RttMs, "rttVarMs" to transport.rttVarMs,
                             "retransDelta" to transport.retransDelta, "lost" to transport.lost,
+                            "lostDelta" to transport.lostDelta,
                             "unacked" to transport.unacked, "pmtu" to transport.pmtu,
-                            "mss" to transport.mss, "cwnd" to transport.cwndPackets, "stressed" to stressed)
+                            "mss" to transport.mss, "cwnd" to transport.cwndPackets,
+                            "stressRate" to assessment.retransmitRate,
+                            "stressLoss" to assessment.lossRate,
+                            "retransmissionPressure" to assessment.retransmissionPressure,
+                            "lossPressure" to assessment.lossPressure,
+                            "jitterPressure" to assessment.jitterPressure,
+                            "stressed" to stressed)
                     }
                 }
 

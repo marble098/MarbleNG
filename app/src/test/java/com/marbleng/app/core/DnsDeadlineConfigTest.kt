@@ -167,29 +167,23 @@ class DnsDeadlineConfigTest {
     }
 
     @Test
-    fun `a demoted resolver moves to the end of the emitted list`() {
-        // 29 attributed `DoH deadline` events used to change nothing: this list was a fixed order
-        // forever, so a disrupted endpoint kept its rank and every cold lookup paid its full
-        // RTT-derived deadline before failover reached a resolver that could answer.
+    fun `a demoted resolver is replaced by healthy independent stock providers`() {
+        // The actual emitted pool must be drawn from the same six-provider catalog used by the
+        // evidence policy. A failed Cloudflare endpoint must not hide Quad9's second literal.
         val settings = AppSettings(
             measuredDnsDemotedEndpoints = "https://1.1.1.1/dns-query"
         )
         val addresses = remoteDnsAddresses(hardened(settings, slowCellular))
         assertEquals(3, addresses.size)
-        assertEquals(
-            "a healthy provider must take the primary slot",
-            "https://8.8.8.8/dns-query",
-            addresses[0]
-        )
-        assertEquals(
-            "the demoted provider stays in the graph as the last fallback, it is never deleted",
-            "https://1.1.1.1/dns-query",
-            addresses.last()
-        )
+        assertEquals("https://8.8.8.8/dns-query", addresses[0])
+        assertFalse(addresses.contains("https://1.1.1.1/dns-query"))
+        assertTrue(addresses.contains("https://9.9.9.9/dns-query"))
+        assertTrue(addresses.any { it.contains("149.112.112.112") })
+        assertTrue(addresses.all(DnsResolverCatalog::isXrayBootstrapSafe))
     }
 
     @Test
-    fun `demoting every provider leaves the configured order alone`() {
+    fun `demoting the original three promotes diverse candidates omitted by the old writer`() {
         val settings = AppSettings(
             measuredDnsDemotedEndpoints = "https://1.1.1.1/dns-query,https://8.8.8.8/dns-query," +
                 "https://9.9.9.9/dns-query"
@@ -197,12 +191,57 @@ class DnsDeadlineConfigTest {
         val addresses = remoteDnsAddresses(hardened(settings, slowCellular))
         assertEquals(
             listOf(
-                "https://1.1.1.1/dns-query",
-                "https://8.8.8.8/dns-query",
-                "https://9.9.9.9/dns-query"
+                "https://149.112.112.112/dns-query",
+                "https://1.0.0.1/dns-query",
+                "https://1.1.1.1/dns-query"
             ),
             addresses
         )
+    }
+
+    @Test
+    fun `hostname DoH endpoints never enter the Xray graph or use Android DNS implicitly`() {
+        val settings = AppSettings(
+            dnsPrimaryDoH = "https://dns.adguard-dns.com/dns-query",
+            dnsSecondaryDoH = "https://resolver.example.org/dns-query"
+        )
+        val addresses = remoteDnsAddresses(hardened(settings, slowCellular))
+        assertEquals(3, addresses.size)
+        assertTrue(addresses.all(DnsResolverCatalog::isXrayBootstrapSafe))
+        assertFalse(addresses.any { it.contains("adguard-dns.com") || it.contains("resolver.example.org") })
+    }
+
+    @Test
+    fun `an all-demoted pool still emits a bounded encrypted fallback set`() {
+        val all = DnsResolverCatalog.STOCK_DOH.joinToString(",")
+        val addresses = remoteDnsAddresses(
+            hardened(AppSettings(measuredDnsDemotedEndpoints = all), slowCellular)
+        )
+        assertEquals(3, addresses.size)
+        assertEquals(3, addresses.distinct().size)
+        assertTrue(addresses.all { it in DnsResolverCatalog.STOCK_DOH })
+    }
+
+    @Test
+    fun `the measured resolver order is exactly the pool Xray receives`() {
+        val selected = listOf(
+            "https://149.112.112.112/dns-query",
+            "https://1.0.0.1/dns-query",
+            "https://9.9.9.9/dns-query"
+        )
+        val settings = AppSettings(measuredDnsResolverOrder = selected.joinToString(","))
+        assertEquals(selected, remoteDnsAddresses(hardened(settings, slowCellular)))
+    }
+
+    @Test
+    fun `measured resolver order cannot inject endpoints outside the safe candidate graph`() {
+        val settings = AppSettings(
+            dnsPrimaryDoH = "https://dns.adguard-dns.com/dns-query",
+            measuredDnsResolverOrder = "https://resolver.example.org/dns-query"
+        )
+        val addresses = remoteDnsAddresses(hardened(settings, slowCellular))
+        assertEquals(3, addresses.size)
+        assertTrue(addresses.all { it in DnsResolverCatalog.STOCK_DOH })
     }
 
     @Test

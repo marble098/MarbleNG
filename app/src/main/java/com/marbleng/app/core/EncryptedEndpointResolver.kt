@@ -3,7 +3,11 @@ package com.marbleng.app.core
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ExecutorCompletionService
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * Direct hostname lookup for endpoint probes and management diagnostics. The phone's resolver is
@@ -17,10 +21,28 @@ import java.util.concurrent.Executors
  * to the local ISP. Numeric endpoints are parsed without network access.
  */
 object EncryptedEndpointResolver {
-    private val workers = Executors.newFixedThreadPool(4) { task ->
-        Thread(task, "marble-endpoint-doh").apply { isDaemon = true }
+    // Family coordinators may wait for provider work; they must never share the provider executor.
+    // Otherwise two simultaneous A/AAAA scans can occupy all four threads while every DoH task
+    // they submit sits behind those waiting parents until the outer deadline expires.
+    private val familyWorkers = ThreadPoolExecutor(
+        4, 4, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue<Runnable>(8),
+        { task -> Thread(task, "marble-endpoint-family").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy()
+    )
+    private val dohWorkers = ThreadPoolExecutor(
+        6, 6, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue<Runnable>(24),
+        { task -> Thread(task, "marble-endpoint-doh").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy()
+    )
+    private val productionPool = DohResolverPool(HttpUrlConnectionDohTransport(), dohWorkers, 3_000)
+    @Volatile private var poolOverride: DohResolverPool? = null
+
+    private fun resolverPool(): DohResolverPool = poolOverride ?: productionPool
+
+    /** Install a deterministic DoH pool for JVM tests, then restore production with null. */
+    internal fun setPoolOverrideForTests(pool: DohResolverPool?) {
+        poolOverride = pool
     }
-    private val pool = DohResolverPool(HttpUrlConnectionDohTransport(), workers, 3_000)
 
     private fun providers(): List<DohResolverPool.Provider> {
         val v4 = listOf(
@@ -36,7 +58,7 @@ object EncryptedEndpointResolver {
     }
 
     fun resolve(host: String): Array<InetAddress> = resolveWith(host) { wire ->
-        runCatching { pool.raceResolve(wire, providers(), 2_500) }
+        runCatching { resolverPool().raceResolve(wire, providers(), 2_500) }
             .getOrNull()?.takeIf { it.success }?.body
     }
 
@@ -67,28 +89,36 @@ object EncryptedEndpointResolver {
             return runCatching { arrayOf(InetAddress.getByName(clean)) }.getOrDefault(emptyArray())
         }
         val budget = timeoutMs.coerceIn(500L, 15_000L)
-        val deadline = System.currentTimeMillis() + budget
+        val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budget)
         val answers = linkedSetOf<InetAddress>()
-        val jobs = listOf(28, 1).map { type ->
-            workers.submit<Pair<Int, List<InetAddress>>> {
-                type to queryFamily(clean, type, deadline)
+        val completion = ExecutorCompletionService<Pair<Int, List<InetAddress>>>(familyWorkers)
+        val pending = linkedSetOf<java.util.concurrent.Future<Pair<Int, List<InetAddress>>>>()
+        try {
+            for (type in listOf(28, 1)) {
+                try {
+                    pending += completion.submit {
+                        type to queryFamily(clean, type, deadlineNanos)
+                    }
+                } catch (_: RejectedExecutionException) {
+                    // Saturation is a bounded lookup failure, never a reason to create more threads.
+                }
             }
-        }
-        for (job in jobs) {
-            val left = (deadline - System.currentTimeMillis()).coerceAtLeast(1L)
-            val pair = try {
-                job.get(left, java.util.concurrent.TimeUnit.MILLISECONDS)
-            } catch (_: InterruptedException) {
-                // A cancelled sweep must stay cancelled: restore the flag and let the workers go.
-                Thread.currentThread().interrupt()
-                job.cancel(true)
-                continue
-            } catch (_: Throwable) {
-                job.cancel(true)
-                continue
+            while (pending.isNotEmpty()) {
+                val leftNanos = deadlineNanos - System.nanoTime()
+                if (leftNanos <= 0L) break
+                val finished = try {
+                    completion.poll(leftNanos, TimeUnit.NANOSECONDS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                } ?: break
+                pending.remove(finished)
+                val pair = runCatching { finished.get() }.getOrNull() ?: continue
+                val (type, found) = pair
+                answers.addAll(found.filter { if (type == 28) it is Inet6Address else it is Inet4Address })
             }
-            val (type, found) = pair
-            answers.addAll(found.filter { if (type == 28) it is Inet6Address else it is Inet4Address })
+        } finally {
+            pending.forEach { it.cancel(true) }
         }
         return answers.toTypedArray()
     }
@@ -101,17 +131,22 @@ object EncryptedEndpointResolver {
      * returned addresses count towards [MIN_WITNESS_PROVIDERS], so the loop keeps asking while a
      * family still looks absent — and stops the moment two independent resolvers agree it exists.
      */
-    private fun queryFamily(clean: String, type: Int, deadline: Long): List<InetAddress> {
+    private fun queryFamily(clean: String, type: Int, deadlineNanos: Long): List<InetAddress> {
         val wire = runCatching { DnsWireCodec.buildQuery(clean, type) }.getOrNull() ?: return emptyList()
         val found = linkedSetOf<InetAddress>()
         var witnesses = 0
         for (provider in providers().take(MAX_WITNESS_PROVIDERS)) {
             if (witnesses >= MIN_WITNESS_PROVIDERS && found.size >= MIN_WITNESS_ADDRESSES) break
-            val left = deadline - System.currentTimeMillis()
-            if (left <= 0L) break
+            val leftNanos = deadlineNanos - System.nanoTime()
+            if (leftNanos <= 0L) break
             if (Thread.currentThread().isInterrupted) break
+            val leftMs = TimeUnit.NANOSECONDS.toMillis(leftNanos).coerceAtLeast(1L)
             val body = runCatching {
-                pool.raceResolve(wire, listOf(provider), left.coerceAtMost(PER_WITNESS_TIMEOUT_MS))
+                resolverPool().raceResolve(
+                    wire,
+                    listOf(provider),
+                    minOf(leftMs, PER_WITNESS_TIMEOUT_MS)
+                )
             }.getOrNull()?.takeIf { it.success }?.body ?: continue
             val parsed = DnsWireCodec.parseAnswers(body)
                 .filter { if (type == 28) it is Inet6Address else it is Inet4Address }

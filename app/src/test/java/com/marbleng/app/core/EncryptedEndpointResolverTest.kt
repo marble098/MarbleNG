@@ -6,6 +6,8 @@ import org.junit.Test
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /** No network required: verifies that management/probe lookups never fall through to netd and
  * that an IPv6-only endpoint remains usable when an A question receives NOERROR/NODATA. */
@@ -67,6 +69,35 @@ class EncryptedEndpointResolverTest {
                 assertTrue(url, !result.success)
                 assertEquals("unsafe-doh-bootstrap", result.detail)
             }
+    }
+
+    @Test fun concurrentDualFamilyScansCannotStarveTheirDohProviderWorkers() {
+        val providerWorkers = Executors.newFixedThreadPool(4)
+        val callers = Executors.newFixedThreadPool(6)
+        val fakePool = DohResolverPool(object : DohTransport {
+            override fun query(endpoint: String, wire: ByteArray, timeoutMs: Long): DohTransportResult {
+                val address = if (qtype(wire) == 28) "2001:db8::88" else "192.0.2.88"
+                return DohTransportResult(body = response(wire, address), success = true)
+            }
+        }, providerWorkers, overallDeadlineMs = 700L)
+        EncryptedEndpointResolver.setPoolOverrideForTests(fakePool)
+        try {
+            val scans = (0 until 6).map { index ->
+                callers.submit<List<InetAddress>> {
+                    EncryptedEndpointResolver.resolveAll("edge-$index.example.org", 1_800L).toList()
+                }
+            }
+            scans.forEachIndexed { index, future ->
+                val addresses = future.get(3, TimeUnit.SECONDS)
+                assertTrue("family scan $index returned no answers", addresses.isNotEmpty())
+                assertTrue("AAAA disappeared under load: $addresses", addresses.any { it is Inet6Address })
+                assertTrue("A disappeared under load: $addresses", addresses.any { it is Inet4Address })
+            }
+        } finally {
+            EncryptedEndpointResolver.setPoolOverrideForTests(null)
+            callers.shutdownNow()
+            providerWorkers.shutdownNow()
+        }
     }
 
     @Test fun numericLiteralBypassesEveryDnsProvider() {
