@@ -160,15 +160,16 @@ class GeoAssetRegistryV212Test {
         val restored = GeoAssetRegistry.customSources(GeoAssetRegistry.serializeCustom(sources))
         assertEquals(sources, restored)
 
-        // http (not https), a blank url pair, and junk JSON are all "no source here".
-        assertEquals(
-            0,
+        // http (not https), a blank url pair, and junk JSON are all "no source here". Written as
+        // isEmpty() rather than a size comparison so the assertion cannot silently compare a
+        // number against a list — which is exactly what the first cut of this test did.
+        assertTrue(
             GeoAssetRegistry.customSources(
                 """[{"id":"x","geoIpUrl":"http://a.example/x.dat"}]"""
-            ).size
+            ).isEmpty()
         )
-        assertEquals(0, GeoAssetRegistry.customSources("""[{"id":"x"}]""").size)
-        assertEquals(0, GeoAssetRegistry.customSources("not json at all"))
+        assertTrue(GeoAssetRegistry.customSources("""[{"id":"x"}]""").isEmpty())
+        assertTrue(GeoAssetRegistry.customSources("not json at all").isEmpty())
     }
 
     @Test
