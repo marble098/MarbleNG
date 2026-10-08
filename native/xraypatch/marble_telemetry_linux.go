@@ -111,7 +111,7 @@ func marbleSaturatingAdd(total, value int) int {
 	return total + value
 }
 
-func marbleOptional(info unix.TCPInfo, names ...string) uint64 {
+func marbleOptional(info *unix.TCPInfo, names ...string) uint64 {
 	value := reflect.ValueOf(info)
 	if value.Kind() == reflect.Pointer {
 		value = value.Elem()
