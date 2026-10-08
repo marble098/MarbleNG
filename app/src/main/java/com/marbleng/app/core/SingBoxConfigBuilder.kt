@@ -1,6 +1,7 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
+import com.marbleng.app.model.parseGeoPrecision
 import com.marbleng.app.model.IranModePolicy
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.RoutingMode
@@ -1509,10 +1510,6 @@ private fun removeKeys(
             rules.put(JSONObject().put("ip_cidr", JSONArray(IRAN_POISON_BLOCK_IPS)).put("action", "reject"))
         }
         val usedSets = linkedSetOf<String>()
-        fun action(rule: JSONObject, outbound: RoutingOutbound): JSONObject = rule.apply {
-            if (outbound == RoutingOutbound.BLOCK) put("action", "reject")
-            else put("action", "route").put("outbound", if (outbound == RoutingOutbound.DIRECT) DIRECT_TAG else PROXY_TAG)
-        }
         fun domainRules(raw: String, outbound: RoutingOutbound) {
             val fields = linkedMapOf<String, JSONArray>()
             splitTokens(raw).forEach { token ->
@@ -1592,6 +1589,10 @@ private fun removeKeys(
                 .put("rules", JSONArray().put(rule).put(constraints)) else rule
             rules.put(action(effective, user.outbound))
         }
+        // MARBLE_MULTI_SOURCE_ROUTING_V212 — the curated domestic knowledge, the same list the
+        // Xray writer emits and in the same position relative to the user's own rules: after the
+        // block list (an ad domain is an ad domain wherever it lives) and before the geo tags.
+        applyPrecisionRules(rules, settings)
         val implicit = RoutingEngine.implicitRules(settings)
         implicit.adsTag?.let { geoRule(false, it, RoutingOutbound.BLOCK) }
         if (settings.routeBypassPrivate || implicit.forceBypassPrivate) {
@@ -1645,6 +1646,55 @@ private fun removeKeys(
      * the user nothing to search their settings for, and does not even say whether the rule
      * that was dropped was a geoip one or a geosite one.
      */
+    /**
+     * The route shape sing-box expects for one rule.
+     *
+     * This was a local function inside [routeRules] until the domestic-precision layer needed the
+     * same shape from outside it — and a local function is not visible outside its own body, which
+     * is exactly the kind of thing a compiler catches and a source-reading does not. It is one
+     * rule shape, so it is one function.
+     */
+    private fun action(rule: JSONObject, outbound: RoutingOutbound): JSONObject = rule.apply {
+        if (outbound == RoutingOutbound.BLOCK) put("action", "reject")
+        else put("action", "route").put("outbound", if (outbound == RoutingOutbound.DIRECT) DIRECT_TAG else PROXY_TAG)
+    }
+
+    /**
+     * MARBLE_MULTI_SOURCE_ROUTING_V212 — the domestic-precision layer, in sing-box's own idiom.
+     *
+     * The Xray side of this feature is a `geosite` token list; sing-box has no `.dat`, so the same
+     * knowledge is written as the route fields sing-box matches on: `domain_suffix` for the
+     * country TLD and for the curated domains, `domain_keyword` for the brand names. Both engines
+     * therefore answer the same question with the same list, and a rule that only one of them can
+     * express is a rule that only works on one of them.
+     *
+     * Chunked for the same reason the Xray side chunks: one rule with several hundred entries is
+     * fine for the matcher and unreadable for the person debugging it, and a chunk is a unit the
+     * user can reason about.
+     */
+    private fun applyPrecisionRules(rules: JSONArray, settings: AppSettings) {
+        if (!RoutingEngine.precisionActive(settings)) return
+        val precision = parseGeoPrecision(settings.geoPrecision)
+        val suffixes = IranPrecisionPack.suffixes(precision) + IranPrecisionPack.domains(precision)
+        val keywords = IranPrecisionPack.keywords(precision)
+        suffixes.chunked(RoutingEngine.PRECISION_RULE_CHUNK).forEach { chunk ->
+            rules.put(
+                action(
+                    JSONObject().put("domain_suffix", JSONArray(chunk)),
+                    RoutingOutbound.DIRECT
+                )
+            )
+        }
+        keywords.chunked(RoutingEngine.PRECISION_RULE_CHUNK).forEach { chunk ->
+            rules.put(
+                action(
+                    JSONObject().put("domain_keyword", JSONArray(chunk)),
+                    RoutingOutbound.DIRECT
+                )
+            )
+        }
+    }
+
     private fun unroutedGeoNote(ip: Boolean, raw: String): String {
         val typed = if (raw.contains(":")) raw else if (ip) "geoip:$raw" else "geosite:$raw"
         return "routing: '$typed' has no bundled sing-box rule set, so this one rule is not " +

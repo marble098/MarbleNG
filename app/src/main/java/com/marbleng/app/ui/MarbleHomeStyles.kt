@@ -129,6 +129,8 @@ import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.model.BenchmarkResult
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.ConnectButtonStyle
+// MARBLE_HOME_PING_CONTROLS_V212 — the vocabulary every Home ping surface is configured with.
+import com.marbleng.app.model.HomePingAction
 import com.marbleng.app.model.HomeStyle
 import com.marbleng.app.model.ModularCardSize
 import com.marbleng.app.model.ModularLayout
@@ -137,6 +139,7 @@ import com.marbleng.app.model.ProbeState
 import com.marbleng.app.model.ServerLayout
 import com.marbleng.app.model.serversLayoutEnum
 import com.marbleng.app.model.parseConnectButtonStyle
+import com.marbleng.app.model.parseHomePingAction
 import com.marbleng.app.model.ProxyProfile
 import java.util.Locale
 import kotlinx.coroutines.delay
@@ -209,7 +212,19 @@ internal data class HomeEvidence(
      */
     val routeState: MarbleRouteState = MarbleRouteState.READY,
     /** What the flag in this page's tile is allowed to claim: measured, lone, label, or nothing. */
-    val locationTrust: MarbleLocationTrust = MarbleLocationTrust.UNKNOWN
+    val locationTrust: MarbleLocationTrust = MarbleLocationTrust.UNKNOWN,
+    // MARBLE_HOME_PING_CONTROLS_V212 — the verb of each ping surface on this page.
+    //
+    // These live in the evidence block, not in a per-widget branch, for the same reason every
+    // other Home fact does: the five presentations and the Atelier all draw a ping surface, and a
+    // verb that each of them resolved privately is how two of them ended up doing different things
+    // (and a third doing nothing). One resolution, one place, three surfaces.
+    /** The latency gauge / latency readout. */
+    val pingGaugeAction: HomePingAction = HomePingAction.ROUTE,
+    /** The shortcut deck's ping pill. */
+    val pingChipAction: HomePingAction = HomePingAction.GROUP,
+    /** The header's pulse control. */
+    val pingHeaderAction: HomePingAction = HomePingAction.ROUTE
 ) {
     /** True when a national flag may be painted for this route at all. */
     val mayPaintLocationFlag: Boolean get() = locationTrust.mayDrawFlag()
@@ -302,7 +317,12 @@ internal fun buildHomeEvidence(
         sessionBytes = if (repo.state == "CONNECTED") repo.sessionBytes else 0L,
         lastSessionBytes = repo.lastSessionBytes,
         showDataUsage = repo.settings.homeShowDataUsage,
-        flagCode = flagCode
+        flagCode = flagCode,
+        // MARBLE_HOME_PING_CONTROLS_V212 — resolved from the stored ids, so every surface reads
+        // one parsed value instead of parsing a string of its own.
+        pingGaugeAction = parseHomePingAction(repo.settings.homePingGaugeAction),
+        pingChipAction = parseHomePingAction(repo.settings.homePingChipAction),
+        pingHeaderAction = parseHomePingAction(repo.settings.homePingHeaderAction)
     )
 }
 
@@ -354,8 +374,52 @@ internal data class HomeActions(
      * sweep ([onPingGroup]) remains a different question and keeps its own door on the Servers
      * page.
      */
-    val onPingRoute: () -> Unit = {}
+    val onPingRoute: () -> Unit = {},
+    /**
+     * MARBLE_HOME_PING_CONTROLS_V212 — sweep the whole library.
+     *
+     * The bulk verb used to live only on the Servers page, which made the Home ping surfaces a
+     * two-choice menu no matter what the user wanted them to do. It is now a first-class ping
+     * action, so any of the three Home controls can be pointed at it.
+     */
+    val onPingLibrary: () -> Unit = {}
 )
+
+/**
+ * MARBLE_HOME_PING_CONTROLS_V212 — the verb one Home ping surface runs.
+ *
+ * Every ping surface on the connection page is a control; what it *does* is the user's setting
+ * ([com.marbleng.app.model.HomePingAction]). This one mapping is the whole feature's contract:
+ * one action in, one real destination out, and no surface can end up a dead key again. It is a
+ * plain function rather than a per-widget branch so the three surfaces cannot drift into three
+ * private opinions about what "ping" means — which is exactly how one of them became decorative.
+ */
+internal fun runHomePingAction(action: HomePingAction, actions: HomeActions) {
+    when (action) {
+        HomePingAction.ROUTE -> actions.onPingRoute()
+        HomePingAction.GROUP -> actions.onPingGroup()
+        HomePingAction.LIBRARY -> actions.onPingLibrary()
+        HomePingAction.TESTS -> actions.onTests()
+    }
+}
+
+/** The label a Home ping control wears, so a button always says what its tap will do. */
+@Composable
+internal fun homePingActionLabel(action: HomePingAction): String = when (action) {
+    HomePingAction.ROUTE -> trx("Measure this server")
+    HomePingAction.GROUP -> trx("Measure this subscription")
+    HomePingAction.LIBRARY -> trx("Measure every server")
+    HomePingAction.TESTS -> trx("Open ping settings")
+}
+
+/** The one-line description of a Home ping action, for the Settings picker. */
+@Composable
+internal fun homePingActionDetail(action: HomePingAction): String = when (action) {
+    HomePingAction.ROUTE -> trx("The route on screen, through the tunnel when one is up")
+    HomePingAction.GROUP -> trx("Every server of the subscription this route belongs to")
+    HomePingAction.LIBRARY -> trx("The whole library, one sweep across every source")
+    HomePingAction.TESTS -> trx("Jump to the Tests workspace instead of measuring")
+}
 
 /** The per-style skin every shared evidence widget renders through. */
 internal enum class HomeFlavor { IOS_SLIDER, IOS_FLOATING, IOS_EMBOSSED, IOS_MODULAR, ROUTE_ATELIER }
@@ -1750,6 +1814,10 @@ internal fun HomeSessionStats(
     val uptime = rememberUptimeLabel(evidence.connectedSinceMs)
     val ping = homePingLabel(evidence)
     val pingTone = homePingTone(evidence, Aether.Cyan)
+    // MARBLE_HOME_PING_CONTROLS_V212 — resolved in composable scope: the semantics lambda below is
+    // not a composable context, and the label has to name the verb this cell's tap runs.
+    val gaugeSpoken = homePingActionLabel(evidence.pingGaugeAction)
+    val pingWord = Tr.now.connectionPing
 
     // MARBLE_HOME_CLOUD_V140 — the stats strip is the same cloud card as every other Home box.
     HomeCloudCard(modifier = modifier.fillMaxWidth()) {
@@ -1765,11 +1833,32 @@ internal fun HomeSessionStats(
                 HomeStatValueText(uptime, tone, sizeScale = 1.1f)
             }
             Box(Modifier.width(1.dp).height(24.dp).background(homeCloudDivider()))
-            // MARBLE_HOME_ONE_PING_V208 — a latency read-out is not a ping button. This cell
-            // used to accept a tap that started a *second*, different measurement (one route
-            // instead of the group), so the page had two controls that both said "ping" and did
-            // different things. It is a display now; the header owns the only ping verb.
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // MARBLE_HOME_ONE_PING_V208 — a latency read-out is not a ping button. This cell used
+            // to accept a tap that started a *second*, different measurement, so the page had two
+            // controls that both said "ping" and did different things.
+            //
+            // MARBLE_HOME_PING_CONTROLS_V212 — the ambiguity was never the tap, it was the verb
+            // being hard-wired differently per widget. Both ping surfaces on this page take a tap
+            // now, and each one runs the measurement its own setting names, so two controls can
+            // never silently disagree again: they say what they do, and the user chose it.
+            val statShape = RoundedCornerShape(10.dp)
+            Column(
+                modifier = Modifier
+                    .clip(statShape)
+                    .semantics {
+                        contentDescription = "$pingWord $ping — $gaugeSpoken"
+                    }
+                    .kineticClickable(
+                        enabled = homePingTappable(evidence),
+                        role = Role.Button,
+                        pressScale = .95f,
+                        boundedShape = statShape,
+                        releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
+                        onClick = { runHomePingAction(evidence.pingGaugeAction, actions) }
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(Tr.now.connectionPing, color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall)
                 HomeStatValueText(ping, pingTone, sizeScale = 1.1f)
             }
@@ -2469,20 +2558,27 @@ internal fun HomeTopActionBar(
         // its own label, measured through the tunnel while one is up and at its endpoint while
         // one is down. The group sweep keeps its own door on the Servers page, where the list of
         // servers it measures is actually on screen.
+        // MARBLE_HOME_PING_CONTROLS_V212 — the verb is no longer fixed to the route. This control
+        // keeps its own two special states (a live sweep is cancelable; a route measurement is
+        // single-flight) and otherwise runs whatever the user pointed the header pulse at, with its
+        // label saying so — because a control that measures something else than its label promises
+        // is the defect this whole chapter exists to remove.
+        val headerAction = evidence.pingHeaderAction
+        val headerVerb = homePingActionLabel(headerAction)
         HomeRoutePingButton(
             sweeping = sweeping,
             measuring = routeMeasuring,
             description = when {
                 sweeping -> trx("Cancel measuring")
-                routeMeasuring -> "${trx("Measuring this server")} • $routeLabel"
-                else -> "${trx("Measure this server")} • $routeLabel"
+                routeMeasuring -> "${trx("Measuring")} • $headerVerb"
+                else -> "$headerVerb • $routeLabel"
             },
             enabled = !cancelling && !routeMeasuring,
             onClick = {
                 when {
                     cancelling -> Unit
                     groupBusy -> repo.cancelProbes()
-                    else -> actions.onPingRoute()
+                    else -> runHomePingAction(headerAction, actions)
                 }
             }
         )
@@ -2914,6 +3010,10 @@ internal fun IosServerListBox(
                         ) {
                             ServerTileRow(profiles = row, columns = tileColumns) { server ->
                                 val location = repo.serverLocation(server)
+                                // MARBLE_SERVER_TILE_PARITY_V212 — the box on Home shows the
+                                // measured address family too: it is a route picker, not a route
+                                // manager, so it gets the fact and not the menu.
+                                val familyScan = repo.ipFamilyScan(server)
                                 ServerTile(
                                     profile = server,
                                     result = benchmarks[server.id],
@@ -2922,6 +3022,8 @@ internal fun IosServerListBox(
                                     testing = repo.probeStateOf(server.id) == ProbeState.TESTING,
                                     locationCode = location.code,
                                     locationProvisional = repo.serverLocationIsProvisional(server),
+                                    familyChip = familyScan?.chip,
+                                    familyTone = familyScan?.let { familyChipTone(it) },
                                     onClick = {
                                         if (repo.probeActive || repo.probeCancelling) {
                                             repo.setRuntimeMessage(
@@ -4247,7 +4349,13 @@ internal fun HomeThemeModular(
                     Box(
                         Modifier.marbleStaggerIn(moduleIndex + 1, enabled = entranceArmed())
                     ) {
-                        HomeShortcutDeck(evidence, actions, HomeCloud.Accent)
+                        HomeShortcutDeck(
+                            evidence,
+                            actions,
+                            HomeCloud.Accent,
+                            // MARBLE_HOME_PING_CONTROLS_V212
+                            pingAction = evidence.pingChipAction
+                        )
                     }
                 }
             }

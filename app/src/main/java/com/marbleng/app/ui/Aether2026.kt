@@ -66,6 +66,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+// MARBLE_SURFACE_DEPTH_V212 — the system's predictive-back gesture, and the state it reports.
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -169,6 +174,9 @@ import com.marbleng.app.AppRepository
 import com.marbleng.app.R
 import com.marbleng.app.core.AddressFamilyPolicy
 import com.marbleng.app.core.GeoAssetIndex
+// MARBLE_MULTI_SOURCE_ROUTING_V212 — the geo source set and the curated domestic knowledge.
+import com.marbleng.app.core.GeoAssetRegistry
+import com.marbleng.app.core.IranPrecisionPack
 import com.marbleng.app.core.RoutingEngine
 import com.marbleng.app.core.RoutingPresets
 import com.marbleng.app.core.BugSeverity
@@ -383,7 +391,22 @@ fun Aether2026App(
     var settingsFocus by remember { mutableStateOf<String?>(null) }
     var detailProfile by remember { mutableStateOf<ProxyProfile?>(null) }
     var ipDetailsOpen by remember { mutableStateOf(false) }
-    BackHandler(enabled = detailProfile != null) { detailProfile = null }
+    // MARBLE_SURFACE_DEPTH_V212 — predictive back. The gesture is not an edge any more: the
+    // system reports a progress while the finger travels, and the surface being dismissed recedes
+    // on it. Dismissing a full-screen page is exactly the place where a snap reads as a glitch,
+    // because everything else in the app moves on the shared frame clock.
+    val detailBackProgress = remember { MutableStateFlow(0f) }
+    val detailBack by detailBackProgress.collectAsState()
+    PredictiveBackHandler(enabled = detailProfile != null) { events ->
+        try {
+            events.collect { event -> detailBackProgress.value = event.progress }
+            detailProfile = null
+        } catch (cancelled: CancellationException) {
+            // Released short of the threshold: the page stays where it was.
+        } finally {
+            detailBackProgress.value = 0f
+        }
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -538,6 +561,12 @@ fun Aether2026App(
         // alive?"); while it is down it is the selected route, measured at its endpoint.
         onPingRoute = {
             repo.measureHomePing()
+        },
+        // MARBLE_HOME_PING_CONTROLS_V212 — the whole-library sweep becomes a Home verb, so any of
+        // the three ping surfaces can be pointed at it. It is the same `testAll()` the Servers
+        // page's "Ping all" runs: one bulk measurement, one progress strip, one result list.
+        onPingLibrary = {
+            repo.testAll()
         }
     )
 
@@ -661,7 +690,9 @@ fun Aether2026App(
 
             AnimatedContent(
                 targetState = detailProfile,
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier
+                    .matchParentSize()
+                    .marblePredictiveBack(detailBack),
                 transitionSpec = {
                     // MARBLE_STABLE_NAVIGATION_V202 — a detail page is a complete opaque surface,
                     // not a card-sized shared element. The former scale/slide transform exposed
@@ -4589,6 +4620,9 @@ private fun CyberLibrary(
                             )
                         ) { profile ->
                             val location = repo.serverLocation(profile)
+                            // MARBLE_SERVER_TILE_PARITY_V212 — the box answers what the row
+                            // answers: the measured address family and the server's own menu.
+                            val familyScan = repo.ipFamilyScan(profile)
                             ServerTile(
                                 profile = profile,
                                 result = benchmarks[profile.id],
@@ -4597,6 +4631,34 @@ private fun CyberLibrary(
                                 testing = repo.probeStateOf(profile.id) == ProbeState.TESTING,
                                 locationCode = location.code,
                                 locationProvisional = repo.serverLocationIsProvisional(profile),
+                                familyChip = familyScan?.chip,
+                                familyTone = familyScan?.let { familyChipTone(it) },
+                                trailing = {
+                                    ServersNodeMenu(
+                                        profile = profile,
+                                        repo = repo,
+                                        onEdit = {
+                                            renameTarget = profile
+                                            renameText = stripLeadingFlag(profile.name)
+                                        },
+                                        onMove = { moveTarget = profile },
+                                        onQr = { qrTarget = profile },
+                                        onDelete = { deleteTarget = profile },
+                                        onDetails = { onDetails(profile) },
+                                        onCopyLink = {
+                                            clipboard.setText(
+                                                AnnotatedString(
+                                                    profile.raw.trim().ifBlank { profile.configJson }
+                                                )
+                                            )
+                                            repo.setRuntimeMessage("Config copied")
+                                        },
+                                        onCopyJson = {
+                                            clipboard.setText(AnnotatedString(profile.configJson))
+                                            repo.setRuntimeMessage("Xray JSON copied")
+                                        }
+                                    )
+                                },
                                 onClick = {
                                     if (repo.probeActive || repo.probeCancelling) {
                                         repo.setRuntimeMessage(
@@ -6338,8 +6400,10 @@ private fun ServersGroupMenu(
  * did not answer — which is information, not an error, so it never reads red. Red is reserved for
  * the node that answered on neither family, because that one is actually broken.
  */
+// MARBLE_SERVER_TILE_PARITY_V212 — internal, not private: the compact server box shows the same
+// verdict the row does, and a colour that lives in one file is a colour two silhouettes drift on.
 @Composable
-private fun familyChipTone(scan: IpFamilyScan): Color = when (scan.verdict) {
+internal fun familyChipTone(scan: IpFamilyScan): Color = when (scan.verdict) {
     IpFamilyVerdict.DUAL_OK -> Aether.Emerald
     IpFamilyVerdict.IPV6_ONLY -> Aether.Cyan
     IpFamilyVerdict.IPV4_ONLY -> Aether.Amber
@@ -6794,9 +6858,16 @@ private fun ServersPingCapsule(
     }
 }
 
-/** The three-dot menu of one server card. */
+/**
+ * The three-dot menu of one server card.
+ *
+ * MARBLE_SERVER_TILE_PARITY_V212 — internal rather than private, because the compact box is the
+ * same server and gets the same menu. Two silhouettes with different capabilities is what the
+ * report described ("the box view is missing a lot of things… you cannot tap the three-line
+ * icon"), and the fix is one menu composed by two layouts, not a second smaller menu.
+ */
 @Composable
-private fun ServersNodeMenu(
+internal fun ServersNodeMenu(
     profile: ProxyProfile,
     repo: AppRepository,
     onEdit: () -> Unit,
@@ -11424,6 +11495,14 @@ private fun settingsHubGroups(
                         subtitle = "Pause decorative motion",
                         checked = settings.homeAmbientBackdrop
                     ) { repo.updateSettings(repo.settings.copy(homeAmbientBackdrop = it)) }
+                },
+                section(
+                    title = trx("Ping controls"),
+                    subtitle = "What each ping button on the connection page measures"
+                ) {
+                    // MARBLE_HOME_PING_CONTROLS_V212 — three ping surfaces on Home, three verbs,
+                    // and the user owns all three.
+                    HomePingControlsSettings(repo)
                 }
             )
         ),
@@ -13396,11 +13475,25 @@ private fun SpatialSettings(
     }
 
     // System back walks up one level: sub-page → hub. It never leaves Settings by accident.
-    BackHandler(enabled = page != SettingsPages.HUB) { page = SettingsPages.HUB }
+    // MARBLE_SURFACE_DEPTH_V212 — and it does so on the gesture's own progress, not at its end.
+    val settingsBackProgress = remember { MutableStateFlow(0f) }
+    val settingsBack by settingsBackProgress.collectAsState()
+    PredictiveBackHandler(enabled = page != SettingsPages.HUB) { events ->
+        try {
+            events.collect { event -> settingsBackProgress.value = event.progress }
+            page = SettingsPages.HUB
+        } catch (cancelled: CancellationException) {
+            // Released short of the threshold: the sub-page stays open.
+        } finally {
+            settingsBackProgress.value = 0f
+        }
+    }
 
     AnimatedContent(
         targetState = page,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .marblePredictiveBack(settingsBack),
         transitionSpec = {
             // MARBLE_STABLE_NAVIGATION_V202 — settings pages all own large scrolling headers.
             // Translating two independently measured LazyColumns at once caused their headers to
@@ -14698,6 +14791,136 @@ private fun serverLayoutDetail(layout: ServerLayout): String = when (layout) {
     ServerLayout.GRID -> "Small cards, as many per line as your screen fits"
 }
 
+// ---------------------------------------------------------------------------------------------
+// MARBLE_HOME_PING_CONTROLS_V212 — what each Home ping surface does
+// ---------------------------------------------------------------------------------------------
+
+/** The three ping surfaces on the connection page, and the setting that owns each one's verb. */
+private enum class HomePingSurface { GAUGE, CHIP, HEADER }
+
+@Composable
+private fun homePingSurfaceTitle(surface: HomePingSurface): String = when (surface) {
+    HomePingSurface.GAUGE -> trx("Latency gauge")
+    HomePingSurface.CHIP -> trx("Shortcut pill")
+    HomePingSurface.HEADER -> trx("Header pulse")
+}
+
+@Composable
+private fun homePingSurfaceDetail(surface: HomePingSurface): String = when (surface) {
+    HomePingSurface.GAUGE -> "The gauge and the latency cell on the connection page"
+    HomePingSurface.CHIP -> "The ping pill next to add, paste and QR"
+    HomePingSurface.HEADER -> "The round pulse control beside the wordmark"
+}
+
+/**
+ * MARBLE_HOME_PING_CONTROLS_V212 — one chooser per ping surface.
+ *
+ * The report was "two ping buttons, one of them does nothing". The fix has two halves and this is
+ * the second: making a surface tappable is worth nothing if the user cannot say what the tap
+ * should do, because then the product has just moved the argument from the layout to the release
+ * notes. Every surface is a control, every control's verb is one of these four, and the same
+ * [HomePingAction] vocabulary is what the controls on the page resolve — so a choice made here is
+ * the choice the button obeys, with no second mapping to drift.
+ */
+@Composable
+private fun HomePingControlsSettings(repo: AppRepository) {
+    val settings = repo.settings
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        HomePingSurface.entries.forEach { surface ->
+            val current = when (surface) {
+                HomePingSurface.GAUGE -> parseHomePingAction(settings.homePingGaugeAction)
+                HomePingSurface.CHIP -> parseHomePingAction(settings.homePingChipAction)
+                HomePingSurface.HEADER -> parseHomePingAction(settings.homePingHeaderAction)
+            }
+            val shape = RoundedCornerShape(13.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(shape)
+                    .background(homeCloudInsetFill())
+                    .border(1.dp, homeCloudInsetBorder(), shape)
+                    .padding(horizontal = 10.dp, vertical = 9.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    HomeVectorIcon(HomeIcon.PING, Aether.Cyan, Modifier.size(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            homePingSurfaceTitle(surface),
+                            color = Aether.Ink,
+                            style = settingsRowTitleStyle(),
+                            maxLines = 1
+                        )
+                        Text(
+                            MarbleCopy.oneSentence(trx(homePingSurfaceDetail(surface))),
+                            color = Aether.InkMuted,
+                            style = settingsBodyStyle(),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    HomePingAction.entries.forEach { action ->
+                        val selected = current == action
+                        val chipShape = RoundedCornerShape(10.dp)
+                        Text(
+                            text = homePingActionLabel(action),
+                            color = if (selected) Aether.Cyan else Aether.InkMuted,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                            ),
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(chipShape)
+                                .background(
+                                    if (selected) {
+                                        Aether.Cyan.copy(alpha = .12f)
+                                    } else {
+                                        Aether.Glass.copy(alpha = .35f)
+                                    }
+                                )
+                                .border(
+                                    1.dp,
+                                    if (selected) Aether.Cyan.copy(alpha = .38f) else Color.Transparent,
+                                    chipShape
+                                )
+                                .kineticClickable(role = Role.RadioButton, boundedShape = chipShape) {
+                                    val next = repo.settings
+                                    val updated = when (surface) {
+                                        HomePingSurface.GAUGE ->
+                                            next.copy(homePingGaugeAction = action.id)
+                                        HomePingSurface.CHIP ->
+                                            next.copy(homePingChipAction = action.id)
+                                        HomePingSurface.HEADER ->
+                                            next.copy(homePingHeaderAction = action.id)
+                                    }
+                                    repo.updateSettings(updated)
+                                }
+                                .padding(horizontal = 9.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+                Text(
+                    MarbleCopy.oneSentence(homePingActionDetail(current)),
+                    color = Aether.InkFaint,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
 /**
  * The shape, drawn: two stacked bars for rows, four squares for boxes.
  *
@@ -15141,6 +15364,163 @@ private fun SettingsRoutingPage(
     }
 }
 
+/**
+ * MARBLE_MULTI_SOURCE_ROUTING_V212 — the set of geo databases routing reads.
+ *
+ * The old control was one dropdown and it *replaced*: choosing Loyalsoldier silently dropped the
+ * Iranian database, which is how "my routing sends Iranian traffic direct but some sites still go
+ * through the proxy" survived — the user had to pick between the database that knows Iran and the
+ * database that knows the world. This is a set now: every source can be on at the same time, the
+ * first one in the list owns the canonical `geoip.dat`/`geosite.dat` names (so a fresh install
+ * still routes from the bundled copy), and each additional source contributes its own file, which
+ * the config writer references by name.
+ *
+ * The rows report readiness because a source that is enabled but not downloaded is not an error and
+ * must not read as one: the writer simply does not emit its rules until the file is there, and the
+ * row says exactly that instead of a red badge.
+ */
+@Composable
+private fun GeoSourceSetControls(repo: AppRepository) {
+    val settings = repo.settings
+    val multi = settings.geoMultiSourceEnabled
+    val ids = GeoAssetRegistry.parseIds(settings.geoAssetSourceIds)
+    val signature = "${settings.geoAssetSourceIds}|${settings.geoCustomSourcesJson}|" +
+        "${settings.geoIpUrl}|${settings.geoSiteUrl}|${settings.geoMultiSourceEnabled}"
+    val catalog = remember(signature) { GeoAssetRegistry.catalog(settings) }
+    val states = remember(signature, repo.geoGateNote) { repo.geoSourceStates() }
+
+    SettingSwitch(
+        title = "Read several geo databases",
+        subtitle = "Use the geo tags of every source below at once",
+        checked = multi
+    ) { repo.updateSettings(repo.settings.copy(geoMultiSourceEnabled = it)) }
+
+    Text(
+        trx(repo.geoSourceSummary()),
+        color = Aether.InkMuted,
+        style = MaterialTheme.typography.labelSmall
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        catalog.forEach { spec ->
+            val state = states.firstOrNull { it.spec.id == spec.id }
+            val selected = spec.id in ids
+            val shape = RoundedCornerShape(12.dp)
+            val status = when {
+                !selected -> trx("Not in use")
+                state == null -> trx("Not downloaded yet")
+                state.usable() -> GeoAssetRegistry.formatBytes(state.geoIpBytes + state.geoSiteBytes)
+                else -> trx("Waiting for a download")
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(shape)
+                    .background(if (selected) Aether.Emerald.copy(alpha = .09f) else homeCloudInsetFill())
+                    .border(
+                        1.dp,
+                        if (selected) Aether.Emerald.copy(alpha = .34f) else homeCloudInsetBorder(),
+                        shape
+                    )
+                    .kineticClickable(role = Role.Checkbox, boundedShape = shape) {
+                        if (multi && selected && spec.id != ids.first()) {
+                            repo.toggleGeoAssetSource(spec.id)
+                        } else {
+                            // The primary is never toggled off: routing needs one database. Tapping
+                            // it re-orders the set instead, which is what "make this my primary"
+                            // means with a set rather than a single choice.
+                            repo.applyGeoAssetSource(spec.id)
+                        }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(9.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) Aether.Emerald else Aether.InkFaint.copy(alpha = .30f))
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        trx(spec.label),
+                        color = if (selected) Aether.Ink else Aether.InkMuted,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one sentence per row.
+                        MarbleCopy.oneSentence(
+                            if (selected && spec.id == ids.first()) {
+                                "${trx("Primary")} • $status"
+                            } else {
+                                status
+                            }
+                        ),
+                        color = Aether.InkFaint,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * MARBLE_MULTI_SOURCE_ROUTING_V212 — how finely domestic traffic is separated.
+ *
+ * Three levels of one dial, and the difference between them is stated in words and numbers rather
+ * than left to a label: geo tags alone, geo tags plus the product's curated domestic knowledge, or
+ * that plus brand keywords. The count under the chips comes from the same list the config writer
+ * emits, so the number on screen cannot drift from the number of rules in the config.
+ */
+@Composable
+private fun GeoPrecisionChoice(repo: AppRepository) {
+    val precision = parseGeoPrecision(repo.settings.geoPrecision)
+    Text(
+        trx("Domestic separation"),
+        color = Aether.InkFaint,
+        style = MaterialTheme.typography.labelSmall
+    )
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        GeoPrecision.entries.forEach { level ->
+            CyberChoiceChip(
+                text = geoPrecisionLabel(level),
+                selected = precision == level,
+                color = Aether.Emerald
+            ) { repo.setGeoPrecision(level) }
+        }
+    }
+    Text(
+        trx(geoPrecisionDetail(precision)) + " • " + repo.geoPrecisionSummary(),
+        color = Aether.InkMuted,
+        style = MaterialTheme.typography.labelSmall
+    )
+}
+
+@Composable
+private fun geoPrecisionLabel(level: GeoPrecision): String = when (level) {
+    GeoPrecision.STANDARD -> trx("Geo tags")
+    GeoPrecision.ENHANCED -> trx("Curated")
+    GeoPrecision.MAXIMUM -> trx("Strict")
+}
+
+@Composable
+private fun geoPrecisionDetail(level: GeoPrecision): String = when (level) {
+    GeoPrecision.STANDARD -> "Only the geo tags you configured"
+    GeoPrecision.ENHANCED -> "Plus the domestic services MarbleNG keeps its own list of"
+    GeoPrecision.MAXIMUM -> "Plus brand keywords, for services on a domain nobody published"
+}
+
 @Composable
 private fun RoutingSettings(repo: AppRepository) {
     // MARBLE_ROUTING_UI_V136 — the routing workspace, rebuilt around one honest model:
@@ -15316,7 +15696,16 @@ private fun RoutingSettings(repo: AppRepository) {
     }
 
     // ------------------------------------------------------------------ 3. Geo databases
-    Text(trx("Geo data source"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    // MARBLE_MULTI_SOURCE_ROUTING_V212 — "Geo data source" became "Geo databases", plural, because
+    // that is what routing reads now. One dropdown that *replaced* the previous source was the
+    // structural half of the reported defect: the user who wanted a second database had to give up
+    // the first, so the domestic coverage and the world coverage could never both be on. The set is
+    // additive, the primary is the one that owns the canonical file names, and every source in the
+    // set is a rule the engine can name.
+    Text(trx("Geo databases"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+    GeoSourceSetControls(repo)
+    GeoPrecisionChoice(repo)
+
     Box {
         CyberButton(
             label = currentSource.label,

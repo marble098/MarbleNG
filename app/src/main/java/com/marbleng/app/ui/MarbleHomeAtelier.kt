@@ -109,7 +109,14 @@ internal fun HomeThemeAtelier(
             RouteQualityCard(repo = repo, evidence = evidence)
         }
         HomeSessionStats(evidence = evidence, actions = actions, tone = tone)
-        HomeShortcutDeck(evidence = evidence, actions = actions, accent = tone)
+        HomeShortcutDeck(
+            evidence = evidence,
+            actions = actions,
+            accent = tone,
+            // MARBLE_HOME_PING_CONTROLS_V212 — the deck's pill is a control; its verb is the
+            // user's, resolved once in the evidence block.
+            pingAction = evidence.pingChipAction
+        )
     }
 }
 

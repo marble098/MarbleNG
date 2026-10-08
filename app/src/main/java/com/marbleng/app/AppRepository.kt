@@ -5259,20 +5259,88 @@ private fun postToMain(block: () -> Unit) {
 
     fun routingAssetStatus(): RoutingAssetStatus = xray.routingAssetStatus()
 
-    /** Apply MarbleNG's recommended Iran routing baseline without erasing explicit block/proxy lists. */
+    /**
+     * Make [sourceId] the primary geo source — and, since
+     * MARBLE_MULTI_SOURCE_ROUTING_V212, keep every other enabled source in the set.
+     *
+     * What this replaced is the reason the report said routing was "still weak": picking a source
+     * *replaced* the previous one, so a user who wanted Loyalsoldier's world coverage lost the
+     * Iranian database that was keeping domestic traffic direct. The set is additive now; this
+     * call only reorders it, and the primary keeps the canonical file names.
+     */
     fun applyGeoAssetSource(sourceId: String) {
         val source = RoutingDefaults.sourceById(sourceId)
+        // The stored preference is a comma list; the registry's own vocabulary is an ordered set.
+        val ids = com.marbleng.app.core.GeoAssetRegistry.withPrimary(
+            com.marbleng.app.core.GeoAssetRegistry.parseIds(settings.geoAssetSourceIds),
+            source.id
+        )
         val next = if (source.id == "custom") {
-            settings.copy(geoAssetSourceId = source.id)
+            // The custom entry is the URL form: it becomes a real source the moment its two URL
+            // fields hold something, so selecting it stores the set and nothing else.
+            settings.copy(geoAssetSourceId = source.id, geoAssetSourceIds = ids.joinToString(","))
         } else {
             settings.copy(
                 geoAssetSourceId = source.id,
+                geoAssetSourceIds = ids.joinToString(","),
                 geoIpUrl = source.geoIpUrl,
                 geoSiteUrl = source.geoSiteUrl
             )
         }
         updateSettings(next)
     }
+
+    // ---------------------------------------------------------------------------------------
+    // MARBLE_MULTI_SOURCE_ROUTING_V212 — the geo database set the routing layer reads
+    // ---------------------------------------------------------------------------------------
+
+    /** Switch one source on or off. The primary cannot be switched off: routing needs one. */
+    fun toggleGeoAssetSource(sourceId: String) {
+        val clean = sourceId.trim().lowercase()
+        val ids = com.marbleng.app.core.GeoAssetRegistry.parseIds(settings.geoAssetSourceIds)
+        val next = if (clean in ids) {
+            if (ids.size == 1) {
+                message = "Routing needs at least one geo database"
+                return
+            }
+            com.marbleng.app.core.GeoAssetRegistry.without(ids, clean)
+        } else {
+            if (!com.marbleng.app.core.GeoAssetRegistry.hasRoom(settings.geoAssetSourceIds)) {
+                message = "At most ${com.marbleng.app.core.GeoAssetRegistry.MAX_SOURCES} geo sources at once"
+                return
+            }
+            com.marbleng.app.core.GeoAssetRegistry.withAdded(ids, clean)
+        }
+        val primary = next.first()
+        updateSettings(
+            settings.copy(
+                geoAssetSourceIds = next.joinToString(","),
+                geoAssetSourceId = primary,
+                geoIpUrl = RoutingDefaults.sourceById(primary).geoIpUrl,
+                geoSiteUrl = RoutingDefaults.sourceById(primary).geoSiteUrl
+            )
+        )
+        message = "Routing reads ${next.size} geo source${if (next.size == 1) "" else "s"}"
+    }
+
+    /** The per-source state the routing page lists: ready, size, and which one is primary. */
+    fun geoSourceStates(): List<com.marbleng.app.core.GeoAssetRegistry.SourceState> =
+        runCatching { xray.geoSourceStates(settings) }.getOrDefault(emptyList())
+
+    /** One line for the routing page: how many databases routing is reading, and how big. */
+    fun geoSourceSummary(): String =
+        com.marbleng.app.core.GeoAssetRegistry.summary(geoSourceStates())
+
+    /** How finely domestic traffic is separated. See [com.marbleng.app.model.GeoPrecision]. */
+    fun setGeoPrecision(precision: com.marbleng.app.model.GeoPrecision) {
+        updateSettings(settings.copy(geoPrecision = precision.id))
+    }
+
+    /** The curated domestic knowledge the precision dial adds, as one readable line. */
+    fun geoPrecisionSummary(): String =
+        com.marbleng.app.core.IranPrecisionPack.summary(
+            com.marbleng.app.model.parseGeoPrecision(settings.geoPrecision)
+        )
 
     fun setRoutingRules(rules: List<com.marbleng.app.model.RoutingRule>) {
         updateSettings(settings.copy(routingRulesJson = RoutingEngine.serializeRules(rules)))
@@ -5339,7 +5407,11 @@ private fun postToMain(block: () -> Unit) {
             val parts = mutableListOf<String>()
             parts += if (status.geoIpReady) "geoip ${formatBytes(status.geoIpBytes)}" else "geoip missing (add a geoip.dat URL above)"
             parts += if (status.geoSiteReady) "geosite ${formatBytes(status.geoSiteBytes)}" else "geosite missing (add a geosite.dat URL above)"
-            message = "Routing assets • ${parts.joinToString(" • ")}"
+            // MARBLE_MULTI_SOURCE_ROUTING_V212 — the summary names the SET, because "which
+            // databases is my routing reading?" is the question the page has to answer before
+            // "is one of them missing?".
+            val summary = geoSourceSummary()
+            message = "Routing assets • $summary • ${parts.joinToString(" • ")}"
         }
     }
 

@@ -354,18 +354,119 @@ class XrayManager(private val context: Context) {
         assetLock.lock()
         try {
             assetsDir.mkdirs()
-            ensureAsset("geoip.dat", settings.geoIpUrl.trim(), force)
-            ensureAsset("geosite.dat", settings.geoSiteUrl.trim(), force)
-            refreshGeoAssetIndex()
+            // MARBLE_MULTI_SOURCE_ROUTING_V212 — every enabled source is prepared, primary first.
+            // A source that fails to download costs its own rules, never the tunnel: the writer
+            // only emits an `ext:` reference for a file that is really on disk (see
+            // [com.marbleng.app.core.RoutingEngine.readyGeoFiles]).
+            val sources = GeoAssetRegistry.resolve(settings)
+            sources.forEachIndexed { index, spec ->
+                val primary = index == 0
+                prepareSourceFile(spec, GeoAssetRegistry.Kind.GEOIP, primary, force)
+                prepareSourceFile(spec, GeoAssetRegistry.Kind.GEOSITE, primary, force)
+            }
+            refreshGeoAssetIndex(settings)
             return routingAssetStatus()
         } finally {
             assetLock.unlock()
         }
     }
 
+    /** One family of one source: nothing is prepared for a source that does not publish it. */
+    private fun prepareSourceFile(
+        spec: GeoAssetRegistry.SourceSpec,
+        kind: GeoAssetRegistry.Kind,
+        primary: Boolean,
+        force: Boolean
+    ) {
+        if (!spec.provides(kind)) return
+        val name = GeoAssetRegistry.fileName(spec, kind, primary)
+        runCatching { ensureAsset(name, spec.urlFor(kind), force) }
+            .onFailure { lastGeoAssetError = "${it.message ?: it.javaClass.simpleName} ($name)" }
+    }
+
+    /** The last per-source asset failure, for the routing page's own diagnostics line. */
+    @Volatile
+    var lastGeoAssetError: String = ""
+        private set
+
     /** Best-effort re-index of the managed geo databases; never throws. */
     fun refreshGeoAssetIndex() {
         runCatching { GeoAssetIndex.update(assetsDir) }
+    }
+
+    /**
+     * MARBLE_MULTI_SOURCE_ROUTING_V212 — index every database the routing layer reads, not just
+     * the canonical pair. Suggestions, validation, provenance and the simulator then describe the
+     * union the config writer actually emits, which is the whole reason a second source is worth
+     * switching on.
+     */
+    fun refreshGeoAssetIndex(settings: AppSettings) {
+        runCatching {
+            val files = ArrayList<GeoAssetIndex.IndexedFile>()
+            GeoAssetRegistry.resolve(settings).forEachIndexed { index, spec ->
+                val primary = index == 0
+                listOf(GeoAssetRegistry.Kind.GEOSITE, GeoAssetRegistry.Kind.GEOIP).forEach { kind ->
+                    if (!spec.provides(kind)) return@forEach
+                    files += GeoAssetIndex.IndexedFile(
+                        File(assetsDir, GeoAssetRegistry.fileName(spec, kind, primary)),
+                        if (kind == GeoAssetRegistry.Kind.GEOSITE) {
+                            GeoAssetIndex.Kind.GEOSITE
+                        } else {
+                            GeoAssetIndex.Kind.GEOIP
+                        }
+                    )
+                }
+            }
+            if (files.isEmpty()) {
+                GeoAssetIndex.update(assetsDir)
+            } else {
+                GeoAssetIndex.update(assetsDir, files)
+            }
+        }
+    }
+
+    /**
+     * The per-source readiness the routing writer needs.
+     *
+     * The names here are exactly the names [com.marbleng.app.core.RoutingEngine.geoTokens] filters
+     * on, so a file that is missing or half-written cannot produce an `ext:` reference — the one
+     * failure mode that would turn a routing preference into a core that refuses to start.
+     */
+    fun readyGeoAssetFiles(settings: AppSettings): List<String> {
+        val ready = ArrayList<String>()
+        GeoAssetRegistry.resolve(settings).forEachIndexed { index, spec ->
+            val primary = index == 0
+            listOf(GeoAssetRegistry.Kind.GEOIP, GeoAssetRegistry.Kind.GEOSITE).forEach { kind ->
+                if (!spec.provides(kind)) return@forEach
+                val file = File(assetsDir, GeoAssetRegistry.fileName(spec, kind, primary))
+                if (file.isFile && looksLikeGeoDatabase(file)) ready += file.name
+            }
+        }
+        return ready
+    }
+
+    /** The source-by-source state of the geo databases, for the routing page. */
+    fun geoSourceStates(settings: AppSettings): List<GeoAssetRegistry.SourceState> {
+        val sources = GeoAssetRegistry.resolve(settings)
+        return sources.mapIndexed { index, spec ->
+            val primary = index == 0
+            val ip = File(assetsDir, GeoAssetRegistry.fileName(spec, GeoAssetRegistry.Kind.GEOIP, primary))
+            val site = File(assetsDir, GeoAssetRegistry.fileName(spec, GeoAssetRegistry.Kind.GEOSITE, primary))
+            val ipOk = ip.isFile && looksLikeGeoDatabase(ip)
+            val siteOk = site.isFile && looksLikeGeoDatabase(site)
+            GeoAssetRegistry.SourceState(
+                spec = spec,
+                primary = primary,
+                geoIpReady = ipOk,
+                geoSiteReady = siteOk,
+                geoIpBytes = if (ip.isFile) ip.length() else 0L,
+                geoSiteBytes = if (site.isFile) site.length() else 0L,
+                updatedAtMs = maxOf(
+                    if (ip.isFile) ip.lastModified() else 0L,
+                    if (site.isFile) site.lastModified() else 0L
+                )
+            )
+        }
     }
 
     fun deleteRoutingAssets() {
@@ -377,6 +478,18 @@ class XrayManager(private val context: Context) {
                 refreshFailureMarker(name).delete()
                 File(assetsDir, "$name.download").delete()
                 File(assetsDir, "$name.bak").delete()
+            }
+            // MARBLE_MULTI_SOURCE_ROUTING_V212 — the secondary sources' databases are routing data
+            // too: leaving them behind would keep a switched-off source's file on disk, ready to
+            // be re-read by the next index pass as though it were still enabled.
+            assetsDir.listFiles()?.forEach { file ->
+                val name = file.name
+                if (name.startsWith("geoip-") || name.startsWith("geosite-")) {
+                    file.delete()
+                    sourceMarker(name).delete()
+                    refreshFailureMarker(name).delete()
+                    File(assetsDir, "$name.download").delete()
+                }
             }
         } finally {
             assetLock.unlock()
@@ -913,10 +1026,21 @@ class XrayManager(private val context: Context) {
              * — including the user's own settings on disk — untouched. The moment the asset
              * lands, the next connect runs the full policy again with no user action.
              */
-            val effectiveSettings = RoutingEngine.withGeoAssetGate(
+            val gated = RoutingEngine.withGeoAssetGate(
                 settings,
                 geoIpReady = assetStatus.geoIpReady,
                 geoSiteReady = assetStatus.geoSiteReady
+            )
+            /*
+             * MARBLE_MULTI_SOURCE_ROUTING_V212 — tell the writer which geo databases are really on
+             * disk before it writes a single rule. Every enabled source expands a geo tag into one
+             * `ext:<file>:<tag>` reference, and a reference to a file that is not there makes the
+             * core refuse the whole config — so the set of ready files is measured here, at the
+             * only point that has looked at the filesystem, and travels inside the settings the
+             * same way the resolver verdicts do. Never persisted, never restored.
+             */
+            val effectiveSettings = gated.copy(
+                measuredGeoReadyFiles = readyGeoAssetFiles(settings).joinToString(",")
             )
             if (effectiveSettings !== settings) {
                 runCatching {

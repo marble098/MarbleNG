@@ -1520,7 +1520,53 @@ private val FaLexicon: Map<String, String> = mapOf(
     "What MarbleNG is allowed to tell you" to "ماربل اجازه دارد چه چیزهایی را اعلام کند",
     "About" to "درباره",
     "Versions, diagnostics and the report an issue asks for" to
-        "نسخه‌ها، عیب‌یابی و گزارشی که ثبت مشکل می‌خواهد"
+        "نسخه‌ها، عیب‌یابی و گزارشی که ثبت مشکل می‌خواهد",
+    // ------------------------------------------------------------------ MARBLE_HOME_PING_CONTROLS_V212
+    // Both ping buttons of the connection page are controls now, and each one's verb is a setting.
+    // The four verbs, their one-line descriptions and the three surfaces that own them all have to
+    // read in Persian, because a chooser that only speaks one language is not a chooser.
+    "Measuring" to "در حال اندازه‌گیری",
+    "Measure this subscription" to "اندازه‌گیری این اشتراک",
+    "Measure every server" to "اندازه‌گیری همهٔ سرورها",
+    "Open ping settings" to "باز کردن تنظیمات پینگ",
+    "The route on screen, through the tunnel when one is up" to
+        "مسیر روی صفحه، از داخل تونل وقتی تونل برقرار است",
+    "Every server of the subscription this route belongs to" to
+        "همهٔ سرورهای اشتراکی که این مسیر به آن تعلق دارد",
+    "The whole library, one sweep across every source" to
+        "کل کتابخانه، یک بررسی در همهٔ منابع",
+    "Jump to the Tests workspace instead of measuring" to
+        "رفتن به بخش تست‌ها به‌جای اندازه‌گیری",
+    "Ping controls" to "کنترل‌های پینگ",
+    "What each ping button on the connection page measures" to
+        "هر دکمهٔ پینگ در صفحهٔ اتصال چه چیزی را اندازه می‌گیرد",
+    "Latency gauge" to "سنجشگر تأخیر",
+    "Shortcut pill" to "کلید میان‌بر پینگ",
+    "Header pulse" to "دکمهٔ نبض بالای صفحه",
+    "The gauge and the latency cell on the connection page" to
+        "سنجشگر و خانهٔ تأخیر در صفحهٔ اتصال",
+    "The ping pill next to add, paste and QR" to "کلید پینگ کنار افزودن، چسباندن و QR",
+    "The round pulse control beside the wordmark" to "دکمهٔ گرد کنار نام برنامه",
+    // ------------------------------------------------------------------ MARBLE_MULTI_SOURCE_ROUTING_V212
+    // Routing reads a set of geo databases now, not one, and it can separate domestic traffic more
+    // finely than the geo tags alone allow. Both are decisions the user makes in Routing settings.
+    "Geo databases" to "پایگاه‌های جغرافیایی",
+    "Read several geo databases" to "خواندن چند پایگاه جغرافیایی",
+    "Use the geo tags of every source below at once" to
+        "استفادهٔ هم‌زمان از برچسب‌های جغرافیایی همهٔ منابع زیر",
+    "Not in use" to "استفاده نمی‌شود",
+    "Not downloaded yet" to "هنوز دانلود نشده",
+    "Waiting for a download" to "در انتظار دانلود",
+    "Primary" to "اصلی",
+    "Domestic separation" to "تفکیک ترافیک داخلی",
+    "Geo tags" to "برچسب‌های جغرافیایی",
+    "Curated" to "فهرست منتخب",
+    "Strict" to "سخت‌گیرانه",
+    "Only the geo tags you configured" to "فقط برچسب‌های جغرافیایی که خودتان تنظیم کرده‌اید",
+    "Plus the domestic services MarbleNG keeps its own list of" to
+        "به‌علاوهٔ سرویس‌های داخلی که ماربل فهرست خودش را دارد",
+    "Plus brand keywords, for services on a domain nobody published" to
+        "به‌علاوهٔ کلیدواژهٔ نام سرویس‌ها، برای دامنه‌هایی که در هیچ فهرستی نیستند"
 )
 
 /** Lowercased view of the lexicon so `UPPERCASE` renders of the same keys still match. */

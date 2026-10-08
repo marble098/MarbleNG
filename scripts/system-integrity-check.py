@@ -325,6 +325,34 @@ files = {
     # MARBLE_NOTIFICATION_CHANNELS_ONCE_V206 — the notifier is a production source too: it was
     # rebuilt on every settings write, i.e. on every keystroke of every settings field.
     "notifier": read("app/src/main/java/com/marbleng/app/core/SmartNotifier.kt"),
+    # MARBLE_MULTI_SOURCE_ROUTING_V212 — the geo source set, the curated domestic knowledge, the
+    # routing engine that reads both, and the three tests that pin them.
+    "geoRegistry": read("app/src/main/java/com/marbleng/app/core/GeoAssetRegistry.kt"),
+    "geoIndex": read("app/src/main/java/com/marbleng/app/core/GeoAssetIndex.kt"),
+    "precisionPack": read("app/src/main/java/com/marbleng/app/core/IranPrecisionPack.kt"),
+    "routingEngine": read("app/src/main/java/com/marbleng/app/core/RoutingEngine.kt"),
+    "geoRegistryTest": read(
+        "app/src/test/java/com/marbleng/app/core/GeoAssetRegistryV212Test.kt"
+    ),
+    "precisionPackTest": read(
+        "app/src/test/java/com/marbleng/app/core/IranPrecisionPackV212Test.kt"
+    ),
+    "multiSourceTest": read(
+        "app/src/test/java/com/marbleng/app/core/MultiSourceRoutingV212Test.kt"
+    ),
+    "multiSourceDoc": read("docs/MULTI_SOURCE_ROUTING_V212.md"),
+    # MARBLE_HOME_PING_CONTROLS_V212 / MARBLE_SERVER_TILE_PARITY_V212 / MARBLE_SURFACE_DEPTH_V212
+    # — the three surface chapters of the same pass, and the test that pins their wiring.
+    "surfaceDepth": read("app/src/main/java/com/marbleng/app/ui/MarbleSurfaceDepth.kt"),
+    "tileParityTest": read(
+        "app/src/test/java/com/marbleng/app/ui/ServerTileParityV212Test.kt"
+    ),
+    "homePingActionTest": read(
+        "app/src/test/java/com/marbleng/app/model/HomePingControlsV212Test.kt"
+    ),
+    "homePingControlsDoc": read("docs/HOME_PING_CONTROLS_V212.md"),
+    "serverTileParityDoc": read("docs/SERVER_TILE_PARITY_V212.md"),
+    "surfaceDepthDoc": read("docs/SURFACE_DEPTH_V212.md"),
 }
 
 workflow_sources = "\n".join(
@@ -3247,33 +3275,54 @@ check(
 )
 
 # ---------------------------------------------------------------------------
-# MARBLE_HOME_ONE_PING_V208 / MARBLE_HOME_ROUTE_PING_V210
+# MARBLE_HOME_ONE_PING_V208 / MARBLE_HOME_ROUTE_PING_V210 / MARBLE_HOME_PING_CONTROLS_V212
 # ---------------------------------------------------------------------------
-# The Home header owns one measurement action and no transient status strip. V208 made that
-# action the group sweep; V210 changed its SCOPE, not its count: a button sitting on the status
-# box of a page that is showing one named server is being asked about that server, so the header
-# runs the route verb ([HomeActions.onPingRoute]) while the group sweep keeps its own door on the
-# Servers page. Progress and connection truth still stay with their owning controls.
+# V208 collapsed the Home page to one ping verb and made the gauge and the deck pill displays;
+# V210 kept that shape and changed the header's scope to the route on screen. V212 reopens the
+# first decision, on the report that one of the two ping buttons on Home simply does nothing when
+# it is pressed. The new contract is the inverse: every ping surface on the connection page is a
+# control, and the verb it runs is a setting rather than a fact about its shape. What survives
+# from V208/V210 is the part that was actually load-bearing — no transient status strip under the
+# header, one door for the bulk sweep, and no widget inventing its own meaning for "ping".
 check(
-    "V210 the Home header measures the route on screen and shows no transient status strip",
+    "V212 every Home ping surface is a control with a configurable verb",
     "HomeRoutePingButton(" in files["homeStyles"]
     and "val HomePingButtonSize" in files["homeStyles"]
-    and "onPingRoute()" in files["homeStyles"].split("fun HomeTopActionBar(")[1]
-    # One verb in the header: it is not also the group sweep's door.
-    and "onPingGroup()" not in files["homeStyles"]
+    # One mapping for every surface: a verb per action, resolved in one place, so the three
+    # buttons cannot drift into three private opinions about what "ping" means — which is exactly
+    # how two of them ended up doing different things and a third doing nothing.
+    and "internal fun runHomePingAction(" in files["homeStyles"]
+    and "runHomePingAction(headerAction, actions)" in files["homeStyles"]
+    and "runHomePingAction(evidence.pingGaugeAction, actions)" in files["homeStyles"]
+    and "runHomePingAction(pingAction, actions)" in files["studio"]
+    # The three verbs come from the shared evidence block, resolved once from the stored ids.
+    and "val pingGaugeAction: HomePingAction" in files["homeStyles"]
+    and "val pingChipAction: HomePingAction" in files["homeStyles"]
+    and "val pingHeaderAction: HomePingAction" in files["homeStyles"]
+    and "parseHomePingAction(repo.settings.homePingGaugeAction)" in files["homeStyles"]
+    and "parseHomePingAction(repo.settings.homePingChipAction)" in files["homeStyles"]
+    and "parseHomePingAction(repo.settings.homePingHeaderAction)" in files["homeStyles"]
+    # A surface that accepts a tap obeys the product's own enabled-ness rule for a ping control.
+    and "homePingTappable(evidence)" in files["studio"]
+    and "homePingTappable(evidence)" in files["homeStyles"]
+    # V209 survives: progress and connection truth stay with their owning controls.
     and "HomeRuntimeNotice" not in files["homeStyles"]
     and "MarbleNoticeHeight" not in files["homeStyles"]
     and "MARBLE_HOME_NO_TRANSIENT_STATUS_V209" in files["ui"]
-    # The Atelier's corrective row measures the route it is complaining about — the same verb —
-    # and the two live-ping surfaces on the Studio presentations are still gauges: no tap, no
-    # second way to start a measurement from the header area.
+    # The Atelier's corrective row measures the route it is complaining about — the same verb.
     and "onPingRoute()" in files["atelier"]
-    # The group sweep keeps exactly one door, and it says what it measures.
+    # The bulk sweep keeps exactly one door on the Servers page, and it says what it measures.
     and 'trx("Ping group")' in files["ui"]
     and files["ui"].count("onPingGroup()") == 1
-    and "kineticClickable" not in files["studio"].split("fun HomeLivePingSlab(")[1].split("\nprivate fun ")[0]
-    and "kineticClickable"
-    not in files["studio"].split("fun HomeLivePingMeter(")[1].split("\ninternal fun ")[0],
+    # Settings owns the verb of each surface, and the vocabulary is the controls' own.
+    and "HomePingControlsSettings(repo)" in files["ui"]
+    and "homePingGaugeAction = action.id" in files["ui"]
+    and "homePingChipAction = action.id" in files["ui"]
+    and "homePingHeaderAction = action.id" in files["ui"]
+    and "enum class HomePingAction" in files["models"]
+    and "homePingGaugeAction" in files["store"]
+    and "homePingChipAction" in files["store"]
+    and "homePingHeaderAction" in files["store"],
 )
 
 check(
@@ -3613,6 +3662,120 @@ check(
     and "\"Slide right to connect\"" in files["persianLexicon"]
     and "\"location not verified\"" in files["persianLexicon"]
     and "\"Ambient page motion\"" in files["persianLexicon"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_SERVER_TILE_PARITY_V212
+# ---------------------------------------------------------------------------
+# The compact box is an alternative silhouette for the same list, not a reduced server. V208 gave
+# it its geometry and V210 its truth; this pins the two things the row had that the box did not —
+# the measured address family and the server's own menu — because both are single lines a refactor
+# can drop without changing any type.
+check(
+    "V212 the compact server box answers what the row answers",
+    "familyChip: String? = null" in files["serverTiles"]
+    and "trailing: (@Composable () -> Unit)? = null" in files["serverTiles"]
+    and "ServerStateChip(trx(familyChip), familyTone)" in files["serverTiles"]
+    # Both layouts that draw tiles pass the measured family verdict, so the preference chooses a
+    # silhouette and not a set of answers.
+    and "familyChip = familyScan?.chip" in files["ui"]
+    and "familyChip = familyScan?.chip" in files["homeStyles"]
+    # One menu, composed by the layout that owns the actions: two smaller menus is how the grid
+    # ended up with fewer verbs than the list.
+    and "internal fun ServersNodeMenu(" in files["ui"]
+    and "internal fun familyChipTone(" in files["ui"]
+    and "class ServerTileParityV212Test" in files["tileParityTest"]
+    and "MARBLE_SERVER_TILE_PARITY_V212" in files["serverTileParityDoc"]
+    and "SERVER_TILE_PARITY_V212.md" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_MULTI_SOURCE_ROUTING_V212
+# ---------------------------------------------------------------------------
+# Routing reads a SET of geo databases, and a rule names a file — so the two invariants that keep
+# this from breaking a connection are the canonical names on the primary (a fresh install routes
+# from the bundled copy) and fail-closed emission (a token for a file that is not on disk is a
+# config the core refuses to load).
+check(
+    "V212 routing reads a set of geo databases and fails closed",
+    "fun tokensFor(settings: AppSettings, kind: Kind, tag: String): List<String>" in files["geoRegistry"]
+    and 'const val PRIMARY_GEOIP_FILE: String = "geoip.dat"' in files["geoRegistry"]
+    and 'const val PRIMARY_GEOSITE_FILE: String = "geosite.dat"' in files["geoRegistry"]
+    and "const val MAX_SOURCES: Int = 6" in files["geoRegistry"]
+    and "fun geoTokens(" in files["routingEngine"]
+    and "file.isEmpty() || file in ready" in files["routingEngine"]
+    and "fun readyGeoAssetFiles(" in files["xray"]
+    and "measuredGeoReadyFiles" in files["xray"]
+    # The set is additive: enabling a source adds it, choosing a primary re-orders it, and neither
+    # drops what was there — which is the defect the chapter exists to remove.
+    and "fun withAdded(ids: List<String>, id: String): List<String>" in files["geoRegistry"]
+    and "fun toggleGeoAssetSource(" in files["repo"]
+    # The index answers which database a tag came from, so the simulator can say so.
+    and "fun sourcesFor(" in files["geoIndex"]
+    and "class GeoAssetRegistryV212Test" in files["geoRegistryTest"]
+    and "class MultiSourceRoutingV212Test" in files["multiSourceTest"]
+    and "MARBLE_MULTI_SOURCE_ROUTING_V212" in files["multiSourceDoc"]
+    and "MULTI_SOURCE_ROUTING_V212.md" in files["readme"],
+)
+
+# The curated domestic layer is the product's own list, and it is a DIRECT rule set: it belongs
+# only in the mode whose job is keeping domestic traffic here, and it is emitted last so the
+# first-match-wins core takes a rule the user wrote over the product's opinion.
+check(
+    "V212 the domestic precision layer never outranks a rule the user wrote",
+    "object IranPrecisionPack" in files["precisionPack"]
+    and "fun matches(rawHost: String, precision: GeoPrecision): Boolean" in files["precisionPack"]
+    # No CIDR ranges: a wrong Iranian block sends someone else's traffic out of the tunnel, and a
+    # range this code cannot verify is a range it must not assert.
+    and "0.0.0.0" not in files["precisionPack"]
+    and "fun precisionActive(settings: AppSettings): Boolean" in files["routingEngine"]
+    and "settings.routingMode == RoutingMode.GEO_DIRECT" in files["routingEngine"]
+    and files["routingEngine"].index("applyPrecisionRules(rulesOut, settings, seen)")
+    > files["routingEngine"].index("for (rule in emittableUserRules(settings))")
+    # sing-box has no .dat, so it writes the same knowledge in its own idiom.
+    and "domain_suffix" in files["singBoxBuilder"]
+    and "applyPrecisionRules(rules, settings)" in files["singBoxBuilder"]
+    and "class IranPrecisionPackV212Test" in files["precisionPackTest"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_SURFACE_DEPTH_V212
+# ---------------------------------------------------------------------------
+# The V191 depth contract left HomeCloudCard and became a modifier any surface can wear, and the
+# two full-screen dismissals answer the platform's predictive-back progress instead of snapping.
+check(
+    "V212 one depth contract, and the back gesture's progress is drawn",
+    "object MarbleDepthPolicy" in files["surfaceDepth"]
+    and "fun Modifier.marbleSurfaceDepth(" in files["surfaceDepth"]
+    and "fun Modifier.marblePredictiveBack(progress: Float): Modifier" in files["surfaceDepth"]
+    and "marbleSurfaceDepth(shape = shape, fill = fill, rim = rim" in files["serverTiles"]
+    and files["ui"].count("PredictiveBackHandler(") == 2
+    and files["ui"].count("marblePredictiveBack(") == 2
+    and "MARBLE_SURFACE_DEPTH_V212" in files["surfaceDepthDoc"]
+    and "SURFACE_DEPTH_V212.md" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# Persistence and language for the whole pass
+# ---------------------------------------------------------------------------
+check(
+    "V212 the preferences schema carries the new decisions",
+    "const val PREFS_SCHEMA_VERSION = 3" in files["models"]
+    and "if (from < 3)" in files["store"]
+    and "geoAssetSourceIds" in files["store"]
+    and "homePingGaugeAction" in files["store"]
+    and "class HomePingControlsV212Test" in files["homePingActionTest"]
+    and "MARBLE_HOME_PING_CONTROLS_V212" in files["homePingControlsDoc"]
+    and "HOME_PING_CONTROLS_V212.md" in files["readme"],
+)
+
+check(
+    "V212 the new controls speak Persian",
+    '"Ping controls"' in files["persianLexicon"]
+    and '"Measure every server"' in files["persianLexicon"]
+    and '"Read several geo databases"' in files["persianLexicon"]
+    and '"Domestic separation"' in files["persianLexicon"]
+    and '"Latency gauge"' in files["persianLexicon"],
 )
 
 production = "\n".join(

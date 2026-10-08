@@ -52,10 +52,38 @@ object GeoAssetIndex {
     )
 
     /**
-     * Immutable result of one scan pair. [geositeDomainHashes] carries (fnv1a hash | type in the
+     * One database file the index should read.
+     *
+     * MARBLE_MULTI_SOURCE_ROUTING_V212 — the index stopped being "the two canonical files". Every
+     * enabled geo source contributes a file of each family, and the union of all of them is what
+     * suggestions, validation, provenance and the route simulator answer from. A source the user
+     * switched off is simply not in this list, so its tags stop being suggested on the next scan.
+     */
+    class IndexedFile(
+        val file: File,
+        val kind: Kind
+    )
+
+    /** One file's slice of a snapshot: identity, freshness, tags and the match table. */
+    class FileState(
+        val name: String,
+        val kind: Kind,
+        val stamp: Long,
+        val size: Long,
+        val entries: List<GeoEntry>,
+        val hashes: LongArray?
+    )
+
+    /**
+     * Immutable result of one scan. [geositeDomainHashes] carries (fnv1a hash | type in the
      * top byte) values sorted ascending for binary search; `null` when the file exceeded the
      * bounded in-memory budget — suggestions and validation still work, only exact domain
      * matching in the simulator degrades to "cannot verify".
+     *
+     * MARBLE_MULTI_SOURCE_ROUTING_V212 — [geosite] and [geoip] are the *union* of every indexed
+     * file in that family, so a tag any enabled source maintains is a tag the product knows.
+     * [files] and [tagFiles] keep the union honest: they say which database a tag came from, which
+     * is the answer the rule editor and the simulator need before they can say anything at all.
      */
     class Snapshot(
         val geosite: List<GeoEntry>,
@@ -65,8 +93,17 @@ object GeoAssetIndex {
         internal val geositeSize: Long,
         internal val geoipStamp: Long,
         internal val geoipSize: Long,
-        val scannedAtMs: Long
-    )
+        val scannedAtMs: Long,
+        val files: List<FileState> = emptyList(),
+        val tagFiles: Map<String, List<String>> = emptyMap()
+    ) {
+        /** The file names that contain [tag] in [kind]'s family, in scan order. */
+        fun filesFor(kind: Kind, tag: String): List<String> =
+            tagFiles[tagKey(kind, tag)] ?: emptyList()
+    }
+
+    private fun tagKey(kind: Kind, tag: String): String =
+        "${kind.name}:${tag.trim().lowercase()}"
 
     /**
      * Hard ceiling for the in-memory domain hash table (~11 MiB). Loyalsoldier's full list is
@@ -90,6 +127,10 @@ object GeoAssetIndex {
     @Volatile
     private var assetsDirPath: String? = null
 
+    /** Per-file scan cache, keyed by absolute path: an unchanged file is never re-parsed. */
+    @Volatile
+    private var fileStates: Map<String, FileState> = emptyMap()
+
     /** The index the UI and the config writer should consult; null until the first scan ran. */
     fun current(): Snapshot? = snapshot
 
@@ -97,7 +138,14 @@ object GeoAssetIndex {
     internal fun resetForTests() {
         snapshot = null
         assetsDirPath = null
+        fileStates = emptyMap()
     }
+
+    /** The canonical pair: the primary source's two databases. */
+    fun defaultFiles(assetsDir: File): List<IndexedFile> = listOf(
+        IndexedFile(File(assetsDir, "geosite.dat"), Kind.GEOSITE),
+        IndexedFile(File(assetsDir, "geoip.dat"), Kind.GEOIP)
+    )
 
     /**
      * Re-index the managed assets when they changed. Never throws: a malformed or half-written
@@ -105,39 +153,146 @@ object GeoAssetIndex {
      * index is reused when size and mtime of both files are unchanged.
      */
     @Synchronized
-    fun update(assetsDir: File): Snapshot? {
-        val site = File(assetsDir, "geosite.dat")
-        val ip = File(assetsDir, "geoip.dat")
-        val siteStamp = if (site.isFile) site.lastModified() else 0L
-        val siteSize = if (site.isFile) site.length() else 0L
-        val ipStamp = if (ip.isFile) ip.lastModified() else 0L
-        val ipSize = if (ip.isFile) ip.length() else 0L
+    fun update(assetsDir: File): Snapshot? = update(assetsDir, defaultFiles(assetsDir))
+
+    /**
+     * MARBLE_MULTI_SOURCE_ROUTING_V212 — the multi-source form of [update].
+     *
+     * The cache is per file, so switching one source on re-parses only that source's database and
+     * the union is rebuilt from cached slices. A snapshot is reused only when it was built from
+     * exactly this set of files and none of them moved: a source added or removed changes the
+     * union, so it re-scans, which is the whole point of the set being part of the identity.
+     *
+     * A file that fails to parse keeps its previous entries when it has any. A half-written
+     * refresh must not blank the routing index that the last good download built.
+     */
+    @Synchronized
+    fun update(assetsDir: File, files: List<IndexedFile>): Snapshot? {
+        val wanted = files.distinctBy { it.file.absolutePath }
 
         val old = snapshot
-        if (
-            old != null && assetsDirPath == assetsDir.absolutePath &&
-            old.geositeStamp == siteStamp && old.geositeSize == siteSize &&
-            old.geoipStamp == ipStamp && old.geoipSize == ipSize
-        ) {
-            return old
+        if (old != null && assetsDirPath == assetsDir.absolutePath && old.files.size == wanted.size) {
+            val unchanged = wanted.all { indexed ->
+                val state = old.files.firstOrNull {
+                    it.name == indexed.file.name && it.kind == indexed.kind
+                } ?: return@all false
+                state.stamp == stampOf(indexed.file) && state.size == sizeOf(indexed.file)
+            }
+            if (unchanged) return old
         }
         assetsDirPath = assetsDir.absolutePath
 
-        val geositeScan = runCatching { scanGeosite(site) }.getOrNull()
-        val geoipScan = runCatching { scanGeoip(ip) }.getOrNull()
+        val previous = fileStates
+        val states = ArrayList<FileState>(wanted.size)
+        val nextCache = HashMap<String, FileState>(wanted.size)
+        for (indexed in wanted) {
+            val file = indexed.file
+            val key = file.absolutePath
+            val stamp = stampOf(file)
+            val size = sizeOf(file)
+            val cached = previous[key]
+            if (cached != null && cached.kind == indexed.kind && cached.stamp == stamp && cached.size == size) {
+                states += cached
+                nextCache[key] = cached
+                continue
+            }
+            val scan = runCatching {
+                if (indexed.kind == Kind.GEOSITE) scanGeosite(file) else scanGeoip(file)
+            }.getOrNull()
+            val salvage = cached?.takeIf { it.kind == indexed.kind && scan == null }
+            val state = FileState(
+                name = file.name,
+                kind = indexed.kind,
+                stamp = stamp,
+                size = size,
+                entries = scan?.entries ?: salvage?.entries ?: emptyList(),
+                hashes = scan?.hashes ?: salvage?.hashes
+            )
+            states += state
+            nextCache[key] = state
+        }
+        fileStates = nextCache
+
+        val siteStates = states.filter { it.kind == Kind.GEOSITE }
+        val ipStates = states.filter { it.kind == Kind.GEOIP }
+
+        val tagFiles = HashMap<String, List<String>>()
+        states.forEach { state ->
+            state.entries.forEach { entry ->
+                val key = tagKey(entry.kind, entry.tag)
+                tagFiles[key] = (tagFiles[key] ?: emptyList()) + state.name
+            }
+        }
+
+        val siteState = states.firstOrNull { it.name == "geosite.dat" }
+        val ipState = states.firstOrNull { it.name == "geoip.dat" }
 
         val next = Snapshot(
-            geosite = geositeScan?.entries ?: old?.geosite ?: emptyList(),
-            geoip = geoipScan?.entries ?: old?.geoip ?: emptyList(),
-            geositeDomainHashes = geositeScan?.hashes,
-            geositeStamp = siteStamp,
-            geositeSize = siteSize,
-            geoipStamp = ipStamp,
-            geoipSize = ipSize,
-            scannedAtMs = System.currentTimeMillis()
+            geosite = unionEntries(siteStates, Kind.GEOSITE),
+            geoip = unionEntries(ipStates, Kind.GEOIP),
+            geositeDomainHashes = mergeHashes(siteStates),
+            geositeStamp = siteState?.stamp ?: stampOf(File(assetsDir, "geosite.dat")),
+            geositeSize = siteState?.size ?: sizeOf(File(assetsDir, "geosite.dat")),
+            geoipStamp = ipState?.stamp ?: stampOf(File(assetsDir, "geoip.dat")),
+            geoipSize = ipState?.size ?: sizeOf(File(assetsDir, "geoip.dat")),
+            scannedAtMs = System.currentTimeMillis(),
+            files = states,
+            tagFiles = tagFiles
         )
         snapshot = next
         return next
+    }
+
+    private fun stampOf(file: File): Long = if (file.isFile) file.lastModified() else 0L
+
+    private fun sizeOf(file: File): Long = if (file.isFile) file.length() else 0L
+
+    /**
+     * The union of one family's files: one entry per tag, carrying the largest count any source
+     * reported for it. The count is a suggestion-ranking signal, so the largest is the honest one
+     * — the tag that a rich source maintains with 40 000 domains is not a 3-domain tag just
+     * because a small source also happens to list it.
+     */
+    private fun unionEntries(states: List<FileState>, kind: Kind): List<GeoEntry> {
+        if (states.isEmpty()) return emptyList()
+        if (states.size == 1) return states[0].entries
+        val best = linkedMapOf<String, Int>()
+        states.forEach { state ->
+            state.entries.forEach { entry ->
+                val current = best[entry.tag]
+                if (current == null || entry.count > current) best[entry.tag] = entry.count
+            }
+        }
+        return entriesSorted(best, kind)
+    }
+
+    /** Every source's match table, merged into one sorted, deduplicated table. */
+    private fun mergeHashes(states: List<FileState>): LongArray? {
+        val tables = states.mapNotNull { it.hashes }.filter { it.isNotEmpty() }
+        if (tables.isEmpty()) return null
+        if (tables.size == 1) return tables[0]
+        val total = tables.sumOf { it.size }
+        val merged = LongArray(total)
+        var at = 0
+        tables.forEach { table ->
+            System.arraycopy(table, 0, merged, at, table.size)
+            at += table.size
+        }
+        Arrays.sort(merged)
+        var write = 0
+        var last = 0L
+        for (index in merged.indices) {
+            val value = merged[index]
+            if (index == 0 || value != last) {
+                merged[write++] = value
+                last = value
+            }
+        }
+        return if (write > MAX_DOMAIN_HASHES) {
+            merged.copyOf(MAX_DOMAIN_HASHES)
+        } else {
+            merged.copyOf(write)
+        }
     }
 
     /** Scan result of one .dat file: the tag list plus the optional match table. */
@@ -200,6 +355,24 @@ object GeoAssetIndex {
         // which is a linear scan of a few thousand entries — negligible and allocation-free.
         return entries.any { it.tag == clean }
     }
+
+    /**
+     * MARBLE_MULTI_SOURCE_ROUTING_V212 — which indexed databases contain [tag].
+     *
+     * This is the provenance answer the multi-source routing layer needs: the rule editor says
+     * "this tag comes from Chocolate4U Iran and Loyalsoldier" instead of guessing, and the
+     * simulator can name the database that matched instead of the anonymous "geosite". Empty when
+     * nothing indexed yet, which the caller has to read as "unknown", not as "no".
+     */
+    fun sourcesFor(kind: Kind, tag: String): List<String> {
+        val snap = snapshot ?: return emptyList()
+        val clean = normalizeToken(tag)
+        if (clean.isEmpty()) return emptyList()
+        return snap.filesFor(kind, clean)
+    }
+
+    /** The number of indexed database files behind the current union, per family. */
+    fun fileCount(kind: Kind): Int = snapshot?.files?.count { it.kind == kind } ?: 0
 
     // ---------------------------------------------------------------------------------------
     // Simulator support: does host H sit inside the geosite domain lists?

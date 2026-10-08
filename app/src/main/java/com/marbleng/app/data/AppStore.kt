@@ -478,6 +478,26 @@ class AppStore(context: Context) {
                 .apply()
         }
 
+        if (from < 3) {
+            // MARBLE_MULTI_SOURCE_ROUTING_V212 — routing reads a SET of geo databases now, and the
+            // set is seeded from the one source the install already had, so upgrading changes
+            // nothing that was working. The precision dial lands on ENHANCED, which is the level at
+            // which the product's own promise ("Iranian traffic stays direct") is actually true.
+            prefs.edit()
+                .putString(
+                    "geoAssetSourceIds",
+                    com.marbleng.app.core.GeoAssetRegistry.serializeIds(
+                        listOf(
+                            prefs.getString("geoAssetSourceId", RoutingDefaults.SOURCE_CHOCOLATE4U)
+                                ?: RoutingDefaults.SOURCE_CHOCOLATE4U
+                        )
+                    )
+                )
+                .putString("geoPrecision", GeoPrecision.DEFAULT.id)
+                .putBoolean("geoMultiSourceEnabled", true)
+                .apply()
+        }
+
         prefs.edit()
             .putInt("routingDefaultsSchema", RoutingDefaults.PREFS_SCHEMA_VERSION)
             .apply()
@@ -580,6 +600,15 @@ class AppStore(context: Context) {
         // never chose opens on rows and an install that chose tiles keeps them.
         serversLayout = prefs.getString("serversLayout", ServerLayout.DEFAULT.id)
             ?: ServerLayout.DEFAULT.id,
+        // MARBLE_HOME_PING_CONTROLS_V212 — three ping surfaces on Home, three stored verbs. The
+        // defaults are the shipped meaning of each surface, so an install that never opened the
+        // setting behaves exactly as it did before both of them became tappable.
+        homePingGaugeAction = prefs.getString("homePingGaugeAction", HomePingAction.ROUTE.id)
+            ?: HomePingAction.ROUTE.id,
+        homePingChipAction = prefs.getString("homePingChipAction", HomePingAction.GROUP.id)
+            ?: HomePingAction.GROUP.id,
+        homePingHeaderAction = prefs.getString("homePingHeaderAction", HomePingAction.ROUTE.id)
+            ?: HomePingAction.ROUTE.id,
 
         rememberLast = prefs.getBoolean("rememberLast", true),
         subscriptionAutoRefresh = prefs.getBoolean("subscriptionAutoRefresh", true),
@@ -616,6 +645,17 @@ class AppStore(context: Context) {
         customRoutingEnabled = prefs.getBoolean("customRoutingEnabled", false),
         geoAssetSourceId = prefs.getString("geoAssetSourceId", RoutingDefaults.SOURCE_CHOCOLATE4U)
             ?: RoutingDefaults.SOURCE_CHOCOLATE4U,
+        // MARBLE_MULTI_SOURCE_ROUTING_V212 — the ordered set of databases routing reads. It falls
+        // back to the single-source field, so an install that never wrote the set keeps routing
+        // from exactly the source it had, and the two can never disagree about the primary.
+        geoAssetSourceIds = prefs.getString(
+            "geoAssetSourceIds",
+            prefs.getString("geoAssetSourceId", RoutingDefaults.SOURCE_CHOCOLATE4U)
+        ) ?: RoutingDefaults.SOURCE_CHOCOLATE4U,
+        geoCustomSourcesJson = prefs.getString("geoCustomSourcesJson", "") ?: "",
+        geoPrecision = prefs.getString("geoPrecision", GeoPrecision.DEFAULT.id)
+            ?: GeoPrecision.DEFAULT.id,
+        geoMultiSourceEnabled = prefs.getBoolean("geoMultiSourceEnabled", true),
         routingRulesJson = prefs.getString("routingRulesJson", "") ?: "",
         geoIpUrl = prefs.getString("geoIpUrl", RoutingDefaults.GEOIP_URL) ?: RoutingDefaults.GEOIP_URL,
         geoSiteUrl = prefs.getString("geoSiteUrl", RoutingDefaults.GEOSITE_URL) ?: RoutingDefaults.GEOSITE_URL,
@@ -889,6 +929,12 @@ class AppStore(context: Context) {
         .putBoolean("serversGroupByCountry", s.serversGroupByCountry)
         .putString("serversLayout", s.serversLayout)
 
+        // MARBLE_HOME_PING_CONTROLS_V212 — the verb of each Home ping surface, persisted as an id
+        // so a later release can reorder the enum without moving anybody's choice.
+        .putString("homePingGaugeAction", s.homePingGaugeAction)
+        .putString("homePingChipAction", s.homePingChipAction)
+        .putString("homePingHeaderAction", s.homePingHeaderAction)
+
         .putBoolean("rememberLast", s.rememberLast)
         .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)
         .putBoolean("appUpdateCheckEnabled", s.appUpdateCheckEnabled)
@@ -920,6 +966,20 @@ class AppStore(context: Context) {
 
         .putString("routingMode", s.routingMode.name)
         .putBoolean("customRoutingEnabled", s.customRoutingEnabled)
+        // MARBLE_MULTI_SOURCE_ROUTING_V212 — the set, the dial and the user's own sources. The
+        // single-source field is written too: it stays the primary for anything that has not
+        // learned about the set yet (a restored backup from an older build, the diagnostics dump).
+        .putString(
+            "geoAssetSourceIds",
+            // Normalised on the way out: the stored list is what the next load resolves, so a
+            // hand-edited or restored value cannot put the set in an order routing would misread.
+            com.marbleng.app.core.GeoAssetRegistry.serializeIds(
+                com.marbleng.app.core.GeoAssetRegistry.parseIds(s.geoAssetSourceIds)
+            )
+        )
+        .putString("geoCustomSourcesJson", s.geoCustomSourcesJson)
+        .putString("geoPrecision", s.geoPrecision)
+        .putBoolean("geoMultiSourceEnabled", s.geoMultiSourceEnabled)
         .putString("geoIpUrl", s.geoIpUrl)
         .putString("geoSiteUrl", s.geoSiteUrl)
         .putString("routeGeoIpTags", s.routeGeoIpTags)
