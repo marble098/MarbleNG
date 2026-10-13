@@ -512,7 +512,6 @@ class AppStore(context: Context) {
         if (prefs.getInt("tcpPrecheckTimeoutMs", 1800) == 1800) edit.putInt("tcpPrecheckTimeoutMs", 1000)
         if (prefs.getInt("connectTuningMethods", 4) == 4) edit.putInt("connectTuningMethods", 8)
         if (prefs.getInt("raceWidth", 3) == 3) edit.putInt("raceWidth", 4)
-        edit.putBoolean("iranModeNotify", false)
         edit.putInt("performanceDefaultsSchema", 1)
         edit.apply()
     }
@@ -610,18 +609,11 @@ class AppStore(context: Context) {
         homePingHeaderAction = prefs.getString("homePingHeaderAction", HomePingAction.ROUTE.id)
             ?: HomePingAction.ROUTE.id,
 
-        rememberLast = prefs.getBoolean("rememberLast", true),
         subscriptionAutoRefresh = prefs.getBoolean("subscriptionAutoRefresh", true),
         // MARBLE_APP_UPDATE_STORE_V102
         appUpdateCheckEnabled = prefs.getBoolean("appUpdateCheckEnabled", true),
         subscriptionRefreshHours = prefs.getInt("subscriptionRefreshHours", 12),
-        homeShowSummaryMetrics = prefs.getBoolean("homeShowSummaryMetrics", false),
-        homeShowIranMode = prefs.getBoolean("homeShowIranMode", false),
-        homeShowQuickActions = prefs.getBoolean("homeShowQuickActions", true),
         homeShowLiveQuality = prefs.getBoolean("homeShowLiveQuality", true),
-        homeShowServerSelector = prefs.getBoolean("homeShowServerSelector", true),
-        homeShowRouteDetails = prefs.getBoolean("homeShowRouteDetails", true),
-        homeShowRouteRibbon = prefs.getBoolean("homeShowRouteRibbon", true),
         homeSpeedWidgetEnabled = prefs.getBoolean("homeSpeedWidgetEnabled", false),
         autoConnectBestAfterScan = prefs.getBoolean("autoConnectBestAfterScan", false),
         serverIntelEnabled = prefs.getBoolean("serverIntelEnabled", true),
@@ -748,7 +740,6 @@ class AppStore(context: Context) {
         iranModeCountermeasures = prefs.getBoolean("iranModeCountermeasures", true),
         iranDomesticDirect = prefs.getBoolean("iranDomesticDirect", true),
         iranDeepProbeEnabled = prefs.getBoolean("iranDeepProbeEnabled", true),
-        iranModeNotify = false,
 
         intelligenceEnabled = true,
         configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
@@ -848,7 +839,7 @@ class AppStore(context: Context) {
         dockSlotShowStatusBadge = prefs.getBoolean("dockSlotShowStatusBadge", true),
 
         debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
-        expertMode = prefs.getBoolean("expertMode", false),
+        textScalePercent = TextScale.clamp(prefs.getInt("textScalePercent", TextScale.DEFAULT_PERCENT)),
 
         // MARBLE_AUTO_SERVER_SELECTOR_V202 — the selector is opt-in, and the three "when may it
         // act" switches default to the one place a sweep already produced fresh evidence: the end
@@ -935,17 +926,10 @@ class AppStore(context: Context) {
         .putString("homePingChipAction", s.homePingChipAction)
         .putString("homePingHeaderAction", s.homePingHeaderAction)
 
-        .putBoolean("rememberLast", s.rememberLast)
         .putBoolean("subscriptionAutoRefresh", s.subscriptionAutoRefresh)
         .putBoolean("appUpdateCheckEnabled", s.appUpdateCheckEnabled)
         .putInt("subscriptionRefreshHours", s.subscriptionRefreshHours)
-        .putBoolean("homeShowSummaryMetrics", s.homeShowSummaryMetrics)
-        .putBoolean("homeShowIranMode", s.homeShowIranMode)
-        .putBoolean("homeShowQuickActions", s.homeShowQuickActions)
         .putBoolean("homeShowLiveQuality", s.homeShowLiveQuality)
-        .putBoolean("homeShowServerSelector", s.homeShowServerSelector)
-        .putBoolean("homeShowRouteDetails", s.homeShowRouteDetails)
-        .putBoolean("homeShowRouteRibbon", s.homeShowRouteRibbon)
         .putBoolean("homeSpeedWidgetEnabled", s.homeSpeedWidgetEnabled)
         .putBoolean("autoConnectBestAfterScan", s.autoConnectBestAfterScan)
         .putBoolean("serverIntelEnabled", s.serverIntelEnabled)
@@ -1097,7 +1081,7 @@ class AppStore(context: Context) {
         .putBoolean("dockSlotShowStatusBadge", s.dockSlotShowStatusBadge)
 
         .putBoolean("debugModeEnabled", s.debugModeEnabled)
-        .putBoolean("expertMode", s.expertMode)
+        .putInt("textScalePercent", s.textScalePercent)
 
         // MARBLE_AUTO_SERVER_SELECTOR_V202
         .putBoolean("autoServerSelectorEnabled", s.autoServerSelectorEnabled)

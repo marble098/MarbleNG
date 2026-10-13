@@ -473,6 +473,15 @@ No new dependency, no second design system, no structural change: every V210/V21
 the collapsed-keys policy, the server-box truth rules, one ping verb per surface, the depth
 contract — is still enforced by its own check.
 
+### The V215 pass — Settings, text size, and a steadier Home
+
+`docs/SETTINGS_TREE_TEXT_SCALE_V215.md` is the chapter. Settings is regrouped so every sub-section
+opens the card it names; a text-size setting scales the whole app; the Home ping stops changing colour
+on every sample and shows its first value sooner; the floating discs wear a deep face with a white
+glyph (no more black centre); the national-filtering notice moved into the decision card so the
+Home header keeps its height; and the settings nobody read (`expertMode` and eight Home and Iran
+flags) are removed.
+
 ## Main navigation
 
 MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.

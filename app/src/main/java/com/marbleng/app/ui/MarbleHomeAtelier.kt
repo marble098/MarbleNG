@@ -90,8 +90,14 @@ internal fun HomeThemeAtelier(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         HomeTopActionBar(evidence, actions, repo)
-        NationalEventBanner(repo = repo)
-        RouteConnectCard(evidence = evidence, actions = actions)
+        // MARBLE_ATELIER_NOTICE_IN_CARD_V215 — a national filtering notice used to be a full-width
+        // banner in the flow under the header, so the top of the page grew whenever it was on. It is
+        // now a line inside the decision card, where the route's own problem already lives.
+        RouteConnectCard(
+            evidence = evidence,
+            actions = actions,
+            nationalCause = repo.nationalEventCause
+        )
         RouteSelectedServerCard(evidence = evidence, actions = actions)
         // MARBLE_SERVER_TILE_LAYOUT_V208 — the page that names the route also lets you change it.
         // The route presentation had no server list at all, so choosing a different server meant
@@ -130,7 +136,11 @@ internal fun HomeThemeAtelier(
  * action inside the same box, because a problem and its way out must not live two screens apart.
  */
 @Composable
-private fun RouteConnectCard(evidence: HomeEvidence, actions: HomeActions) {
+private fun RouteConnectCard(
+    evidence: HomeEvidence,
+    actions: HomeActions,
+    nationalCause: String = ""
+) {
     val state = evidence.routeState
     // The state hue is the meaning of this card, so it is the one thing allowed to move when the
     // state changes — and it moves for the contracted 200 ms, no longer. With reduced motion the
@@ -197,7 +207,7 @@ private fun RouteConnectCard(evidence: HomeEvidence, actions: HomeActions) {
                     .fillMaxWidth()
                     .heightIn(min = MarbleControlKind.Primary.minHeight)
             )
-            val problem = atelierProblem(evidence)
+            val problem = atelierProblem(evidence, nationalCause)
             if (problem != null) {
                 Row(
                     modifier = Modifier
@@ -261,12 +271,14 @@ private fun atelierRouteLine(evidence: HomeEvidence, profile: ProxyProfile?): St
 
 /** The failure line, if there is one — and only what is actually known about it. */
 @Composable
-private fun atelierProblem(evidence: HomeEvidence): String? {
+private fun atelierProblem(evidence: HomeEvidence, nationalCause: String): String? {
     val t = Tr.now
     return when {
         evidence.blocked -> evidence.pingFailure.ifBlank { t.connectionStopped }
         evidence.pingState == ConnectionPingState.FAILED && evidence.pingFailure.isNotBlank() ->
             pingFailureLabel(evidence.pingFailure)
+        nationalCause.isNotBlank() ->
+            "${trx("National filtering detected")} • ${trx("ranking frozen")} • ${nationalCause.replace("-", " ")}"
         evidence.ipError -> trx("The exit address could not be read. The tunnel is up; the reading service did not answer.")
         else -> null
     }

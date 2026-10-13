@@ -18,18 +18,22 @@ fun MarbleApp(
     // MARBLE_BILINGUAL_V110 — language resolves outside the theme so typography, layout
     // direction and every string switch together in one recomposition.
     ProvideMarbleLanguage(repo.settings.appLanguage) {
-        AetherFlowTheme(
-            themeId = repo.settings.theme,
-            fontId = repo.settings.fontFamily,
-            // MARBLE_NIGHT_OUTLINES_V112 — the dark-theme hairline personality.
-            outlineStyleId = repo.settings.darkOutlineStyle
-        ) {
-            Aether2026App(
-                repo = repo,
-                onConnect = onConnect,
-                onImportFile = onImportFile,
-                onContentScrollChanged = onContentScrollChanged
-            )
+        // MARBLE_TEXT_SCALE_V215 — the text size is one setting for every screen, so it wraps the
+        // whole theme and the whole app beneath it.
+        ProvideMarbleTextScale(repo.settings.textScalePercent) {
+            AetherFlowTheme(
+                themeId = repo.settings.theme,
+                fontId = repo.settings.fontFamily,
+                // MARBLE_NIGHT_OUTLINES_V112 — the dark-theme hairline personality.
+                outlineStyleId = repo.settings.darkOutlineStyle
+            ) {
+                Aether2026App(
+                    repo = repo,
+                    onConnect = onConnect,
+                    onImportFile = onImportFile,
+                    onContentScrollChanged = onContentScrollChanged
+                )
+            }
         }
     }
 }

@@ -150,6 +150,11 @@ files = {
     "supersetPolicy": read("native/xraypatch/marble_outbound_policy.go"),
     "supersetPolicyTest": read("native/xraypatch/marble_outbound_policy_test.go"),
     "persianLexicon": read("app/src/main/java/com/marbleng/app/ui/MarblePersianLexicon.kt"),
+    "textScale": read("app/src/main/java/com/marbleng/app/ui/MarbleTextScale.kt"),
+    "settingsTreeDoc": read("docs/SETTINGS_TREE_TEXT_SCALE_V215.md"),
+    "settingsTreeTest": read("app/src/test/java/com/marbleng/app/model/TextScaleV215Test.kt"),
+    "marbleApp": read("app/src/main/java/com/marbleng/app/ui/MarbleApp.kt"),
+    "contrast": read("app/src/main/java/com/marbleng/app/ui/MarbleContrast.kt"),
     "supersetDoc": read("docs/CORE_CONFIG_SUPERSET_V165.md"),
     "interopDoc": read("docs/core-interoperability.md"),
     "supersetTest": read("app/src/test/java/com/marbleng/app/core/CoreConfigSupersetV165Test.kt"),
@@ -770,10 +775,27 @@ appearance_body = appearance_settings[1].split("private fun ConnectionSettings",
 check(
     "Home layout options are not exposed in Settings",
     "homeShowLiveQuality" in files["models"]
-    and "homeShowRouteRibbon" in files["models"]
     and "homeShowServerSelector" not in appearance_body
     and "homeShowLiveQuality" not in appearance_body
     and "homeShowRouteRibbon" not in appearance_body,
+)
+# MARBLE_SETTINGS_TREE_V215 — the flags no screen read are removed from the model and the store.
+check(
+    "V215 retired Home flags and the expert switch are gone from model and store",
+    all(
+        name not in files["models"] and name not in files["store"]
+        for name in (
+            "homeShowRouteRibbon",
+            "homeShowServerSelector",
+            "homeShowSummaryMetrics",
+            "homeShowQuickActions",
+            "homeShowIranMode",
+            "homeShowRouteDetails",
+            "rememberLast",
+            "iranModeNotify",
+            "expertMode",
+        )
+    ),
 )
 check("no legacy chainEnabled resurrects the fragment dialers", "chainEnabled" not in files["dpiPolicy"])
 check(
@@ -1057,10 +1079,11 @@ check(
     and "systemBarsPadding()" not in files["ui"],
 )
 check(
-    "Shared section source and expert gate still exist",
+    "Shared section source still exists and the expert gate is retired",
     "SettingsSectionSpec" in files["ui"]
     and "settingsSections(" in files["ui"]
-    and "ExpertGateRow(" in files["ui"],
+    and "ExpertGateRow(" not in files["ui"]
+    and "expertMode" not in files["ui"],
 )
 # MARBLE_ROUTING_SEPARATE_V143 — Routing is its own dedicated Settings page and the Home->Routing
 # deep link jumps straight to it without mutating Expert mode.
@@ -3432,7 +3455,9 @@ check(
     # palette guarantees are different in the theme the user is actually running.
     and "chrome.actions.stop" in files["homeStyles"]
     and "chrome.actions.measure" in files["homeStyles"]
-    and "chrome.inkOn(tone)" in files["homeStyles"],
+    # MARBLE_FLOATING_FACE_V215 — the disc face is a deep shade of the token, and the glyph is white.
+    and "marbleDeepFaceArgb(tone.toArgb())" in files["homeStyles"]
+    and "content(Color.White)" in files["homeStyles"],
 )
 
 # ---------------------------------------------------------------------------
@@ -3458,6 +3483,60 @@ check(
     and "var hubCollapsed by remember { mutableStateOf(emptySet<String>()) }" in files["ui"]
     and "SettingsHubPolicy.toggled(hubCollapsed, key)" in files["ui"]
     and "SettingsHubPolicy.collapseAll(SettingsHubGroups.Keys)" in files["ui"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_SETTINGS_TREE_V215 / MARBLE_TEXT_SCALE_V215 / MARBLE_HOME_PING_COLOUR_V215 /
+# MARBLE_FLOATING_FACE_V215 / MARBLE_ATELIER_NOTICE_IN_CARD_V215 / MARBLE_PING_FIRST_VALUE_V215
+# ---------------------------------------------------------------------------
+check(
+    "V215 text size is one setting, applied at the root, and persisted",
+    "object TextScale" in files["models"]
+    and "val textScalePercent" in files["models"]
+    and "textScalePercent" in files["store"]
+    and "fun ProvideMarbleTextScale(" in files["textScale"]
+    and "LocalDensity provides" in files["textScale"]
+    and "ProvideMarbleTextScale(repo.settings.textScalePercent)" in files["marbleApp"]
+    and "TextScaleChoice(repo)" in files["ui"]
+    and "private fun TextScaleChoice(" in files["ui"]
+    and "Text size" in files["persianLexicon"],
+)
+check(
+    "V215 the settings tree opens each card from its own sub-section",
+    "private fun SettingsCardPage(" in files["ui"]
+    and "fun card(tab: SettingsWorkspaceTab, title: String)" in files["ui"]
+    and "SettingsPages.isCard(target)" in files["ui"]
+    and "SettingsPages.card(SettingsWorkspaceTab.GENERAL, \"Connection\")" in files["ui"]
+    and "SettingsPages.card(SettingsWorkspaceTab.GENERAL, \"Subscriptions\")" in files["ui"]
+    and "SettingsPages.card(SettingsWorkspaceTab.GENERAL, \"Navigation bar\")" in files["ui"]
+    and "SettingsPages.card(SettingsWorkspaceTab.GENERAL, \"Server cards\")" in files["ui"]
+    # The catch-all General row is gone from the hub.
+    and "title = trx(\"General\")" not in files["ui"],
+)
+check(
+    "V215 a Home ping keeps one colour while its run is open",
+    "internal fun homePingToneKind(" in files["homeStyles"]
+    and "HomePingToneKind.MEASURING -> Aether.Cyan" in files["homeStyles"]
+    and "HomePingToneKind.BAND -> marbleMetricTone(pingMetricBand(ms))" in files["homeStyles"]
+    and "PROVISIONAL_PING_FLOOR_MS" in files["repo"]
+    and "takeIf { it >= 20 } ?: 0" not in files["repo"],
+)
+check(
+    "V215 the floating disc face is deep and the glyph is white",
+    "fun marbleDeepFaceArgb(" in files["contrast"]
+    and "face = Color(marbleDeepFaceArgb(tone.toArgb()))" in files["homeStyles"]
+    and "HomeGlyphIcon(HomeGlyph.POWER, Color.White" in files["homeStyles"],
+)
+check(
+    "V215 the chapter is written down and pinned by its tests",
+    "MARBLE_SETTINGS_TREE_V215" in files["settingsTreeDoc"]
+    and "class TextScaleV215Test" in files["settingsTreeTest"]
+    and "SETTINGS_TREE_TEXT_SCALE_V215.md" in files["readme"],
+)
+check(
+    "V215 the national notice is a line of the decision card, not a flow banner",
+    "nationalCause" in files["homeAtelier"]
+    and "NationalEventBanner(repo = repo)" not in files["homeAtelier"],
 )
 
 # The four V210 chapters are written down and pinned by tests, like every chapter before them.
@@ -3669,7 +3748,9 @@ check(
     and "HomeTopActionBar(" in files["homeAtelier"]
     and "HomeSessionStats(" in files["homeAtelier"]
     and "HomeShortcutDeck(" in files["homeAtelier"]
-    and "NationalEventBanner(" in files["homeAtelier"]
+    # MARBLE_ATELIER_NOTICE_IN_CARD_V215 — the notice is a line of the decision card, not a banner.
+    and "nationalCause" in files["homeAtelier"]
+    and "NationalEventBanner(" not in files["homeAtelier"].split("internal fun HomeThemeAtelier(")[1].split("private fun RouteConnectCard(")[0]
     and "ProtocolTile(" in files["homeAtelier"]
     # The signet states its own uncertainty, in words as well as in pixels.
     and "provenCount" in files["homeAtelier"]

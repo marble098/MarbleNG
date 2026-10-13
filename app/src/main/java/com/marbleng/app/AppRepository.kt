@@ -62,6 +62,14 @@ data class ServerIntelInfo(
         get() = listOf(city, region, country).filter(String::isNotBlank).distinct().joinToString(", ")
 }
 
+/**
+ * MARBLE_PING_FIRST_VALUE_V215 — the lowest sample that may be shown while a run is still in
+ * progress. It was 20 ms, which held back every faster first sample until a later one arrived.
+ * A provisional value is marked with "~" and replaced by the settled median, so showing the first
+ * real sample at once is honest; the final verdict still uses the unchanged 20 ms floor.
+ */
+internal const val PROVISIONAL_PING_FLOOR_MS = 1
+
 class AppRepository(private val context: Context, val xray: XrayManager) {
 
     /**
@@ -2780,7 +2788,7 @@ private fun postToMain(block: () -> Unit) {
                             ) {
                                 val provisional = LinkQualityEstimator.sanitaryRtt(
                                     sampleMs.roundToInt()
-                                ).takeIf { it >= 20 } ?: 0
+                                ).takeIf { it >= PROVISIONAL_PING_FLOOR_MS } ?: 0
                                 if (provisional > 0) {
                                     postToMain {
                                         if (connectionPingInFlight.get() &&
@@ -2958,7 +2966,7 @@ private fun postToMain(block: () -> Unit) {
                         ) {
                             val provisional = LinkQualityEstimator.sanitaryRtt(
                                 sampleMs.roundToInt()
-                            ).takeIf { it >= 20 } ?: 0
+                            ).takeIf { it >= PROVISIONAL_PING_FLOOR_MS } ?: 0
                             if (provisional > 0) {
                                 postToMain {
                                     if (selectedPingInFlight.get() &&

@@ -566,6 +566,23 @@ fun parseHomeStyle(raw: String): HomeStyle = when (raw.trim().lowercase()) {
 }
 
 /**
+ * MARBLE_TEXT_SCALE_V215 — the text-size ladder for the whole app. The steps are the ones a
+ * person can tell apart on a phone; anything stored outside the ladder is clamped into it so a
+ * hand-edited or restored preference can never make the screen unreadable.
+ */
+object TextScale {
+    const val DEFAULT_PERCENT = 100
+    const val MIN_PERCENT = 85
+    const val MAX_PERCENT = 130
+    val STEPS: List<Int> = listOf(85, 100, 115, 130)
+
+    fun clamp(percent: Int): Int = percent.coerceIn(MIN_PERCENT, MAX_PERCENT)
+
+    /** Multiplier applied on top of the system font scale. */
+    fun factor(percent: Int): Float = clamp(percent) / 100f
+}
+
+/**
  * MARBLE_BILINGUAL_V110
  *
  * Product language. SYSTEM follows the Android device locale on every launch; EN/FA are explicit
@@ -1661,7 +1678,6 @@ data class AppSettings(
      */
     val serversLayout: String = ServerLayout.DEFAULT.id,
 
-    val rememberLast: Boolean = true,
     val subscriptionAutoRefresh: Boolean = true,
     // MARBLE_APP_UPDATE_SETTING_V102
     /** Check GitHub Releases whenever MarbleNG returns to the foreground. */
@@ -1671,13 +1687,10 @@ data class AppSettings(
     // The old opt-in toggle is gone: every install can save servers locally without a setting.
 
     // Home composition. Hiding a card does not disable its underlying engine.
-    val homeShowSummaryMetrics: Boolean = false,
-    val homeShowIranMode: Boolean = false,
-    val homeShowQuickActions: Boolean = true,
+    // MARBLE_SETTINGS_TREE_V215 — the flags that no screen read any more (summary metrics, Iran
+    // badge, quick actions, server selector, route details and ribbon) are removed with their
+    // settings rows. Their keys are simply never read again; the Home surface is fixed by style.
     val homeShowLiveQuality: Boolean = true,
-    val homeShowServerSelector: Boolean = true,
-    val homeShowRouteDetails: Boolean = true,
-    val homeShowRouteRibbon: Boolean = true,
     /** Compact live transfer card on Home. Opt-in to keep the default Home surface quiet. */
     val homeSpeedWidgetEnabled: Boolean = false,
     /** After a completed source scan, select and connect the fastest reachable server. */
@@ -2035,7 +2048,6 @@ data class AppSettings(
     val iranModeCountermeasures: Boolean = true,
     val iranDomesticDirect: Boolean = true,
     val iranDeepProbeEnabled: Boolean = true,
-    val iranModeNotify: Boolean = false,
 
     // Marble Intelligence Engine — permanently active. There is deliberately no user-visible
     // off switch; the engine is part of the product contract and can never be disabled.
@@ -2214,8 +2226,11 @@ data class AppSettings(
     /** MARBLE_BILINGUAL_V110 — "system" follows the device locale; "en"/"fa" are overrides. */
     val appLanguage: String = AppLanguage.SYSTEM.id,
 
-    /** Settings screen reveals the low-level Xray/tunnel controls. Persisted like any other choice. */
-    val expertMode: Boolean = false,
+    /**
+     * MARBLE_TEXT_SCALE_V215 — the whole app's text size, in percent of the system font scale.
+     * Stored as a whole percent so the preference file stays readable; clamped on read.
+     */
+    val textScalePercent: Int = TextScale.DEFAULT_PERCENT,
 
     // ─────────────────────────────────────────────────────────────────────────
     // MARBLE_AUTO_SERVER_SELECTOR_V202 — the automatic server selector.

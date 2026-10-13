@@ -10688,6 +10688,24 @@ private object SettingsPages {
 
     fun workspaceFocus(page: String): String? =
         page.split(":").getOrElse(2) { "" }.ifBlank { null }
+
+    /**
+     * MARBLE_SETTINGS_TREE_V215 — one card as its own page. A hub row names the card it opens, so
+     * every setting is reached from the sub-section it belongs to instead of through a catch-all
+     * workspace. The card's content is the same composable the workspace shows; only the door is new.
+     */
+    private const val CARD = "card"
+
+    fun card(tab: SettingsWorkspaceTab, title: String): String =
+        listOf(CARD, tab.name, title).joinToString(":")
+
+    fun isCard(page: String): Boolean = page.startsWith("$CARD:")
+
+    fun cardTab(page: String): SettingsWorkspaceTab =
+        rememberedSettingsTab(page.split(":", limit = 3).getOrElse(1) { "" })
+
+    fun cardTitle(page: String): String =
+        page.split(":", limit = 3).getOrElse(2) { "" }
 }
 
 /**
@@ -11593,6 +11611,18 @@ private fun settingsHubGroups(
                     ) { repo.updateSettings(repo.settings.copy(homeAmbientBackdrop = it)) }
                 },
                 section(
+                    title = trx("Home layout"),
+                    subtitle = "The Customize row of Home style 4"
+                ) {
+                    // MARBLE_MODULAR_CUSTOMIZER_V151 — Home style 4 can hide its Customize affordance.
+                    // The way back lives here, where the rest of Home is set.
+                    SettingSwitch(
+                        title = "Show the Customize button",
+                        subtitle = "Show the Customize row at the top of Home style 4.",
+                        checked = !settings.modularHideCustomizerButton
+                    ) { repo.updateSettings(repo.settings.copy(modularHideCustomizerButton = !it)) }
+                },
+                section(
                     title = trx("Ping controls"),
                     subtitle = "What each ping button on the connection page measures"
                 ) {
@@ -11625,6 +11655,19 @@ private fun settingsHubGroups(
                         badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
                         onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.ENGINE)) }
                     ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amber, Modifier.size(22.dp)) }
+                },
+                section(
+                    title = trx("Tunnel & proxy"),
+                    subtitle = "How the tunnel listens and what it dials"
+                ) {
+                    SettingsHubRow(
+                        title = "Connection",
+                        subtitle = "Tunnel, proxy, port",
+                        tone = Aether.Cyan,
+                        onClick = {
+                            onNavigate(SettingsPages.card(SettingsWorkspaceTab.GENERAL, "Connection"))
+                        }
+                    ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Cyan, Modifier.size(22.dp)) }
                 },
                 section(
                     title = trx("Routing"),
@@ -11698,12 +11741,7 @@ private fun settingsHubGroups(
                         subtitle = serverLayoutSubtitle(repo.settings),
                         tone = Aether.Amethyst,
                         onClick = {
-                            onNavigate(
-                                SettingsPages.workspace(
-                                    SettingsWorkspaceTab.GENERAL,
-                                    "Server cards"
-                                )
-                            )
+                            onNavigate(SettingsPages.card(SettingsWorkspaceTab.GENERAL, "Server cards"))
                         }
                     ) { HomeVectorIcon(HomeIcon.SERVER, Aether.Amethyst, Modifier.size(22.dp)) }
                 }
@@ -11744,14 +11782,16 @@ private fun settingsHubGroups(
                 },
                 section(
                     title = trx("Sources"),
-                    subtitle = "Subscriptions, updates and app behaviour"
+                    subtitle = "Where servers come from and how often they refresh"
                 ) {
                     SettingsHubRow(
-                        title = trx("General"),
-                        subtitle = "Home layout, sources and app updates",
+                        title = "Subscriptions",
+                        subtitle = "Refresh & sources",
                         tone = Aether.Emerald,
-                        onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.GENERAL)) }
-                    ) { HomeVectorIcon(HomeIcon.MODE, Aether.Emerald, Modifier.size(22.dp)) }
+                        onClick = {
+                            onNavigate(SettingsPages.card(SettingsWorkspaceTab.GENERAL, "Subscriptions"))
+                        }
+                    ) { HomeVectorIcon(HomeIcon.LIBRARY, Aether.Emerald, Modifier.size(22.dp)) }
                 }
             )
         ),
@@ -11799,6 +11839,15 @@ private fun settingsHubGroups(
                     title = trx("Navigation"),
                     subtitle = "The bar that is on screen on every page"
                 ) {
+                    // MARBLE_SETTINGS_TREE_V215 — the bar's own preferences sit beside the fourth tab.
+                    SettingsHubRow(
+                        title = "Navigation bar",
+                        subtitle = dockSettingsSubtitle(settings),
+                        tone = Aether.Emerald,
+                        onClick = {
+                            onNavigate(SettingsPages.card(SettingsWorkspaceTab.GENERAL, "Navigation bar"))
+                        }
+                    ) { HomeVectorIcon(HomeIcon.SERVER, Aether.Emerald, Modifier.size(22.dp)) }
                     // MARBLE_DOCK_SLOT_V167 — the fourth tab of the bar is the user's, so the hub
                     // answers "what is in it right now?" before the page is even opened.
                     SettingsHubRow(
@@ -11820,9 +11869,12 @@ private fun settingsHubGroups(
                     }
                 },
                 section(
-                    title = trx("Language & text"),
-                    subtitle = "The face and the language of every screen"
+                    title = trx("Text & language"),
+                    subtitle = "Size, typeface and language of every screen"
                 ) {
+                    // MARBLE_TEXT_SCALE_V215 — one size for the whole app, applied by the root
+                    // composition, so every page and every row scales together.
+                    TextScaleChoice(repo)
                     SettingsHubRow(
                         title = "Typeface",
                         subtitle = activeFont.label,
@@ -13677,6 +13729,14 @@ private fun SpatialSettings(
                 onCollapseAll = { hubCollapsed = SettingsHubPolicy.collapseAll(SettingsHubGroups.Keys) }
             )
 
+            SettingsPages.isCard(target) -> SettingsCardPage(
+                repo = repo,
+                tab = SettingsPages.cardTab(target),
+                cardTitle = SettingsPages.cardTitle(target),
+                onBack = { page = SettingsPages.HUB },
+                onNavigate = { page = it }
+            )
+
             SettingsPages.isWorkspace(target) -> SettingsTabPage(
                 repo = repo,
                 tab = SettingsPages.workspaceTab(target),
@@ -13754,7 +13814,7 @@ private fun SettingsTabPage(
     focusSection: String? = null,
     listState: LazyListState = rememberLazyListState()
 ) {
-    val sections = settingsSections(tab, repo, repo.settings.expertMode, focusSection, onNavigate)
+    val sections = settingsSections(tab, repo, focusSection, onNavigate)
     // MARBLE_ROUTE_ATELIER_V207 — a focus request means "show me that control". Restoring the scroll
     // position is the rule for ordinary visits (V117); a deep link is not an ordinary visit. The whole
     // of a workspace's content sits inside one list item (a header plus one body), so there is no
@@ -13837,7 +13897,6 @@ private class SettingsSectionSpec(
 private fun settingsSections(
     tab: SettingsWorkspaceTab,
     repo: AppRepository,
-    expertMode: Boolean,
     focusSection: String?,
     onNavigate: (String) -> Unit = {}
 ): List<SettingsSectionSpec> {
@@ -13863,9 +13922,8 @@ private fun settingsSections(
             // page: the show/hide switch and the Customize button both live on the Fourth tab
             // page (Settings › Appearance › Fourth tab), so this second door is gone.
             card("Subscriptions","Refresh & sources",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) },
-            // MARBLE_MODULAR_CUSTOMIZER_V151 — Home style 4 can hide its Customize affordance.
-            // The switch that hides it lives in the customizer itself, so the way back has to live
-            // somewhere that is always reachable: here.
+            // MARBLE_MODULAR_CUSTOMIZER_V151 — the Customize switch now sits in the Home section of the
+            // hub (MARBLE_SETTINGS_TREE_V215), so this workspace keeps only the server-card door.
             // MARBLE_SERVER_TILE_LAYOUT_V208 — one preference for both lists: how a single
             // server is drawn on the Servers page and in the Home server box.
             card(
@@ -13873,29 +13931,10 @@ private fun settingsSections(
                 serverLayoutSubtitle(repo.settings),
                 HomeIcon.SERVER,
                 Aether.Amethyst
-            ) { ServerLayoutChoice(repo) },
-            card(
-                "Home layout",
-                if (repo.settings.modularHideCustomizerButton) {
-                    "Customize button hidden"
-                } else {
-                    "Customize button visible"
-                },
-                HomeIcon.MODE,
-                Aether.CyanBright
-            ) {
-                SettingSwitch(
-                    title = "Show the Customize button",
-                    subtitle = "Show the Customize row at the top of Home style 4.",
-                    checked = !repo.settings.modularHideCustomizerButton,
-                    onChecked = { repo.updateSettings(repo.settings.copy(modularHideCustomizerButton = !it)) }
-                )
-            }
+            ) { ServerLayoutChoice(repo) }
         )
-        // MARBLE_SETTINGS_EXPERT_ALWAYS_V118 — Advanced Settings is no longer gated. Expert mode was a
-        // switch that hid the low-level tunnel controls; the product owner removed the gating so every
-        // option is shown across all sections. The `expertMode` value is kept for persistence/compat and
-        // the hub row is retained as a display read-out, but it never hides a card.
+        // MARBLE_SETTINGS_EXPERT_ALWAYS_V118 — every low-level option is shown; there is no gate.
+        // The expert switch and its read-out row were removed in MARBLE_SETTINGS_TREE_V215.
         SettingsWorkspaceTab.TESTS -> listOf(
             card(
                 "Testing",
@@ -14059,40 +14098,122 @@ private fun settingsSections(
 }
 
 /**
- * The expert-gate read-out row.
+ * MARBLE_SETTINGS_TREE_V215 — one Settings card as a page of its own.
  *
- * MARBLE_SETTINGS_EXPERT_ALWAYS_V118 — Advanced Settings is no longer gated: the switch used to
- * hide the low-level tunnel controls, and the product owner removed the gating so every option
- * is shown across all sections. The row stays as the display read-out of the persisted value
- * (the system integrity audit pins it), but no hub card composes it any more.
+ * The card is the same section the workspace would draw; it is simply opened from the sub-section
+ * it belongs to. The page title is the card's own title and its subtitle the card's own line, so the
+ * hub row that opened it and the page it leads to say the same thing.
  */
 @Composable
-private fun ExpertGateRow(repo: AppRepository) {
-    Row(
-        modifier=Modifier.fillMaxWidth(),
-        verticalAlignment=Alignment.CenterVertically,
-        horizontalArrangement=Arrangement.spacedBy(10.dp)
+private fun SettingsCardPage(
+    repo: AppRepository,
+    tab: SettingsWorkspaceTab,
+    cardTitle: String,
+    onBack: () -> Unit,
+    onNavigate: (String) -> Unit
+) {
+    val spec = settingsSections(tab, repo, null, onNavigate).firstOrNull { it.title == cardTitle }
+    SettingsSubPage(
+        title = spec?.title ?: cardTitle,
+        subtitle = spec?.subtitle.orEmpty(),
+        onBack = onBack,
+        listState = rememberLazyListState()
     ) {
-        Column(
-            Modifier.weight(1f),
-            verticalArrangement=Arrangement.spacedBy(2.dp)
+        if (spec == null) {
+            PrismPanel(
+                modifier = Modifier.fillMaxWidth(),
+                accent = Aether.Cyan,
+                contentPadding = PaddingValues(16.dp)
+            ) {
+                Text(
+                    trx("Nothing here yet."),
+                    color = Aether.InkMuted,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        } else {
+            PrismPanel(
+                modifier = Modifier.fillMaxWidth(),
+                accent = spec.color,
+                contentPadding = PaddingValues(16.dp),
+                verticalSpacing = MarbleSpacing.S
+            ) {
+                spec.content()
+            }
+        }
+    }
+}
+
+/**
+ * MARBLE_TEXT_SCALE_V215 — the text-size ladder, as four equal chips with the live percentage.
+ *
+ * The chips show the percentage rather than a sample "A": a sample would be drawn by the same root
+ * scale it is choosing, so it could not show the difference honestly.
+ */
+@Composable
+private fun TextScaleChoice(repo: AppRepository) {
+    val current = TextScale.clamp(repo.settings.textScalePercent)
+    val tone = Aether.Amber
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                trx("Expert controls"),
-                color=Aether.Ink,
-                style=MaterialTheme.typography.bodyMedium,
-                fontWeight=FontWeight.Medium
+                trx("Text size"),
+                color = Aether.Ink,
+                style = settingsRowTitleStyle(),
+                modifier = Modifier.weight(1f)
             )
             Text(
-                trx("Show every option here."),
-                color=Aether.InkMuted,
-                style=MaterialTheme.typography.bodySmall
+                "$current%",
+                color = tone,
+                style = settingsRowTitleStyle()
             )
         }
-        Switch(
-            checked=repo.settings.expertMode,
-            onCheckedChange={ enabled -> repo.updateSettings(repo.settings.copy(expertMode=enabled)) },
-            colors=marbleSwitchColors()
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TextScale.STEPS.forEach { step ->
+                val selected = step == current
+                val shape = RoundedCornerShape(14.dp)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(shape)
+                        .background(
+                            if (selected) tone.copy(alpha = .18f) else Aether.Glass.copy(alpha = .42f)
+                        )
+                        .border(
+                            1.dp,
+                            if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                            shape
+                        )
+                        .kineticClickable(role = Role.Button, boundedShape = shape) {
+                            repo.updateSettings(repo.settings.copy(textScalePercent = step))
+                        }
+                        .padding(vertical = 10.dp)
+                        .semantics { contentDescription = "Text size $step%" },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "$step%",
+                        color = if (selected) tone else Aether.InkMuted,
+                        style = settingsBodyStyle(),
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+        Text(
+            trx("Applies to every screen, and takes effect at once."),
+            color = Aether.InkFaint,
+            style = settingsBodyStyle()
         )
     }
 }
