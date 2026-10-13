@@ -220,6 +220,9 @@ files = {
     "coreOptions": read("app/src/main/java/com/marbleng/app/core/CoreOptions.kt"),
     # MARBLE_SERVER_TILE_LAYOUT_V208 — the compact server grid, its policy and its test.
     "serverTiles": read("app/src/main/java/com/marbleng/app/ui/MarbleServerTiles.kt"),
+    # MARBLE_NATIVE_ANDROID_V213 — the offline flag library: every country the product can name,
+    # drawn as vector art, and the circle that frames one.
+    "countryFlagArt": read("app/src/main/java/com/marbleng/app/ui/CountryFlagArt.kt"),
     "serverTilesTest": read("app/src/test/java/com/marbleng/app/ui/ServerTileLayoutV208Test.kt"),
     # MARBLE_SERVER_TILE_TRUTH_V210 — what a box may claim, and the name slot's one-line rule.
     "serverTileTruthTest": read(
@@ -353,6 +356,15 @@ files = {
     ),
     "homePingControlsDoc": read("docs/HOME_PING_CONTROLS_V212.md"),
     "serverTileParityDoc": read("docs/SERVER_TILE_PARITY_V212.md"),
+    # MARBLE_NATIVE_ANDROID_V213 — the native chapter: the platform's measurement table and its
+    # component set, the critique that named the seven surfaces, the chapter that answers them and
+    # the test that pins both halves. Named `nativeUi`, not `native`: that key is the Go/C++ side.
+    "nativeUi": read("app/src/main/java/com/marbleng/app/ui/MarbleNativeAndroid.kt"),
+    "nativeUiTest": read(
+        "app/src/test/java/com/marbleng/app/ui/MarbleNativeAndroidV213Test.kt"
+    ),
+    "nativeUiDoc": read("docs/NATIVE_ANDROID_V213.md"),
+    "nativeCritiqueDoc": read("docs/APPEARANCE_CRITIQUE_V213.md"),
     "surfaceDepthDoc": read("docs/SURFACE_DEPTH_V212.md"),
 }
 
@@ -2514,8 +2526,23 @@ check(
     and "MARBLE_HOME_STATUS_REFRAME_V187" in files["homeStyles"]
     and "HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = shape)" in _banner_body
     # MARBLE_HOME_CLOUD_DEPTH_V191 — 0.dp is gone for good; the pin is the lift itself.
-    and "val CardElevation = 3.dp" in files["design"]
-    and "val SelectedElevation = 7.dp" in files["design"]
+    # MARBLE_NATIVE_ANDROID_V213 — the lift is *read* from the one depth contract now instead of
+    # being written here a second time. The property is unchanged (a resting card lifts, a selected
+    # one lifts further, and neither is 0), so both answers satisfy it.
+    and any(
+        token in files["design"]
+        for token in (
+            "val CardElevation = 3.dp",
+            "val CardElevation = MarbleDepthPolicy.RestingElevation",
+        )
+    )
+    and any(
+        token in files["design"]
+        for token in (
+            "val SelectedElevation = 7.dp",
+            "val SelectedElevation = MarbleDepthPolicy.RaisedElevation",
+        )
+    )
     and "MARBLE_HOME_CLOUD_DEPTH_V191" in files["design"]
     and "homeStatusText(evidence)" in _banner_body
     # MARBLE_SESSION_USAGE_V192 — the telemetry row now answers to EITHER display choice: the
@@ -2812,7 +2839,13 @@ check(
     # The row sits inside the card on the container step, with no outline of its own.
     and ".padding(horizontal = ServersHierarchy.LIST_INSET_DP.dp)"
     in _fun_body(files["ui"], "fun ServersNodeCard(")
-    and ".background(Aether.Glass)" in _fun_body(files["ui"], "fun ServersNodeCard(")
+    # MARBLE_NATIVE_ANDROID_V213 — "the container step" is now the platform's container tone
+    # rather than the product's glass token. The rule the check protects is unchanged (the row is a
+    # step away from the card and carries no outline of its own), so both answers are accepted.
+    and any(
+        token in _fun_body(files["ui"], "fun ServersNodeCard(")
+        for token in (".background(Aether.Glass)", ".background(marbleNativeContainerHigh())")
+    )
     and "HorizontalDivider(" in _fun_body(files["ui"], "fun ServersNodeCard(")
     # The old 40 dp standalone tile is gone from the nested row, and so is its 38 dp rail.
     and "size = 40.dp" not in _fun_body(files["ui"], "fun ServersNodeCard(")
@@ -2855,7 +2888,12 @@ check(
     "V190 the stacked servers frame is clipped to its own slice",
     "clipRect(left = 0f, top = 0f, right = size.width, bottom = size.height)"
     in _fun_body(files["ui"], "fun Modifier.serversStackedFrame(")
-    and ".background(Aether.VoidElevated)" in _fun_body(files["ui"], "fun ServersNodeCard(")
+    # MARBLE_NATIVE_ANDROID_V213 — the slice's card surface is the platform's card container now;
+    # the property being pinned (the slice paints the card's own surface, not the page) is the same.
+    and any(
+        token in _fun_body(files["ui"], "fun ServersNodeCard(")
+        for token in (".background(Aether.VoidElevated)", ".background(marbleNativeCardFill())")
+    )
     and "displayServerName(" in _fun_body(files["ui"], "fun ServersNodeCard(")
     and "fun displayServerName(" in files["design"],
 )
@@ -3780,6 +3818,119 @@ check(
     and '"Read several geo databases"' in files["persianLexicon"]
     and '"Domestic separation"' in files["persianLexicon"]
     and '"Latency gauge"' in files["persianLexicon"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_NATIVE_ANDROID_V213
+# ---------------------------------------------------------------------------
+# Seven surfaces reported as "not Android": the boxes, the tabs, the servers, the flags, the
+# settings, the options and the notifications. The chapter's answer is one measurement table, one
+# component set that paints *only* platform roles, and a call-site sweep — so the invariant is
+# that the table exists, that its numbers are the platform's, that the components read the scheme
+# rather than a brand token, and that the surfaces which were rebuilt are still wearing them.
+check(
+    "V213 the platform's measurements are one table",
+    "object MarbleNativeSpec" in files["nativeUi"]
+    and "const val RowMinHeightDp: Int = 56" in files["nativeUi"]
+    and "const val RowTwoLineHeightDp: Int = 72" in files["nativeUi"]
+    and "const val RowDenseHeightDp: Int = 48" in files["nativeUi"]
+    and "const val TouchTargetDp: Int = 48" in files["nativeUi"]
+    and "const val LeadingContainerDp: Int = 40" in files["nativeUi"]
+    and "const val CardCornerDp: Int = 24" in files["nativeUi"]
+    and "const val TileCornerDp: Int = 20" in files["nativeUi"]
+    and "const val RowCornerDp: Int = 16" in files["nativeUi"]
+    and "const val ContactElevationDp: Int = 2" in files["nativeUi"]
+    and "const val IndicatorWidthDp: Int = 56" in files["nativeUi"]
+    and "fun rowHeightDp(hasSubtitle: Boolean): Int" in files["nativeUi"]
+    and "fun meetsTouchFloor(heightDp: Int): Boolean" in files["nativeUi"]
+    and "fun dividerInsetDp(hasLeading: Boolean): Int" in files["nativeUi"],
+)
+
+check(
+    "V213 every native surface paints a platform role and never a hand-mixed brand token",
+    # The helpers read the live scheme, which AetherTheme rebuilds for the brand palettes, for
+    # AMOLED and for a wallpaper palette in one place.
+    "MaterialTheme.colorScheme.surfaceContainerLowest" in files["nativeUi"]
+    and "MaterialTheme.colorScheme.surfaceContainerLow" in files["nativeUi"]
+    and "MaterialTheme.colorScheme.surfaceContainerHigh" in files["nativeUi"]
+    and "scheme.surfaceContainerHighest" in files["nativeUi"]
+    and "scheme.outlineVariant" in files["nativeUi"]
+    and "MaterialTheme.colorScheme.onSurfaceVariant" in files["nativeUi"]
+    # The platform's component set.
+    and "fun MarbleNativeCard(" in files["nativeUi"]
+    and "fun MarbleNativeListItem(" in files["nativeUi"]
+    and "fun MarbleNativeSwitch(" in files["nativeUi"]
+    and "fun MarbleNativeChoiceRow(" in files["nativeUi"]
+    and "fun MarbleNativeSegmentedRow(" in files["nativeUi"]
+    and "fun MarbleNativeSectionHeader(" in files["nativeUi"]
+    and "fun MarbleNativeDivider(" in files["nativeUi"]
+    and "fun MarbleNativeChevron(" in files["nativeUi"]
+    # The card wears the contact shadow, which is what puts a surface on a page.
+    and "MarbleNativeSpec.ContactElevationDp" in files["nativeUi"],
+)
+
+check(
+    "V213 the boxes, tabs, servers, flags, settings and options are on the platform's skin",
+    # Boxes: the panel's rim is directional and neutral, and the depth contract carries a contact
+    # shadow; the panel's own hairline is the platform's outline at the top and the bottom.
+    "val borderBrush=Brush.verticalGradient(" in files["design"]
+    and "marbleNativeOutline()" in files["design"]
+    and "val ContactElevation: Dp = 2.dp" in files["surfaceDepth"]
+    and "val RestingElevation: Dp = 4.dp" in files["surfaceDepth"]
+    and "val RaisedElevation: Dp = 9.dp" in files["surfaceDepth"]
+    # Tabs: the active indicator is a stadium, and the floating chrome's body and edge are the
+    # platform's container step and outline family (the palette's shadow and four action tones stay
+    # the product's).
+    and "val glassShape = marbleNativePill()" in files["ui"]
+    and "surface = marbleNativeContainerHigh()" in files["floatingChrome"]
+    and "border = marbleNativeOutline()" in files["floatingChrome"]
+    and "shadow = Aether.FloatShadow" in files["floatingChrome"]
+    and "actions = Aether.FloatActions" in files["floatingChrome"]
+    # Servers: the tile is on the platform's tile corner, and the subscription frame is neutral.
+    and "marbleNativeShape(MarbleNativeSpec.TileCornerDp.dp)" in files["serverTiles"]
+    and "private fun serversGroupFrameColor(): Color = marbleNativeOutline()" in files["ui"]
+    # Flags: the circle can be framed, and the Home route chip is.
+    and "ring: Color? = null" in files["countryFlagArt"]
+    and "Modifier.border(1.dp, ring, CircleShape)" in files["countryFlagArt"]
+    and "ring = marbleNativeOutline()" in files["homeStyles"]
+    # Settings and options: the option row is the platform's list item, the switch palette is the
+    # platform's four roles, and a group heading is no longer uppercased.
+    and "MarbleNativeListItem(" in files["ui"]
+    and "MarbleNativeSwitch(" in files["ui"]
+    and "checkedTrackColor = MaterialTheme.colorScheme.primary" in files["ui"]
+    and "uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest" in files["ui"]
+    and "trx(title).uppercase()" not in files["ui"]
+    and "MarbleNativeSpec.SectionLabelTrackingSp" in files["ui"],
+)
+
+check(
+    "V213 the notifications fill the fields the platform defines",
+    "const val ACCENT = 0xFF0066CC.toInt()" in files["notifier"]
+    and ".setColor(ACCENT)" in files["notifier"]
+    and ".setSubText(statusSubText(text))" in files["notifier"]
+    and ".setSubText(kindSubText(kind))" in files["notifier"]
+    and ".setGroup(GROUP_ID)" in files["notifier"]
+    and ".setLocalOnly(true)" in files["notifier"]
+    and "setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)" in files["notifier"]
+    and "R.drawable.ic_notification_stop" in files["notifier"]
+    # A status channel that buzzes per live-stats update is the defect this removes.
+    and "enableVibration(false)" in files["notifier"]
+    and "setSound(null, null)" in files["notifier"]
+    and "internal fun statusSubText(text: String): String" in files["notifier"]
+    and "internal fun kindSubText(kind: SmartNotificationKind): String" in files["notifier"]
+    # The platform's own back gesture and the keyboard's own resize, declared rather than worked
+    # around.
+    and 'android:enableOnBackInvokedCallback="true"' in files["manifest"]
+    and 'android:windowSoftInputMode="adjustResize"' in files["manifest"],
+)
+
+check(
+    "V213 the native chapter is written down",
+    "MARBLE_NATIVE_ANDROID_V213" in files["nativeUiDoc"]
+    and "MARBLE_NATIVE_ANDROID_V213" in files["nativeUi"]
+    and "class MarbleNativeAndroidV213Test" in files["nativeUiTest"]
+    and "NATIVE_ANDROID_V213.md" in files["readme"]
+    and "APPEARANCE_CRITIQUE_V213.md" in files["readme"],
 )
 
 production = "\n".join(

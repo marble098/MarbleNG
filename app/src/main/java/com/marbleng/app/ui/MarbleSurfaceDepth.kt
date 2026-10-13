@@ -48,11 +48,27 @@ import androidx.compose.ui.unit.dp
  * third meaning, and "slightly more raised than resting" is not one.
  */
 object MarbleDepthPolicy {
-    /** Elevation of a surface nobody has chosen. */
-    val RestingElevation: Dp = 3.dp
+    /**
+     * Elevation of a surface nobody has chosen.
+     *
+     * MARBLE_NATIVE_ANDROID_V213 — 3 dp was below the point a lift registers on a bright page: a
+     * card and the page under it were the same picture with a hairline between them. The platform
+     * rests a card at 4 dp, and a chosen one at 9.
+     */
+    val RestingElevation: Dp = 4.dp
 
     /** Elevation of a surface the user chose, or that is carrying traffic. */
-    val RaisedElevation: Dp = 7.dp
+    val RaisedElevation: Dp = 9.dp
+
+    /**
+     * MARBLE_NATIVE_ANDROID_V213 — the *contact* shadow: the tight, nearly opaque shadow under a
+     * surface's own outline, which is what makes an Android card read as sitting **on** a page
+     * rather than floating above it. One soft shadow alone reads as a film; the pair is the
+     * platform's own recipe (ambient + spot above, contact below).
+     */
+    val ContactElevation: Dp = 2.dp
+    const val ContactAlphaLight: Float = .10f
+    const val ContactAlphaDark: Float = .55f
 
     /** How far down the inside of the top edge the whisper wash reaches. */
     val WashReach: Dp = 110.dp
@@ -131,6 +147,15 @@ internal fun Modifier.marbleSurfaceDepth(
         else -> Color(0xFF3399FF).copy(alpha = MarbleDepthPolicy.WashAlphaLight)
     }
     val washEndPx = with(LocalDensity.current) { MarbleDepthPolicy.WashReach.toPx() }
+    // The contact shadow sits between the surface and the page: it is cast by the same outline,
+    // one step down, and it is what stops a lifted card from looking pasted on.
+    val contact = when {
+        Aether.IsDynamic -> Aether.FloatShadow.copy(
+            alpha = if (dark) MarbleDepthPolicy.ContactAlphaDark else MarbleDepthPolicy.ContactAlphaLight
+        )
+        dark -> Color.Black.copy(alpha = MarbleDepthPolicy.ContactAlphaDark)
+        else -> Color(0xFF0A2540).copy(alpha = MarbleDepthPolicy.ContactAlphaLight)
+    }
     return this
         .shadow(
             elevation = lift,
@@ -138,6 +163,13 @@ internal fun Modifier.marbleSurfaceDepth(
             clip = false,
             ambientColor = shadowAmbient,
             spotColor = shadowSpot
+        )
+        .shadow(
+            elevation = MarbleDepthPolicy.ContactElevation,
+            shape = shape,
+            clip = false,
+            ambientColor = contact,
+            spotColor = contact
         )
         .clip(shape)
         .background(fill)

@@ -2121,12 +2121,17 @@ internal fun IosStatusWideCard(
                     // name: a big official-looking flag, for a guess. An unconfirmed route now shows
                     // the world glyph and says so in the caption under it — the emoji stays where it
                     // was written, inside the name.
+                    // MARBLE_NATIVE_ANDROID_V213 — the route's place is a chip, not a sticker:
+                    // the platform's hairline frames the flag, and an unmeasured route's world
+                    // glyph sits in the same frame, so "known" and "unknown" are one object in
+                    // two states instead of two different pictures.
                     CountryFlagCircle(
                         code = evidence.flagCode.ifBlank { null }?.takeIf { evidence.mayPaintLocationFlag },
                         size = 34.dp,
                         fallbackText = "🌐",
                         fallbackFill = homeCloudInsetFill(),
-                        fallbackTone = Aether.Ink
+                        fallbackTone = Aether.Ink,
+                        ring = marbleNativeOutline()
                     )
                     Column(
                         modifier = Modifier.weight(1f),
