@@ -1566,7 +1566,19 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Plus the domestic services MarbleNG keeps its own list of" to
         "به‌علاوهٔ سرویس‌های داخلی که ماربل فهرست خودش را دارد",
     "Plus brand keywords, for services on a domain nobody published" to
-        "به‌علاوهٔ کلیدواژهٔ نام سرویس‌ها، برای دامنه‌هایی که در هیچ فهرستی نیستند"
+        "به‌علاوهٔ کلیدواژهٔ نام سرویس‌ها، برای دامنه‌هایی که در هیچ فهرستی نیستند",
+    // MARBLE_SETTINGS_TREE_V215 / MARBLE_TEXT_SCALE_V215 — copy for the regrouped hub and text size.
+    "Text size" to "اندازه متن",
+    "Applies to every screen, and takes effect at once." to "روی همه‌ی صفحه‌ها اعمال می‌شود و بی‌درنگ تغییر می‌کند.",
+    "Text & language" to "متن و زبان",
+    "Size, typeface and language of every screen" to "اندازه، قلم و زبان همه‌ی صفحه‌ها",
+    "Tunnel & proxy" to "تونل و پروکسی",
+    "How the tunnel listens and what it dials" to "تونل روی چه پورتی گوش می‌دهد و به چه چیزی وصل می‌شود",
+    "Home layout" to "چیدمان صفحه اصلی",
+    "The Customize row of Home style 4" to "ردیف شخصی‌سازی سبک ۴ صفحه اصلی",
+    "Where servers come from and how often they refresh" to "سرورها از کجا می‌آیند و هر چند وقت به‌روز می‌شوند",
+    "National filtering detected" to "فیلترینگ ملی شناسایی شد",
+    "ranking frozen" to "رتبه‌بندی متوقف شد",
 )
 
 /** Lowercased view of the lexicon so `UPPERCASE` renders of the same keys still match. */

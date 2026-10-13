@@ -86,6 +86,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -543,17 +544,36 @@ internal fun homePingLabel(evidence: HomeEvidence): String {
     }
 }
 
+/**
+ * MARBLE_HOME_PING_COLOUR_V215 — which colour a Home ping reading wears.
+ *
+ * Until V215 a provisional number was coloured by the latency band it fell in. A run is several
+ * samples, and each one can land in a different band, so the two ping icons changed colour on every
+ * sample: green, then amber, then green again, for the whole run. The band is a verdict about a
+ * *settled* measurement, so it now applies only once the run is MEASURED. While a run is in progress
+ * (including a provisional failure) the reading wears the measuring hue, which does not move.
+ */
+internal enum class HomePingToneKind { MEASURING, BAND, FAILED, IDLE }
+
+internal fun homePingToneKind(state: ConnectionPingState, ms: Int, provisional: Boolean): HomePingToneKind =
+    when {
+        state == ConnectionPingState.MEASURED && ms >= 1 -> HomePingToneKind.BAND
+        state == ConnectionPingState.MEASURED -> HomePingToneKind.FAILED
+        state == ConnectionPingState.FAILED && provisional -> HomePingToneKind.MEASURING
+        state == ConnectionPingState.FAILED -> HomePingToneKind.FAILED
+        state == ConnectionPingState.MEASURING -> HomePingToneKind.MEASURING
+        else -> HomePingToneKind.IDLE
+    }
+
 @Composable
 internal fun homePingTone(evidence: HomeEvidence, fallback: Color): Color {
     val (ms, state, _) = homeV137PingChannel(evidence)
-    // A provisional number is still a number, so it is coloured by the band it falls in —
-    // otherwise "how fast is this route" would go grey exactly when it first has an answer.
     val provisional = homePingIsProvisional(evidence) && ms >= 1
-    return when (state) {
-        ConnectionPingState.MEASURED -> if (ms >= 1) marbleMetricTone(pingMetricBand(ms)) else Aether.Danger
-        ConnectionPingState.FAILED -> if (provisional) marbleMetricTone(pingMetricBand(ms)) else Aether.Danger
-        ConnectionPingState.MEASURING -> if (provisional) marbleMetricTone(pingMetricBand(ms)) else Aether.Cyan
-        ConnectionPingState.IDLE -> fallback
+    return when (homePingToneKind(state, ms, provisional)) {
+        HomePingToneKind.BAND -> marbleMetricTone(pingMetricBand(ms))
+        HomePingToneKind.FAILED -> Aether.Danger
+        HomePingToneKind.MEASURING -> Aether.Cyan
+        HomePingToneKind.IDLE -> fallback
     }
 }
 
@@ -3727,10 +3747,12 @@ private fun FloatingConnectFab(
         animationSpec = MarbleMotionSpecs.DockColor,
         label = "fab-tone"
     )
-    val ink by animateColorAsState(
-        targetValue = chrome.inkOn(tone),
+    // MARBLE_FLOATING_FACE_V215 — the face is a deep shade of the action tone and the glyph is white
+    // on it. The bright tone stays the ring and the shadow, so the control still says what it does.
+    val face by animateColorAsState(
+        targetValue = Color(marbleDeepFaceArgb(tone.toArgb())),
         animationSpec = MarbleMotionSpecs.DockColor,
-        label = "fab-ink"
+        label = "fab-face"
     )
 
     Box(
@@ -3781,7 +3803,7 @@ private fun FloatingConnectFab(
                     spotColor = tone.copy(alpha = .38f)
                 )
                 .clip(CircleShape)
-                .background(tone)
+                .background(face)
                 .background(
                     Brush.verticalGradient(
                         listOf(Color.White.copy(alpha = .14f), Color.Transparent)
@@ -3796,7 +3818,7 @@ private fun FloatingConnectFab(
                 ) { onToggle() },
             contentAlignment = Alignment.Center
         ) {
-            HomeGlyphIcon(HomeGlyph.POWER, ink, Modifier.size(30.dp))
+            HomeGlyphIcon(HomeGlyph.POWER, Color.White, Modifier.size(30.dp))
         }
     }
 }
@@ -3821,7 +3843,8 @@ private fun FloatingSplitAction(
     /** Receives the ink the palette scores for [tone], so a glyph can never be assumed white. */
     content: @Composable (ink: Color) -> Unit
 ) {
-    val chrome = rememberMarbleFloatChrome()
+    // MARBLE_FLOATING_FACE_V215 — the same deep face as the connect disc, with a white glyph on it.
+    val face = Color(marbleDeepFaceArgb(tone.toArgb()))
     Box(
         modifier = Modifier
             .size(52.dp)
@@ -3833,7 +3856,7 @@ private fun FloatingSplitAction(
                 spotColor = tone.copy(alpha = .34f)
             )
             .clip(CircleShape)
-            .background(if (enabled) tone else tone.copy(alpha = .55f))
+            .background(if (enabled) face else face.copy(alpha = .55f))
             .background(
                 Brush.verticalGradient(
                     listOf(Color.White.copy(alpha = .12f), Color.Transparent)
@@ -3849,7 +3872,7 @@ private fun FloatingSplitAction(
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        content(chrome.inkOn(tone))
+        content(Color.White)
     }
 }
 

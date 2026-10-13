@@ -160,3 +160,27 @@ fun marbleFloatShadowPair(elevationDp: Float): Pair<Float, Float> {
     val spot = marbleFloatShadowAlpha(elevationDp)
     return (spot * 0.72f) to spot
 }
+
+/** The navy every deep floating face is pulled toward: the hue stays, the lightness drops. */
+private const val MARBLE_DEEP_FACE_NAVY = 0xFF07122B.toInt()
+
+/**
+ * MARBLE_FLOATING_FACE_V215 — the face of a floating action, as a deep shade of its own tone.
+ *
+ * A bright action token (cyan, light blue, a pale rose) used to be the disc's face with the palette's
+ * navy ink on top. On a light disc that navy glyph reads as a dark hole in the middle of the button,
+ * which is the "black centre" the Home floating controls showed. The face is now the tone pulled
+ * toward navy until a white glyph clears [minimumWhiteRatio] on it, so every floating disc carries a
+ * white glyph on a deep face of its own hue. The tokens themselves are unchanged; only the face is
+ * derived from them.
+ */
+fun marbleDeepFaceArgb(tone: Int, minimumWhiteRatio: Float = 4.5f): Int {
+    val white = 0xFFFFFFFF.toInt()
+    var amount = 0.22f
+    var face = marbleLerpArgb(tone, MARBLE_DEEP_FACE_NAVY, amount)
+    while (amount < 0.9f && marbleContrastRatioArgb(white, face) < minimumWhiteRatio) {
+        amount += 0.04f
+        face = marbleLerpArgb(tone, MARBLE_DEEP_FACE_NAVY, amount)
+    }
+    return face
+}
