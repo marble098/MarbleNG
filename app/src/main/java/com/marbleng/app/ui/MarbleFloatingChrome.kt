@@ -103,10 +103,23 @@ data class MarbleFloatChrome(
     fun inkOn(tone: Color): Color = marbleOnColor(tone, inkLight, inkDark)
 }
 
+/**
+ * MARBLE_NATIVE_ANDROID_V213 — the chrome's body and edge now come from the *platform's* roles.
+ *
+ * The V201 chapter got the floating object right in principle — its own body, its own hairline,
+ * a shadow in the palette's hue instead of black — and then answered all three questions with
+ * hand-mixed brand values: an `#EDF3FB` wash that was neither the page nor the card, and a navy
+ * stroke at 14 %. Every other surface in Android is a *step of the surface ladder*, and a bar that
+ * invents its own colour is why the dock never quite matched the cards it floats over.
+ *
+ * So the body is the platform's container step and the hairline is the platform's outline family.
+ * The shadow stays the palette's own (the part V201 got uniquely right), and the four action tones
+ * are untouched: those are the product's, and they were never the problem.
+ */
 @Composable
 fun rememberMarbleFloatChrome(): MarbleFloatChrome = MarbleFloatChrome(
-    surface = Aether.FloatSurface,
-    border = Aether.FloatBorder,
+    surface = marbleNativeContainerHigh(),
+    border = marbleNativeOutline(),
     shadow = Aether.FloatShadow,
     actions = Aether.FloatActions,
     inkLight = Aether.FloatInkLight,

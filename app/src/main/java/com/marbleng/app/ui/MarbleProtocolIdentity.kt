@@ -237,9 +237,14 @@ fun ProtocolTile(
             // One content rule for every state: the measured flag fills the circle; everything
             // else is the world glyph, so the tile never states more than the evidence does. The
             // wire scheme never draws inside this circle again.
+            // MARBLE_NATIVE_ANDROID_V213 — the flag sits *inside* the tile's frame rather than
+            // touching it. At a 2 dp inset the flag's own edge and the tile's rim composited into
+            // one thick stroke; at 3 dp the tile's tone shows as a ring around the country, which
+            // is what makes the tile read as a framed chip — and it is the same 3 dp the world
+            // glyph keeps when the location is not confirmed, so both states are one object.
             CountryFlagCircle(
                 code = flagArt,
-                size = size - 2.dp,
+                size = size - 3.dp,
                 fallbackText = "🌐",
                 fallbackTone = tone,
                 fallbackFill = Color.Transparent

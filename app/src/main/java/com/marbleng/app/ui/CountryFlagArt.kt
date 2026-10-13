@@ -17,8 +17,10 @@ package com.marbleng.app.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -851,13 +853,27 @@ fun CountryFlagCircle(
     fallbackTone: Color = Color(0xFF8899AA),
     fallbackFill: Color = Color(0x26334455),
     description: String = "",
-    styleOverride: TextStyle? = null
+    styleOverride: TextStyle? = null,
+    // MARBLE_NATIVE_ANDROID_V213 — the chip's rim, and the frame it makes around a flag.
+    //
+    // A flag painted edge-to-edge in a clipped circle is a *sticker*: it has no edge of its own,
+    // and on a light card the pale bands of a flag (Japan, Poland, Greece) simply dissolve into
+    // the surface. Every Android surface that shows a country — a contact chip, a settings row, a
+    // Maps place — draws it as a small object with a hairline around it. [ring] is that hairline;
+    // when it is given, the flag is inset by the same 1 dp so the rim reads as a frame instead of
+    // as a stroke laid over the flag's own edge.
+    //
+    // The default is deliberately null: the flag that fills a protocol tile already has the tile's
+    // own rim around it, and two strokes 1 dp apart is a double border.
+    ring: Color? = null
 ) {
     val supported = code != null && CountryFlagSupported(code)
+    val frame = if (ring != null) 1.dp else 0.dp
     Box(
         modifier = modifier
             .size(size)
             .clip(CircleShape)
+            .then(if (ring == null) Modifier else Modifier.border(1.dp, ring, CircleShape))
             .semantics { if (description.isNotEmpty()) contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
@@ -866,13 +882,15 @@ fun CountryFlagCircle(
             // viewport.  A centred 3:2 rectangle at 2:3 height would leave transparent caps at
             // the top and bottom of the circle (the old "contain" bug).  This is a true cover:
             // the circle is painted edge-to-edge and only the flag's left/right edges are cropped.
-            Canvas(Modifier.requiredWidth(size * 1.5f).height(size)) {
+            Canvas(Modifier.requiredWidth(size * 1.5f).height(size - frame - frame)) {
                 drawCountryFlag(code!!)
             }
         } else {
             Box(
                 Modifier
                     .matchParentSize()
+                    .padding(frame)
+                    .clip(CircleShape)
                     .background(fallbackFill),
                 contentAlignment = Alignment.Center
             ) {

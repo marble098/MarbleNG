@@ -249,8 +249,16 @@ internal fun ServerTile(
     trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
-    // A smaller radius than the subscription container gives the server card its own clear level.
-    val shape = RoundedCornerShape(13.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — the box moves onto the platform's skin.
+    //
+    // V212 put the tile on the depth contract, which fixed *whether* the box sits on a light but
+    // not *what it is made of*: the fill was still the product's inset glass token, the rim was
+    // still the accent's hairline, and the corner (13 dp) was a level the platform does not have.
+    // A tile is a card in a grid, so it now wears the same material as every other card in the
+    // product — the platform's container fill at the platform's tile corner, with the neutral
+    // outline as its edge and the state colours (emerald live, cyan chosen) still spoken by the
+    // rim, because that part is the product's grammar and it works.
+    val shape = marbleNativeShape(MarbleNativeSpec.TileCornerDp.dp)
     val measured = result?.takeIf { it.success > 0 && it.latencyMs >= ServerTileTruth.LatencyFloorMs }
     val latency = measured?.latencyMs?.toInt() ?: 0
     val attempted = result != null && measured == null
@@ -260,22 +268,23 @@ internal fun ServerTile(
 
     // Both endpoints of the tween are opaque: animating toward a translucent fill passes through
     // frames the page's aurora shines through, which is the same defect V205 removed from the rows.
+    val nativeFill = marbleNativeCardFill()
     val fill by animateColorAsState(
         targetValue = when {
             active -> Aether.Emerald
-                .copy(alpha = if (homeCloudDark()) .12f else .09f)
-                .compositeOver(homeCloudInsetFill())
-            selected -> homeCloudSelectedFill()
-            else -> homeCloudInsetFill()
+                .copy(alpha = if (homeCloudDark()) .14f else .10f)
+                .compositeOver(nativeFill)
+            selected -> marbleNativeSelectedFill(Aether.Cyan)
+            else -> nativeFill
         },
         animationSpec = MarbleMotionSpecs.Color,
         label = "server-tile-fill"
     )
     val rim by animateColorAsState(
         targetValue = when {
-            active -> Aether.Emerald.copy(alpha = .42f)
-            selected -> homeCloudSelectedBorder()
-            else -> homeCloudInsetBorder()
+            active -> Aether.Emerald.copy(alpha = .45f)
+            selected -> Aether.Cyan.copy(alpha = .45f)
+            else -> marbleNativeOutline()
         },
         animationSpec = MarbleMotionSpecs.Color,
         label = "server-tile-rim"
@@ -323,7 +332,8 @@ internal fun ServerTile(
             // Every tile in a line takes the line's height, so a box can never be shorter than
             // the one beside it (MARBLE_SERVER_TILE_TRUTH_V210).
             .fillMaxHeight()
-            .heightIn(min = 84.dp)
+            // The platform's two-line row height: a tile is a row you can put four of on a line.
+            .heightIn(min = MarbleNativeSpec.RowTwoLineHeightDp.dp + 16.dp)
             // MARBLE_SURFACE_DEPTH_V212 — the boxes were still on the pre-V191 plane: a flat fill
             // and a 1 dp hairline, while the Home cards around them sit on a light. Same fill,
             // same rim, same states — now on the one depth contract every other surface wears, so
@@ -392,7 +402,7 @@ internal fun ServerTile(
         ) {
             Text(
                 text = endpoint.ifBlank { trx("Endpoint unavailable") },
-                color = Aether.InkFaint,
+                color = marbleNativeInkVariant(),
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

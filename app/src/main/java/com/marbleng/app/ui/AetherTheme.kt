@@ -523,12 +523,22 @@ private fun aetherTypography(fontId: String, persian: Boolean): Typography {
 // MARBLE_MATERIAL_YOU_REFRESH_V185 — the shape ramp rounds one step up to match the newest
 // Material corner language: 12 / 16 / 20 / 28 / 32 dp. Material components (sheets, menus,
 // chips, text fields) pick these up through MaterialTheme.shapes across the whole app.
+// MARBLE_NATIVE_ANDROID_V213 — the corner ramp moves onto the newest Android shape scale.
+//
+// V185 rounded the ramp one step, which on a 2026 phone still read as a *compact* product: the
+// large step (28 dp) is the pre-Expressive card corner, and the newest Android draws its sheets,
+// dialogs and cards a full step rounder than that with controls that morph to a pill. The ramp
+// below is that step: a 14/18/24/30/36 ladder, where every role that holds content (cards, sheets,
+// dialogs) sits on 24-30 dp and the two rows the platform keeps tighter (menus, chips) sit on
+// 14-18 dp. Nothing else about the shape language changes: the corners are still plain circles,
+// and every custom Prism surface keeps its own radius, so this is where *stock Material* surfaces
+// — sheets, menus, dialogs, text fields, the date picker — join the same roundness as the product.
 val AetherShapes = Shapes(
-    extraSmall = RoundedCornerShape(12.dp),
-    small = RoundedCornerShape(16.dp),
-    medium = RoundedCornerShape(20.dp),
-    large = RoundedCornerShape(28.dp),
-    extraLarge = RoundedCornerShape(32.dp)
+    extraSmall = RoundedCornerShape(14.dp),
+    small = RoundedCornerShape(18.dp),
+    medium = RoundedCornerShape(24.dp),
+    large = RoundedCornerShape(30.dp),
+    extraLarge = RoundedCornerShape(36.dp)
 )
 
 /**
@@ -673,13 +683,17 @@ fun AetherFlowTheme(
             // actually read (bottom sheets, menus, chips, filled cards) now resolves to the cool
             // Marble surface ramp instead of the stock gray baseline, so every stock M3 surface
             // sits inside the same identity as the custom Prism surfaces.
+            // MARBLE_NATIVE_ANDROID_V213 — the ladder opens up. On the cool page (#F4F8FD) the
+            // old steps were 2-4 units apart, so a card, the well inside it and the sheet above
+            // both read as the same tone and every edge had to be carried by a hairline. The
+            // platform's ladder separates by a visible step at each level.
             surfaceContainerLowest=Brand.White,
-            surfaceContainerLow=Color(0xFFF6F9FD),
-            surfaceContainer=Color(0xFFF0F5FB),
-            surfaceContainerHigh=Color(0xFFEAF1F8),
-            surfaceContainerHighest=Color(0xFFE3ECF5),
-            surfaceDim=Color(0xFFD9E3EF),
-            surfaceBright=Color(0xFFF8FBFE),
+            surfaceContainerLow=Color(0xFFF5F8FC),
+            surfaceContainer=Color(0xFFEEF3F9),
+            surfaceContainerHigh=Color(0xFFE7EEF6),
+            surfaceContainerHighest=Color(0xFFDFE8F2),
+            surfaceDim=Color(0xFFD5E0EC),
+            surfaceBright=Color(0xFFFAFCFF),
             inverseSurface=Color(0xFF0D1420),
             inverseOnSurface=Color(0xFFEEF3FA),
             inversePrimary=Color(0xFFA9CBFF)
@@ -710,11 +724,14 @@ fun AetherFlowTheme(
             outlineVariant=palette.glassBorderSoft,
             // MARBLE_MATERIAL_YOU_REFRESH_V185 — the dark container ladder lifts from AMOLED black
             // through navy-tinted steps, matching the refreshed Aether dark surfaces.
+            // MARBLE_NATIVE_ANDROID_V213 — the dark ladder lifts off the black floor by one
+            // step: a card at #0B111C is a surface on the OLED void, where the old #070C13 was
+            // black-with-a-hint-of-blue and needed the accent rim to be seen at all.
             surfaceContainerLowest=Color.Black,
-            surfaceContainerLow=Color(0xFF070C13),
-            surfaceContainer=Color(0xFF0F1622),
-            surfaceContainerHigh=Color(0xFF18202D),
-            surfaceContainerHighest=Color(0xFF1D2734),
+            surfaceContainerLow=Color(0xFF0B111C),
+            surfaceContainer=Color(0xFF131B28),
+            surfaceContainerHigh=Color(0xFF1A2432),
+            surfaceContainerHighest=Color(0xFF212C3C),
             surfaceDim=Color.Black,
             surfaceBright=Color(0xFF141B27),
             inverseSurface=Color(0xFFEDF2FA),

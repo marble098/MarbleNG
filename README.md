@@ -437,6 +437,42 @@ and the two full-screen dismissals answer Android's **predictive back** progress
 when the gesture commits. The libraries were already the newest there are — Compose BOM
 `2026.09.00` — so this chapter is about mechanisms, not dependencies.
 
+### The V213 pass — the native chapter
+
+One report, seven surfaces, and one verdict seven times over: **the product had invented its own
+answer where Android already has one.** `docs/APPEARANCE_CRITIQUE_V213.md` is the critique — the
+boxes were translucent films with accent rims instead of opaque tonal containers, the tab
+indicator was a 22 dp rounded rectangle inside a 30 dp bar instead of a stadium, the server grid
+was made of a different material than the page holding it, the flags were edge-to-edge stickers
+with no frame of their own, the settings rows painted ~36 dp (under Android's 48 dp touch floor)
+with a hand-coloured switch and an uppercased letterspaced heading, the choices were chips
+pretending to be radios, and every notification field the platform expects — colour, subtext,
+group, badge behaviour, a silent ongoing channel — was left empty.
+
+`docs/NATIVE_ANDROID_V213.md` is the rebuild. One table owns the platform's measurements
+(`MarbleNativeSpec`: 56/72/48 dp rows, a 40 dp leading container, 24/20/16 dp corners, a 2 dp
+contact shadow, the 56×32 dp active indicator), and one module owns the platform's components —
+`MarbleNativeCard`, `MarbleNativeListItem`, `MarbleNativeSwitch`, `MarbleNativeChoiceRow`,
+`MarbleNativeSegmentedRow`, `MarbleNativeSectionHeader`, `MarbleNativeDivider`,
+`MarbleNativeChevron` — which read **only** `MaterialTheme.colorScheme` roles and therefore follow
+the brand palettes, AMOLED and a wallpaper palette alike. Every box in the product (panels, hub
+cards, the subscription frame, the server tiles) now wears the same container fill, the same
+neutral directional hairline and the platform's ambient + spot + contact shadow triple; the dock's
+body and edge become the platform's container step and outline family, with a stadium indicator;
+`CountryFlagCircle` can be framed, so a flag is a chip and an unmeasured location is the same chip
+in another state; the option rows *are* the platform's list item, every switch in the product is
+the platform's switch, chips are stadiums and option tiles rest on the platform's container,
+sections speak in sentence case, the Home page's private eight-value surface table — and the
+settings tone rail, which was never an Android control — are **deleted** rather than recoloured,
+and the notifications fill the fields Android defines (accent colour, subtext carrying the state or the kind, group, local-only,
+small-icon badge, a real action icon, and an ongoing channel that is finally silent). The manifest
+hands the back gesture to the platform (`enableOnBackInvokedCallback`) and resize, not pan, to the
+keyboard.
+
+No new dependency, no second design system, no structural change: every V210/V211/V212 invariant —
+the collapsed-keys policy, the server-box truth rules, one ping verb per surface, the depth
+contract — is still enforced by its own check.
+
 ## Main navigation
 
 MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.

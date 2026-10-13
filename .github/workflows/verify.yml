@@ -410,6 +410,13 @@ jobs:
               "app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt"
           ).read_text(encoding="utf-8")
 
+          # MARBLE_NATIVE_ANDROID_V213 — the manifest is part of the UI: it is where the platform
+          # is told to hand the app its own back gesture, and where the keyboard's behaviour is
+          # declared instead of worked around.
+          manifest = Path(
+              "app/src/main/AndroidManifest.xml"
+          ).read_text(encoding="utf-8")
+
           def any_of(source, *needles):
               return any(needle in source for needle in needles)
 
@@ -503,6 +510,19 @@ jobs:
               "fast page transition": (
                   "marble-page-transition-fast" in ui
               ),
+              # MARBLE_NATIVE_ANDROID_V213 — the native chapter, as three markers on the files this
+              # step already reads. The full invariant set (the measurement table, the platform
+              # roles, the notification fields, the manifest flags) lives in
+              # `scripts/system-integrity-check.py`, which ran in the step above; these are the
+              # ones that must not disappear from a merge.
+              "native tab indicator": "marbleNativePill()" in ui,
+              "native option row": "MarbleNativeListItem(" in ui,
+              "native corner ramp": "MARBLE_NATIVE_ANDROID_V213" in theme,
+              "native card skin": "MARBLE_NATIVE_ANDROID_V213" in design,
+              # The platform's own back gesture has to stay delegated: with the flag removed,
+              # Android falls back to the legacy path and the predictive-back progress the
+              # connection page animates is never delivered.
+              "platform back gesture": 'enableOnBackInvokedCallback="true"' in manifest,
           }
 
           # Settings is intentionally implementation-flexible:

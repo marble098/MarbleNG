@@ -16,6 +16,15 @@
         </intent>
     </queries>
 
+    <!--
+      MARBLE_NATIVE_ANDROID_V213 — the system's back gesture, not the app's copy of it.
+
+      The product already answers the platform's predictive-back *progress* (V212 draws the surface
+      receding as the gesture travels), but until this flag is set the platform never offers the app
+      its new back callback: Android falls back to the legacy `onBackPressed` path, where the
+      gesture is invisible to the app until it commits. The one line is the difference between a
+      prediction and a snap.
+    -->
     <application
         android:name=".MarbleApplication"
         android:allowBackup="false"
@@ -25,12 +34,20 @@
         android:label="MarbleNG"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.MarbleNG">
 
+        <!--
+          MARBLE_NATIVE_ANDROID_V213 — resize, never pan. Every full-screen surface in the product
+          is drawn edge to edge and reserves the keyboard's own height with `imePadding()`; without
+          this the platform pans the whole window instead, sliding the app's own header off the top
+          of the screen while the user types in a field near the bottom of it.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

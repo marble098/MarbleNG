@@ -217,25 +217,27 @@ internal object HomeCloud {
     val LightBgTop = Color(0xFFF8FBFE)
     val LightBgBottom = Color(0xFFEDF4FB)
     // MARBLE_HOME_CLOUD_V141 — opaque card fill: the white inside a box is exactly the box.
-    val LightCardFill = Color.White
-    val LightCardBorder = Color(0xFFDEE8F3)
+    //
+    // MARBLE_NATIVE_ANDROID_V213 — the *card* and *inset* constants are gone from this table.
+    //
+    // `LightCardFill` / `DarkCardFill` / `LightCardBorder` / `DarkCardBorder` / `LightInsetFill` /
+    // `LightInsetBorder` / `DarkInsetFill` / `DarkInsetBorder` were the Home page's private copy of
+    // the platform's surface ladder: eight values that had to be kept in step by hand with
+    // `surfaceContainerLowest` / `surfaceContainer` / `outlineVariant`, and never were. Home reads
+    // the live scheme through `homeCloudCardFill()` / `homeCloudInsetFill()` now, so the card, the
+    // inset and the sheet above them come from one ladder — and a wallpaper palette moves all of
+    // them at once. The *selected* pair stays: an accent selection is the product's, not the
+    // platform's.
     val LightCardSelectedFill = Color(0xFFE7F1FE)
     val LightCardSelectedBorder = Color(0xFF3D8BE0)
-    val LightInsetFill = Color(0xFFF0F5FB)
-    val LightInsetBorder = Color(0xFFDDE7F2)
 
     // Dark surface set — same geometry, AMOLED tones lifted with a navy cast.
     // AMOLED is a physical promise, not merely a dark blue gradient: every uncovered page pixel
     // is off. Elevated components supply the hierarchy, never a glowing wallpaper behind them.
     val DarkBgTop = Color.Black
     val DarkBgBottom = Color.Black
-    // MARBLE_HOME_CLOUD_V141 — opaque dark card fill, one uniform tone edge to edge.
-    val DarkCardFill = Color(0xFF0F1727)
-    val DarkCardBorder = Color(0xFF25344E)
     val DarkCardSelectedFill = Color(0xFF122A45)
     val DarkCardSelectedBorder = Color(0xFF6FB2F2)
-    val DarkInsetFill = Color(0xFF0B1322)
-    val DarkInsetBorder = Color(0xFF233350)
 
     /** The brand selection accent (the Marble light/dark palettes). */
     val BrandAccent = Color(0xFF3D8BE0)
@@ -250,14 +252,20 @@ internal object HomeCloud {
     val Accent: Color
         @Composable get() = if (Aether.IsDynamic) Aether.Cyan else BrandAccent
 
-    val CardShape = RoundedCornerShape(22.dp)
-    val CardRadius = 22.dp
-    val InsetShape = RoundedCornerShape(14.dp)
-    // MARBLE_HOME_CLOUD_DEPTH_V191 — the flat-plane experiment ends: a resting card lifts 3 dp on
-    // a single cool brand shadow, the selected card 7 dp. V187's total removal left every surface
+    // MARBLE_NATIVE_ANDROID_V213 — the Home card corner is the platform's card corner, so the one
+    // page that draws the most boxes cannot be the one page a step off the platform's ramp.
+    val CardShape = RoundedCornerShape(MarbleNativeSpec.CardCornerDp.dp)
+    val CardRadius = MarbleNativeSpec.CardCornerDp.dp
+    // MARBLE_NATIVE_ANDROID_V213 — the inset corner is the platform's row corner and the two lifts
+    // read the one depth contract ([MarbleDepthPolicy]) instead of a Home-only pair: 3/7 dp was
+    // tuned when the card's own shadow was the only thing separating it from the page, and the
+    // V212 contract has said 4/9 dp since.
+    val InsetShape = RoundedCornerShape(MarbleNativeSpec.RowCornerDp.dp)
+    // MARBLE_HOME_CLOUD_DEPTH_V191 — the flat-plane experiment ends: a resting card lifts on a
+    // single cool brand shadow, the selected card higher. V187's total removal left every surface
     // on one plane; the fix for "crowded" was never zero shadow, it was ONE quiet shadow.
-    val CardElevation = 3.dp
-    val SelectedElevation = 7.dp
+    val CardElevation = MarbleDepthPolicy.RestingElevation
+    val SelectedElevation = MarbleDepthPolicy.RaisedElevation
     val Hairline = 1.dp
     val SelectedHairline = 1.5.dp
 }
@@ -284,21 +292,24 @@ internal fun homeCloudBackgroundBrush(): Brush = when {
     else -> Brush.verticalGradient(colors = listOf(HomeCloud.LightBgTop, HomeCloud.LightBgBottom))
 }
 
-/** Fill of a resting Home card: solid white (light) / solid ink (dark). */
+/**
+ * Fill of a resting Home card.
+ *
+ * MARBLE_NATIVE_ANDROID_V213 — the source is the platform's ladder now, not a Home-only table.
+ *
+ * `HomeCloud.LightCardFill` was `Color.White` and `HomeCloud.DarkCardFill` was `#0F1727`, i.e. a
+ * *second* set of surface values kept for one page: under the brand palettes the difference was
+ * small enough to hide, and under the explicit dark theme it was larger than a card should ever be
+ * from the platform's own container. Reading the live scheme means the Home card, the settings
+ * card, a sheet and a dialog are the same material by construction — and that a wallpaper palette
+ * moves all of them together, which is the one thing a private table can never do.
+ */
 @Composable
-internal fun homeCloudCardFill(): Color = when {
-    Aether.IsDynamic -> Aether.VoidElevated
-    homeCloudDark() -> HomeCloud.DarkCardFill
-    else -> HomeCloud.LightCardFill
-}
+internal fun homeCloudCardFill(): Color = marbleNativeCardFill()
 
-/** Hairline of a resting Home card. */
+/** Hairline of a resting Home card: the platform's neutral outline family. */
 @Composable
-internal fun homeCloudCardBorder(): Color = when {
-    Aether.IsDynamic -> Aether.GlassBorderSoft
-    homeCloudDark() -> HomeCloud.DarkCardBorder
-    else -> HomeCloud.LightCardBorder
-}
+internal fun homeCloudCardBorder(): Color = marbleNativeOutline()
 
 /** Fill of the one selected/active card. */
 @Composable
@@ -317,21 +328,20 @@ internal fun homeCloudSelectedBorder(): Color = when {
     else -> HomeCloud.LightCardSelectedBorder
 }
 
-/** Inset fill for chips/pills/rows that sit *inside* a Home card. */
+/**
+ * Inset fill for chips/pills/rows that sit *inside* a Home card.
+ *
+ * MARBLE_NATIVE_ANDROID_V213 — the inset is the platform's container step, one rung above the card
+ * it lives in, exactly as a nested Android surface is drawn. The Home-only values it replaces
+ * (`LightInsetFill` / `DarkInsetFill`) were tuned against the same page, so they agreed with the
+ * platform by accident on the light theme and disagreed with it on every other one.
+ */
 @Composable
-internal fun homeCloudInsetFill(): Color = when {
-    Aether.IsDynamic -> Aether.Glass
-    homeCloudDark() -> HomeCloud.DarkInsetFill
-    else -> HomeCloud.LightInsetFill
-}
+internal fun homeCloudInsetFill(): Color = marbleNativeContainerHigh()
 
-/** Inset hairline. */
+/** Inset hairline: the platform's outline family, so an inset and its card never disagree. */
 @Composable
-internal fun homeCloudInsetBorder(): Color = when {
-    Aether.IsDynamic -> Aether.GlassBorderSoft
-    homeCloudDark() -> HomeCloud.DarkInsetBorder
-    else -> HomeCloud.LightInsetBorder
-}
+internal fun homeCloudInsetBorder(): Color = marbleNativeOutline()
 
 /** Divider color that matches the inset hairline. */
 @Composable
@@ -581,10 +591,16 @@ internal object PrismSurface {
     val IconControlSize = 42.dp
     val Hairline = 1.dp
     val StrongHairline = 1.5.dp
-    // Marble-like depth is present but deliberately quiet: one shallow shadow per elevated
-    // surface, with the AMOLED palette doing most of the separation work.
-    val RestingElevation = 2.dp
-    val RaisedElevation = 5.dp
+    // MARBLE_NATIVE_ANDROID_V213 — the depth table moves onto the platform's own steps.
+    //
+    // 2 dp and 5 dp were tuned for the flat white page the product had before the aurora, where a
+    // 2 dp shadow was visible because nothing else was. On the layered page of today a 2 dp shadow
+    // is a smudge: a card at 2 dp and a card at 0 dp are the same picture, which is exactly the
+    // "the app looks dry" report. The platform rests a card at 4 dp and lifts it to 8-9 dp, and
+    // these are those numbers. ControlElevation stays at 3 dp: a button is not a card, and the
+    // difference between the two is what keeps a control from reading as a panel.
+    val RestingElevation = 4.dp
+    val RaisedElevation = 9.dp
     val ControlElevation = 3.dp
     val PressedElevation = 1.dp
 }
@@ -620,13 +636,26 @@ internal fun Modifier.prismElevated(
         animationSpec=MarbleMotionSpecs.Color,
         label="prism-elevation-hairline"
     )
+    // MARBLE_NATIVE_ANDROID_V213 — one shadow pair, one hue, both themes: the surface's own tone
+    // for the soft lift and the deep contact shadow under the outline, which is the platform's
+    // recipe and the reason a container can be told apart from a hole in the page.
+    val nativeShadow=marbleNativeShadow(tone)
+    val contactHue=if(homeCloudDark()) Color.Black else Color(0xFF0A2540)
+    val contactAlpha=if(homeCloudDark()) MarbleDepthPolicy.ContactAlphaDark else MarbleDepthPolicy.ContactAlphaLight
     return this
         .shadow(
             elevation=elevation,
             shape=shape,
             clip=false,
-            ambientColor=tone.copy(alpha=.28f),
-            spotColor=tone.copy(alpha=.36f)
+            ambientColor=nativeShadow.ambient,
+            spotColor=nativeShadow.spot
+        )
+        .shadow(
+            elevation=MarbleDepthPolicy.ContactElevation,
+            shape=shape,
+            clip=false,
+            ambientColor=contactHue.copy(alpha=contactAlpha),
+            spotColor=contactHue.copy(alpha=contactAlpha)
         )
         .border(PrismSurface.Hairline, hairline, shape)
         .clip(shape)
@@ -710,13 +739,25 @@ internal fun PrismPanel(
     // GlassBorderSoft in the panel rim composited as a pale rectangular band on light themes —
     // especially around Settings section cards and the Library filter sheet panels that host the
     // choice chips. Keep the rim as pure accent/violet so no foreign rectangle sits behind labels.
-    val borderBrush=Brush.linearGradient(
+    // MARBLE_NATIVE_ANDROID_V213 — the rim is a *light*, not a border.
+    //
+    // The old rim was one accent/violet gradient wrapped around all four edges of the box, which is
+    // a coloured border: it read the same at the top and the bottom, so the card had no direction
+    // and no relationship to the light above it. The platform's own card edge is quiet and
+    // directional — the top edge catches the surface's light and the stroke settles into the
+    // neutral outline family by the bottom. The accent survives where it belongs: in the top edge
+    // and in the selected state, never as a rectangle drawn around the content.
+    val outline=marbleNativeOutline()
+    val borderBrush=Brush.verticalGradient(
         listOf(
-            accent.copy(alpha=.22f + .34f*selectedProgress),
-            violet.copy(alpha=.12f + .18f*selectedProgress),
-            accent.copy(alpha=.10f + .12f*selectedProgress)
+            lerp(outline, accent, .30f + .40f*selectedProgress),
+            lerp(outline, violet, .14f + .20f*selectedProgress),
+            outline
         )
     )
+    val nativeShadow=marbleNativeShadow(accent)
+    val contactHue=if(homeCloudDark()) Color.Black else Color(0xFF0A2540)
+    val contactAlpha=if(homeCloudDark()) MarbleDepthPolicy.ContactAlphaDark else MarbleDepthPolicy.ContactAlphaLight
 
     Box(
         modifier=modifier
@@ -727,8 +768,17 @@ internal fun PrismPanel(
                 elevation=elevation,
                 shape=shape,
                 clip=false,
-                ambientColor=accent.copy(alpha=.22f),
-                spotColor=accent.copy(alpha=.32f)
+                ambientColor=nativeShadow.ambient,
+                spotColor=nativeShadow.spot
+            )
+            // The contact shadow: the tight one that puts the panel *on* the page. Without it a
+            // 4 dp lift on a bright theme still reads as a pale film rather than as a surface.
+            .shadow(
+                elevation=MarbleDepthPolicy.ContactElevation,
+                shape=shape,
+                clip=false,
+                ambientColor=contactHue.copy(alpha=contactAlpha),
+                spotColor=contactHue.copy(alpha=contactAlpha)
             )
             .border(PrismSurface.Hairline,borderBrush,shape)
             .clip(shape)
@@ -1107,7 +1157,9 @@ internal fun PrismSelectionTile(
     tone: Color,
     modifier: Modifier = Modifier,
     detail: String = "",
-    minHeight: Dp = 42.dp,
+    // MARBLE_NATIVE_ANDROID_V213 — the platform's touch floor, as the *default* this time: a
+    // choice that cannot be hit is not a choice, and 42 dp was under Android's own 48.
+    minHeight: Dp = MarbleNativeSpec.TouchTargetDp.dp,
     alignment: Alignment = Alignment.Center,
     leading: (@Composable (() -> Unit))? = null,
     trailing: (@Composable (() -> Unit))? = null,
@@ -1116,13 +1168,22 @@ internal fun PrismSelectionTile(
 ) {
     // MARBLE_MATERIAL_YOU_REFRESH_V185 — selection tiles round to the control radius and pad to
     // the taller Material touch target.
-    val shape=RoundedCornerShape(15.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — and they are made of the platform's material now. The chosen
+    // wash is the platform's own container strength (`marbleNativeSelectedFill`, which composites
+    // over the live container step instead of over nothing), the resting surface is the platform's
+    // card fill rather than the translucent `GlassStrong @ .32f` whose apparent colour depended on
+    // the page behind it, the edge is the neutral outline family, and the corner is the platform's
+    // row corner. One tile, one material, in every theme.
+    val shape=marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
+    val tileOutline = marbleNativeOutline()
+    val tileResting = marbleNativeCardFill()
+    val tileChosen = marbleNativeSelectedFill(tone)
     // MARBLE_BUTTON_TEXT_RECT_REMOVED_DS_V68
     // One continuous fill owns the whole tile. No second rectangle (hairline of a foreign
     // neutral, M3 indicator, nested surface) is allowed behind or around the label — selection
     // is ink colour + a soft tone wash only.
     val fill by animateColorAsState(
-        targetValue=if (selected) tone.copy(alpha=.13f) else Aether.GlassStrong.copy(alpha=.32f),
+        targetValue=if (selected) tileChosen else tileResting,
         animationSpec=MarbleMotionSpecs.Color,
         label="selection-fill"
     )
@@ -1134,7 +1195,7 @@ internal fun PrismSelectionTile(
             .background(fill)
             .border(
                 PrismSurface.Hairline,
-                if (selected) tone.copy(alpha=.42f) else tone.copy(alpha=.10f),
+                if (selected) tone.copy(alpha=.34f) else tileOutline,
                 shape
             )
             // MARBLE_EXPRESSIVE_MOTION_V186 — one acknowledgement pop the instant the tile
@@ -1346,11 +1407,17 @@ internal fun MarbleMetricCard(
     flaggedSamples: List<Boolean> = emptyList()
 ) {
     // MARBLE_MATERIAL_YOU_REFRESH_V185 — the metric bento rounds with the refreshed card radius.
-    val shape=RoundedCornerShape(22.dp)
-    val border=Brush.linearGradient(
+    // MARBLE_NATIVE_ANDROID_V213 — the cell is a platform card: the tile corner, the platform's
+    // container as its floor with the metric's own tone as one whisper of light above it, and a
+    // *directional* hairline — it catches the light at the top edge and settles into the neutral
+    // outline by the bottom — instead of one tone gradient wrapped around all four sides.
+    val shape=marbleNativeShape(MarbleNativeSpec.TileCornerDp.dp)
+    val bentoOutline=marbleNativeOutline()
+    val bentoFloor=marbleNativeCardFill()
+    val border=Brush.verticalGradient(
         listOf(
-            tone.copy(alpha=.30f),
-            tone.copy(alpha=.12f)
+            lerp(bentoOutline,tone,.34f),
+            bentoOutline
         )
     )
     Box(
@@ -1360,8 +1427,8 @@ internal fun MarbleMetricCard(
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        tone.copy(alpha=.065f),
-                        Aether.VoidElevated
+                        tone.copy(alpha=if (homeCloudDark()) .07f else .045f),
+                        bentoFloor
                     )
                 )
             )
@@ -1382,11 +1449,14 @@ internal fun MarbleMetricCard(
                         .background(tone)
                 )
                 Spacer(Modifier.width(7.dp))
+                // MARBLE_NATIVE_ANDROID_V213 — the metric's name is a label, not a shout:
+                // sentence case, the platform's secondary ink, normal tracking.
                 Text(
-                    trx(title).uppercase(),
-                    color=Aether.InkMuted,
-                    style=MaterialTheme.typography.labelSmall,
-                    fontWeight=FontWeight.Bold
+                    trx(title),
+                    color=marbleNativeInkVariant(),
+                    style=MaterialTheme.typography.labelMedium,
+                    fontWeight=FontWeight.SemiBold,
+                    letterSpacing=MarbleNativeSpec.SectionLabelTrackingSp.sp
                 )
             }
             Row(verticalAlignment=Alignment.Bottom) {

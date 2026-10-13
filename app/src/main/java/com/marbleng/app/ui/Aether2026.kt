@@ -1321,8 +1321,12 @@ private fun FloatingSpatialDock(
                 val active = item == selected
                 val isCustomSlot = item == SpatialTab.CUSTOM
                 val slotAccent = if (isCustomSlot) slot.accent else Aether.Cyan
-                // MARBLE_MATERIAL_YOU_REFRESH_V185 — the tab pill rounds with the taller refreshed bar.
-                val glassShape = RoundedCornerShape(22.dp)
+                // MARBLE_NATIVE_ANDROID_V213 — the selected tab is the platform's *active
+                // indicator*: a full-round pill whose radius follows the box, never a fixed
+                // 22 dp corner. On a 64 dp bar the fixed corner drew a rounded rectangle; the
+                // platform's own navigation indicator is a stadium, and the difference is the
+                // first thing the eye reads as "this is not an Android bar".
+                val glassShape = marbleNativePill()
 
                 // MARBLE_DOCK_STABLE_COLOR_V115 — the selected custom tab now uses its own saved
                 // accent, while the three permanent tabs keep the brand cyan. All three chrome
@@ -2451,6 +2455,16 @@ private fun MarbleMenuPanel(
     // every other floating surface: a grey-brown smudge under an ice-blue sheet in the light
     // theme.
     val chrome = rememberMarbleFloatChrome()
+    // MARBLE_NATIVE_ANDROID_V213 — the panel is the platform's container.
+    //
+    // It was a 22 dp box with a 22 dp lift, an accent-quiet hairline and the *card* fill: a
+    // hand-built sheet whose corner, lift and edge were each one step away from the platform's. It
+    // is now the platform's own container — the 24 dp card corner, the container-high step (which
+    // is what a floating surface takes in the newest Material), the neutral outline family for its
+    // edge, and the platform's shadow *pair*, contact shadow included, so the panel sits on the
+    // page instead of hovering over it.
+    val panelShape = marbleNativeShape(MarbleNativeSpec.CardCornerDp.dp)
+    val panelShadow = marbleNativeShadow(Aether.Cyan)
     AnimatedVisibility(
         visible = open,
         modifier = modifier.fillMaxSize(),
@@ -2474,14 +2488,21 @@ private fun MarbleMenuPanel(
                     .widthIn(max = 360.dp)
                     .fillMaxWidth()
                     .shadow(
-                        elevation = 22.dp,
-                        shape = RoundedCornerShape(22.dp),
+                        elevation = MarbleNativeSpec.CardLiftedElevationDp.dp,
+                        shape = panelShape,
                         ambientColor = chrome.shadow.copy(alpha = .26f),
                         spotColor = chrome.shadow.copy(alpha = .34f)
                     )
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Aether.VoidElevated)
-                    .border(1.dp, Aether.GlassBorderSoft, RoundedCornerShape(22.dp)),
+                    .shadow(
+                        elevation = MarbleNativeSpec.ContactElevationDp.dp,
+                        shape = panelShape,
+                        clip = false,
+                        ambientColor = panelShadow.contact,
+                        spotColor = panelShadow.contact
+                    )
+                    .clip(panelShape)
+                    .background(marbleNativeContainerHigh())
+                    .border(1.dp, marbleNativeOutline(), panelShape),
                 contentAlignment = Alignment.TopStart
             ) {
                 Column(
@@ -2820,13 +2841,23 @@ private fun HomeMetricBento(repo: AppRepository) {
     }
 }
 
+/**
+ * MARBLE_NATIVE_ANDROID_V213 — the product's switch palette *is* the platform's.
+ *
+ * Five hand-picked colours per call site (a white thumb on brand blue in light mode, an
+ * `InkMuted` thumb when off, a glass track, a glass border) is a custom control wearing Android's
+ * silhouette: it does not move with a wallpaper palette, its off state is not the platform's, and
+ * the same setting rendered differently in three places. Every switch in MarbleNG now takes the
+ * four roles Material defines for it — `primary` / `onPrimary` for the on state,
+ * `surfaceContainerHighest` / `outline` for the off state — so it is the same switch Android
+ * Settings draws, in the user's own colours, in all four themes.
+ */
 @Composable
 private fun marbleSwitchColors() = SwitchDefaults.colors(
-    checkedTrackColor=Aether.Cyan,
-    checkedThumbColor=Color.White,
-    uncheckedTrackColor=Aether.GlassStrong,
-    uncheckedThumbColor=Aether.InkMuted,
-    uncheckedBorderColor=Aether.GlassBorder
+    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+    checkedTrackColor = MaterialTheme.colorScheme.primary,
+    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest
 )
 
 @Composable
@@ -2839,16 +2870,37 @@ private fun HomeQuickSettingRow(
     onChecked: (Boolean) -> Unit
 ) {
     val tone=if(checked) Aether.Cyan else Aether.InkMuted
-    // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home tiles round to the refreshed card radius.
-    val shape=RoundedCornerShape(22.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — the tile keeps its Home geometry and takes the platform's card
+    // skin: the native corner, the native container fill instead of a welled glass step, and a
+    // leading container at the platform's 40 dp size so the glyph has an object to sit in.
+    val shape=marbleNativeShape(MarbleNativeSpec.CardCornerDp.dp)
+    val nativeShadow = marbleNativeShadow(tone)
+    val tileFill = if (checked) {
+        marbleNativeSelectedFill(Aether.Cyan)
+    } else {
+        marbleNativeCardFill()
+    }
 
     Column(
         modifier=Modifier
             .fillMaxWidth()
-            .heightIn(min=78.dp)
+            .heightIn(min=MarbleNativeSpec.RowTwoLineHeightDp.dp)
+            .shadow(
+                elevation = MarbleNativeSpec.ContactElevationDp.dp,
+                shape = shape,
+                clip = false,
+                ambientColor = nativeShadow.contact,
+                spotColor = nativeShadow.contact
+            )
             .clip(shape)
-            .background(Aether.VoidElevated)
-            .prismWell(shape=shape, tone=tone, selected=checked)
+            .background(tileFill)
+            .border(1.dp, marbleNativeOutline(), shape)
+            .kineticClickable(
+                enabled = enabled,
+                role = Role.Switch,
+                boundedShape = shape,
+                showIndication = false
+            ) { onChecked(!checked) }
             .padding(12.dp),
         verticalArrangement=Arrangement.spacedBy(8.dp)
     ) {
@@ -2858,26 +2910,25 @@ private fun HomeQuickSettingRow(
         ) {
             Box(
                 Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(tone.copy(alpha=.10f)),
+                    .size(MarbleNativeSpec.LeadingContainerDp.dp)
+                    .clip(CircleShape)
+                    .background(tone.copy(alpha=if (homeCloudDark()) .22f else .12f).compositeOver(tileFill)),
                 contentAlignment=Alignment.Center
             ) {
-                HomeVectorIcon(icon,tone,Modifier.size(21.dp))
+                HomeVectorIcon(icon,tone,Modifier.size(MarbleNativeSpec.LeadingGlyphDp.dp))
             }
             Spacer(Modifier.weight(1f))
-            Switch(
+            MarbleNativeSwitch(
                 checked=checked,
                 onCheckedChange=onChecked,
-                enabled=enabled,
-                colors=marbleSwitchColors()
+                enabled=enabled
             )
         }
         Text(
             trx(title),
             color=Aether.Ink,
-            style=MaterialTheme.typography.labelLarge,
-            fontWeight=FontWeight.Bold,
+            style=MaterialTheme.typography.bodyLarge,
+            fontWeight=FontWeight.Medium,
             maxLines=1
         )
     }
@@ -3100,14 +3151,18 @@ private fun HomeActionPortal(
     onClick: () -> Unit
 ) {
     // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home tiles round to the refreshed card radius.
-    val shape=RoundedCornerShape(22.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — and now to the *platform's* corner: 24 dp of card, the
+    // platform's container step instead of the product's elevated token, and the native shadow
+    // pair that `prismElevated` already draws. A row of portals is the same material as every
+    // other box in the product because both are made of the same two roles.
+    val shape=marbleNativeShape(MarbleNativeSpec.CardCornerDp.dp)
     Row(
         modifier
             .heightIn(min=78.dp)
             .prismElevated(
                 shape=shape,
                 tone=color,
-                fill=Aether.VoidElevated,
+                fill=marbleNativeCardFill(),
                 tint=Brush.linearGradient(
                     listOf(
                         color.copy(alpha=.075f),
@@ -3772,7 +3827,11 @@ private val SERVERS_SS_METHODS = listOf(
 )
 
 /** Shared silhouettes: one card radius, one menu radius, one badge radius, one pill. */
-private val ServersCardShape = RoundedCornerShape(16.dp)
+// MARBLE_NATIVE_ANDROID_V213 — the subscription card moves onto the platform's tile corner. One
+// constant owns the card, its slices and the frame drawn around them, so the whole stacked group
+// rounds together; at 16 dp the subscription still looked like the older Material box beside the
+// 24 dp cards it now sits next to.
+private val ServersCardShape = RoundedCornerShape(20.dp)
 private val ServersMenuShape = RoundedCornerShape(16.dp)
 private val ServersBadgeShape = RoundedCornerShape(8.dp)
 private val ServersPillShape = RoundedCornerShape(999.dp)
@@ -3814,16 +3873,25 @@ private val ServersListBodyShape = RoundedCornerShape(0.dp)
  */
 private val ServersRailControlSize = 32.dp
 
-/** The outline of a subscription card, drawn slice by slice down the LazyColumn. */
+/**
+ * MARBLE_NATIVE_ANDROID_V213 — the container's edge and the divisions inside it come from the
+ * platform's outline family, not from an accent wash.
+ *
+ * The frame was `Aether.GlassBorder` — the *accent* hairline, i.e. a brand line drawn around every
+ * subscription card — and the divider was the same family at 70 %. On a page of six subscriptions
+ * that is a dozen accent rims competing with the state colours the rows use to say "connected" and
+ * "selected". The platform's rule is the opposite: a container's edge is neutral and the *content*
+ * owns the colour.
+ */
 @Composable
-private fun serversGroupFrameColor(): Color = Aether.GlassBorder
+private fun serversGroupFrameColor(): Color = marbleNativeOutline()
 
 private val ServersGroupFrameWidth = ServersHierarchy.GROUP_BORDER_DP.dp
 
 /** The hairline between two servers of the same subscription. */
 @Composable
 private fun serversRowDividerColor(): Color =
-    Aether.GlassBorderSoft.copy(alpha = ServersHierarchy.ROW_DIVIDER_ALPHA)
+    marbleNativeOutline().copy(alpha = ServersHierarchy.ROW_DIVIDER_ALPHA)
 
 /**
  * Draws the box hairline of one slice of a stacked group.
@@ -4602,7 +4670,10 @@ private fun CyberLibrary(
                             .marbleStaggerIn(rowIndex + 1, enabled = entranceArmed() && rowIndex < 6)
                             .fillMaxWidth()
                             .clip(if (lastTileRow) ServersGroupTailShape else ServersGroupBodyShape)
-                            .background(Aether.VoidElevated)
+                            // MARBLE_NATIVE_ANDROID_V213 — the slice is the platform's card
+                            // container, so in dark mode the subscription lifts off the OLED
+                            // floor instead of being black on black.
+                            .background(marbleNativeCardFill())
                             .serversStackedFrame(
                                 openTop = true,
                                 openBottom = !lastTileRow,
@@ -5158,16 +5229,10 @@ private fun ServersMenuSwitch(
             )
         },
         trailingIcon = {
-            Switch(
+            // MARBLE_NATIVE_ANDROID_V213 — one switch, one palette, every surface.
+            MarbleNativeSwitch(
                 checked = checked,
-                onCheckedChange = { onToggle() },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Aether.VoidElevated,
-                    checkedTrackColor = Aether.Cyan,
-                    uncheckedThumbColor = Aether.VoidElevated,
-                    uncheckedTrackColor = Aether.GlassStrong,
-                    uncheckedBorderColor = Aether.GlassBorder
-                )
+                onCheckedChange = { onToggle() }
             )
         }
     )
@@ -5692,6 +5757,11 @@ private fun ServersProbeStrip(repo: AppRepository) {
     val cancelling = repo.probeCancelling
     val stopLabel = trx("Cancel measuring")
     val washEndPx = with(LocalDensity.current) { 80.dp.toPx() }
+    // MARBLE_NATIVE_ANDROID_V213 — the strip's lift is the platform's pair, not a hand-mixed navy
+    // shadow with an accent spot: the ambient/spot/contact triple is what every other card in the
+    // product now wears, and one surface with its own private shadow recipe is what made the page
+    // read as several products stacked.
+    val stripShadow = marbleNativeShadow(Aether.Cyan)
 
     Column(
         modifier = Modifier
@@ -5699,14 +5769,21 @@ private fun ServersProbeStrip(repo: AppRepository) {
             // MARBLE_SERVERS_GROUP_PRESENCE_V191 — the live strip is a page-level card and joins
             // the depth language while it is on screen.
             .shadow(
-                elevation = 4.dp,
+                elevation = MarbleNativeSpec.CardElevationDp.dp,
                 shape = ServersCardShape,
                 clip = false,
-                ambientColor = Color(0xFF0A2540).copy(alpha = .18f),
-                spotColor = Aether.Cyan.copy(alpha = .28f)
+                ambientColor = stripShadow.ambient,
+                spotColor = stripShadow.spot
+            )
+            .shadow(
+                elevation = MarbleNativeSpec.ContactElevationDp.dp,
+                shape = ServersCardShape,
+                clip = false,
+                ambientColor = stripShadow.contact,
+                spotColor = stripShadow.contact
             )
             .clip(ServersCardShape)
-            .background(Aether.VoidElevated)
+            .background(marbleNativeCardFill())
             .background(
                 Brush.verticalGradient(
                     colors = listOf(Aether.Cyan.copy(alpha = .06f), Color.Transparent),
@@ -5714,8 +5791,11 @@ private fun ServersProbeStrip(repo: AppRepository) {
                     endY = washEndPx
                 )
             )
-            .border(1.dp, Aether.Cyan.copy(alpha = .22f), ServersCardShape)
-            .padding(horizontal = 13.dp, vertical = 10.dp),
+            .border(1.dp, marbleNativeOutline(), ServersCardShape)
+            .padding(
+                horizontal = MarbleNativeSpec.CardPaddingDp.dp,
+                vertical = 12.dp
+            ),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         Row(
@@ -5912,7 +5992,10 @@ private fun ServersGroupHeader(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Aether.VoidElevated)
+            // MARBLE_NATIVE_ANDROID_V213 — the card's floor is the platform's container step, so
+            // in dark mode the subscription lifts off the OLED page instead of being black on
+            // black with an accent line around it.
+            .background(marbleNativeCardFill())
             // MARBLE_SERVERS_GROUP_PRESENCE_V191 — the level-1 card carries its own light: a
             // whisper accent wash down from the header's top edge, fading out long before the
             // rows begin, so the subscription reads as a lit container rather than one more grey
@@ -6540,7 +6623,7 @@ private fun ServersNodeCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(rowShape)
-            .background(Aether.VoidElevated)
+            .background(marbleNativeCardFill())
             .serversStackedFrame(
                 openTop = true,
                 openBottom = !lastInGroup,
@@ -6598,8 +6681,11 @@ private fun ServersNodeCard(
                         // One container step away from the card's own surface: darker than the
                         // card in Light (recessed), lighter than it in Dark (an inset well).
                         // Either way the block is a different surface from the card that holds
-                        // it, which is the whole point of the inset.
-                        .background(Aether.Glass)
+                        // it, which is the whole point of the inset. MARBLE_NATIVE_ANDROID_V213 —
+                        // the step is the platform's container tone rather than the product's
+                        // glass token, so a wallpaper palette moves it with everything else.
+                        .heightIn(min = MarbleNativeSpec.RowDenseHeightDp.dp)
+                        .background(marbleNativeContainerHigh())
                         .background(rowFill)
                         // The one outline a nested row is allowed to grow, and only when it is
                         // the server that is actually doing something.
@@ -6752,7 +6838,7 @@ private fun ServersNodeCard(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = ServersHierarchy.LIST_INSET_DP.dp)
-                        .background(Aether.Glass)
+                        .background(marbleNativeContainerHigh())
                 ) {
                     HorizontalDivider(
                         thickness = 1.dp,
@@ -8453,14 +8539,12 @@ private fun ServersInsecureSwitch(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Switch(
+        // MARBLE_NATIVE_ANDROID_V213 — a switch is not a status light. The amber *warning* stays
+        // on the label, where it names the consequence; the control itself is the platform's
+        // switch in the platform's colours, so "on" looks like on wherever it is.
+        MarbleNativeSwitch(
             checked = checked,
-            onCheckedChange = { onToggle() },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Aether.Amber,
-                checkedTrackColor = Aether.Amber.copy(alpha = .24f),
-                uncheckedThumbColor = Aether.InkMuted
-            )
+            onCheckedChange = { onToggle() }
         )
         Text(
             description,
@@ -9377,8 +9461,11 @@ private fun DockFlagTile(profile: ProxyProfile?, size: Dp = 38.dp, flagCode: Str
         modifier = Modifier
             .size(size)
             .clip(shape)
-            .background(homeCloudInsetFill())
-            .border(1.dp, homeCloudInsetBorder(), shape),
+            // MARBLE_NATIVE_ANDROID_V213 — the chip's fill and rim come from the platform's
+            // container and outline roles, so the fourth tab's flag tile is made of the same
+            // material as every other card in the product.
+            .background(marbleNativeCardFill())
+            .border(1.dp, marbleNativeOutline(), shape),
         contentAlignment = Alignment.Center
     ) {
         // MARBLE_SERVER_LOCATION_V192 — the real flag fills the tile when the location is
@@ -9407,33 +9494,47 @@ private fun DockSlotCard(
     // MARBLE_DOCK_SLOT_PRESENCE_V191 — the fourth tab's cards join the product depth language:
     // one cool shadow, a tone-lit top wash and a gradient rim, so the page reads as the same
     // physical system as Home and Settings instead of flat grey plates.
+    // MARBLE_NATIVE_ANDROID_V213 — the language is the platform's now: the card container, the
+    // native ambient+spot pair with a contact shadow, and a rim that lights with the surface's own
+    // light at the top before settling into the neutral outline — never a coloured rectangle
+    // drawn around the card.
     val dark = homeCloudDark()
     val washEndPx = with(LocalDensity.current) { 150.dp.toPx() }
+    val slotShadow = marbleNativeShadow(tone)
+    val slotOutline = marbleNativeOutline()
+    val slotRim = lerp(slotOutline, tone, .22f)
     Column(
         modifier = modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 4.dp,
+                elevation = MarbleNativeSpec.CardElevationDp.dp,
                 shape = ServersCardShape,
                 clip = false,
-                ambientColor = if (dark) Color(0xFF001144).copy(alpha = .34f) else Color(0xFF0A2540).copy(alpha = .18f),
-                spotColor = tone.copy(alpha = .28f)
+                ambientColor = slotShadow.ambient,
+                spotColor = slotShadow.spot
+            )
+            .shadow(
+                elevation = MarbleNativeSpec.ContactElevationDp.dp,
+                shape = ServersCardShape,
+                clip = false,
+                ambientColor = slotShadow.contact,
+                spotColor = slotShadow.contact
             )
             .clip(ServersCardShape)
-            .background(Aether.VoidElevated)
+            .background(marbleNativeCardFill())
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(tone.copy(alpha = if (dark) .07f else .05f), Color.Transparent),
+                    colors = listOf(tone.copy(alpha = if (dark) .06f else .035f), Color.Transparent),
                     startY = 0f,
                     endY = washEndPx
                 )
             )
             .border(
                 1.dp,
-                Brush.verticalGradient(listOf(tone.copy(alpha = .40f), tone.copy(alpha = .16f))),
+                Brush.verticalGradient(listOf(slotRim, slotOutline)),
                 ServersCardShape
             )
-            .padding(13.dp),
+            .padding(MarbleNativeSpec.CardPaddingDp.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
         content = content
     )
@@ -10234,7 +10335,12 @@ private fun DockNodeRow(
     onDetails: () -> Unit
 ) {
     val measured = result?.takeIf { it.success > 0 && it.latencyMs >= 20 }
-    val shape = RoundedCornerShape(15.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — the slot's row is the platform's row: the native corner, the
+    // container step (or the platform's own tonal wash when the row is the active or the chosen
+    // one), one neutral hairline, and the platform's touch floor as a painted minimum rather than
+    // as a hope.
+    val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
+    val outline = marbleNativeOutline()
     val tone = when {
         active -> Aether.Emerald
         selected -> Aether.Cyan
@@ -10244,15 +10350,21 @@ private fun DockNodeRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = MarbleNativeSpec.TouchTargetDp.dp)
             .clip(shape)
-            .background(if (tone == Color.Transparent) Aether.VoidElevated else tone.copy(alpha = .08f))
+            .background(
+                if (tone == Color.Transparent) marbleNativeCardFill() else marbleNativeSelectedFill(tone)
+            )
             .border(
                 1.dp,
-                if (tone == Color.Transparent) Aether.GlassBorderSoft.copy(alpha = .55f) else tone.copy(alpha = .38f),
+                if (tone == Color.Transparent) outline else tone.copy(alpha = .34f),
                 shape
             )
             .clickable(onClick = onSelect)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(
+                horizontal = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 4.dp,
+                vertical = 8.dp
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
@@ -10710,61 +10822,81 @@ private fun SettingsHubCard(
     subtitle: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(18.dp)
-    // MARBLE_SETTINGS_HUB_PRESENCE_V191 — the hub was a wall of identical grey boxes: same fill,
-    // same 18% border, no depth, no colour. Every group card now carries its section's tone in
-    // the surface itself — a soft tone-lit wash down from the top edge, one cool shadow, and a
-    // gradient rim — so the page reads as colour-coded groups instead of one grey column, and
-    // each card sits on its own depth plane above the aurora page.
+    // MARBLE_NATIVE_ANDROID_V213 — the card is the platform's card.
+    //
+    // V191 gave every group its own tone-lit wash, a 4 dp lift and a tone-tinted rim. The wash and
+    // the lift were right; the *rim* was not: a navy stroke at 38 % around a card is a drawn
+    // rectangle, which is the one thing Android's own settings cards never have. The card now
+    // wears the native skin — container fill, one directional hairline that catches the light at
+    // the top and settles into the neutral outline at the bottom, the platform's shadow pair plus
+    // the contact shadow that puts it on the page, and the platform's large corner.
+    val shape = marbleNativeShape(MarbleNativeSpec.CardCornerDp.dp)
     val dark = homeCloudDark()
-    val washEndPx = with(LocalDensity.current) { 170.dp.toPx() }
+    val nativeShadow = marbleNativeShadow(tone)
+    val outline = marbleNativeOutline()
+    val litRim = lerp(outline, tone, .26f)
     Column(
         modifier = modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 4.dp,
+                elevation = MarbleNativeSpec.CardElevationDp.dp,
                 shape = shape,
                 clip = false,
-                ambientColor = if (dark) Color(0xFF001144).copy(alpha = .34f) else Color(0xFF0A2540).copy(alpha = .18f),
-                spotColor = if (dark) tone.copy(alpha = .26f) else tone.copy(alpha = .30f)
+                ambientColor = nativeShadow.ambient,
+                spotColor = nativeShadow.spot
+            )
+            .shadow(
+                elevation = MarbleNativeSpec.ContactElevationDp.dp,
+                shape = shape,
+                clip = false,
+                ambientColor = nativeShadow.contact,
+                spotColor = nativeShadow.contact
             )
             .clip(shape)
             // MARBLE_SETTINGS_OPAQUE_SURFACES_V141 — opaque fill: a 92% surface let the page
             // gradient bleed through unevenly, the same translucent-stack defect the theme
             // layer already banned for causing compositing bands.
-            .background(Aether.VoidElevated)
+            .background(marbleNativeCardFill())
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(tone.copy(alpha = if (dark) .07f else .05f), Color.Transparent),
-                    startY = 0f,
-                    endY = washEndPx
+                    colors = listOf(tone.copy(alpha = if (dark) .06f else .035f), Color.Transparent)
                 )
             )
             .border(
                 1.dp,
-                Brush.verticalGradient(listOf(tone.copy(alpha = .38f), tone.copy(alpha = .14f))),
+                Brush.verticalGradient(listOf(litRim, outline)),
                 shape
             )
-            .padding(start = 13.dp, end = 13.dp, top = 11.dp, bottom = 12.dp),
+            .padding(
+                start = MarbleNativeSpec.CardPaddingDp.dp,
+                end = MarbleNativeSpec.CardPaddingDp.dp,
+                top = 13.dp,
+                bottom = 13.dp
+            ),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            // MARBLE_SETTINGS_QUIET_CHROME_V114 — no marker bar, no status pip: the group is named
-            // in type and nothing else. V191 lifts the label to the full tone: at 92% alpha it
-            // greyed out on the wash it now sits on.
+            // MARBLE_NATIVE_ANDROID_V213 — the group name stops shouting.
+            //
+            // It was uppercased *and* letterspaced 1.6 sp *and* painted in the section's tone: three
+            // signals for one word, which is why a page of sections read as a wall of labels. The
+            // platform names a group in sentence case, at normal tracking, in the primary tone — and
+            // the colour is already carried by the card's own wash.
             Text(
-                trx(title).uppercase(),
+                trx(title),
                 color = tone,
-                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.6.sp),
-                fontWeight = FontWeight.Bold,
-                maxLines = 1
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = MarbleNativeSpec.SectionLabelTrackingSp.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
                     MarbleCopy.oneSentence(trx(subtitle)),
-                    color = Aether.InkFaint,
-                    style = settingsBodyStyle(),
+                    color = marbleNativeInkVariant(),
+                    style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -10800,21 +10932,33 @@ private fun SettingsHubRow(
     badge: String = "",
     preview: @Composable () -> Unit
 ) {
-    val shape = RoundedCornerShape(14.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — the door is the platform's list item.
+    //
+    // It was a 14 dp inset box with a tone rail, an 11 dp content inset and a hand-drawn chevron
+    // glyph: a bespoke control where Android has one. This is the platform's row — 56/72 dp, the
+    // native container and outline, a real value slot and the platform's disclosure mark — with
+    // the product's own *preview* kept in the trailing cluster, because a preview of the thing a
+    // row opens is the one part of this surface that was never the problem.
+    //
+    // [title] and its [badge] stay on one line: a title and the value it holds are one thought,
+    // and a badge pushed to the far edge of a 300 dp row is a value the eye has to travel to find.
+    val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
+    val outline = marbleNativeOutline()
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = MarbleNativeSpec.RowTwoLineHeightDp.dp)
             .clip(shape)
-            // MARBLE_SETTINGS_ROW_TONE_V141 — opaque inset fill + the section's tone rail, so
-            // every hub row reads as its group's colour instead of floating gray text.
-            .background(homeCloudInsetFill())
-            .border(1.dp, homeCloudInsetBorder(), shape)
-            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 9.dp),
+            .background(marbleNativeCardFill())
+            .border(1.dp, outline, shape)
+            .kineticClickable(role = Role.Button, boundedShape = shape, showIndication = false, onClick = onClick)
+            .padding(
+                horizontal = MarbleNativeSpec.RowPaddingHorizontalDp.dp,
+                vertical = MarbleNativeSpec.RowPaddingVerticalDp.dp
+            ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        SettingsToneRail(tone = tone)
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -10826,7 +10970,8 @@ private fun SettingsHubRow(
                 Text(
                     trx(title),
                     color = Aether.Ink,
-                    style = settingsRowTitleStyle(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
@@ -10849,8 +10994,8 @@ private fun SettingsHubRow(
             Text(
                 // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
                 MarbleCopy.oneSentence(trx(subtitle)),
-                color = Aether.InkMuted,
-                style = settingsBodyStyle(),
+                color = marbleNativeInkVariant(),
+                style = MaterialTheme.typography.bodyMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -10863,11 +11008,11 @@ private fun SettingsHubRow(
         ) {
             preview()
         }
-        HomeVectorIcon(HomeIcon.CHEVRON, tone.copy(alpha = .70f), Modifier.size(14.dp))
+        // The platform's disclosure mark, drawn rather than typed.
+        MarbleNativeChevron(outline.copy(alpha = .9f))
     }
 }
 
-/** A live switch that stays on the hub: important enough not to hide behind a title. */
 @Composable
 private fun SettingsHubSwitch(
     title: String,
@@ -10875,80 +11020,31 @@ private fun SettingsHubSwitch(
     checked: Boolean,
     onChecked: (Boolean) -> Unit
 ) {
+    // MARBLE_NATIVE_ANDROID_V213 — the hub's live switch is the platform's row and switch.
     val tone = settingsSectionTone()
-    val shape = RoundedCornerShape(14.dp)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(homeCloudInsetFill())
-            .border(
-                1.dp,
-                if (checked) tone.copy(alpha = .34f) else homeCloudInsetBorder(),
-                shape
-            )
-            .kineticClickable(role = Role.Checkbox, boundedShape = shape, onClick = { onChecked(!checked) })
-            .padding(horizontal = 11.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        SettingsToneRail(tone = tone, lit = checked)
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(1.dp)
-        ) {
-            Text(
-                trx(title),
-                color = Aether.Ink,
-                style = settingsRowTitleStyle(),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
-                MarbleCopy.oneSentence(trx(subtitle)),
-                color = Aether.InkMuted,
-                style = settingsBodyStyle(),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+    MarbleNativeListItem(
+        title = title,
+        subtitle = MarbleCopy.oneSentence(trx(subtitle)),
+        tone = tone,
+        selected = checked,
+        role = Role.Switch,
+        onClick = { onChecked(!checked) },
+        trailing = {
+            MarbleNativeSwitch(
+                checked = checked,
+                onCheckedChange = { next -> onChecked(next) }
             )
         }
-        Switch(
-            checked = checked,
-            onCheckedChange = onChecked,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Aether.Void,
-                checkedTrackColor = Aether.Cyan,
-                uncheckedThumbColor = Aether.InkFaint,
-                uncheckedTrackColor = Aether.GlassStrong
-            )
-        )
-    }
+    )
 }
 
-/**
- * MARBLE_SETTINGS_ROW_TONE_V141 — the colour rail of a Settings row: a 3 dp rounded bar in the
- * section's tone that dims while the row is off and lights while it is on. It is what gives
- * every row a colour identity without inventing an icon per row.
- */
-@Composable
-private fun SettingsToneRail(
-    tone: Color,
-    lit: Boolean = true
-) {
-    val railAlpha by animateFloatAsState(
-        targetValue = if (lit) 1f else .38f,
-        animationSpec = MarbleMotionSpecs.ResponseFloat,
-        label = "settings-rail-alpha"
-    )
-    Box(
-        modifier = Modifier
-            .width(3.dp)
-            .height(26.dp)
-            .clip(RoundedCornerShape(2.dp))
-            .background(tone.copy(alpha = railAlpha))
-    )
-}
+// MARBLE_NATIVE_ANDROID_V213 — `SettingsToneRail` is gone.
+//
+// The 3 dp tone bar on a settings row's leading edge was the product's own invention: no Android
+// surface carries one, it made every row 3 dp wider than the platform's anatomy, and it duplicated
+// a colour the row's own value already speaks. The rows it lived in are [MarbleNativeListItem]s
+// now, so the rail has no call site left — and a helper with no call site is deleted, not kept
+// "just in case", because the next person to add a settings row would otherwise find it.
 
 // ---------------------------------------------------------------------------------------------
 // Hub previews — a tiny picture of what each title controls
@@ -11810,9 +11906,20 @@ private fun SettingsHubGroupCard(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — the hub's group card is the platform's card.
+    //
+    // V191 gave every group a tone-lit wash, a 5 dp lift and a tone-tinted *rim*. The wash and the
+    // lift were right; the rim was not, because a coloured stroke around a card is the one thing
+    // Android's own settings cards never have — an edge is neutral and the content owns the
+    // colour. The card now wears the native skin: the platform's container step, the platform's
+    // card corner, the ambient/spot pair with the contact shadow under it, and one hairline that
+    // catches the light at the top of the card and settles into the neutral outline by its bottom.
+    val shape = marbleNativeShape(MarbleNativeSpec.CardCornerDp.dp)
     val dark = homeCloudDark()
     val washEndPx = with(LocalDensity.current) { 150.dp.toPx() }
+    val groupShadow = marbleNativeShadow(group.tone)
+    val groupOutline = marbleNativeOutline()
+    val groupRim = lerp(groupOutline, group.tone, if (dark) .30f else .22f)
     // A quarter turn is the whole disclosure language: open points down into the contents, closed
     // points along the row. It is a rotation, never a size change, so nothing in the list moves
     // when a section opens.
@@ -11827,29 +11934,41 @@ private fun SettingsHubGroupCard(
         modifier = modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 5.dp,
+                elevation = MarbleNativeSpec.CardElevationDp.dp,
                 shape = shape,
                 clip = false,
-                ambientColor = if (dark) Color(0xFF001144).copy(alpha = .34f) else Color(0xFF0A2540).copy(alpha = .18f),
-                spotColor = group.tone.copy(alpha = .30f)
+                ambientColor = groupShadow.ambient,
+                spotColor = groupShadow.spot
+            )
+            .shadow(
+                elevation = MarbleNativeSpec.ContactElevationDp.dp,
+                shape = shape,
+                clip = false,
+                ambientColor = groupShadow.contact,
+                spotColor = groupShadow.contact
             )
             .clip(shape)
             // MARBLE_SETTINGS_OPAQUE_SURFACES_V141 — opaque fill, as on every other settings
             // surface: a translucent card let the page gradient bleed through in bands.
-            .background(Aether.VoidElevated)
+            .background(marbleNativeCardFill())
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(group.tone.copy(alpha = if (dark) .08f else .06f), Color.Transparent),
+                    colors = listOf(group.tone.copy(alpha = if (dark) .06f else .035f), Color.Transparent),
                     startY = 0f,
                     endY = washEndPx
                 )
             )
             .border(
                 1.dp,
-                Brush.verticalGradient(listOf(group.tone.copy(alpha = .42f), group.tone.copy(alpha = .14f))),
+                Brush.verticalGradient(listOf(groupRim, groupOutline)),
                 shape
             )
-            .padding(start = 13.dp, end = 13.dp, top = 11.dp, bottom = 12.dp),
+            .padding(
+                start = MarbleNativeSpec.CardPaddingDp.dp,
+                end = MarbleNativeSpec.CardPaddingDp.dp,
+                top = 13.dp,
+                bottom = 13.dp
+            ),
         verticalArrangement = Arrangement.spacedBy(if (expanded) 10.dp else 0.dp)
     ) {
         Row(
@@ -11865,11 +11984,17 @@ private fun SettingsHubGroupCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // The platform's leading container: 40 dp, round, and filled with the section's tone
+            // at container strength over the card's own surface — never a rounded square borrowed
+            // from a toolbar.
             Box(
                 Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(group.tone.copy(alpha = .14f)),
+                    .size(MarbleNativeSpec.LeadingContainerDp.dp)
+                    .clip(CircleShape)
+                    .background(
+                        group.tone.copy(alpha = if (dark) .20f else .12f)
+                            .compositeOver(marbleNativeCardFill())
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 group.icon(group.tone)
@@ -11878,19 +12003,25 @@ private fun SettingsHubGroupCard(
                 Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
+                // MARBLE_NATIVE_ANDROID_V213 — a heading is not a slogan. It was uppercased *and*
+                // letterspaced 1.4 sp *and* painted in the section's tone: three signals for one
+                // word, which is why a page of groups read as a wall of labels. The platform names
+                // a group in sentence case at normal tracking; the colour is already carried by the
+                // card's own wash and by the badge.
                 Text(
-                    trx(group.title).uppercase(),
+                    trx(group.title),
                     color = group.tone,
-                    style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 1.4.sp),
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = MarbleNativeSpec.SectionLabelTrackingSp.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
                     MarbleCopy.oneSentence(trx(group.subtitle)),
-                    color = Aether.InkMuted,
-                    style = settingsBodyStyle(),
+                    color = marbleNativeInkVariant(),
+                    style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -11908,13 +12039,10 @@ private fun SettingsHubGroupCard(
                     .background(group.tone.copy(alpha = .13f))
                     .padding(horizontal = 7.dp, vertical = 2.dp)
             )
-            HomeVectorIcon(
-                HomeIcon.CHEVRON,
-                group.tone.copy(alpha = .75f),
-                Modifier
-                    .size(15.dp)
-                    .rotate(chevronTurn)
-            )
+            // The platform's disclosure mark, drawn rather than typed, and still a rotation.
+            Box(Modifier.rotate(chevronTurn)) {
+                MarbleNativeChevron(group.tone.copy(alpha = .80f))
+            }
         }
 
         AnimatedVisibility(
@@ -11945,28 +12073,48 @@ private fun SettingsHubSubSectionCard(
     tone: Color,
     section: SettingsHubSectionSpec
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — the sub-section is a platform inset.
+    //
+    // One step *above* the card it lives in (the platform's container-high role) with the neutral
+    // outline family around it, which is how Android nests a group inside a settings card. The
+    // level marker stops being a 3 dp rail — a Marble invention — and becomes the platform's
+    // leading container: a round, tone-filled dot at the head of the row.
+    val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
+    val insetFill = marbleNativeContainerHigh()
+    val subOutline = marbleNativeOutline()
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(homeCloudInsetFill())
-            .border(1.dp, homeCloudInsetBorder(), shape)
-            .padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 10.dp),
+            .background(insetFill)
+            .border(1.dp, subOutline, shape)
+            .padding(
+                start = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 6.dp,
+                end = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 6.dp,
+                top = 10.dp,
+                bottom = 11.dp
+            ),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Box(
                 Modifier
-                    .width(3.dp)
-                    .height(16.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(tone.copy(alpha = .72f))
-            )
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(tone.copy(alpha = .16f).compositeOver(insetFill)),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(tone)
+                )
+            }
             Column(
                 Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(1.dp)
@@ -11983,8 +12131,8 @@ private fun SettingsHubSubSectionCard(
                     Text(
                         // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
                         MarbleCopy.oneSentence(trx(section.subtitle)),
-                        color = Aether.InkFaint,
-                        style = settingsBodyStyle(),
+                        color = marbleNativeInkVariant(),
+                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -13330,22 +13478,29 @@ private fun SettingsInformationPage(
 @Composable
 private fun InformationRow(label: String, value: String, tone: Color) {
     // MARBLE_SETTINGS_ROW_TONE_V141 — same boxed row language as the rest of Settings.
-    val shape = RoundedCornerShape(13.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — and that language is the platform's row: the container step, one
+    // neutral hairline, the platform's row corner and its touch floor. The tone rail is gone — the
+    // row's colour is already in its value.
+    val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = MarbleNativeSpec.TouchTargetDp.dp)
             .clip(shape)
-            .background(homeCloudInsetFill())
-            .border(1.dp, homeCloudInsetBorder(), shape)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .background(marbleNativeCardFill())
+            .border(1.dp, marbleNativeOutline(), shape)
+            .padding(
+                horizontal = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 4.dp,
+                vertical = 7.dp
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        SettingsToneRail(tone = tone, lit = false)
         Text(
             trx(label),
             color = Aether.Ink,
-            style = settingsRowTitleStyle(),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -13368,20 +13523,26 @@ private fun InformationLinkRow(
     tone: Color,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(13.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — the informational door is the platform's two-line row: the
+    // native container and outline, the native corner, the 72 dp anatomy and the disclosure mark at
+    // the trailing edge. `homeCloudInset*` and the tone rail are off this surface for good.
+    val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = MarbleNativeSpec.RowTwoLineHeightDp.dp)
             .clip(shape)
             // MARBLE_SETTINGS_OPAQUE_SURFACES_V141 — opaque inset fill, never translucent glass.
-            .background(homeCloudInsetFill())
-            .border(1.dp, homeCloudInsetBorder(), shape)
-            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 9.dp),
+            .background(marbleNativeCardFill())
+            .border(1.dp, marbleNativeOutline(), shape)
+            .kineticClickable(role = Role.Button, boundedShape = shape, showIndication = false, onClick = onClick)
+            .padding(
+                horizontal = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 4.dp,
+                vertical = 9.dp
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        SettingsToneRail(tone = tone)
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -13389,7 +13550,8 @@ private fun InformationLinkRow(
             Text(
                 trx(title),
                 color = Aether.Ink,
-                style = settingsRowTitleStyle(),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -13401,7 +13563,7 @@ private fun InformationLinkRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        HomeVectorIcon(HomeIcon.GLOBE, tone, Modifier.size(18.dp))
+        MarbleNativeChevron(marbleNativeOutline().copy(alpha = .9f))
     }
 }
 
@@ -18632,28 +18794,34 @@ private fun CyberChoiceChip(
     // of its width (weight) so segmented decisions fill their thirds instead of hugging the
     // start; the label stays centred by the Box below in both cases.
     val tone = if (selectionTone == Color.Unspecified) color else selectionTone
-    val shape = RoundedCornerShape(12.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — a chip is a stadium on Android, at 40 dp of painted height, and
+    // its unselected edge is the platform's outline rather than the product's glass hairline. The
+    // selected wash is the platform's own container strength rather than a fixed 14 % of the
+    // accent, so it reads the same in a wallpaper palette as in the brand one.
+    val shape = marbleNativePill()
+    val outline = marbleNativeOutline()
     // MARBLE_DOCK_ALPHA_PATH_V205 — rest at this chip's own hue with zero alpha, never
     // `Color.Transparent`: a tween toward Transparent ramps the RGB toward black and paints a
     // grey flash on the light page while the AMOLED page hides the same artifact.
+    val selectedFill = marbleNativeSelectedFill(tone)
     val fill by animateColorAsState(
-        if (selected) tone.copy(alpha = .14f) else tone.copy(alpha = 0f),
+        if (selected) selectedFill else tone.copy(alpha = 0f),
         MarbleMotionSpecs.Color,
         label = "choice-chip-fill"
     )
     val ink by animateColorAsState(
-        if (selected) tone else Aether.InkMuted,
+        if (selected) tone else marbleNativeInkVariant(),
         MarbleMotionSpecs.Color,
         label = "choice-chip-ink"
     )
     Box(
         modifier = modifier
-            .heightIn(min = 34.dp)
+            .heightIn(min = 40.dp)
             .clip(shape)
             .background(fill)
             .border(
                 1.dp,
-                if (selected) tone.copy(alpha = .42f) else Aether.GlassBorderSoft.copy(alpha = .7f),
+                if (selected) tone.copy(alpha = .34f) else outline,
                 shape
             )
             .kineticClickable(
@@ -18692,9 +18860,16 @@ private fun CyberSegment(
     // MARBLE_PRODUCT_SIMPLE_V117 — a flat two-line segment tile for the few-per-row choices
     // (probe method, Iran policy, connection mode). Same language as the chips, just taller.
     val tone = if (selectionTone == Color.Unspecified) color else selectionTone
-    val shape = RoundedCornerShape(14.dp)
+    // MARBLE_NATIVE_ANDROID_V213 — the two-line option tile takes the platform's row corner, the
+    // platform's container step as its resting fill (the product's `GlassStrong @ .30f` was a
+    // translucent wash whose apparent colour depended on the page behind it) and the neutral
+    // outline family for its edge.
+    val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
+    val outline = marbleNativeOutline()
+    val restingFill = marbleNativeCardFill()
+    val chosenFill = marbleNativeSelectedFill(tone)
     val fill by animateColorAsState(
-        if (selected) tone.copy(alpha = .12f) else Aether.GlassStrong.copy(alpha = .30f),
+        if (selected) chosenFill else restingFill,
         MarbleMotionSpecs.Color,
         label = "segment-fill"
     )
@@ -18710,7 +18885,7 @@ private fun CyberSegment(
             .background(fill)
             .border(
                 1.dp,
-                if (selected) tone.copy(alpha = .42f) else Aether.GlassBorderSoft.copy(alpha = .55f),
+                if (selected) tone.copy(alpha = .34f) else outline,
                 shape
             )
             .kineticClickable(
@@ -18766,79 +18941,53 @@ private fun SettingSwitch(
     debounceMs: Long = 300L,
     onChecked: (Boolean) -> Unit
 ) {
-    // MARBLE_SETTINGS_ROW_TONE_V141 — a switch row is a real, coloured object now: an opaque
-    // inset surface, the section's tone rail on the leading edge, and a hairline that lights
-    // with the same tone the moment the row is on. The naked-text row the product shipped
-    // before had no hierarchy — a page of switches read as one gray field.
+    // MARBLE_NATIVE_ANDROID_V213 — the option row is the platform's list item now.
+    //
+    // What it was: a 13 dp box at ~36 dp of painted height with a coloured rail on its leading
+    // edge, a tone-tinted hairline and four hand-picked switch colours. Three of those four
+    // things are not how Android draws a setting — the rail is a Marble invention, the box does
+    // not reach the platform's own touch floor, and the switch was custom-painted inside the
+    // platform's silhouette, so it never followed a wallpaper palette.
+    //
+    // What it is: [MarbleNativeListItem] — 56 dp (72 dp with a supporting line), a 16 dp corner,
+    // the platform's container fill and outline family, the supporting line on the platform's
+    // secondary ink — with [MarbleNativeSwitch] as the trailing control, which is the same switch
+    // Android Settings draws, in the user's own colours, in every theme.
+    //
+    // The copy contract is untouched: at most one sentence (V208), the title leads, and the whole
+    // row is still one tap target with the same debounce.
     val tone = settingsSectionTone()
-    val shape = RoundedCornerShape(13.dp)
     val localizedTitle = trx(title)
     val switchWord = trx("switch")
     val localizedState = trx(if (checked) "on" else "off")
     val accessibilityState = trx(if (checked) "Enabled" else "Disabled")
     var lastClickTime by remember { mutableLongStateOf(0L) }
 
-    Row(
-        modifier=Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(homeCloudInsetFill())
-            .border(
-                1.dp,
-                if (checked) tone.copy(alpha = .34f) else homeCloudInsetBorder(),
-                shape
+    MarbleNativeListItem(
+        title = title,
+        subtitle = MarbleCopy.oneSentence(trx(subtitle)),
+        tone = tone,
+        selected = checked,
+        role = Role.Switch,
+        onClick = {
+            val now = System.currentTimeMillis()
+            if (now - lastClickTime > debounceMs) {
+                lastClickTime = now
+                onChecked(!checked)
+            }
+        },
+        modifier = Modifier.semantics {
+            contentDescription = "$localizedTitle، $switchWord $localizedState"
+            stateDescription = accessibilityState
+        },
+        trailing = {
+            MarbleNativeSwitch(
+                checked = checked,
+                onCheckedChange = { next -> onChecked(next) }
             )
-            .kineticClickable(
-                role = Role.Switch,
-                boundedShape = shape,
-                showIndication = false
-            ) {
-                val now = System.currentTimeMillis()
-                if (now - lastClickTime > debounceMs) {
-                    lastClickTime = now
-                    onChecked(!checked)
-                }
-            }
-            .semantics {
-                contentDescription = "$localizedTitle، $switchWord $localizedState"
-                stateDescription = accessibilityState
-            }
-            .padding(horizontal = 10.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        SettingsToneRail(tone = tone, lit = checked)
-        Column(
-            Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(1.dp)
-        ) {
-            Text(
-                trx(title),
-                color = Aether.Ink,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (subtitle.isNotBlank()) {
-                Text(
-                    // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — one option, at most one sentence.
-                    MarbleCopy.oneSentence(trx(subtitle)),
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
         }
-        Switch(
-            checked = checked,
-            onCheckedChange = onChecked,
-            colors = marbleSwitchColors()
-        )
-    }
+    )
 }
-
 
 @Composable
 private fun NumberSetting(
@@ -18850,21 +18999,27 @@ private fun NumberSetting(
 ) {
     // MARBLE_SETTINGS_ROW_TONE_V141 — the numeric stepper wears the same row language as the
     // switches: opaque inset surface, tone rail, tone-lit value.
+    // MARBLE_NATIVE_ANDROID_V213 — the row language is the platform's: the native container and
+    // outline, the native corner and the touch floor. The stepper keeps the product's own rounded
+    // buttons — a stepper is a real control, and V213 does not invent a platform one.
     val tone = settingsSectionTone()
-    val shape = RoundedCornerShape(13.dp)
+    val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
     // Stale or corrupted stored values must never render or step outside the legal range.
     val shown = value.coerceIn(range)
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = MarbleNativeSpec.TouchTargetDp.dp)
             .clip(shape)
-            .background(homeCloudInsetFill())
-            .border(1.dp, homeCloudInsetBorder(), shape)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .background(marbleNativeCardFill())
+            .border(1.dp, marbleNativeOutline(), shape)
+            .padding(
+                horizontal = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 4.dp,
+                vertical = 5.dp
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        SettingsToneRail(tone = tone)
         Text(
             trx(title),
             color = Aether.Ink,
