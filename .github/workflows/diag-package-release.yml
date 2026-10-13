@@ -387,6 +387,7 @@ jobs:
           set +e
           gradle \
             --no-daemon \
+            --max-workers=1 \
             clean \
             assembleRelease \
             --stacktrace \
