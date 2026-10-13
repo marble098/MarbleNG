@@ -600,8 +600,18 @@ jobs:
         run: |
           set -euo pipefail
 
+          # MARBLE_RELEASE_PACKAGING_V214 — serialize the release build. Run 307 died in
+          # :app:packageRelease's IncrementalSplitterRunnable with no root-cause line and
+          # the identical tree packaged green on re-run (diagnostic run 38412976243):
+          # AGP's splitter writes the five ABI/universal APKs from ~500 MB of merged
+          # native libraries, and with parallel workers those writers race/OOM
+          # intermittently. One worker makes the splitter write one APK at a time;
+          # the task graph here is nearly linear (Kotlin/R8 are single tasks whose
+          # internal threading is unaffected), so the determinism costs little time.
+          # The matching heap headroom lives in gradle.properties.
           gradle \
             --no-daemon \
+            --max-workers=1 \
             clean \
             assembleRelease \
             -PVERSION_NAME="$VERSION_NAME" \
