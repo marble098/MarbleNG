@@ -616,6 +616,11 @@ internal fun MarbleNativeChoiceRow(
         animationSpec = MarbleMotionSpecs.Color,
         label = "native-choice-ring"
     )
+    // The state a choice speaks is resolved *here*, in the composition: `trx` is itself composable
+    // (it reads the live language), and a `semantics { }` lambda is not a composable scope — the
+    // words have to exist before the node is described.
+    val selectedState = trx("Selected")
+    val notSelectedState = trx("Not selected")
     MarbleNativeListItem(
         title = title,
         subtitle = detail,
@@ -629,7 +634,7 @@ internal fun MarbleNativeChoiceRow(
                 title.takeIf { it.isNotBlank() },
                 detail.takeIf { it.isNotBlank() }
             ).joinToString(", ")
-            stateDescription = if (selected) trx("Selected") else trx("Not selected")
+            stateDescription = if (selected) selectedState else notSelectedState
         },
         trailing = {
             Box(
@@ -713,6 +718,11 @@ internal fun MarbleNativeSegmentedRow(
     ) {
         options.forEachIndexed { index, label ->
             val chosen = index == selectedIndex
+            // Resolved in the composition, not in the semantics lambda below (see
+            // [MarbleNativeChoiceRow]).
+            val labelText = trx(label)
+            val selectedState = trx("Selected")
+            val notSelectedState = trx("Not selected")
             val fill by animateColorAsState(
                 targetValue = if (chosen) {
                     tone.copy(alpha = if (homeCloudDark()) .30f else .14f).compositeOver(trackFill)
@@ -745,8 +755,8 @@ internal fun MarbleNativeSegmentedRow(
                     ) { onSelect(index) }
                     .semantics {
                         this.selected = chosen
-                        contentDescription = trx(label)
-                        stateDescription = if (chosen) trx("Selected") else trx("Not selected")
+                        contentDescription = labelText
+                        stateDescription = if (chosen) selectedState else notSelectedState
                     }
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
