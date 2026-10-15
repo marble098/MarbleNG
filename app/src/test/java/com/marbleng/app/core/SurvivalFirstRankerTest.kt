@@ -7,17 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Regression tests for survival-first ranking (MARBLE_SURVIVAL_FIRST_RANK_V80).
- *
- * These lock in the fix for the false-negative ranking behaviour: under Iranian censorship a node
- * whose short HTTPS generate204 probe times out must NOT be hard-failed when it carries strong
- * historical success evidence (or a working live tunnel). The engine introduces an explicit
- * UNCERTAIN state distinct from HEALTHY and DEAD, and structurally invalid (quarantined) profiles
- * are pinned to the end and never selected.
- */
 class SurvivalFirstRankerTest {
-
     private val settings = AppSettings()
 
     private fun timeoutProbe(id: String, name: String) = BenchmarkResult(
@@ -84,8 +74,6 @@ class SurvivalFirstRankerTest {
 
     @Test
     fun partialProbeFailureStillKeepsSuccessfulTunnelNodeSelectable() {
-        // Smart Rank under partial probe failure: a node that times out on the probe but has a
-        // proven successful history must still out-rank an unknown node, so the tunnel is usable.
         val results = listOf(
             timeoutProbe("aegis", "Aegis 1"),
             healthyProbe("turkey-8", "Turkey 8")
@@ -94,7 +82,7 @@ class SurvivalFirstRankerTest {
             "aegis" to SurvivalFirstRanker.HealthHistory(successEwma = 88.0, latencyEwma = 300.0, consecutiveSuccesses = 9, totalSessions = 20)
         )
         val reordered = SurvivalFirstRanker.reorderResults(results, histories, settings, iranActive = true)
-        // Turkey 8 (healthy probe) is first; Aegis 1 (uncertain but strong history) second.
+
         assertEquals("turkey-8", reordered.first().profileId)
         assertEquals("aegis", reordered[1].profileId)
     }
@@ -157,8 +145,6 @@ class SurvivalFirstRankerTest {
 
     @Test
     fun iranSurvivalScoringOutranksSyntheticLowLatency() {
-        // A fast node with no history and a timeout probe should NOT beat a slower node that has
-        // proven it can actually carry traffic across multiple sessions under Iran.
         val fastButUnproven = SurvivalFirstRanker.scoreForSurvival(
             profile = placeholder("fast"), probeResult = timeoutProbe("fast", "Fast"),
             historicalHealth = null, tcpStress = null, connectedDurationMs = 0,

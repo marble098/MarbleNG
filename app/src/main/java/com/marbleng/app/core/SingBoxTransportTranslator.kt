@@ -4,13 +4,9 @@ import com.marbleng.app.model.AppSettings
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** A conversion failure is not evidence that a server is down. Never remove wire/security fields
- * just to make `check` pass. Paths identify the unsupported setting without exposing its value. */
 class ConfigTranslationException(val field: String, explanation: String) :
     IllegalArgumentException("config-unsupported: $field: $explanation")
 
-/** Schema pinned to shtorm-7/sing-box-extended option/v2ray_transport.go and option/tls.go.
- * Extended is NOT upstream sing-box: it supports XHTTP and mKCP, including their extra options. */
 object SingBoxTransportTranslator {
     internal val xhttpFields = linkedMapOf(
         "host" to "host", "path" to "path", "headers" to "headers",
@@ -94,7 +90,7 @@ object SingBoxTransportTranslator {
                 }
                 JSONObject().put("type", "quic")
             }
-            // These are protocol transports, not V2Ray stream wrappers.
+
             "hysteria", "hysteria2" -> null
             else -> unsupported("streamSettings.network", "transport '$method' has no equivalent in the pinned extended core")
         }
@@ -109,15 +105,13 @@ object SingBoxTransportTranslator {
                 .getOrElse { unsupported("xhttpSettings.extra", "expected JSON or base64url JSON") }
             else -> unsupported("xhttpSettings.extra", "expected a JSON object")
         }
-        // An XHTTP `extra` supplies defaults, not permission to erase the same settings when
-        // also written at the top level. The old merge dropped every top-level field except
-        // host/path/mode, including padding and HTTP headers, and changed the on-wire protocol.
+
         extra?.let { options ->
             options.keys().forEach { key -> if (!merged.has(key)) merged.put(key, options.get(key)) }
         }
         val result = map(merged, xhttpFields, "xhttpSettings", setOf("mode", "xmux", "downloadSettings"))
             .put("mode", merged.optString("mode").ifBlank { "auto" })
-        // Unlike Xray, Extended 2.7.1 rejects a missing/zero range BEFORE applying its defaults.
+
         if (!result.has("x_padding_bytes")) result.put("x_padding_bytes", "100-1000")
         merged.optJSONObject("xmux")?.let { result.put("xmux", map(it, xmuxFields, "xhttpSettings.xmux")) }
         merged.optJSONObject("downloadSettings")?.let { download ->
@@ -148,11 +142,7 @@ object SingBoxTransportTranslator {
         val source = stream.optJSONObject(if (security == "reality") "realitySettings" else "tlsSettings") ?: JSONObject()
         val pins = listOf("pinnedPeerCertSha256", "pinnedPeerCertificateChainSha256", "pinnedPeerCertificatePublicKeySha256")
         val pinnedKey = pins.firstOrNull { source.has(it) && source.opt(it)?.toString().orEmpty().isNotBlank() }
-        // MARBLE_SINGBOX_PINNED_COMPAT_V164 — instead of refusing pinned configs, translate them
-        // with `insecure: true`. sing-box cannot verify certificate hashes or names other than
-        // the SNI, but setting insecure allows the tunnel to establish. The pin's verification
-        // is lost, but the connection works — the user sees a working tunnel on sing-box rather
-        // than being forced to switch engines. Both test and production paths use this approach.
+
         if (pinnedKey != null) {
             notes += "tls-pinning: $pinnedKey present — sing-box cannot verify certificate hashes; " +
                 "set insecure:true to allow the tunnel (Xray retains full pin verification)"
@@ -160,8 +150,7 @@ object SingBoxTransportTranslator {
         val names = source.optString("verifyPeerCertByName")
         val serverName = source.optString("serverName")
         var effectiveServerName = serverName
-        // MARBLE_SINGBOX_PINNED_COMPAT_V164 — verifyPeerCertByName differs from SNI; set insecure
-        // for both test and production, since sing-box cannot verify against names other than SNI.
+
         if (names.isNotBlank() && names != serverName) {
             effectiveServerName = names
             if (pinnedKey == null) {
@@ -179,8 +168,7 @@ object SingBoxTransportTranslator {
                 } else result.put(mapped, source.get(key))
             }
         }
-        // MARBLE_SINGBOX_PINNED_COMPAT_V164 — set insecure when pins are present (either explicit
-        // pinnedPeerCertSha256/verifyPeerCertByName or allowInsecure requested).
+
         if (source.optBoolean("allowInsecure", false) || pinnedKey != null || (names.isNotBlank() && names != serverName)) result.put("insecure", true)
         val fingerprint = source.optString("fingerprint")
         if (fingerprint.isNotBlank() && fingerprint != "unsafe") {
@@ -194,31 +182,15 @@ object SingBoxTransportTranslator {
             }
             val key = password.ifBlank { publicKey }
             if (key.isBlank()) unsupported("realitySettings.password", "REALITY requires its public key (password/publicKey)")
-            // MARBLE_REALITY_MLKEM_HANDSHAKE_V194 — the hybrid key share Xray >= v26.9.8 servers
-            // require. `github.com/xtls/reality@8cdf7bf9` rejects any ClientHello without
-            // `X25519MLKEM768 before optional X25519` and silently falls back to the decoy site,
-            // so the client fails with `reality verification failed` — deterministically, for
-            // every destination, with perfectly correct keys. The pinned fork *strips* that
-            // share from every uTLS handshake unless `support_x25519mlkem768` is set (its own
-            // `common/tls/reality_client.go`; the option is `OutboundRealityOptions` in its
-            // `option/tls.go`), which is why a node that connects in v2rayNG failed 55/55 here
-            // while the public key, short ID and SNI were all innocent. The flag is
-            // unconditionally safe: older servers scan for plain X25519 first and merely tolerate
-            // the extra share (the parent commit's parse loop), while new servers require it.
-            // Only fingerprints whose uTLS preset carries the share (chrome in metacubex/utls
-            // v1.8.7) can satisfy a new server; anything else still fails and is diagnosed by
-            // [RealityHandshakePolicy] instead of being retried blindly.
+
             result.put("reality", JSONObject().put("enabled", true).put("public_key", key)
                 .put("short_id", source.optString("shortId"))
                 .put("support_x25519mlkem768", true))
-            // REALITY requires uTLS; Xray also defaults the fingerprint to chrome.
+
             if (!result.has("utls")) result.put("utls", JSONObject().put("enabled", true).put("fingerprint", "chrome"))
             if (source.optString("spiderX").isNotBlank()) notes += "REALITY spiderX camouflage crawling is Xray-only; authentication/key/short ID are preserved."
             if (source.optString("mldsa65Verify").isNotBlank()) unsupported("realitySettings.mldsa65Verify", "the pinned core cannot preserve this verification")
         } else {
-            // MARBLE_CORE_OPTIONS_V211 — no fragmentation is injected into a translated outbound
-            // any more. The carried settings are REALITY/TLS identity, and the multiplex object
-            // is written once by [SingBoxConfigBuilder] from the user's own fields.
             source.optJSONArray("certificates")?.let { certs ->
                 if (certs.length() > 0 && !source.optBoolean("disableSystemRoot", false)) {
                     unsupported("tlsSettings.certificates", "sing-box's per-outbound CA bundle replaces rather than appends system roots; keep Xray or supply an explicit complete trust bundle")
@@ -247,7 +219,7 @@ object SingBoxTransportTranslator {
             "enableSessionResumption", "show", "spiderX", "publicKey", "password", "shortId", "mldsa65Verify",
             "pinnedPeerCertSha256", "pinnedPeerCertificateChainSha256", "pinnedPeerCertificatePublicKeySha256")
         source.keys().forEach { key ->
-            if (key in pins) return@forEach // MARBLE_SINGBOX_PINNED_COMPAT_V164: pin fields consumed above
+            if (key in pins) return@forEach
             if (key !in allowed && !source.isNull(key)) unsupported("tlsSettings.$key", "no lossless mapping is implemented")
         }
         if (source.optBoolean("disableSystemRoot", false) && !result.has("certificate")) {

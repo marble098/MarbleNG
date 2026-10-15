@@ -8,15 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Tests for the pure engine behind the Servers page (MARBLE_SERVERS_QUERY_V120).
- *
- * The page's search box, protocol chip, group chip and advanced switches all describe *what should
- * be visible*, and one sort mode decides the order. Because every rule lives here instead of in
- * Compose, these tests are the contract the UI is allowed to rely on.
- */
 class ServersQueryTest {
-
     private fun profile(
         id: String,
         name: String = id,
@@ -50,8 +42,6 @@ class ServersQueryTest {
             bytesPerSecond = 1_000.0,
             score = score
         )
-
-    // ------------------------------------------------------------------ protocol badge
 
     @Test
     fun badgeNamesSchemeSecurityAndTransport() {
@@ -93,8 +83,6 @@ class ServersQueryTest {
         assertEquals("", ServersQuery.address(profile("h", host = " ", port = 0)))
     }
 
-    // ------------------------------------------------------------------ protocol menu
-
     @Test
     fun talliesCountSchemesRichestFirstThenAlphabetically() {
         val profiles = listOf(
@@ -108,8 +96,6 @@ class ServersQueryTest {
         assertEquals(listOf("VLESS", "VMESS", "HYSTERIA2"), tallies.map { it.scheme })
         assertEquals(listOf(2, 2, 1), tallies.map { it.count })
     }
-
-    // ------------------------------------------------------------------ filtering
 
     @Test
     fun searchMatchesNameProtocolHostAndCountry() {
@@ -153,7 +139,7 @@ class ServersQueryTest {
         )
         val visible = ServersQuery.visible(nodes, ServersFilter(maxPingMs = 100), benchmarks)
         assertEquals(listOf("fast"), visible.map { it.id })
-        // "Off" is 0, which must disable the ceiling entirely.
+
         assertEquals(
             listOf("fast", "slow", "unmeasured"),
             ServersQuery.visible(nodes, ServersFilter(maxPingMs = ServersQuery.MAX_PING_OFF), benchmarks)
@@ -168,8 +154,6 @@ class ServersQueryTest {
         assertFalse(ServersFilter().isActive)
         assertEquals("all", ServersFilter(sourceId = "sub-9").cleared().sourceId)
     }
-
-    // ------------------------------------------------------------------ sorting
 
     @Test
     fun defaultSortKeepsPublishedOrderAndReverseFlipsIt() {
@@ -225,14 +209,12 @@ class ServersQueryTest {
             listOf("2", "3", "1"),
             ServersQuery.sort(nodes, NodeSortMode.SOURCE, reverse = false).map { it.id }
         )
-        // Atlanta (United States) and Berlin (Germany) are known; "Mystery" is not and sorts last.
+
         assertEquals(
             listOf("1", "2", "3"),
             ServersQuery.sort(nodes, NodeSortMode.COUNTRY, reverse = false).map { it.id }
         )
     }
-
-    // ------------------------------------------------------------------ country grouping
 
     @Test
     fun countryGroupsSortKnownCountriesFirstAndAlphabeticallyInside() {
@@ -246,8 +228,6 @@ class ServersQueryTest {
         assertEquals(listOf("DE", "US", ""), groups.map { it.country.code })
         assertEquals(listOf("berlin", "frankfurt"), groups.first().profiles.map { it.id })
     }
-
-    // ------------------------------------------------------------------ helpers
 
     @Test
     fun stripFlagRemovesOnlyARealLeadingFlag() {

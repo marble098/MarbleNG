@@ -6,26 +6,9 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_ROUTE_ATELIER_V207 — the grammar as an executable claim.
- *
- * The V207 review's root finding was that the product had effects but no grammar: five silhouettes
- * for one command, a hue that meant brand in one file and state in another, a touch target defined by
- * whichever card drew the control, and an animation switch that some code paths honoured and others
- * did not. Every one of those was invisible to a compiler, which is exactly what makes it a
- * regression waiting to be re-introduced by the next pleasant-looking tweak.
- *
- * So the rules in [MarbleDesignContract] are pinned here, off-device, in the only place a design
- * rule can actually be *kept*: as an assertion about a table.
- */
 class MarbleDesignContractV207Test {
-
-    // ------------------------------------------------------------------ the state grammar
-
     @Test
     fun statePrecedenceIsBlockedThenClosingThenSecuringThenConnected() {
-        // A failure outranks a teardown, and a teardown outranks a handshake, because the user's next
-        // tap has to be aimed at the most dangerous thing still true.
         assertEquals(
             MarbleRouteState.BLOCKED,
             marbleRouteStateOf(
@@ -100,8 +83,7 @@ class MarbleDesignContractV207Test {
         assertEquals(MarbleConnectVerb.DISCONNECT, MarbleRouteState.CONNECTED.connectVerb())
         assertEquals(MarbleConnectVerb.WAIT, MarbleRouteState.CLOSING.connectVerb())
         assertEquals(MarbleConnectVerb.RESET, MarbleRouteState.BLOCKED.connectVerb())
-        // "Add a server" is a destination, not a connection: with no route the control may never be
-        // wired to the connect path, which is the bug the review found in every presentation at once.
+
         assertNotEquals(MarbleConnectVerb.CONNECT, MarbleRouteState.NO_ROUTE.connectVerb())
     }
 
@@ -118,10 +100,6 @@ class MarbleDesignContractV207Test {
 
     @Test
     fun sixStatesOwnSixDistinctHueRoles() {
-        // The `amethystBright == cyan` collapse is the reason this assertion exists: two brand tokens
-        // holding one value silently erased the "securing" read. Roles are named for their meaning, so
-        // they cannot collide the way a palette can — and if someone folds two states onto one role,
-        // this test says which.
         val hues = MarbleRouteState.entries.map { it.stateHue() }
         assertEquals(
             "each state must own a distinct semantic role",
@@ -129,8 +107,6 @@ class MarbleDesignContractV207Test {
             hues.distinct().size
         )
     }
-
-    // ------------------------------------------------------------------ the route mark
 
     @Test
     fun anIdlePageLightsOneNodeAndNotThree() {
@@ -177,12 +153,10 @@ class MarbleDesignContractV207Test {
             egressResolved = true,
             egressFailed = true
         )
-        // A resolved address is not a live tunnel: failure outranks the reading.
+
         assertEquals(MarbleNodeState.FAILED, failed.tunnel)
         assertEquals(MarbleNodeState.FAILED, failed.egress)
     }
-
-    // ------------------------------------------------------------------ evidence honesty
 
     @Test
     fun aFlagEmojiInANameIsNotAMeasurement() {
@@ -238,12 +212,9 @@ class MarbleDesignContractV207Test {
             hasLabelGlyph = true
         )
         assertEquals(MarbleLocationTrust.SESSION_REPORT, session)
-        // The live report is about the tunnel the user is in, so it wins — and it is not the same
-        // claim as a resolver's quorum, which is why it is not `isVerified`.
+
         assertFalse(session.isVerified())
     }
-
-    // ------------------------------------------------------------------ targets and press
 
     @Test
     fun theTouchFloorIsThePlatformNumber() {
@@ -258,9 +229,6 @@ class MarbleDesignContractV207Test {
 
     @Test
     fun pressTravelGrowsAsTheSurfaceGrows() {
-        // A 42 dp icon that shrinks 4.5 % and a 56 dp hero that shrinks 4.5 % do not feel the same: the
-        // small one moves relatively far more, which is why everything springing reads as nothing
-        // meaning anything. Order is the contract; the numbers are the tuning.
         assertTrue(
             MarbleControlKind.Icon.pressScale > MarbleControlKind.Primary.pressScale ||
                 MarbleControlKind.Icon.pressScale == MarbleControlKind.Primary.pressScale
@@ -290,7 +258,7 @@ class MarbleDesignContractV207Test {
         assertEquals(0L, MarbleMotionPolicy.entranceDelayMs(4, motionEnabled = false))
         assertEquals(0L, MarbleMotionPolicy.entranceDelayMs(0, motionEnabled = true))
         assertEquals(45L, MarbleMotionPolicy.entranceDelayMs(1, motionEnabled = true))
-        // Six steps is the whole cap: a list may not animate a tail the user has already scrolled past.
+
         val capped = MarbleMotionPolicy.entranceDelayMs(40, motionEnabled = true)
         assertEquals(capped, MarbleMotionPolicy.entranceDelayMs(6, motionEnabled = true))
         assertEquals(6L * 45L, capped)
@@ -298,8 +266,6 @@ class MarbleDesignContractV207Test {
 
     @Test
     fun theConnectControlNodsItDoesNotLurch() {
-        // V186 popped the round shutter to 1.05 of a 168 dp disc on every state change, six signals at
-        // once. The acknowledgement stays — a verb should answer — but as a nod.
         assertEquals(1.02f, MarbleConnectMotion.statePopPeak, 1e-5f)
         assertTrue(
             "a state-change pop must stay under a three percent leap",
@@ -307,8 +273,6 @@ class MarbleDesignContractV207Test {
         )
         assertEquals(200, MarbleConnectMotion.StateColorMs)
     }
-
-    // ------------------------------------------------------------------ feedback
 
     @Test
     fun aResultStaysReadableForADwellInsteadOfBeingDeletedOnIdle() {
@@ -319,13 +283,8 @@ class MarbleDesignContractV207Test {
         assertFalse("blank messages are not outcomes", MarbleFeedbackPolicy.isOutcome("   "))
     }
 
-    // ------------------------------------------------------------------ copy ownership
-
     @Test
     fun productCopyIsOwnedByTheLexiconAndDataIsLeftAlone() {
-        // A Persian UI translates its own sentences and never transliterates a user's server name.
-        // That line is drawn by an exact key lookup, and this is what keeps it drawn: a new literal
-        // with no pair is the bug the review called "the fallback pretending to be a translation".
         listOf(
             "Slide right to connect",
             "Slide left to disconnect",

@@ -4,20 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_HIGH_JITTER_SHIELD_V206 / V207 regressions.
- *
- * These tests are the critique, written down. Each one names a behaviour the previous
- * jitter handling got wrong and pins the replacement:
- *
- *  • a mean is destroyed by one packet, a median/MAD window is not;
- *  • the statistics are computed once per change, not once per sample;
- *  • severity is relative to the link's own baseline, not to a constant;
- *  • the level attacks fast, releases slowly, and holds after an escalation;
- *  • an idle link fades, and a mitigation never costs more than the probe budget.
- */
 class HighJitterShieldTest {
-
     private val t0 = 1_700_000_000_000L
 
     private fun window(vararg rttMs: Double): HighJitterShield.RobustWindow {
@@ -26,7 +13,6 @@ class HighJitterShieldTest {
         return w
     }
 
-    /** Feeds [rtts] one per second into one window/state pair and returns the last decision. */
     private fun feed(
         rtts: List<Double>,
         startMs: Long = t0,
@@ -65,12 +51,10 @@ class HighJitterShieldTest {
         reason = "seed"
     )
 
-    // ─── The estimator ───────────────────────────────────────────────────────────────────
-
     @Test
     fun `one stalled handshake does not move the robust jitter but destroys the mean`() {
         val calm = MutableList(23) { 120.0 }
-        // One retransmitted TLS handshake inside an otherwise flat window.
+
         val samples = calm + 3_000.0
 
         val robust = window(*samples.toDoubleArray()).robustJitterMs()
@@ -129,8 +113,6 @@ class HighJitterShieldTest {
         assertEquals("a negative round trip is a measurement error, not a measurement", before, w.size)
     }
 
-    // ─── The verdict ─────────────────────────────────────────────────────────────────────
-
     @Test
     fun `fewer than the minimum samples stays calm`() {
         val decision = feed(listOf(400.0, 40.0, 900.0, 30.0, 800.0))
@@ -140,9 +122,6 @@ class HighJitterShieldTest {
 
     @Test
     fun `severity is relative to the baseline of this link, not to one constant`() {
-        // Two links, both calm, with very different ideas of calm:
-        //  • Iranian mobile in the evening: 120/160 ms alternating, ~30 ms of real jitter.
-        //  • A fibre line: 30/34 ms alternating, ~3 ms of real jitter.
         val mobileCalm = List(20) { if (it % 2 == 0) 120.0 else 160.0 }
         val fibreCalm = List(20) { if (it % 2 == 0) 30.0 else 34.0 }
         val mobile = feed(mobileCalm)
@@ -153,8 +132,6 @@ class HighJitterShieldTest {
         assertEquals(HighJitterShield.Verdict.CALM, mobile.plan.verdict)
         assertEquals(HighJitterShield.Verdict.CALM, fibre.plan.verdict)
 
-        // The SAME absolute jitter (~95 ms) arrives on both. The window is filled with it, so
-        // this is real jitter and not a spike: 200/328 alternating, MAD 64 ms.
         val bad = List(24) { if (it % 2 == 0) 200.0 else 328.0 }
         val mobileThenBad = feed(
             rtts = bad,
@@ -187,9 +164,6 @@ class HighJitterShieldTest {
 
     @Test
     fun `a bimodal window reads as jittery, not as perfectly smooth`() {
-        // A filtered route and its failover: half the packets take one path, half the other.
-        // The median absolute deviation of this window is ZERO — more than half the samples
-        // sit on the median — which is exactly why dispersion is measured by the IQR here.
         val bimodal = window(*(List(11) { 120.0 } + List(9) { 520.0 }).toDoubleArray())
         assertEquals(
             "this is the defect: the MAD of a bimodal window is exactly zero",
@@ -205,8 +179,6 @@ class HighJitterShieldTest {
 
     @Test
     fun `a minority of spikes escalates the verdict one step, uniform noise does not`() {
-        // Two windows with the same spread; one of them also carries three packets that
-        // arrived from another planet. Tukey's fence separates them.
         val core = listOf(
             60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0,
             60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0, 130.0
@@ -238,8 +210,6 @@ class HighJitterShieldTest {
             withSpikes.plan.verdict
         )
     }
-
-    // ─── The controller ──────────────────────────────────────────────────────────────────
 
     @Test
     fun `the level attacks fast and releases slowly`() {
@@ -273,7 +243,6 @@ class HighJitterShieldTest {
         val escalated = feed(bad)
         assertTrue(escalated.state.escalatedAtMs > 0L)
 
-        // One good sample one second later: inside the hold window the level may not fall.
         val next = HighJitterShield.observe(
             sample = HighJitterShield.Sample(rttMs = 120.0, nowMs = t0 + 12_000L),
             state = escalated.state,
@@ -306,14 +275,11 @@ class HighJitterShieldTest {
         assertTrue("but it must not vanish: ${idle.plan.level}", idle.plan.level > 0.5)
     }
 
-    // ─── The cost ────────────────────────────────────────────────────────────────────────
-
     @Test
     fun `the probe budget is never exceeded at any level`() {
         for (step in 0..20) {
             val level = step / 20.0
-            // The ladder lives in the shield, not in the test: a copy here would be a second
-            // opinion about how many probes a level costs the moment either one changed.
+
             val burst = HighJitterShield.burstFor(level)
             val wanted = (HighJitterShield.BASE_TICKS -
                 (HighJitterShield.BASE_TICKS - HighJitterShield.MIN_TICKS) * level)
@@ -373,7 +339,6 @@ class HighJitterShieldTest {
             firstRequestAt >= t0 + HighJitterShield.RERANK_STREAK * 1_000L
         )
 
-        // A second extreme stretch immediately afterwards is inside the cooldown.
         var repeated = 0
         for (rtt in extreme) {
             val decision = HighJitterShield.observe(
@@ -402,7 +367,6 @@ class HighJitterShieldTest {
         val window = HighJitterShield.RobustWindow()
         var state = HighJitterShield.State()
 
-        // Link has calm, steady samples
         repeat(8) {
             val decision = HighJitterShield.observe(
                 sample = HighJitterShield.Sample(rttMs = 80.0, nowMs = t0 + it * 1_000L),
@@ -413,7 +377,6 @@ class HighJitterShieldTest {
         }
         val calmJitter = window.robustJitterMs()
 
-        // Cellular radio was asleep for 10s and wakes up with a 650ms RRC setup delay
         val decisionWakeup = HighJitterShield.observe(
             sample = HighJitterShield.Sample(rttMs = 650.0, nowMs = t0 + 18_000L, isRadioWakeup = true),
             state = state,

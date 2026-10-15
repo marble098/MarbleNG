@@ -3,8 +3,6 @@ package com.marbleng.app.core
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Native sing-box imports keep their proxy graph, rather than being misread as empty Xray
- * outbounds. Runtime-owned inbounds/routing are deliberately supplied by Marble for both cores. */
 object NativeSingBoxConfig {
     private val infrastructure = setOf("direct", "block", "dns")
 
@@ -70,7 +68,7 @@ object NativeSingBoxConfig {
 
     fun copyResources(document: JSONObject, target: JSONObject) {
         val names = names(document)
-        // Outbound resource references must not dangle after Marble supplies its runtime shell.
+
         listOf("endpoints", "certificate", "certificate_providers").forEach { key ->
             document.opt(key)?.let { value ->
                 val copy = when (value) {
@@ -86,10 +84,7 @@ object NativeSingBoxConfig {
                 target.put(key, copy)
             }
         }
-        // Native DNS servers are intentionally NOT copied. An imported per-dial `domain_resolver`
-        // may point at plaintext UDP or `local` and override Marble's secure route default. The
-        // builder replaces every physical dialer's resolver with its encrypted, IP-literal
-        // bootstrap; unknown native DNS references then fail core validation rather than leak.
+
         document.optJSONArray("http_clients")?.let { clients ->
             val destination = target.getJSONArray("http_clients")
             objects(JSONArray(clients.toString())).forEach { client ->

@@ -14,7 +14,6 @@ import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** MARBLE_HOME_STYLE_V110 / MARBLE_BILINGUAL_V110 / MARBLE_SIGNATURE_HOME_V112 */
 class MarbleHomeStyleTest {
     @Test
     fun everyPersistedHomeStyleRoundTrips() {
@@ -59,7 +58,7 @@ class MarbleHomeStyleTest {
             listOf(ConnectButtonStyle.STREAM, ConnectButtonStyle.FLOATING),
             ConnectButtonStyle.entries.filter { connectControlZone(it).isPageDocked() }
         )
-        // The three hero placements stay exactly where the classic presentations expect them.
+
         assertEquals(
             emptyList<ConnectButtonStyle>(),
             listOf(
@@ -72,13 +71,9 @@ class MarbleHomeStyleTest {
 
     @Test
     fun unknownHomeStyleFallsBackToTheDefaultPresentation() {
-        // MARBLE_HOME_THEME_TWO_DEFAULT_V160 — the fallback is the presentation a fresh install
-        // opens with, not a hard-coded face: there is one name for "the default theme".
         assertEquals(HomeStyle.DEFAULT, parseHomeStyle(""))
         assertEquals(HomeStyle.DEFAULT, parseHomeStyle("nebula"))
-        // MARBLE_ROUTE_ATELIER_V207 — a fresh install opens on the route presentation, and the
-        // presentation that held the default before it is still a selectable style with the same id
-        // on disk: adding a style may not silently move anyone off the one they chose.
+
         assertEquals(HomeStyle.ROUTE_ATELIER, HomeStyle.DEFAULT)
         assertEquals(HomeStyle.IOS_FLOATING, parseHomeStyle(HomeStyle.IOS_FLOATING.id))
     }
@@ -113,25 +108,19 @@ class MarbleHomeStyleTest {
         }
     }
 
-    // ------------------------------------------------------------------ MARBLE_SIGNATURE_HOME_V112
-
     @Test
     fun systemFontIsASelectableTypeface() {
         AppFont.entries.forEach { font ->
             assertEquals(font, parseAppFont(font.id))
         }
         assertEquals(AppFont.SYSTEM, parseAppFont("system"))
-        // MARBLE_GOOGLE_SANS_DEFAULT_V160 — an unreadable value resolves to the typeface a fresh
-        // install opens with, not to a hard-coded face: the product default is one name.
+
         assertEquals(AppFont.DEFAULT, parseAppFont("unknown-face"))
         assertEquals(AppFont.GOOGLE_SANS, AppFont.DEFAULT)
     }
 
     @Test
     fun everyHomeStyleRendersThroughExactlyOneFlavor() {
-        // MARBLE_ROUTE_ATELIER_V207 — a new presentation is only real if the dispatcher routes it,
-        // so the count and the one-to-one mapping are pinned here: a style added to the enum without
-        // a page behind it would compile (the when is exhaustive over entries) and ship a blank Home.
         assertEquals(5, HomeStyle.entries.size)
         assertEquals(
             "every presentation needs its own flavor",
@@ -152,9 +141,6 @@ class MarbleHomeStyleTest {
         }
     }
 
-    // MARBLE_CONNECT_BUTTON_V121 / MARBLE_CONNECT_BUTTON_STYLES_V132 — five connection controls
-    // (three in the hero, two docked at the page floor), the round shutter default, and every
-    // retired silhouette id resolves to it instead of an unknown state.
     @Test
     fun connectButtonStylesRoundTripAndRetiredOnesFallBack() {
         assertEquals(5, ConnectButtonStyle.entries.size)

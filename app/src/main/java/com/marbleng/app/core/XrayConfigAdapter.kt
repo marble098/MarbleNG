@@ -3,9 +3,6 @@ package com.marbleng.app.core
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Reverse side of the runtime bridge. Common native sing-box outbounds are translated for Xray
- * without mutating the stored profile. Core-exclusive protocols/options fail explicitly; changing
- * a protocol, disabling certificate checks or dropping a detour is never a conversion strategy. */
 object XrayConfigAdapter {
     fun document(source: String): JSONObject {
         val parsed = JSONObject(source)
@@ -96,8 +93,7 @@ object XrayConfigAdapter {
             copy(source, sockopt, "tcp_fast_open", "tcpFastOpen")
             stream.put("sockopt", sockopt)
         }
-        // Reject fields with unimplemented semantics, rather than creating a config that only
-        // looks equivalent. This list is intentionally smaller than the two cores' union.
+
         val allowed = setOf("type", "tag", "server", "server_port", "uuid", "flow", "encryption",
             "security", "alter_id", "global_padding", "authenticated_length", "packet_encoding",
             "password", "username", "method", "version", "plugin", "multiplex", "tls", "transport",

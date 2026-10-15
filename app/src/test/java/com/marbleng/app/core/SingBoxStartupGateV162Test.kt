@@ -10,46 +10,8 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-/**
- * MARBLE_SINGBOX_STARTUP_GATE_V162 — the local inbound is the tunnel; the controller is a
- * measurement surface.
- *
- * The reported session died like this:
- *
- * ```
- * 12:17:22.809  SINGBOX start-begin   engine=singbox profile=SOLIDVPS port=10808 mode=tun
- * 12:17:23      (core)  WARN network: initialize package manager: read packages list: open
- *                              /data/system/packages.xml: permission denied
- * 12:17:34.930  SINGBOX start-result  ok=false elapsedMs=12119 phase=failed alive=false
- *               reason=core-start-timeout: … (the WARN above, and nothing else)
- * 12:17:34.935  APP     state          from=CONNECTING to=BLOCKED • Kill switch active
- * ```
- *
- * One benign WARN — the line every `GOOS=android` core prints, because `/data/system/packages.xml`
- * is `0660 system:system` and an app UID can only ever get EACCES — and then eleven seconds of
- * silence from a process that was still alive. MarbleNG answered by killing the core and blocking
- * the route.
- *
- * What the log could not say is *which half of the wait* had failed, and that is not a nicety:
- * the pinned core's `box.Start()` opens the local `mixed` inbound — the only socket
- * hev-socks5-tunnel ever dials — two stages before the Clash controller binds, because the
- * controller is an internal service started at `StartStateStarted`, after every outbound's
- * post-start walk. The old readiness condition was "inbound **and** controller", so:
- *
- *  - a delay anywhere in the core's last third, none of which carries a single byte of user
- *    traffic, was paid as a failed connect with the kill switch held; and
- *  - a core that was already carrying traffic was killed because a *diagnostic* had not bound.
- *
- * These tests pin the split, on real child processes and with injectable readiness answers, so
- * the two halves can never again be the same sentence.
- */
 class SingBoxStartupGateV162Test {
-
     @get:Rule val temporary = TemporaryFolder()
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 1 — the tunnel is the inbound
-    // ─────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun aTunnelWhoseControllerNeverAnswersStillCarriesTraffic() {
@@ -69,8 +31,6 @@ class SingBoxStartupGateV162Test {
 
     @Test
     fun aControllerTheMeasurementActuallyDialsIsStillRequired() {
-        // The URL test reads /proxies, so a core without a controller is useless to it. The
-        // requirement is a decision of the caller, and the URL test still makes it.
         val probes = FakeProbes(inboundAnswer = true, controllerAnswer = false)
         val failure = runCatching {
             openSession(probes = probes, requireController = true, startupTimeoutMs = 500)
@@ -97,9 +57,6 @@ class SingBoxStartupGateV162Test {
 
     @Test
     fun aCoreThatDiesAfterItsInboundOpensIsStillReportedAsACrash() {
-        // V157's settle window is the reason the live path can stop waiting for the controller at
-        // all: the post-start crash it exists to catch lands microseconds after the port opens,
-        // and this is the window that catches it.
         val probes = FakeProbes(inboundAnswer = true, controllerAnswer = false)
         val failure = runCatching {
             openSession(probes = probes, requireController = false, settleMs = 4_000, runBody = "sleep 1; exit 2")
@@ -111,15 +68,8 @@ class SingBoxStartupGateV162Test {
         )
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 2 — the validation spawn no longer eats the child's window
-    // ─────────────────────────────────────────────────────────────────────────────
-
     @Test
     fun aSlowValidationNoLongerShrinksTheWindowTheChildStartsIn() {
-        // `sing-box check` and `sing-box run` used to share one 12 s budget, so a validation that
-        // took eight seconds left the child four to open its inbound in and then reported the
-        // child as broken. The probe is handed the time the child still has: it is the measurement.
         val probes = FakeProbes(inboundAnswer = false)
         runCatching {
             openSession(probes = probes, startupTimeoutMs = 2_000, checkBody = "sleep 1")
@@ -133,8 +83,6 @@ class SingBoxStartupGateV162Test {
 
     @Test
     fun aChildThatNeedsLongerThanTheLeftoversStillStarts() {
-        // 1 s of validation + 1.5 s of start-up inside a 2 s budget: the old shared budget left
-        // the child 1 s and failed a core that needed 1.5.
         val probes = FakeProbes(inboundAnswer = true, inboundAfterMs = 1_500)
         val session = openSession(probes = probes, requireController = false, startupTimeoutMs = 2_000, checkBody = "sleep 1")
         try {
@@ -144,15 +92,8 @@ class SingBoxStartupGateV162Test {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 3 — what the user is told
-    // ─────────────────────────────────────────────────────────────────────────────
-
     @Test
     fun aStartUpTimeoutIsNoLongerExplainedAsThePackageManagerWarning() {
-        // The reported reason carried the benign Android package-list WARN and nothing else, so
-        // the product handed the user V157's "update MarbleNG / switch to Xray" paragraph — advice
-        // for a pre-V157 crash, printed for a timeout on a device that was already up to date.
         val reason = "core-start-timeout: the local inbound never answered in 12000 ms: " +
             "WARN network: initialize package manager: read packages list: " +
             "open /data/system/packages.xml: permission denied"
@@ -178,8 +119,6 @@ class SingBoxStartupGateV162Test {
 
     @Test
     fun theTwoHalvesOfTheWaitAreStillNotVerdictsAboutAServer() {
-        // Slowness is not brokenness (V157): neither half stops a sweep, neither is a config
-        // refusal, and both are still local faults.
         val gate = ProbeLocalFaultGate()
         listOf(
             "core-start-timeout: the local inbound never answered in 12000 ms",
@@ -196,18 +135,11 @@ class SingBoxStartupGateV162Test {
 
     @Test
     fun aReadinessThatNeverHappenedIsNotADegradedSession() {
-        // `controllerMissing` drives a Bug Finder WARN, so it must not fire for the measurement
-        // cores that never dial the controller, nor for a start that is still running.
         assertFalse(StartReadiness(true, false, false, "ready", 12).controllerMissing)
         assertFalse(StartReadiness(true, true, true, "ready", 12).controllerMissing)
         assertTrue(StartReadiness(true, false, true, "controller", 12).controllerMissing)
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // fakes
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    /** Answers the two questions the start-up loop asks, without a device or a real core. */
     private class FakeProbes(
         private val inboundAnswer: Boolean,
         private val inboundAfterMs: Long = 0L,
@@ -233,14 +165,9 @@ class SingBoxStartupGateV162Test {
         }
     }
 
-    /**
-     * A stand-in for the core: `check` and `run` are the only two verbs the session uses, and a
-     * POSIX shell is the one runtime a JVM test can rely on without downloading a binary.
-     */
     private fun fakeCore(checkBody: String, runBody: String): File {
         val binary = File(temporary.root, "fake-singbox.sh")
-        // The shell's own positional parameter is spelled with a dollar sign, which inside a
-        // Kotlin string has to be escaped rather than interpolated.
+
         binary.writeText(
             "#!/bin/sh\n" +
                 "case \"${'$'}1\" in\n" +

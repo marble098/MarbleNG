@@ -1,7 +1,5 @@
 package com.marbleng.app.core
 
-// MARBLE_SSH_TRANSPORT_V25
-
 import android.net.Uri
 import com.jcraft.jsch.HostKey
 import com.jcraft.jsch.HostKeyRepository
@@ -94,10 +92,6 @@ object SshProfileCodec {
         return builder.build().toString()
     }
 
-    /**
-     * Placeholder Xray document. The SSH manager replaces localSocksPort at runtime before Xray
-     * starts; this profile never asks Xray to pretend that SSH is a native outbound protocol.
-     */
     fun xrayClientConfig(localSocksPort: Int): String {
         require(localSocksPort in 1..65535)
         return JSONObject()
@@ -133,10 +127,6 @@ object SshProfileCodec {
     }
 }
 
-/**
- * Exact SHA256 host-key repository. When a pin is supplied JSch consults this during KEX, before
- * user authentication, so a mismatched server never receives the SSH password.
- */
 private class PinnedHostKeyRepository(expectedRaw: String) : HostKeyRepository {
     private val expected = expectedRaw.trim().removePrefix("SHA256:").trim()
 
@@ -160,12 +150,6 @@ private class PinnedHostKeyRepository(expectedRaw: String) : HostKeyRepository {
     override fun getHostKey(host: String?, type: String?): Array<HostKey> = emptyArray()
 }
 
-/**
- * Loopback SOCKS5 CONNECT adapter backed by one authenticated SSH session.
- *
- * It is deliberately one-shot. XrayManager creates a fresh instance for each generation so stale
- * or cancelled connection attempts can never kill or overwrite the bridge owned by a newer attempt.
- */
 class SshTransportManager : Closeable {
     private val running = AtomicBoolean(false)
     private val workers = Executors.newCachedThreadPool { runnable ->
@@ -187,10 +171,7 @@ class SshTransportManager : Closeable {
         if (pin.isNotBlank()) {
             jsch.setHostKeyRepository(PinnedHostKeyRepository(pin))
         }
-        // JSch resolves the host itself and dials whichever record the system resolver returned
-        // first, so a dual-stack SSH endpoint was always reached over IPv4 no matter what the user
-        // enabled. Hand it the address the family plan chose instead; the pinned-key check matches
-        // the key material, never the host string, so the pin still verifies.
+
         val dialTarget = AddressFamilyPolicy
             .resolveCandidates(
                 endpoint.host,
@@ -270,7 +251,7 @@ class SshTransportManager : Closeable {
 
         check(readU8(input) == 0x05) { "Invalid SOCKS request version" }
         val command = readU8(input)
-        readU8(input) // RSV
+        readU8(input)
         val atyp = readU8(input)
         if (command != 0x01) {
             reply(output, 0x07)

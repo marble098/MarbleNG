@@ -5,49 +5,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — the port is owned by exactly one core, and a port that
- * cannot be bound is a local fault with a named holder, never a verdict about servers.
- *
- * The reported incident this pins (2026-09-08, one device, four attempts over eight minutes):
- *
- * ```
- * 09:18:08  core-start: exited 1: … FATAL start service: start inbound/mixed[socks-in]:
- *           listen tcp 127.0.0.1:10808: bind: address already in use
- * 09:18:20  (same)     09:25:09 (same)     09:26:10 (same)
- * 09:26:14  core-start: exited 2: … SIGSEGV …                 (the V157 fault, pre-fix build)
- *           both events tagged alive=false / xrayAlive=false — the holder tracked nobody
- * 09:18:33  BUGFINDER scan-finish | failures=1
- * ```
- *
- * With no manager owning a child, the socket belonged to an **orphaned core process** — nothing
- * `stop()` can reach, so every connect paid the full spawn → FATAL → BLOCKED round trip until the
- * holder happened to die. Three product defects were visible in that one window, and each has a
- * test below:
- *
- *  1. nothing ever attributed the holder, so the port could not be freed and the failure carried
- *     no actionable evidence — [CorePortGuard] now finds the pid through `/proc/net/tcp{,6}` +
- *     `/proc/<pid>/fd`, reaps same-UID core binaries with TERM→KILL escalation, and never signals
- *     a foreign holder;
- *  2. the `core-start: exited 1:` prefix made the bind conflict a *config refusal*, so the reader
- *     walk spawned a core per candidate to die on the same port — [SingBoxManager.isConfigRefusal]
- *     now excludes the shape, and the rewritten `core-port:` reason is a local fault everywhere;
- *  3. the ERROR lines of local clients aborting their own SOCKS handshake (`read fqdn: unexpected
- *     EOF`, the 02:04–02:05 cluster on 2026-09-09) matched the bare "error" keyword and counted as
- *     Bug Finder failures — [CoreLogNoise] now classifies them as benign client evidence.
- */
 class SingBoxPortSovereigntyV158Test {
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // Fixtures
-    // ─────────────────────────────────────────────────────────────────────────────
-
     private companion object {
         const val MY_UID = 10123
         const val NATIVE_LIB_DIR = "/data/app/~~abc==/com.marbleng.app-HASH/lib/arm64"
     }
 
-    /** A synthetic `/proc/net/tcp`-format table: one LISTEN on 10808 (0x2A38) plus decoys. */
     private val procTcp = """
         sl local_address rem_address   st tx_rx_queue tr_tm_when retrnsmt uid   timeout inode
         0: 0100007F:2A38 00000000:0000 0A 00000000:00000000 00:00000000 00000000 $MY_UID 0 1048571 1 0000000000000000 100 0 0 10 0
@@ -130,19 +93,14 @@ class SingBoxPortSovereigntyV158Test {
 
     private val coreBinaries = listOf(CoreEngineInfo.SINGBOX_BINARY, CoreEngineInfo.XRAY_BINARY)
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 1 — the holder is found and reaped, by name
-    // ─────────────────────────────────────────────────────────────────────────────
-
     @Test
     fun parseListenerInodesFindsOnlyTheRequestedListeningSocket() {
         val inodes = CorePortGuard.parseListenerInodes(procTcp, 10808)
         assertEquals(setOf("1048571"), inodes)
         assertTrue(CorePortGuard.parseListenerInodes(procTcp, 10809).contains("1048572"))
-        // State 01 is ESTABLISHED, never a listener.
+
         assertFalse(CorePortGuard.parseListenerInodes(procTcp, 10810).isNotEmpty())
-        // 8080 is a foreign-uid LISTEN — the parser is deliberately uid-agnostic (attribution
-        // first, ownership decided later in reclaim), so it must find inode 1048574.
+
         assertEquals(setOf("1048574"), CorePortGuard.parseListenerInodes(procTcp, 8080))
     }
 
@@ -173,10 +131,8 @@ class SingBoxPortSovereigntyV158Test {
 
     @Test
     fun aForeignHolderIsNamedButNeverSignalled() {
-        // Same loopback port, but the process is root's sshd: ownership fails on BOTH the uid and
-        // the binary check, and the guard must not signal either way.
         val probe = probeWithStaleCore(pid = 777, binary = "libsingbox.so", uid = 0)
-        // The uid check happens first; to also pin the binary check, run a same-uid non-core.
+
         val sameUidForeign = probeWithStaleCore(pid = 778, binary = "sshd")
         val both = FakeProbe(
             mutableMapOf(
@@ -212,7 +168,6 @@ class SingBoxPortSovereigntyV158Test {
 
     @Test
     fun theExactBindConflictReasonOfClassificationAndWalkExclusion() {
-        // The reason exactly as the retained core log carried it on 2026-09-08 12:48.
         val reason = "core-start: exited 1: +0330 2026-09-08 12:48:08 WARN network: " +
             "initialize package manager: read packages list: open /data/system/packages.xml: " +
             "permission denied\n" +
@@ -220,24 +175,22 @@ class SingBoxPortSovereigntyV158Test {
             "bind: address already in use"
 
         assertTrue(SingBoxAndroidRuntime.isPortBindConflict(reason))
-        // The old behaviour: the `core-start:` prefix made this a refusal and the reader walk
-        // spawned three dying children per node.
+
         assertFalse(
             "a bind conflict is identical for every candidate — it must not walk",
             SingBoxManager.isConfigRefusal(reason)
         )
-        // The rewritten reason is a local fault in every classifier.
+
         val rewritten = "core-port: $reason"
         assertTrue(CoreFailurePolicy.isLocal(rewritten))
         assertTrue(ProbeLocalFaultGate().isSweepFatal(rewritten, 0))
         assertTrue(SingBoxAndroidRuntime.explain(reason).contains(SingBoxAndroidRuntime.PORT_REMEDIATION))
-        // Precedence pin: the same retained reason also contains the benign packages.xml WARN;
-        // the definitive kernel error must win over the loose package-manager heuristic.
+
         assertFalse(
             SingBoxAndroidRuntime.explain(reason)
                 .contains(SingBoxAndroidRuntime.PACKAGE_MANAGER_REMEDIATION)
         )
-        // …and the crash-class classifiers must not swallow it into a different fault.
+
         assertFalse(SingBoxAndroidRuntime.isCoreCrash(reason))
     }
 
@@ -247,15 +200,10 @@ class SingBoxPortSovereigntyV158Test {
             "listen tcp 127.0.0.1:10808: bind: address already in use"
         assertFalse(SingBoxAndroidRuntime.isCoreCrash(reason))
         assertFalse(SingBoxAndroidRuntime.isUnusableCore(reason))
-        // Exit 1 is a refusal shape in general (V156 pinned it) — the bind shape is the exception.
+
         assertFalse(SingBoxManager.isConfigRefusal(reason))
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 2 — local-client handshake aborts are benign evidence, not failures
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    /** The six lines from the 2026-09-09T02:04–02:05 window, verbatim. */
     private val clientAbortLines = listOf(
         "ERROR [4288097813 2.49s] inbound/mixed[socks-in]: process connection from 127.0.0.1:48528: read fqdn: unexpected EOF",
         "ERROR [3033606358 5.0s] inbound/mixed[socks-in]: process connection from 127.0.0.1:48478: read fqdn: unexpected EOF",
@@ -277,28 +225,26 @@ class SingBoxPortSovereigntyV158Test {
 
     @Test
     fun realFaultsAreNeverClassifiedAsClientAborts() {
-        // The FATAL bind conflict of the same incident — it contains the inbound tag but no
-        // per-connection wrapper, and it MUST stay a counted failure.
         assertFalse(
             CoreLogNoise.isLocalClientHandshakeAbort(
                 "FATAL[0000] start service: start inbound/mixed[socks-in]: listen tcp 127.0.0.1:10808: " +
                     "bind: address already in use"
             )
         )
-        // The V157 panic.
+
         assertFalse(
             CoreLogNoise.isLocalClientHandshakeAbort(
                 "core-start: exited 2: panic: runtime error: invalid memory address or nil pointer dereference"
             )
         )
-        // A remote source is a different story even with the same client abort shape.
+
         assertFalse(
             CoreLogNoise.isLocalClientHandshakeAbort(
                 "ERROR [1 1.0s] inbound/mixed[socks-in]: process connection from 10.0.0.5:444: " +
                     "read fqdn: unexpected EOF"
             )
         )
-        // A dial failure through the inbound (server-side) is a real observation.
+
         assertFalse(
             CoreLogNoise.isLocalClientHandshakeAbort(
                 "ERROR [99 2.0s] inbound/mixed[socks-in]: process connection from 127.0.0.1:500: " +
@@ -306,10 +252,6 @@ class SingBoxPortSovereigntyV158Test {
             )
         )
     }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 3 — stop() proves its verdict on real processes
-    // ─────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun stopReportsAGracefulExit() {
@@ -324,9 +266,6 @@ class SingBoxPortSovereigntyV158Test {
 
     @Test
     fun stopEscalatesWhenTheChildIgnoresSigtermAndStillReportsTheTruth() {
-        // `trap '' TERM` is the POSIX-spelled stand-in for a core wedged past its graceful
-        // shutdown: destroy() is not enough, destroyForcibly() must be, and the returned verdict
-        // is the evidence the next start's reclaim story hangs on.
         val child = ProcessBuilder("sh", "-c", "trap '' TERM; sleep 30").start()
         try {
             Thread.sleep(150)
@@ -343,8 +282,7 @@ class SingBoxPortSovereigntyV158Test {
             holder.reuseAddress = true
             holder.bind(java.net.InetSocketAddress("127.0.0.1", 0))
             val port = holder.localPort
-            // The real probe cannot bind a port that is actively listening (reuseAddress does not
-            // grant SO_REUSEPORT takeover), which is exactly the condition reclaim treats as held.
+
             val fake = FakeProbe(mutableMapOf(), tcp4 = procTcp, portFree = false)
             assertFalse(fake.bindable(port))
             val inodes = CorePortGuard.parseListenerInodes(procTcp, 10808)
@@ -352,11 +290,6 @@ class SingBoxPortSovereigntyV158Test {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 4 — MarbleNG's own SOCKS5 requests are well-formed on the wire (read fqdn)
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    /** Counts whole-buffer writes; the request must arrive as exactly one of them. */
     private class RecordingStream : java.io.OutputStream() {
         val chunks = mutableListOf<ByteArray>()
         override fun write(b: Int) {
@@ -370,9 +303,6 @@ class SingBoxPortSovereigntyV158Test {
 
     @Test
     fun aDomainTargetCarriesTheRfc1928LengthPrefix() {
-        // The inbound's ReadSockString reads ATYP 3 as len+name. Without the length byte the
-        // desync read fqdn-len = name[0] and died with exactly `read fqdn: unexpected EOF`
-        // whenever the request tail ran out — the 2026-09-09 02:04 cluster.
         val (atyp, addr) = SocksHttpClient.socksTarget("cp.cloudflare.com")
         assertEquals(3, atyp)
         assertEquals(1 + "cp.cloudflare.com".length, addr.size)
@@ -384,10 +314,10 @@ class SingBoxPortSovereigntyV158Test {
     fun theDomainRequestLeavesAsOneWellFormedSegment() {
         val (atyp, addr) = SocksHttpClient.socksTarget("example.com")
         val request = SocksHttpClient.buildSocks5Request(atyp, addr, 443)
-        // 05 01 00 03 | 0B "example.com" | 01 BB — 18 bytes, byte-for-byte what the parser wants.
+
         assertEquals(18, request.size)
         assertEquals(5, request[0].toInt())
-        assertEquals(1, request[1].toInt()) // CONNECT
+        assertEquals(1, request[1].toInt())
         assertEquals(0, request[2].toInt())
         assertEquals(3, request[3].toInt())
         assertEquals(11, request[4].toInt())
@@ -404,7 +334,7 @@ class SingBoxPortSovereigntyV158Test {
         val (atyp6, addr6) = SocksHttpClient.socksTarget("[2001:db8::1]")
         assertEquals(4, atyp6)
         assertEquals(16, addr6.size)
-        // …and the port stays big-endian on the tail of the assembled request.
+
         val request = SocksHttpClient.buildSocks5Request(atyp4, addr4, 10808)
         assertEquals(10, request.size)
         assertEquals(0x2A, request[8].toInt())

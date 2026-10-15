@@ -9,20 +9,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_CORE_CONFIG_SUPERSET_V165 — one authority decides whether a profile may dial, and it
- * agrees with the pinned core instead of with a hand-written guess.
- *
- * The reported session had 42 imported nodes and zero usable ones. Two of the three vetoes were
- * invented at app level — a copy of Xray's plaintext rule in the VPN preflight, and a "VLESS without
- * TLS is deprecated" copy in the rank gate — and the third was the core's own rule, which Marble's
- * patched core no longer applies. This test pins the surviving behaviour: a cleartext node is
- * *labelled*, a private node is never second-guessed, post-quantum VLESS is its own protected class,
- * and the only shapes that are refused are the ones the pinned source proves cannot load, or whatever
- * the user opted out of.
- */
 class CoreConfigSupersetV165Test {
-
     private val openSettings = AppSettings(allowUnencryptedPublicOutbound = true)
     private val closedSettings = AppSettings(allowUnencryptedPublicOutbound = false)
 
@@ -34,7 +21,7 @@ class CoreConfigSupersetV165Test {
         assertFalse(verdict.refused)
         assertEquals(CoreConfigSuperset.Wire.PLAINTEXT_PUBLIC, verdict.wire)
         assertEquals("plaintext-accepted", verdict.reason)
-        // The label is not optional: an unencrypted node that connects must still say so.
+
         assertEquals(CoreConfigSuperset.PLAINTEXT_PUBLIC_NOTE, verdict.note)
     }
 
@@ -45,7 +32,7 @@ class CoreConfigSupersetV165Test {
         assertFalse(verdict.runnable)
         assertTrue(verdict.refused)
         assertEquals("plaintext-prohibited", verdict.reason)
-        // The refusal text is the one every existing translation, log reader and test already knows.
+
         assertTrue(verdict.detail.startsWith(CoreConfigSuperset.PLAINTEXT_REFUSAL))
         assertTrue(verdict.detail.contains("Dial unencrypted nodes"))
     }
@@ -66,8 +53,6 @@ class CoreConfigSupersetV165Test {
 
     @Test
     fun privateEndpointIsPrivateUnderTheCoreMatcherNotUnderAShorterAppList() {
-        // Every one of these is private in `common/geodata` — and every one of them used to be a
-        // public address as far as the app's own shorter list was concerned.
         listOf(
             "10.8.0.9", "127.0.0.1", "172.16.5.4", "192.168.17.1", "100.64.0.1", "169.254.1.1",
             "::1", "fe80::1", "fd7a:115c:a1e0::12", "::ffff:10.0.0.1"
@@ -98,8 +83,6 @@ class CoreConfigSupersetV165Test {
 
     @Test
     fun dotlessHostNameIsPrivateBecauseTheCoreSaysSo() {
-        // `parseCustomDomainRule` turns a bare `lan` into a *suffix* rule, so `vpn.lan` is private
-        // while `example` does not match `example.com`. The app mirroring that exactly is the point.
         assertTrue(CorePrivateEndpoint.matches("vpn.lan"))
         assertTrue(CorePrivateEndpoint.matches("nas.home.arpa"))
         assertTrue(CorePrivateEndpoint.matches("router"))
@@ -136,8 +119,6 @@ class CoreConfigSupersetV165Test {
 
     @Test
     fun postQuantumDetectionIsStructuralNotSubstringBased() {
-        // `infra/conf/vless.go` requires FOUR dot-separated parts: a name that merely starts with
-        // the algorithm is not the algorithm, and a three-part string is a load error upstream too.
         assertTrue(
             CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.xorpub.0rtt." + "A".repeat(43))
         )
@@ -145,12 +126,7 @@ class CoreConfigSupersetV165Test {
         assertFalse(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus"))
         assertFalse(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.xorpub.0rtt"))
         assertFalse(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.native.2rtt.pad"))
-        // The core's own loop is `for _, r := range s[3:] { if len(r) < 20 { padding += …; continue }
-        // if b, _ := base64.RawURLEncoding.DecodeString(r); len(b) != 32 && len(b) != 1184 { return
-        // false } }` (infra/conf/vless.go, both the account and the decryption halves): a short
-        // trailing segment is *padding* and is never base64-checked, while a long one must decode to
-        // exactly key material. Marble recognises the shape the core recognises — no stricter, no
-        // looser, because either direction is a node refused or a config that cannot load.
+
         assertTrue(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.native.1rtt.pad"))
         assertFalse(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.native.1rtt." + "A".repeat(40)))
         assertTrue(CoreConfigSuperset.isPostQuantumEncryption("mlkem768x25519plus.native.1rtt." + "A".repeat(43)))
@@ -159,10 +135,6 @@ class CoreConfigSupersetV165Test {
 
     @Test
     fun aVlessEncryptionClaimTheCoreCannotParseIsNamedInsteadOfKillingTheCore() {
-        // `aes-128-gcm` on VLESS is a real fatal load error (`VLESS users: unsupported
-        // "encryption"`), and the old behaviour was a core that died with that sentence in a log the
-        // user cannot open. A token that means nothing on VLESS is NOT reported here, because
-        // XrayConfigRepairs rewrites it before the core ever sees it.
         fun config(block: JSONObject.() -> Unit): String {
             val settings = JSONObject()
                 .put("address", "45.76.12.34")
@@ -202,9 +174,6 @@ class CoreConfigSupersetV165Test {
 
     @Test
     fun vmessWithoutTlsIsNotTheCoreProblemThisFunctionDecides() {
-        // Xray's plaintext check covers vless and trojan outbounds only. A VMess node has no forward
-        // secrecy and [ProfileSecurityAuditor] still says so; pretending the wire is prohibited here
-        // is how a working node became an unusable one.
         val verdict = CoreConfigSuperset.verdict(
             profile("vmess", "45.76.12.34", security = "none"),
             CoreEngine.XRAY,
@@ -235,7 +204,7 @@ class CoreConfigSupersetV165Test {
             CoreConfigSuperset.CORE_GAP_TRANSPORT_REMOVED,
             CoreConfigSuperset.coreGapIssue(removed, CoreEngine.XRAY)
         )
-        // …and the same node is not a gap on the core that implements it.
+
         assertEquals(null, CoreConfigSuperset.coreGapIssue(removed, CoreEngine.SINGBOX))
 
         val camouflaged = profile(
@@ -260,9 +229,6 @@ class CoreConfigSupersetV165Test {
 
     @Test
     fun aLinkCarryingOnlyAPublicKeyIsRealityNotPlaintext() {
-        // Panels and exporters drop `security=reality` far more often than they drop `pbk`. Reading
-        // the key as the fact it is (only REALITY has one) is what stopped `&type=tcp&pbk=…` links
-        // from being imported as cleartext and then refused.
         val params = ShareLinkParams.of("pbk=wwwABCdef&type=tcp&security=")
         assertTrue(params.first("pbk", "publicKey").isNotBlank())
         assertEquals("", params.get("security"))
@@ -272,11 +238,9 @@ class CoreConfigSupersetV165Test {
     fun consentQueryIsTheSingleSourceForEveryCaller() {
         assertTrue(CoreConfigSuperset.dialsPlaintextPublicNodes(openSettings))
         assertFalse(CoreConfigSuperset.dialsPlaintextPublicNodes(closedSettings))
-        // The shipped default is "usable", not "refused": the app's own core carries the patch.
+
         assertTrue(CoreConfigSuperset.dialsPlaintextPublicNodes(AppSettings()))
     }
-
-    // ── helpers ──────────────────────────────────────────────────────────────
 
     private fun profile(
         scheme: String,

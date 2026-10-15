@@ -1,7 +1,5 @@
 package com.marbleng.app.core
 
-// MARBLE_TLS_PINNING_V149
-
 import org.json.JSONObject
 
 /**
@@ -50,11 +48,8 @@ import org.json.JSONObject
  *    supported replacement instead of shipping a config the core will refuse.
  */
 object TlsPinningPolicy {
-
-    /** Xray requires exactly 32 bytes (SHA-256) per pin. */
     private const val SHA256_BYTES = 32
 
-    /** Query keys that carry `verifyPeerCertByName`, canonical first. */
     val VERIFY_BY_NAME_KEYS = listOf(
         "vcn",
         "verifyPeerCertByName",
@@ -64,7 +59,6 @@ object TlsPinningPolicy {
         "certName"
     )
 
-    /** Query keys that carry `pinnedPeerCertSha256`, canonical first. */
     val PINNED_SHA256_KEYS = listOf(
         "pcs",
         "pinnedPeerCertSha256",
@@ -76,7 +70,6 @@ object TlsPinningPolicy {
         "fingerprintSha256"
     )
 
-    /** Keys that request the removed `allowInsecure` behaviour. */
     val ALLOW_INSECURE_KEYS = listOf(
         "allowInsecure",
         "insecure",
@@ -90,15 +83,6 @@ object TlsPinningPolicy {
     fun isTruthy(value: String?): Boolean =
         value != null && value.trim().lowercase() in TRUTHY
 
-    /**
-     * Normalizes the user's "verify peer certificate by name" input into the exact string shape
-     * Xray parses: comma-separated, trimmed, de-duplicated, no empty elements.
-     *
-     * Accepts commas, semicolons, whitespace and newlines as separators, because that is what
-     * people actually paste. Returns "" when nothing usable remains — callers must then omit the
-     * field entirely rather than writing an empty string (an empty `verifyPeerCertByName` is
-     * indistinguishable from "unset" to Xray, but omitting keeps the emitted JSON honest).
-     */
     fun normalizeVerifyNames(raw: String?): String {
         if (raw.isNullOrBlank()) return ""
         return raw.split(',', ';', '\n', '\r', ' ', '\t')
@@ -150,7 +134,6 @@ object TlsPinningPolicy {
             return hexCandidate.lowercase()
         }
 
-        // Base64 (standard or URL-safe, padded or not) is what several other clients export.
         decodeBase64(value)?.let { bytes ->
             if (bytes.size == SHA256_BYTES) {
                 return bytes.joinToString("") { "%02x".format(it) }
@@ -159,11 +142,6 @@ object TlsPinningPolicy {
         return null
     }
 
-    /**
-     * True when [raw] contains at least one element that looks like a fingerprint but is not a
-     * valid 32-byte SHA-256 digest. Used by the manual editor to explain a rejected paste instead
-     * of silently discarding it.
-     */
     fun hasInvalidFingerprint(raw: String?): Boolean {
         if (raw.isNullOrBlank()) return false
         return raw.split(',', ';', '\n', '\r', ' ', '\t')
@@ -172,22 +150,6 @@ object TlsPinningPolicy {
             .any { normalizeOneFingerprint(it) == null }
     }
 
-    /**
-     * Writes both pinning fields into an existing `tlsSettings` object and removes the legacy
-     * `allowInsecure` flag that this Xray core refuses to load.
-     *
-     * Precedence, deliberately explicit:
-     *  1. real pins always win — when a fingerprint or a verify-name is present, `allowInsecure`
-     *     is dropped silently, because pinning is strictly stronger and the two cannot coexist;
-     *  2. when the user asked for `allowInsecure` and supplied no pins, the flag is translated
-     *     into `verifyPeerCertByName` carrying the certificate name we can infer (the explicit
-     *     [insecureFallbackName], normally the endpoint host). That is the documented replacement
-     *     and it keeps a self-signed-but-correctly-named server working instead of handing Xray a
-     *     config it will reject outright;
-     *  3. if neither a pin nor a fallback name exists, `allowInsecure` is simply removed and the
-     *     profile keeps standard verification — a strictly better outcome than a core that will
-     *     not start.
-     */
     fun sanitizeTlsSettings(
         tls: JSONObject,
         verifyPeerCertByName: String? = null,
@@ -230,15 +192,6 @@ object TlsPinningPolicy {
         return tls
     }
 
-    /**
-     * Applies [sanitizeTlsSettings] to every `tlsSettings` block reachable from a whole Xray
-     * config document, including nested `sockopt.dialerProxy` chains and pasted JSON profiles.
-     *
-     * This is the belt to the parser's braces: a profile imported as raw Xray JSON never went
-     * through the share-link parser, so without this pass a pasted config could still carry the
-     * removed `allowInsecure` flag or a base64/OpenSSL-formatted pin that the core rejects.
-     * Returns the number of TLS blocks that were changed.
-     */
     fun sanitizeConfigDocument(root: JSONObject): Int {
         var changed = 0
         fun walk(value: Any?) {
@@ -263,18 +216,12 @@ object TlsPinningPolicy {
         return changed
     }
 
-    /**
-     * True when this TLS block pins the peer in any way. Probes use it to stop convicting a
-     * healthy pinned endpoint with the *device's* CA store, which by definition cannot validate
-     * a certificate the user pinned precisely because no public CA signed it.
-     */
     fun isPinned(tls: JSONObject?): Boolean {
         if (tls == null) return false
         return tls.optString("pinnedPeerCertSha256", "").isNotBlank() ||
             tls.optString("verifyPeerCertByName", "").isNotBlank()
     }
 
-    /** True when the profile config pins its peer certificate anywhere in its outbound chain. */
     fun configIsPinned(configJson: String): Boolean = runCatching {
         var pinned = false
         fun walk(value: Any?) {

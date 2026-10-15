@@ -5,47 +5,16 @@ import com.marbleng.app.model.ProxyProfile
 import kotlin.math.abs
 import kotlin.math.min
 
-/**
- * MARBLE_IRAN_AWARE_PING_L1 — Layer 1: Protocol-Fingerprint-Aware tunnel verification.
- *
- * ## What this replaces
- *
- * Every real-tunnel measurement collapsed the result into one number. When a server offers
- * both VLESS+Reality and Hysteria2, the old engine measured whichever transport the config
- * happened to carry and treated that single verdict as the health of the *server*. In a
- * firewall environment that is exactly backwards: filtering is frequently **protocol
- * targeted** — Hysteria2 on UDP stays free while VLESS+Reality on TCP is throttled, or vice
- * versa. A one-transport verdict cannot distinguish "server is bad" from "this transport is
- * the current target".
- *
- * ## The rules
- *
- *  1. **Per-transport verdicts, never averages.** Each transport type measured for a server is
- *     stored separately with its own label, so a throttled transport never drags a healthy one
- *     down and a healthy transport is still available as the fallback.
- *  2. **Two-stage throughput**: after the RTT probe, a bounded 256 KiB download is sampled in
- *     time buckets. The shape of the transfer, not its average, is the signal: a rate that
- *     starts high and collapses toward zero (sawtooth) is the fingerprint of gradual DPI
- *     throttling; a flat slow rate is ordinary congestion.
- *  3. **Baseline delta**: the verdict is compared with the previous verdict on the same
- *     transport (kept by [MarbleIntelligence]); a sudden simultaneous shift across many
- *     servers is a network-wide event, not server blame (Layer 3).
- */
 object ProtocolFingerprintAwareVerifier {
-
-    /** One transport on one server, measured independently. */
     data class TransportVerdict(
-        /** e.g. `vless/reality/tcp`, `hysteria2/quic/udp`. */
         val transportType: String,
         val successPercent: Int,
         val latencyMs: Double,
         val jitterMs: Double,
         val throughputBps: Double,
-        /** 0..1 — confidence that the transfer shape is deliberate throttling. */
         val sawtoothConfidence: Double,
         val injectedResetSuspected: Boolean,
         val silentTimeoutSuspected: Boolean,
-        /** current latency / baseline latency; 1.0 = identical to the 15-minute baseline. */
         val baselineDeltaRatio: Double,
         val probeTargetUsed: String,
         val atMs: Long = System.currentTimeMillis()
@@ -57,13 +26,11 @@ object ProtocolFingerprintAwareVerifier {
             get() = sawtoothConfidence >= SAWTOOTH_HIGH_CONFIDENCE
     }
 
-    /** One point of a sampled download: cumulative bytes at a wall-clock offset. */
     data class ThroughputSample(
         val elapsedMs: Long,
         val bytes: Long
     )
 
-    /** The shape verdict of a sampled transfer. */
     data class ThrottlePattern(
         val confidence: Double,
         val sawtoothSuspected: Boolean,
@@ -75,7 +42,6 @@ object ProtocolFingerprintAwareVerifier {
     const val SAWTOOTH_HIGH_CONFIDENCE = 0.66
     const val SAWTOOTH_ABSOLUTE_CONFIDENCE = 0.90
 
-    /** A transport label is the fingerprint identity the whole product keys on. */
     fun transportTypeOf(profile: ProxyProfile): String {
         val scheme = profile.scheme.trim().lowercase().ifEmpty { "unknown" }
         val transport = profile.transport.trim().lowercase().ifEmpty {
@@ -88,13 +54,6 @@ object ProtocolFingerprintAwareVerifier {
         return "$scheme/$transport/$security"
     }
 
-    /**
-     * Verdict for one transport, measured through a throwaway Xray core of that exact config.
-     *
-     * The caller supplies the core port (the same reservation discipline as
-     * [BenchmarkEngine.measure]); this function owns the measurement semantics so every caller
-     * (Rank, Tuner, Autopilot) measures the same way.
-     */
     fun verify(
         xray: XrayManager,
         profile: ProxyProfile,
@@ -119,8 +78,7 @@ object ProtocolFingerprintAwareVerifier {
         runCatching {
             xray.temporary(profile, port, baseSettings, link = link) { livePort ->
                 val pool = ProbeTargetPool.ordered(ProbeTargetPool.CDN_TARGETS, profile.id)
-                // First target that answers wins the RTT opinion. Rotated per server, so one
-                // SNI-throttled member of the pool never becomes a permanent false negative.
+
                 val batch = pool.firstNotNullOfOrNull { target ->
                     targetUsed = ProbeTargetPool.labelOf(target)
                     runCatching {
@@ -183,37 +141,17 @@ object ProtocolFingerprintAwareVerifier {
         )
     }
 
-    /**
-     * Latency ratio against the last measurement (15-minute baseline). 0 when no baseline
-     * exists; 1.0 when identical.
-     */
     fun baselineDeltaRatio(current: Double, baseline: Double?): Double {
         if (baseline == null || baseline <= 0.0 || current <= 0.0) return 0.0
         return current / baseline
     }
 
-    /** Constant bulk-transfer size for the two-stage throughput probe. */
     const val DEFAULT_SPEED_BYTES = 256 * 1024
 
-    /** Host used for the throughput segment (a dedicated pool member serving synthetic payload). */
     const val THROUGHPUT_TARGET = "speed.cloudflare.com"
 }
 
-/**
- * MARBLE_IRAN_AWARE_PING_L1_SAWTOOTH — the shape detector.
- *
- * EWMA hides bursts; the whole point of Layer 2 is that bursts are the signal. This detector
- * splits a transfer into 250 ms buckets and reads the *shape*:
- *
- *  - **sawtooth**: the first third of the transfer runs far faster than the last third AND the
- *    tail is nearly silent. Gradual in-path throttling ramps in after the connection proves
- *    itself, so the transfer starts fast and then stops.
- *  - **flat**: peak ≈ tail. Ordinary congestion/geography.
- *  - **early-stall**: the transfer stopped almost immediately with a large portion of the
- *    payload undelivered — a mid-stream RST signature.
- */
 object SawtoothDetector {
-
     const val BUCKET_MS = 250L
 
     fun evaluate(samples: List<ProtocolFingerprintAwareVerifier.ThroughputSample>): ProtocolFingerprintAwareVerifier.ThrottlePattern {
@@ -232,9 +170,7 @@ object SawtoothDetector {
             val bucket = sample.elapsedMs / BUCKET_MS
             buckets[bucket] = sample.bytes
         }
-        // Per-bucket INCREMENTAL rate (bytes delivered in that bucket / bucket width). The
-        // cumulative bytes over total time would rise monotonically and fake a "collapse";
-        // the incremental rate is what actually starts high and stalls.
+
         val bucketValues = buckets.entries.toList()
         val rates = ArrayList<Double>(bucketValues.size)
         var previousBytes = 0L
@@ -271,10 +207,6 @@ object SawtoothDetector {
         )
     }
 
-    /**
-     * Negative Pearson correlation between bucket index and rate: the more strictly
-     * monotone the decline, the more deliberately shaped the throttling.
-     */
     private fun confidenceFromCorrelation(rates: List<Double>): Double {
         if (rates.size < 3) return 0.0
         val n = rates.size

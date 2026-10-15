@@ -8,24 +8,7 @@ import java.io.InputStreamReader
 import java.net.InetAddress
 import java.net.ServerSocket
 
-/**
- * MARBLE_RESOLVE_BUDGET_V144 / MARBLE_HTTP_RACE_V144 / MARBLE_PROBE_DETERMINISM_V144 —
- * regression tests for the ping-layer overhaul:
- *
- * - hostname resolution inside probes is time-bounded (a hanging resolver reports
- *   unreachable instead of freezing the worker);
- * - numeric literals never wait on the resolver pool;
- * - the HTTPS origin race measures in parallel (a blackholed first origin cannot hold the
- *   fast second one hostage);
- * - blank-host DNS target selection is a deterministic rotation, not `random()`.
- *
- * Everything here runs on a plain JVM: resolvers are injected lambdas and the HTTP
- * origins are loopback sockets owned by the test, so no external network is touched.
- */
 class ProbeBudgetPolicyTest {
-
-    // ------------------------------------------------------------------ isLiteralIp
-
     @Test
     fun literalIpv4IsLiteral() {
         assertTrue(AddressFamilyPolicy.isLiteralIp("1.2.3.4"))
@@ -46,13 +29,11 @@ class ProbeBudgetPolicyTest {
         assertTrue(!AddressFamilyPolicy.isLiteralIp("one.one.one.one"))
         assertTrue(!AddressFamilyPolicy.isLiteralIp(""))
         assertTrue(!AddressFamilyPolicy.isLiteralIp("   "))
-        // Out-of-range quad: must fall through to the real resolver, never be parsed as one.
+
         assertTrue(!AddressFamilyPolicy.isLiteralIp("999.1.1.1"))
         assertTrue(!AddressFamilyPolicy.isLiteralIp("1.2.3"))
         assertTrue(!AddressFamilyPolicy.isLiteralIp("1.2.3.4.5"))
     }
-
-    // ------------------------------------------------------- resolveWithBudget
 
     @Test
     fun hangingResolverIsBoundedByBudget() {
@@ -112,8 +93,6 @@ class ProbeBudgetPolicyTest {
         assertEquals(1, result.size)
     }
 
-    // ------------------------------------------------------------------ dnsPing
-
     @Test
     fun dnsPingHonoursTimeoutInsteadOfHanging() {
         val hanging: (String) -> Array<InetAddress> = {
@@ -136,8 +115,6 @@ class ProbeBudgetPolicyTest {
         assertTrue("instant resolver must succeed, got $value", value < RouteProbe.UNREACHABLE)
     }
 
-    // ---------------------------------------------------------- determinism
-
     @Test
     fun blankHostDnsTargetsRotateDeterministically() {
         val seen = (1..6).map { RouteProbe.nextDnsTarget() }
@@ -145,9 +122,6 @@ class ProbeBudgetPolicyTest {
         assertEquals("rotation must cover 3 distinct resolvers", 3, seen.take(3).toSet().size)
     }
 
-    // -------------------------------------------------------------- httpPing race
-
-    /** A loopback HTTP origin. `blackhole = true` accepts connections and never answers. */
     private class LoopbackOrigin(val blackhole: Boolean = false, val delayMs: Long = 0) {
         val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
         val port: Int = server.localPort
@@ -192,8 +166,6 @@ class ProbeBudgetPolicyTest {
         val blackhole = LoopbackOrigin(blackhole = true)
         val fast = LoopbackOrigin()
         try {
-            // Sequential failover would block the full 5 s read timeout on the blackhole
-            // before ever dialling the fast origin. The race must answer in ~milliseconds.
             val started = System.nanoTime()
             val result = RouteProbe.httpPing(
                 socksPort = 0,

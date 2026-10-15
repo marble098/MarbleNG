@@ -14,7 +14,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 
-/** Status of the two Xray geo data files used by managed routing. */
 data class RoutingAssetStatus(
     val geoIpReady: Boolean,
     val geoIpBytes: Long,
@@ -27,52 +26,19 @@ data class RoutingAssetStatus(
 )
 
 class XrayManager(private val context: Context) {
-    /** Installed by the repository. Shared measurement contract, not a silent core fallback. */
     @Volatile var singBox: SingBoxManager? = null
     @Volatile var intelligence: MarbleIntelligence? = null
 
-    /**
-     * MARBLE_PING_SPEED_DIAL_V199 — how many throwaway Xray children this device may carry at
-     * once during a Real-delay sweep.
-     *
-     * A Real-delay measurement on the Xray engine spawns one child per candidate. The pool that
-     * carries those spawns was pinned to the CPU count (2..4) whatever the device was, so a
-     * hundred-node sweep ran in twenty-five waves of two to four even on a phone that could
-     * comfortably overlap more children while the first ones wait on the network. The same
-     * device-derived budget the sing-box measurement pool uses ([MeasurementCoreBudget], cores +
-     * per-app heap + `isLowRamDevice`) is the honest authority for Xray children too — and a
-     * conservative one, because an Xray child owns no controller API and no cache workspace, so
-     * it is strictly lighter than the sing-box child the budget was sized for.
-     *
-     * The floor never moves: a device that cannot carry more runs exactly the pool it has always
-     * run. Pure device read, computed once.
-     */
     val measurementCoreCeiling: Int =
         MeasurementCoreBudget.BASE + MeasurementCoreBudget.read(context)
 
     private fun underlayHasIpv6(): Boolean = intelligence?.currentSnapshot()
         ?.takeIf { it.transport != "unknown" }?.hasIpv6 ?: AddressFamilyPolicy.underlayHasIpv6()
-    // MARBLE_FAST_START_V12
-    // MARBLE_LOG_RESCUE_V13
-    // MARBLE_DIAG_PROCESS_PID_V15
-    // MARBLE_RUNTIME_STARTUP_RESCUE_V21
-    // MARBLE_SSH_BRIDGE_V25
-    // MARBLE_TEMP_PORT_ALLOCATOR_V38
-    // MARBLE_WARM_TUNNEL_RANK_V42
-    // MARBLE_REPEATABLE_RANK_V44
-    // MARBLE_V2RAYNG_SMART_RANK_V45
-    // MARBLE_TEMP_CONFIG_FALLBACK_V47
-    // MARBLE_REALTIME_ENGINE_V70
+
     internal companion object {
         const val ROUTING_ASSET_REFRESH_MS = 24L * 60L * 60L * 1000L
         const val ROUTING_ASSET_RETRY_MS = 6L * 60L * 60L * 1000L
 
-        /**
-         * MARBLE_RESERVED_TAG_COLLISION_V183 — the one line that explains a start failure. The core
-         * prints its `[Info]` DNS bootstrap lines right before `Failed to start: …`, so "the last
-         * four lines" used to be three DoH-client notices and a truncated cause. The fatal line
-         * leads now; the recent context follows, bounded as before.
-         */
         internal fun summarizeStartFailure(lines: List<String>): String {
             val meaningful = lines.map { it.trim() }.filter { it.isNotBlank() }
             if (meaningful.isEmpty()) return ""
@@ -91,7 +57,6 @@ class XrayManager(private val context: Context) {
     private val assetLock = ReentrantLock()
     private val geoIndexRefreshQueued = AtomicBoolean(false)
 
-    /** Process-wide ownership of every throwaway local Xray listener. */
     private val temporaryPortLock = Any()
     private val reservedTemporaryPorts = mutableSetOf<Int>()
     private var lifecycleGeneration = 0L
@@ -148,13 +113,6 @@ class XrayManager(private val context: Context) {
     var lastStartPhase: String = "idle"
         private set
 
-    /**
-     * Configs already proven valid by `xray run -test` this session skip that dry-run on the next
-     * connect — the hardened output is a pure function of (profile, port, settings), so a repeat
-     * hash can only re-validate identically. This shaves a full process spawn off reconnects to
-     * the same node (auto-reconnect, "use best result", retry-after-drop) without weakening the
-     * check for anything actually new.
-     */
     private val validatedConfigHashes = LinkedHashSet<String>()
     private val validatedCacheLimit = 96
 
@@ -211,7 +169,6 @@ class XrayManager(private val context: Context) {
             current
         }
 
-    /** Stale/cancelled starts may never overwrite diagnostics for a newer generation. */
     private fun publishStartState(
         generation: Long,
         phase: String,
@@ -233,12 +190,7 @@ class XrayManager(private val context: Context) {
     }
 
     val isAlive: Boolean get() = process?.isAlive == true
-    // MARBLE_ANDROID_PROCESS_PID_FIX_V15_0_1
-    /**
-     * Diagnostics-only child PID lookup. Android does not expose java.lang.Process.pid()
-     * consistently to Kotlin across the supported API surface. This executes only when Bug Finder
-     * requests process metadata, never on packet, TUN, connect, or telemetry fast paths.
-     */
+
     val processPid: Long
         get() = process?.let(::resolveChildProcessPid) ?: -1L
 
@@ -265,38 +217,21 @@ class XrayManager(private val context: Context) {
             type = current.superclass
         }
 
-        // PID is diagnostic metadata only. Unknown PID must never affect the connection.
         return -1L
     }
     val logFile: File get() = File(context.filesDir, "logs/xray.log")
-    /** Live-only TCP_INFO JSONL. MARBLE_REALTIME_ENGINE_V70 */
     val transportTelemetryFile: File get() = File(context.filesDir, "logs/xray-transport.jsonl")
     private val bin: File get() = File(context.applicationInfo.nativeLibraryDir, "libxray.so")
     private val assetsDir = File(context.filesDir, "xray-assets")
     private val runtimeConfig: File get() = File(context.filesDir, "runtime.json")
 
-    /**
-     * MARBLE_DURABLE_RUNTIME_STATE_V133 — atomic runtime-config write.
-     *
-     * Android kills this process outright when the APK is replaced; the exit history records it as
-     * `REASON_PACKAGE_UPDATE` (reason 16) and the log in question showed thirteen of them. A kill
-     * lands at an arbitrary instruction, and a plain `writeText` truncates the target *before* the
-     * new bytes arrive, so an unlucky kill leaves a zero-length or half-written `runtime.json`
-     * behind. The next start then hands the core a corrupt config and the failure looks like a
-     * broken server instead of a broken file.
-     *
-     * Writing a sibling temp file and renaming over the target makes the on-disk config always
-     * either the previous complete document or the new complete one: `rename` is atomic inside a
-     * single filesystem, which `context.filesDir` always is.
-     */
     private fun writeRuntimeConfig(target: File, text: String) {
         val temp = File(target.parentFile, target.name + ".tmp")
         runCatching {
             java.io.FileOutputStream(temp).use { output ->
                 output.write(text.toByteArray(Charsets.UTF_8))
                 output.flush()
-                // fsync before the rename: without it a power cut can leave the directory entry
-                // pointing at a file whose data never reached storage.
+
                 runCatching { output.fd.sync() }
             }
         }.onFailure {
@@ -304,27 +239,11 @@ class XrayManager(private val context: Context) {
             throw it
         }
         if (!temp.renameTo(target)) {
-            // Only reachable if the platform refuses the rename; a direct write still leaves a
-            // usable config, and the connection must not fail because of a filesystem quirk.
             target.writeText(text)
             runCatching { temp.delete() }
         }
     }
 
-    /**
-     * MARBLE_DURABLE_RUNTIME_STATE_V133 — discard state the previous process owned.
-     *
-     * Called when Android reports that this APK was replaced while a tunnel was running. The old
-     * process was killed without any teardown, so everything it left on disk is stale by
-     * definition: a truncated runtime config, a TCP_INFO telemetry file whose timestamps belong to
-     * a dead process, and a half-written temp file. JNI state needs no handling — `libmarbleng.so`
-     * and its tunnel handles die with the process and are re-created by the fresh one.
-     *
-     * The Xray log is deliberately preserved: it is the evidence Bug Finder reads, and the next
-     * start rotates it anyway.
-     *
-     * @return the artifacts that were actually removed, for diagnostics.
-     */
     fun discardStaleRuntimeArtifacts(): List<String> {
         val removed = mutableListOf<String>()
         listOf(
@@ -340,15 +259,6 @@ class XrayManager(private val context: Context) {
         return removed
     }
 
-    /**
-     * Ensures geoip.dat and geosite.dat exist. If a user URL is configured, the file is downloaded
-     * once for that exact URL and then reused on every start. Changing the URL triggers one new
-     * download. force=true explicitly refreshes the selected source.
-     *
-     * MARBLE_GEO_ASSET_INDEX_V136 — every committed change re-indexes the two databases so the
-     * rule editor's suggestions, validation and the route simulator always describe the files the
-     * engine will actually load.
-     */
     fun prepareRoutingAssets(
         settings: AppSettings = AppSettings(),
         force: Boolean = false
@@ -356,10 +266,7 @@ class XrayManager(private val context: Context) {
         assetLock.lock()
         try {
             assetsDir.mkdirs()
-            // MARBLE_MULTI_SOURCE_ROUTING_V212 — every enabled source is prepared, primary first.
-            // A source that fails to download costs its own rules, never the tunnel: the writer
-            // only emits an `ext:` reference for a file that is really on disk (see
-            // [com.marbleng.app.core.RoutingEngine.readyGeoFiles]).
+
             val sources = GeoAssetRegistry.resolve(settings)
             sources.forEachIndexed { index, spec ->
                 val primary = index == 0
@@ -373,7 +280,6 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    /** One family of one source: nothing is prepared for a source that does not publish it. */
     private fun prepareSourceFile(
         spec: GeoAssetRegistry.SourceSpec,
         kind: GeoAssetRegistry.Kind,
@@ -386,22 +292,14 @@ class XrayManager(private val context: Context) {
             .onFailure { lastGeoAssetError = "${it.message ?: it.javaClass.simpleName} ($name)" }
     }
 
-    /** The last per-source asset failure, for the routing page's own diagnostics line. */
     @Volatile
     var lastGeoAssetError: String = ""
         private set
 
-    /** Best-effort re-index of the managed geo databases; never throws. */
     fun refreshGeoAssetIndex() {
         runCatching { GeoAssetIndex.update(assetsDir) }
     }
 
-    /**
-     * MARBLE_MULTI_SOURCE_ROUTING_V212 — index every database the routing layer reads, not just
-     * the canonical pair. Suggestions, validation, provenance and the simulator then describe the
-     * union the config writer actually emits, which is the whole reason a second source is worth
-     * switching on.
-     */
     fun refreshGeoAssetIndex(settings: AppSettings): GeoAssetIndex.Snapshot? {
         assetLock.lock()
         try {
@@ -429,11 +327,6 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    /**
-     * Refreshes the index off the connect path. Asset writes take the same lease, so a background
-     * parse can never publish tag evidence from a half-replaced file. The cache is per process;
-     * duplicate reconnect requests coalesce into one worker.
-     */
     private fun scheduleGeoAssetIndexRefresh(settings: AppSettings) {
         if (!geoIndexRefreshQueued.compareAndSet(false, true)) return
         runCatching {
@@ -457,13 +350,6 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    /**
-     * The per-source readiness the routing writer needs.
-     *
-     * The names here are exactly the names [com.marbleng.app.core.RoutingEngine.geoTokens] filters
-     * on, so a file that is missing or half-written cannot produce an `ext:` reference — the one
-     * failure mode that would turn a routing preference into a core that refuses to start.
-     */
     private data class ReadyGeoAssets(
         val files: List<String>,
         val tagsByFile: Map<String, Set<String>>,
@@ -473,10 +359,6 @@ class XrayManager(private val context: Context) {
         val geoSiteBytes: Long = 0L
     )
 
-    /**
-     * A file is usable only after a full, fresh parse produced exact tag membership. A header/size
-     * check alone accepts truncated protobufs and says nothing about whether a requested tag exists.
-     */
     private fun indexedGeoAssets(
         settings: AppSettings,
         refresh: Boolean = true
@@ -518,7 +400,6 @@ class XrayManager(private val context: Context) {
     fun readyGeoAssetFiles(settings: AppSettings): List<String> =
         indexedGeoAssets(settings).files
 
-    /** The source-by-source state of the geo databases, for the routing page. */
     fun geoSourceStates(settings: AppSettings): List<GeoAssetRegistry.SourceState> {
         val sources = GeoAssetRegistry.resolve(settings)
         return sources.mapIndexed { index, spec ->
@@ -552,9 +433,7 @@ class XrayManager(private val context: Context) {
                 File(assetsDir, "$name.download").delete()
                 File(assetsDir, "$name.bak").delete()
             }
-            // MARBLE_MULTI_SOURCE_ROUTING_V212 — the secondary sources' databases are routing data
-            // too: leaving them behind would keep a switched-off source's file on disk, ready to
-            // be re-read by the next index pass as though it were still enabled.
+
             assetsDir.listFiles()?.forEach { file ->
                 val name = file.name
                 if (name.startsWith("geoip-") || name.startsWith("geosite-")) {
@@ -574,8 +453,7 @@ class XrayManager(private val context: Context) {
         val site = File(assetsDir, "geosite.dat")
         val ipSource = runCatching { sourceMarker("geoip.dat").readText() }.getOrDefault("")
         val siteSource = runCatching { sourceMarker("geosite.dat").readText() }.getOrDefault("")
-        // MARBLE_GEO_READY_GATE_V145 — READY means "a complete, structurally valid database is
-        // on disk", so a half-written or HTML payload can never enable geo routing.
+
         return RoutingAssetStatus(
             geoIpReady = looksLikeGeoDatabase(ip),
             geoIpBytes = ip.takeIf { it.isFile }?.length() ?: 0L,
@@ -588,20 +466,12 @@ class XrayManager(private val context: Context) {
         )
     }
 
-    /**
-     * Connection-critical asset preparation is OFFLINE-ONLY.
-     * Remote routing-data refresh belongs to the explicit management task, never Xray start.
-     * MARBLE_CONNECT_ASSET_OFFLINE_V21
-     */
     private fun prepareRoutingAssetsForConnect(settings: AppSettings): RoutingAssetStatus {
         val needGeoIp = requiresGeoIp(settings)
         val needGeoSite = requiresGeoSite(settings)
         val present = routingAssetStatus()
         if (!needGeoIp && !needGeoSite) return present
 
-        // Connection setup performs only bounded local checks and optional APK copies. Protobuf
-        // parsing is intentionally deferred to the index worker; a missing/stale index simply gates
-        // geo rules for this connection and never delays the SOCKS listener.
         val primaryIsBundled = GeoAssetRegistry.resolve(settings).firstOrNull()?.bundled == true
         if (!primaryIsBundled) return present
 
@@ -632,8 +502,6 @@ class XrayManager(private val context: Context) {
     val now = System.currentTimeMillis()
     val canonicalDefault = defaultRemoteUrl(name)
 
-    // Signed CI builds contain verified Chocolate4U assets. Use them immediately on first launch
-    // instead of making the user's very first VPN connection depend on raw.githubusercontent.com.
     if (!ready && remoteUrl == canonicalDefault && copyBundledAsset(name, destination)) {
         marker.writeText("apk://xray/$name")
         failureMarker.delete()
@@ -660,7 +528,6 @@ class XrayManager(private val context: Context) {
         for (candidate in remoteCandidates(name, remoteUrl)) {
             val attempt = runCatching { downloadAsset(candidate, destination) }
             if (attempt.isSuccess) {
-                // Store the canonical configured URL even when the jsDelivr mirror won the fetch.
                 marker.writeText(remoteUrl)
                 failureMarker.delete()
                 return
@@ -668,7 +535,6 @@ class XrayManager(private val context: Context) {
             lastError = attempt.exceptionOrNull()
         }
 
-        // A transient update outage must never destroy a valid previous routing database.
         if (ready) {
             runCatching {
                 failureMarker.writeText(lastError?.message.orEmpty().take(300))
@@ -677,7 +543,6 @@ class XrayManager(private val context: Context) {
             return
         }
 
-        // Custom/default remote failed and nothing valid exists yet. Last chance: bundled data.
         if (copyBundledAsset(name, destination)) {
             marker.writeText("apk://xray/$name")
             runCatching {
@@ -777,18 +642,6 @@ class XrayManager(private val context: Context) {
             }
 
             require(temp.length() > 1024L) { "${destination.name} download is empty" }
-            /*
-             * MARBLE_GEO_READY_GATE_V145 — "fully downloaded" is now verified, not assumed.
-             *
-             * The loop above committed whatever arrived: a connection cut in the middle of a
-             * 3 MiB geosite.dat produced a truncated file well over the 1 KiB floor, and a
-             * captive portal or a censor's block page produced an HTML document of the same
-             * shape. Both were then reported as READY and handed to Xray, which rejects the
-             * database and kills the core — the "connected but nothing loads" failure. A
-             * partial or non-protobuf payload is now discarded, so the previous good copy (or
-             * the bundled one) survives and the gate keeps geo routing off until a complete
-             * file lands.
-             */
             if (declared >= 0) {
                 require(temp.length() == declared) {
                     "${destination.name} download is incomplete (${temp.length()}/$declared bytes)"
@@ -806,10 +659,6 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    /**
-     * Crash-safe same-directory replacement. The last known-good geo database is preserved until
-     * the replacement has been committed; failures roll back instead of leaving a missing asset.
-     */
     private fun replaceFile(temp: File, destination: File) {
         destination.parentFile?.mkdirs()
         require(temp.isFile && temp.length() > 0L) { "Replacement ${destination.name} is empty" }
@@ -850,15 +699,6 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    /**
-     * MARBLE_GEO_READY_GATE_V145 — a cheap structural check that the payload is a v2ray geo
-     * database and not an error page, a redirect body or a truncated prefix.
-     *
-     * geoip.dat / geosite.dat are protobuf `GeoIPList` / `GeoSiteList` messages whose first
-     * field is repeated entry #1 (wire type 2), i.e. the first byte is always 0x0A followed by
-     * a varint length that must fit inside the file. HTML, JSON and gzip all fail that test in
-     * their first two bytes.
-     */
     private fun looksLikeGeoDatabase(file: File): Boolean = runCatching {
         if (!file.isFile || file.length() <= 1024L) return@runCatching false
         file.inputStream().use { input ->
@@ -884,12 +724,6 @@ class XrayManager(private val context: Context) {
     private fun sourceMarker(name: String) = File(assetsDir, "$name.source")
     private fun refreshFailureMarker(name: String) = File(assetsDir, "$name.refresh-failed")
 
-    /**
-     * "private" geoip tags/bypass never need geoip.dat: XrayConfigHardener expands them to literal
-     * RFC1918/link-local/loopback CIDRs. Only non-private geoip tags (country codes, etc.) require
-     * a real downloaded database. MARBLE_ROUTING_ENGINE_V136 — the decision itself now lives in
-     * RoutingEngine, the same source the config writer and the UI consult.
-     */
     private fun requiresGeoIp(settings: AppSettings): Boolean = RoutingEngine.needsGeoIp(settings)
 
     private fun requiresGeoSite(settings: AppSettings): Boolean = RoutingEngine.needsGeoSite(settings)
@@ -901,30 +735,11 @@ class XrayManager(private val context: Context) {
         return ProcessBuilder(command).apply {
             redirectErrorStream(true)
             environment()["XRAY_LOCATION_ASSET"] = assetsDir.absolutePath
-            // MARBLE_CORE_CONFIG_SUPERSET_V165 — "this is a MarbleNG process, and MarbleNG has
-            // already applied its own consent policy to every config it writes".
-            //
-            // The pinned Xray core refuses `vless`/`trojan` outbounds that reach a *public* address
-            // without TLS (`infra/conf: vless without TLS or other encryption is prohibited unless
-            // the server address is a private IP or domain`). MarbleNG ships that core with a
-            // one-function patch (`scripts/inject-xray-config-superset.py`) that lets the application
-            // delegate the decision, and this variable is the delegation. It is set here — for the
-            // live tunnel, the `run -test` verifier and every throwaway Rank/Turbo child alike —
-            // because the policy it defers to is the *same* for all three
-            // ([CoreConfigSuperset.verdict], consulted by the connect path, the rank pool and the
-            // security auditor): a node that may be dialled may also be measured, and a node that may
-            // not is refused before a process is ever spawned.
-            //
-            // The standalone binary keeps upstream's default-deny: the variable is set by no one else.
+
             environment()[CoreConfigSuperset.PLAINTEXT_POLICY_ENV] = "1"
         }
     }
 
-    /**
-     * Verifies the selected routing policy with the exact Xray binary shipped in the APK.
-     * XRAY_LOCATION_ASSET is inherited from createProcessBuilder(), so geoip/geosite tags are
-     * resolved against MarbleNG's managed data files rather than just checking file existence.
-     */
     @Synchronized
     fun verifyRoutingPolicy(
         profile: ProxyProfile,
@@ -937,8 +752,7 @@ class XrayManager(private val context: Context) {
         val shouldPrepareAssets =
             needGeoIp || needGeoSite || settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank()
         if (shouldPrepareAssets) prepareRoutingAssets(settings, force = false)
-        // Hold the asset lease for the index, generated config and -test process, so validation
-        // cannot inspect one file set and then hand Xray another one during a refresh.
+
         val assetLease = try {
             assetLock.tryLock(250L, TimeUnit.MILLISECONDS)
         } catch (_: InterruptedException) {
@@ -951,9 +765,6 @@ class XrayManager(private val context: Context) {
             val geoIpReady = assetLease && indexed.geoIpReady
             val geoSiteReady = assetLease && indexed.geoSiteReady
 
-            // Verification uses the exact same freshness, parse and per-file tag-membership evidence
-            // as the live start path. If assets are busy, geo rules are omitted rather than checked
-            // against a stale filename or a different core-visible snapshot.
             val gated = RoutingEngine.withGeoAssetGate(settings, geoIpReady, geoSiteReady)
             val effectiveSettings = gated.copy(
                 measuredGeoReadyFiles = indexed.files.joinToString(",").ifEmpty { "none" },
@@ -1015,11 +826,6 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    /**
-     * @param link measured round-trip evidence for this route. It sizes every deadline the hardened
-     *   config carries (see [LinkDeadlinePolicy]); [LinkEvidence.UNKNOWN] reproduces the legacy
-     *   fixed budgets for callers that have not measured the path yet.
-     */
     fun start(
         profile: ProxyProfile,
         port: Int,
@@ -1038,9 +844,7 @@ class XrayManager(private val context: Context) {
         logFile.parentFile?.mkdirs()
         beginLiveLogSession()
         val config = runtimeConfig
-        // Hold a short-lived read lease over the exact geo snapshots from verification through the
-        // core's listener startup. If a refresh owns the lock, skip all geo assets for this session
-        // rather than racing a replacement between tag validation and Xray's file read.
+
         val assetLease = try {
             assetLock.tryLock(250L, TimeUnit.MILLISECONDS)
         } catch (_: InterruptedException) {
@@ -1052,11 +856,6 @@ class XrayManager(private val context: Context) {
             runCatching {
             publishStartState(ticket.generation, "port-check")
             if (!portAvailable(port)) {
-                // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — the old refusal ("Local port $port is
-                // already in use") refused forever: an untracked stale core kept the port, every
-                // retry paid a preflight failure, and nothing ever named the holder. Reap the
-                // same-UID core binaries first, exactly as SingBoxManager.start does for the
-                // sing-box engine; only a holder we correctly did not signal fails the start.
                 val reclaim = CorePortGuard.reclaim(
                     probe = CorePortGuard.androidProbe(),
                     port = port,
@@ -1072,7 +871,6 @@ class XrayManager(private val context: Context) {
             }
             if (!startStillCurrent(ticket.generation)) return@runCatching false
 
-            // Connection-critical path: local filesystem + process spawn only. Never remote HTTP.
             publishStartState(ticket.generation, "assets-local")
             if (assetLease) prepareRoutingAssetsForConnect(settings)
             val indexedAssets = if (assetLease) indexedGeoAssets(settings, refresh = false)
@@ -1085,16 +883,13 @@ class XrayManager(private val context: Context) {
                 scheduleGeoAssetIndexRefresh(settings)
             }
 
-            // Missing, stale, malformed, or tag-incomplete data disables only the dependent geo
-            // rules. Literal/user routing and the tunnel itself remain available.
             val gated = RoutingEngine.withGeoAssetGate(
                 settings,
                 geoIpReady = geoIpReady,
                 geoSiteReady = geoSiteReady
             )
             val effectiveSettings = gated.copy(
-                // `none` is an explicit measured verdict; empty is reserved for legacy callers that
-                // have not measured the filesystem and still assume only the canonical pair.
+
                 measuredGeoReadyFiles = indexedAssets.files.joinToString(",").ifEmpty { "none" },
                 measuredGeoTagsByFile = indexedAssets.tagsByFile,
                 measuredGeoMembershipKnown = true
@@ -1125,7 +920,7 @@ class XrayManager(private val context: Context) {
             transportTelemetryFile.parentFile?.mkdirs(); runCatching { transportTelemetryFile.delete() }
             val liveBuilder = createProcessBuilder("run", "-c", config.absolutePath)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
-            // Throwaway Rank/Turbo processes intentionally do not receive this environment variable.
+
             liveBuilder.environment()["MARBLE_TELEMETRY_FILE"] = transportTelemetryFile.absolutePath
             val startedProcess = liveBuilder.start()
 
@@ -1137,8 +932,7 @@ class XrayManager(private val context: Context) {
             publishStartState(ticket.generation, "listener")
             if (!waitSocksPort(port, 7_000L, startedProcess)) {
                 val cancelled = !startStillCurrent(ticket.generation)
-                // Capture the child's state before stopping it; otherwise diagnostics report our
-                // own termination signal instead of the process state that caused readiness to fail.
+
                 val aliveBeforeStop = startedProcess.isAlive
                 val exitBeforeStop = if (aliveBeforeStop) null else
                     runCatching { startedProcess.exitValue() }.getOrNull()
@@ -1176,10 +970,6 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    /**
-     * STOP invalidates the in-flight start before waiting for a child process to exit.
-     * No monitor is held while destroy()/destroyForcibly() waits.
-     */
     fun stop() {
         val stopped = synchronized(lifecycleLock) {
             lifecycleGeneration += 1L
@@ -1217,13 +1007,6 @@ class XrayManager(private val context: Context) {
         }
     }
 
-    /**
-     * Deterministic shutdown for throwaway benchmark processes.
-     *
-     * A reservation is released only after this bounded graceful/forced reap attempt. The old
-     * 300 + 250 ms window could return while a native worker was still exiting, so rapid Rank
-     * reruns accumulated processes, sockets and server sessions behind the next batch.
-     */
     private fun stopTemporaryProcess(target: Process) {
         runCatching { target.destroy() }
         val gracefulDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(700L)
@@ -1250,28 +1033,6 @@ class XrayManager(private val context: Context) {
         runCatching { target.outputStream.close() }
     }
 
-    /**
-     * Temporary benchmark/optimizer Xray instance.
-     *
-     * `port` is only a preferred starting point, and `0` means "any free port": Benchmark, race,
-     * Continuous Optimizer and Turbo may overlap, so XrayManager owns one reservation set, coerces
-     * the preference into its own range and passes the real collision-free port back to the caller.
-     *
-     * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — the guard below used to reject `0` while
-     * [reserveTemporaryPort] was perfectly able to honour it, so every caller that asked for "any
-     * port" got `false` instead of a measurement and read that as "this node is dead". The
-     * caller that passed 0 for every profile it ranked never produced a single sample.
-     *
-     * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — [link] is the measured round-trip evidence for the
-     * route this throwaway core is about to measure, and it is the same evidence the live tunnel
-     * config is sized from. Before it existed, every measurement core was hardened with
-     * [LinkEvidence.UNKNOWN], i.e. with the legacy 1350/1650 ms encrypted-DNS budgets that V133
-     * proved cannot survive a slow route. The consequence was invisible from the live tunnel: the
-     * tunnel resolved and carried traffic correctly while every acceleration trial, benchmark and
-     * race probe running beside it failed at DNS, so the tuning engine reported "no trial measured
-     * anything" and the backoff escalated to its 1800 s ceiling. A measurement plane that is sized
-     * for a faster link than the one it measures does not measure the link.
-     */
     fun temporary(
         profile: ProxyProfile,
         port: Int,
@@ -1289,8 +1050,7 @@ class XrayManager(private val context: Context) {
 
         val config = File(context.cacheDir, "bench-$actualPort.json")
         val benchmarkLog = File(context.cacheDir, "xray-bench-$actualPort.log")
-        // One log per latest worker lifetime: stale failures from earlier Rank runs must not
-        // masquerade as the current node's failure evidence.
+
         runCatching { benchmarkLog.delete() }
 
         val portWaitMs = (settings.benchTimeoutSec * 1000L).coerceIn(2_500L, 7_000L)
@@ -1356,9 +1116,6 @@ class XrayManager(private val context: Context) {
 
                     val primaryStarted = runTemporaryConfig(primaryConfig)
                     if (!primaryStarted && delayTest) {
-                        // Some imported transports depend on runtime-compatible hardening that the
-                        // minimal delay config intentionally trims. Retry once with the exact class
-                        // of config used by a real connection before declaring the node dead.
                         runCatching {
                             benchmarkLog.appendText(
                                 "\n[MarbleNG] minimal delay config failed; retrying runtime-compatible config\n"
@@ -1399,19 +1156,6 @@ class XrayManager(private val context: Context) {
     ): Boolean {
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
 
-        /*
-         * Listener readiness must not create SOCKS traffic.
-         *
-         * The old probe sent only [05 01 00], read the selected auth method, then closed.
-         * Xray correctly logged that incomplete request as:
-         *   proxy/socks: failed to read request > EOF
-         *
-         * We already prove the port was free before launching Xray. Polling until the same
-         * loopback port becomes non-bindable while the spawned process remains alive is a
-         * zero-traffic readiness signal and produces no fake SOCKS failures.
-         *
-         * MARBLE: listener-bound-no-socks-handshake
-         */
         while (System.nanoTime() < deadline) {
             if (target != null && !target.isAlive) return false
 
@@ -1466,13 +1210,6 @@ class XrayManager(private val context: Context) {
     private fun sha256(text: String): String = java.security.MessageDigest.getInstance("SHA-256")
         .digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
-    /**
-     * Keep the live Xray log scoped to the current connection attempt.
-     *
-     * RuntimeDiagnostics already keeps the cross-session engine history. Reusing one unbounded
-     * xray.log made Bug Finder surface warnings/failures from hours-old sessions as if they were
-     * current. Keep exactly one previous live log for manual forensics and start clean each time.
-     */
     private fun beginLiveLogSession() {
         val previous = File(logFile.parentFile, "${logFile.name}.1")
         runCatching { previous.delete() }

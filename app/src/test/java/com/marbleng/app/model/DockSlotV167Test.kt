@@ -4,17 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
-/**
- * MARBLE_DOCK_SLOT_V167 — the fourth slot of the bottom bar.
- *
- * The product shipped three tabs for its whole life, so the fourth one has to be two things at
- * once: a real page the user fills in, and a preference that can be switched off without leaving
- * the app holding a pager page that no longer exists. Everything that decides that — the kind, the
- * glyph, the caption and the mapping from a remembered tab name to a page — is a pure function, and
- * this test pins all four.
- */
 class DockSlotV167Test {
-
     @Test
     fun everySlotKindRoundTripsThroughItsStoredId() {
         DockSlotKind.entries.forEach { kind ->
@@ -26,7 +16,6 @@ class DockSlotV167Test {
 
     @Test
     fun aFreshInstallOpensOnThePulse() {
-        // The only kind that is meaningful with an empty library, so the slot is never blank.
         assertEquals(DockSlotKind.PULSE, DockSlotKind.DEFAULT)
         listOf("", "   ", "nebula", "PULSE-TRACE").forEach { raw ->
             assertEquals("unknown kind '$raw' must fall back", DockSlotKind.PULSE, parseDockSlotKind(raw))
@@ -35,8 +24,6 @@ class DockSlotV167Test {
 
     @Test
     fun theRetiredVocabularyStillNamesItsSlot() {
-        // Earlier drafts of this feature persisted SUBSCRIPTION/NODE; a value already written to a
-        // device has to keep opening the slot it named.
         listOf("sub", "subscription", "group", "subs").forEach { legacy ->
             assertEquals(legacy, DockSlotKind.SOURCE, parseDockSlotKind(legacy))
         }
@@ -91,16 +78,14 @@ class DockSlotV167Test {
         val hidden = dockSlots(all, SpatialTabLike.CUSTOM, showOptional = false)
         assertEquals(3, hidden.size)
         assertFalse(SpatialTabLike.CUSTOM in hidden)
-        // The three tabs the product shipped with keep their order, so nothing moves when the
-        // fourth slot disappears.
+
         assertEquals(listOf(SpatialTabLike.DECK, SpatialTabLike.LIBRARY, SpatialTabLike.SETTINGS), hidden)
     }
 
     @Test
     fun aRememberedFourthTabFallsBackIntoTheBarThatExists() {
         val hidden = dockSlots(SpatialTabLike.entries, SpatialTabLike.CUSTOM, showOptional = false)
-        // An install that had the fourth slot selected and then turned it off comes back asking for
-        // page 4 of a three-page pager: this is the repair that never asks for it.
+
         assertEquals(0, dockSlotIndex(hidden, SpatialTabLike.CUSTOM))
         assertEquals(0, dockSlotIndex(hidden, SpatialTabLike.DECK))
         assertEquals(SpatialTabLike.SETTINGS, hidden[dockSlotIndex(hidden, SpatialTabLike.SETTINGS)])
@@ -119,8 +104,6 @@ class DockSlotV167Test {
 
     @Test
     fun withNoSlotsAtAllThePageIsTheFirstOne() {
-        // Never a negative index: a pager asked for page -1 is a crash, and the bar is built from
-        // this list before anything else is measured.
         assertEquals(0, dockSlotIndex(emptyList<SpatialTabLike>(), SpatialTabLike.DECK))
     }
 
@@ -135,7 +118,7 @@ class DockSlotV167Test {
     @Test
     fun theDefaultCaptionNamesWhatTheSlotActuallyOpens() {
         assertEquals(DOCK_SLOT_CAPTION_PULSE, dockSlotDefaultCaption(DockSlotKind.PULSE, ""))
-        // A pulse is never named after a source it does not open.
+
         assertEquals(DOCK_SLOT_CAPTION_PULSE, dockSlotDefaultCaption(DockSlotKind.PULSE, "My Sub"))
         assertEquals("My Sub", dockSlotDefaultCaption(DockSlotKind.SOURCE, "My Sub"))
         assertEquals("Tokyo", dockSlotDefaultCaption(DockSlotKind.CONFIG, "Tokyo"))
@@ -147,6 +130,5 @@ class DockSlotV167Test {
         )
     }
 
-    /** A local stand-in for the dock's own enum, which is private to the UI layer. */
     private enum class SpatialTabLike { DECK, LIBRARY, SETTINGS, CUSTOM }
 }

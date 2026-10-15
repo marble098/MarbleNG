@@ -5,17 +5,6 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
-/**
- * HTTPS-only subscription fetch that survives Iranian DPI on GitHub/raw SNI and UA fingerprinting.
- *
- * Iranian operators commonly:
- *  - RST or blackhole `raw.githubusercontent.com` / `gist.githubusercontent.com` by SNI
- *  - fingerprint non-browser User-Agents on TLS + HTTP
- *  - reset first-flight TLS records larger than a few hundred bytes
- *  - never permit a safe HTTP fallback (cleartext is disabled app-wide)
- *
- * Countermeasures: Chrome UA, GitHub→jsDelivr mirrors, bounded payload and no-cleartext redirects.
- */
 object DpiAwareFetcher {
     data class Payload(
         val text: String,
@@ -74,20 +63,6 @@ object DpiAwareFetcher {
         }
     }
 
-    /**
-     * Every transport this fetcher owns, tried until one delivers the payload. Never retries
-     * over HTTP.
-     *
-     * MARBLE_FETCH_RELIABILITY_V78 — browser UA first, GitHub mirrors, then the caller's SOCKS
-     * bridge, then a secondary UA over everything.
-     *
-     * MARBLE_SUBSCRIPTION_REACH_V145 — [preferSocks] flips the order of the two transports
-     * without removing either of them. A subscription host and a proxy route are independent
-     * reachability problems: some panels answer only from the user's own country (underlay),
-     * some only from outside it (tunnel), and the same account can hold both. The caller says
-     * which transport is the likelier winner right now; this function still tries the other one
-     * before giving up, which is what makes a link load whether the VPN is on or off.
-     */
     fun fetch(
         url: String,
         maxBytes: Int,
@@ -97,7 +72,7 @@ object DpiAwareFetcher {
         throughSocks: ((candidateUrl: String, userAgent: String) -> Payload)? = null
     ): Payload {
         val urls = candidateUrls(url)
-        // Prefer browser UA on any network, add Marble UA only as secondary fallback
+
         val primaryAgent = DpiEvasionPolicy.BROWSER_UA
         val secondaryAgent = DpiEvasionPolicy.MARBLE_UA
         var last: Throwable? = null
@@ -124,13 +99,12 @@ object DpiAwareFetcher {
             return null
         }
 
-        // Pass 1+2: the preferred transport with the browser UA, then the other one.
         val firstWave: List<() -> Payload?> = if (preferSocks) {
             listOf({ socksPass(primaryAgent) }, { directPass(primaryAgent, 10_000, 25_000) })
         } else {
             listOf({ directPass(primaryAgent, 10_000, 25_000) }, { socksPass(primaryAgent) })
         }
-        // Pass 3+4: the same two transports with the secondary UA, for UA-fingerprinting DPI.
+
         val secondWave: List<() -> Payload?> = if (preferSocks) {
             listOf({ socksPass(secondaryAgent) }, { directPass(secondaryAgent, 12_000, 30_000) })
         } else {

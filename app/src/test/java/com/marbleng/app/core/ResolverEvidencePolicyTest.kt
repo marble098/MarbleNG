@@ -6,25 +6,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_RESOLVER_EVIDENCE_V134 regressions.
- *
- * The session that motivated this policy was `state=CONNECTED`, stable for two and a half hours, and
- * answered four or five of five ping probes — and still accumulated 29 `DoH deadline` events. V133
- * had already made every deadline a function of the measured link, so a correctly sized budget was
- * not the missing piece. The missing piece was that nothing in the stack ever *acted* on the
- * attributed failures: the resolver list was emitted from a fixed order forever, the count was
- * reported and discarded, and Bug Finder compared raw totals across sessions of different lengths so
- * the healthy long session read worse than the broken short one.
- *
- * Every test below pins one rule of the loop that replaced it.
- */
 class ResolverEvidencePolicyTest {
-
-    /** A realistic wall clock: `0` is the policy's "never observed" sentinel, not a test time. */
     private val t0 = 1_700_000_000_000L
 
-    /** The exact shape Xray prints: the failing resolver's transport URL, quoted, then the cause. */
     private fun deadlineLine(endpoint: String) =
         "2026-09-04 17:16:36.412113 [Error] app/dns: failed to retrieve response for " +
             "www.google.com. > Post \"$endpoint\": context deadline exceeded"
@@ -40,10 +24,6 @@ class ResolverEvidencePolicyTest {
         nowMs: Long = t0
     ) = ResolverEvidencePolicy.observe(lines.asSequence(), existing, nowMs)
 
-    // ------------------------------------------------------------------
-    // Attribution
-    // ------------------------------------------------------------------
-
     @Test
     fun `a resolver failure is attributed to the endpoint the core named`() {
         assertEquals(cloudflare, ResolverEvidencePolicy.endpointOf(deadlineLine(cloudflare)))
@@ -52,8 +32,6 @@ class ResolverEvidencePolicyTest {
 
     @Test
     fun `a line that names no endpoint is counted but attributed to nobody`() {
-        // The classic plaintext EOF line carries no transport URL, so it must not be charged to a
-        // resolver that happens to be mentioned elsewhere in the same session.
         assertNull(
             ResolverEvidencePolicy.endpointOf(
                 "[Error] app/dns: failed to read response length > EOF"
@@ -65,8 +43,6 @@ class ResolverEvidencePolicyTest {
 
     @Test
     fun `a destination url inside a dns line is never charged to a resolver`() {
-        // Being DNS-related is necessary but not sufficient: the quoted URL has to be a resolver
-        // transport, otherwise an ordinary HTTPS destination would demote whoever it half-mentions.
         assertNull(
             ResolverEvidencePolicy.endpointOf(
                 "[Error] app/dns: lookup path for dns.google failed > " +
@@ -115,10 +91,6 @@ class ResolverEvidencePolicyTest {
         )
     }
 
-    // ------------------------------------------------------------------
-    // Demotion, decay, TTL, recovery
-    // ------------------------------------------------------------------
-
     @Test
     fun `a single transient deadline does not demote anything`() {
         val evidence = observe(listOf(deadlineLine(cloudflare)))
@@ -153,13 +125,11 @@ class ResolverEvidencePolicyTest {
         val evidence = observe(List(8) { deadlineLine(cloudflare) })
         assertTrue(ResolverEvidencePolicy.isDemoted(cloudflare, evidence, t0))
 
-        // One half-life halves the pressure, but a storm of eight is still above the threshold.
         val oneHalfLife = t0 + ResolverEvidencePolicy.DECAY_HALF_LIFE_MS
         val decayedOnce = observe(emptyList(), evidence, oneHalfLife)
         assertEquals(4, decayedOnce.first().decisiveFailures)
         assertTrue(ResolverEvidencePolicy.isDemoted(cloudflare, decayedOnce, oneHalfLife))
 
-        // Two half-lives: the evidence about a window that has passed has faded below the threshold.
         val twoHalfLives = t0 + ResolverEvidencePolicy.DECAY_HALF_LIFE_MS * 2
         val decayedTwice = observe(emptyList(), decayedOnce, twoHalfLives)
         assertEquals(2, decayedTwice.first().decisiveFailures)
@@ -256,10 +226,6 @@ class ResolverEvidencePolicyTest {
         assertTrue(ResolverEvidencePolicy.deserialize("not json").isEmpty())
     }
 
-    // ------------------------------------------------------------------
-    // Racing
-    // ------------------------------------------------------------------
-
     @Test
     fun `racing the resolvers is armed only by attributed failure evidence`() {
         assertFalse(
@@ -282,15 +248,8 @@ class ResolverEvidencePolicyTest {
         )
     }
 
-    // ------------------------------------------------------------------
-    // Honest reporting
-    // ------------------------------------------------------------------
-
     @Test
     fun `the same count reads differently inside a different window`() {
-        // The two sessions from the attached runtime logs: 16 events inside a short broken session
-        // and 29 events across a long stable one. The absolute comparison says the healthy session is
-        // worse; the rate says the opposite, which is what actually happened.
         val brokenShort = ResolverEvidencePolicy.window(16, 3L * 60_000L)
         val healthyLong = ResolverEvidencePolicy.window(29, 158L * 60_000L)
         assertEquals(ResolverEvidencePolicy.Severity.SEVERE, brokenShort.severity)

@@ -6,15 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.Executors
 
-/**
- * Regression tests for the parallel DoH resolver pool (MARBLE_SMART_RANK_V90).
- *
- * These lock in the "closed pipe" fix contract: the pool races at least four providers, the first
- * valid answer wins, and ANY error class — not just timeouts — falls back automatically to the
- * next provider. The transport drains the full response body before the socket is closed.
- */
 class DohResolverPoolTest {
-
     private class FakeTransport(
         private val responses: Map<String, DohTransportResult>
     ) : DohTransport {
@@ -157,8 +149,8 @@ class DohResolverPoolTest {
         val providers = DohResolverPool.DEFAULT_PROVIDERS
         assertTrue(providers.size >= 4)
         assertEquals(1, providers.count { it.internal })
-        assertTrue(providers.any { it.endpoint.contains("1.1.1.1") })   // Cloudflare
-        assertTrue(providers.any { it.endpoint.contains("8.8.8.8") })   // Google
-        assertTrue(providers.any { it.endpoint.contains("9.9.9.9") })   // Quad9
+        assertTrue(providers.any { it.endpoint.contains("1.1.1.1") })
+        assertTrue(providers.any { it.endpoint.contains("8.8.8.8") })
+        assertTrue(providers.any { it.endpoint.contains("9.9.9.9") })
     }
 }

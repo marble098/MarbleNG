@@ -4,18 +4,7 @@ import org.junit.Test
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 
-/**
- * MARBLE_PING_PARALLEL_V200 — the width of a sweep.
- *
- * The point of these tests is the part of the old design that could not be tested at all:
- * before V200 the width was `min(cpus, 4) × dial` buried in two call sites, so nobody could
- * ask "what does a two-core 1 GB phone get". Now it is one pure object, and the ladder is
- * pinned in both directions — that width rises with the device, that it is flat past eight
- * cores, and that a starving memory figure demotes a device that its core count would have
- * promoted.
- */
 class PingParallelTest {
-
     @Test
     fun `one core device runs two at once`() {
         assertEquals(2, PingParallel.recommend(1, 4_096L, ProbeMethod.TCP_PING))
@@ -134,10 +123,6 @@ class PingParallelTest {
 
     @Test
     fun `the manual chips can express every width the ladder recommends`() {
-        // The old chip list was powers of two only, so a six-core phone had no honest home in
-        // it — and neither did a flagship, because the ladder asks for 10 and 20. Every number
-        // the ladder can produce, on any device and for either method, must be selectable by
-        // hand: otherwise "set it yourself" cannot reach the value the device earned.
         val recommended = (1..16).flatMap { cores ->
             listOf(1_024L, 2_048L, 4_096L, 8_192L).flatMap { memory ->
                 ProbeMethod.entries.map { method -> PingParallel.recommend(cores, memory, method) }

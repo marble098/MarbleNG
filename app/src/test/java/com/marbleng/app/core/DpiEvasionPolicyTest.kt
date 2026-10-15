@@ -6,14 +6,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_CORE_OPTIONS_V211 — what [DpiEvasionPolicy] is allowed to decide now.
- *
- * The fragment ladder that used to live here is gone with the feature: the two cores' options are
- * the user's, written verbatim, and no policy may rewrite them. What this object still owns is the
- * two decisions that are *not* a core option — the TUN segment ceiling on a filtered carrier, and
- * the timing budgets a measured lossy link earns — and these tests pin exactly that boundary.
- */
 class DpiEvasionPolicyTest {
     private fun cellularIsp(severity: FilterSeverity) = IranIsp(
         asn = 0,

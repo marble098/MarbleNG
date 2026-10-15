@@ -1,9 +1,5 @@
 package com.marbleng.app.core
 
-/**
- * Fair batch target rotation. All nodes on one network/time epoch receive the same endpoint order,
- * eliminating profile-id target bias while still rotating the first origin over time.
- */
 object RankTargetScheduler {
     fun <T> ordered(
         targets: List<T>,

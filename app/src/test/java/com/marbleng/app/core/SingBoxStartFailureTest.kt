@@ -10,11 +10,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Unit tests for [SingBoxStartFailure] and fallback proxy outbound generation.
- */
 class SingBoxStartFailureTest {
-
     @Test
     fun `no proxy outbound is classified as NO_PROXY_OUTBOUND`() {
         val err = "create service: outbound: no proxy outbound found in configuration"

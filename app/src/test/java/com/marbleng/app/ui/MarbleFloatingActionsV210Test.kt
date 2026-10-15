@@ -4,23 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_FLOATING_ACTIONS_V210 — the guarantee behind "the floating buttons look different in
- * every theme, and stay coordinated".
- *
- * The old split control painted its faces with whatever colour the call site reached for, and in
- * the dynamic theme that colour was a hard-coded brand red sitting on a wallpaper-coloured page.
- * Nothing could have caught it, because nothing measured a floating action's colour: not whether
- * the two halves of one control are distinguishable, not whether the glyph on either half is
- * readable, and not whether two themes actually differ.
- *
- * Those are three testable questions, so they are three tests. Every set is packed ARGB, so the
- * whole thing runs on a plain JVM with no Compose runtime in sight.
- */
 class MarbleFloatingActionsV210Test {
-
-    // A Material You scheme, in the shape the theme reads it: a pastel primary is the case the
-    // old design failed, because a pastel at 100 % under a pastel wash is unreadable.
     private val dynamicLight = MarbleFloatActions.dynamic(
         primary = 0xFFA8C7FA.toInt(),
         secondary = 0xFFBCC7DC.toInt(),
@@ -30,8 +14,6 @@ class MarbleFloatingActionsV210Test {
         onPrimaryContainer = 0xFFD6E3FF.toInt()
     )
 
-    // The same wallpaper in its dark form, where `onPrimary` is the DARK one of the pair — the
-    // ordering the palette has to repair rather than assume.
     private val dynamicDark = MarbleFloatActions.dynamic(
         primary = 0xFFB8C8FF.toInt(),
         secondary = 0xFFC2C6DC.toInt(),
@@ -57,8 +39,6 @@ class MarbleFloatingActionsV210Test {
 
     @Test
     fun `the four verbs of one control are four different colours`() {
-        // Two discs under one thumb that happen to resolve to the same pastel are two discs the
-        // user cannot tell apart, which is the whole defect this token set exists to prevent.
         for ((name, set) in themes) {
             val roles = set.roles()
             for (i in roles.indices) {
@@ -74,8 +54,6 @@ class MarbleFloatingActionsV210Test {
 
     @Test
     fun `every theme answers all four verbs differently from every other theme`() {
-        // The report was "the floating buttons must show different colours in different themes".
-        // Four roles, three palettes, twelve chances to accidentally share a value.
         val brandLight = MarbleFloatActions.Light.roles().toMap()
         val brandDark = MarbleFloatActions.Dark.roles().toMap()
         for (role in brandLight.keys) {
@@ -106,11 +84,6 @@ class MarbleFloatingActionsV210Test {
 
     @Test
     fun `a pastel disc takes the dark ink and a deep disc takes the light one`() {
-        // The V201 regression, stated for the V210 tokens: the Pure black theme's stop disc is a
-        // light rose (#FF718B) and its connect disc a bright blue (#3399FF). Near-white ink on
-        // either scores 2.45:1 and 2.74:1 — both under the 3:1 floor for graphical objects — so
-        // the scored ink on both is the navy one. Assuming white is what put invisible pause
-        // bars on a light-rose disc.
         assertEquals(
             MarbleFloatActions.Dark.inkDark,
             MarbleFloatActions.Dark.inkOn(MarbleFloatActions.Dark.stop)
@@ -119,8 +92,7 @@ class MarbleFloatingActionsV210Test {
             MarbleFloatActions.Dark.inkDark,
             MarbleFloatActions.Dark.inkOn(MarbleFloatActions.Dark.connect)
         )
-        // The opposite case, so the test cannot pass by "always the dark ink": Daylight's connect
-        // disc is a deep electric blue, and the same white ink scores 5.57:1 on it.
+
         assertEquals(
             MarbleFloatActions.Light.inkLight,
             MarbleFloatActions.Light.inkOn(MarbleFloatActions.Light.connect)
@@ -129,9 +101,6 @@ class MarbleFloatingActionsV210Test {
 
     @Test
     fun `both ink candidates really are in play in a brand palette`() {
-        // The scoring has to be a choice, not a constant. If every disc of a palette came back
-        // with the same ink, `inkOn` would be a `val` — and the day a palette ships a pale
-        // action tone it would ship an invisible glyph with it.
         for ((name, set) in listOf("Daylight" to MarbleFloatActions.Light, "Pure black" to MarbleFloatActions.Dark)) {
             val chosen = set.roles().map { (_, tone) -> set.inkOn(tone) }.toSet()
             val report = set.roles().joinToString { (role, tone) ->
@@ -144,9 +113,6 @@ class MarbleFloatingActionsV210Test {
 
     @Test
     fun `a wallpaper palette orders its own ink pair by luminance`() {
-        // Material You guarantees `onPrimary` reads on `primary`, not that `onPrimary` is the
-        // light one — in a dark scheme it is the dark one. The pair is ordered here, so
-        // "inkLight" means what it says in both modes.
         for ((name, set) in listOf("light" to dynamicLight, "dark" to dynamicDark)) {
             assertTrue(
                 "$name: inkLight must be the brighter candidate",
@@ -157,12 +123,10 @@ class MarbleFloatingActionsV210Test {
 
     @Test
     fun `the wallpaper palette keeps its own roles untouched`() {
-        // Identity matters: a wallpaper theme that quietly re-tinted the phone's primary would
-        // look like every other theme with a blue filter on it.
         assertEquals(0xFFA8C7FA.toInt(), dynamicLight.connect)
         assertEquals(0xFFBCC7DC.toInt(), dynamicLight.securing)
         assertEquals(0xFFEFB8C8.toInt(), dynamicLight.measure)
-        // "Stop" stays the scheme's error, never a hue borrowed from the wallpaper's decoration.
+
         assertEquals(0xFFB3261E.toInt(), dynamicLight.stop)
     }
 

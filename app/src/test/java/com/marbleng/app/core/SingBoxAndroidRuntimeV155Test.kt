@@ -9,34 +9,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the sing-box extended engine, pinned against the two
- * faults that made it unusable on Android.
- *
- * The shipped log ended every attempt the same way:
- *
- * ```
- * SINGBOX | start-result | ok=false | reason=sing-box rejected the config:
- *   WARN `independent_cache` DNS option is deprecated …
- *   FATAL initialize network manager: create network monitor: netlink socket in Android is
- *   banned by Google
- * ```
- *
- * Both lines are decidable from the JSON alone, which is what this suite asserts:
- *
- *  1. **The netlink FATAL is a config bug, not a platform limit.** `route.NewNetworkManager` only
- *     fails on the banned socket when `enforceInterfaceMonitor` is set, and the only option that
- *     sets it is `route.auto_detect_interface`. A config that never asks for an interface monitor
- *     runs on a stock, unrooted device.
- *  2. **A deprecation scheduled for the running version is `os.Exit(1)`, not a warning.** On the
- *     pinned 1.14 core that includes the *absence* of `route.default_domain_resolver`, so the
- *     option has to be written, and every `ENABLE_DEPRECATED_*` flag has to be exported as a
- *     backstop for the ones nobody has hit yet.
- *
- * Nothing here spawns a process: the config and the environment *are* the contract.
- */
 class SingBoxAndroidRuntimeV155Test {
-
     private val vlessLink =
         "vless://11111111-2222-3333-4444-555555555555@198.51.100.7:443" +
             "?encryption=none&security=tls&sni=edge.example.com&type=tcp#Node%20A"
@@ -68,10 +41,6 @@ class SingBoxAndroidRuntimeV155Test {
         val servers = config.getJSONObject("dns").getJSONArray("servers")
         return (0 until servers.length()).map { servers.getJSONObject(it).getString("tag") }
     }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 1 — the netlink FATAL
-    // ─────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun theConfigNeverAsksAndroidForANetlinkInterfaceMonitor() {
@@ -156,12 +125,6 @@ class SingBoxAndroidRuntimeV155Test {
         assertTrue(SingBoxAndroidRuntime.NETLINK_REMEDIATION.isNotBlank())
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 1b — MARBLE_PACKAGES_XML_ROOT_CAUSE_V157: the packages.xml permission-denied panic
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    /** The exact shipped log line: `core-start: exited 2` wrapping the package-manager FATAL and
-     * the nil-pointer SIGSEGV that follows it. */
     private val packagesXmlPanic =
         "core-start: exited 2: +0330 2026-09-08 10:30:31 WARN network: initialize package " +
             "manager: read packages list: open /data/system/packages.xml: permission denied\n" +
@@ -180,10 +143,6 @@ class SingBoxAndroidRuntimeV155Test {
 
     @Test
     fun hardeningStripsUidAndPackageMatchersFromEveryRouteRule() {
-        // include_uid/exclude_uid were the two canonical keys missing from the old hand-copied
-        // per-rule list: find_process, find_neighbor and include_package/exclude_package were
-        // already stripped, so only a rule shaped like a real "don't loop the VPN app's own
-        // traffic" subscription rule reproduces the crash.
         val hostile = JSONObject(build().toString()).apply {
             getJSONObject("route").put(
                 "rules",
@@ -219,10 +178,6 @@ class SingBoxAndroidRuntimeV155Test {
             }
         }
     }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 2 — deprecations that exit the process
-    // ─────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun theDefaultDomainResolverIsNamedAndResolvable() {
@@ -294,7 +249,7 @@ class SingBoxAndroidRuntimeV155Test {
                 sets.getJSONObject(i).put("download_detour", "direct")
             }
         }
-        // All three are preflight migrations now: the doctor must not need the core to die first.
+
         val healed = SingBoxConfigDoctor.hardenForAndroid(legacy.toString())
         assertTrue(healed.repaired)
         val config = JSONObject(healed.json)
@@ -328,30 +283,24 @@ class SingBoxAndroidRuntimeV155Test {
             "FATAL to continuing using this feature, set environment variable " +
                 "ENABLE_DEPRECATED_MISSING_DOMAIN_RESOLVER=true"
         assertTrue(SingBoxConfigDoctor.isEngineLevelFault(fatal))
-        // The error line the core prints just before that fatal one, verbatim from
-        // experimental/deprecated: `<description> is deprecated in sing-box <x> and will be
-        // removed in sing-box <y>, checkout documentation for migration: <link>`.
+
         assertTrue(
             SingBoxConfigDoctor.isEngineLevelFault(
                 "missing `route.default_domain_resolver` or `domain_resolver` in dial fields " +
                     "is deprecated in sing-box 1.12.0 and will be removed in sing-box 1.14.0"
             )
         )
-        // …and the bare description on its own, because the retained log is line-truncated.
+
         assertTrue(
             SingBoxConfigDoctor.isEngineLevelFault(
                 "missing `route.default_domain_resolver` or `domain_resolver` in dial fields"
             )
         )
-        // The route-start error for a tag that does not resolve to a DNS server.
+
         assertTrue(
             SingBoxConfigDoctor.isEngineLevelFault("default domain resolver not found: dns-local")
         )
     }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 3 — the rule-set HTTP client
-    // ─────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun ruleSetDownloadsUseANamedHttpClientThatGoesDirect() {
@@ -401,10 +350,6 @@ class SingBoxAndroidRuntimeV155Test {
         )
         assertEquals(original, healed.json)
     }
-
-    // ─────────────────────────────────────────────────────────────────────────────
-    // 4 — the preflight must be a no-op on a config MarbleNG wrote
-    // ─────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun hardeningIsIdempotentAndSilentOnAConfigTheBuilderWrote() {

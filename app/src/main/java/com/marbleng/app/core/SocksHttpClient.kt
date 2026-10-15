@@ -28,7 +28,6 @@ data class HttpProbe(
     val headers: Map<String, String> = emptyMap()
 )
 
-/** A through-the-tunnel bulk download sampled at wall-clock intervals for shape analysis. */
 data class SampledTransfer(
     val status: Int,
     val bytesReceived: Long,
@@ -36,13 +35,11 @@ data class SampledTransfer(
     val elapsedMs: Double,
     val bytesPerSecond: Double,
     val samples: List<ProtocolFingerprintAwareVerifier.ThroughputSample>,
-    /** mid-body reset after data was being transferred — the volumetric injection signature. */
     val injectedResetSuspected: Boolean,
     val silentTimeoutSuspected: Boolean,
     val headers: Map<String, String> = emptyMap()
 )
 
-/** Verdict of an honest survival and transfer test under censorship. */
 data class SurvivalVerdict(
     val survived: Boolean,
     val handshakeOk: Boolean,
@@ -57,23 +54,6 @@ data class SurvivalVerdict(
 object SocksHttpClient {
     typealias SurvivalVerdict = com.marbleng.app.core.SurvivalVerdict
 
-    // MARBLE_LITERAL_SOCKS_V13
-    // MARBLE_LOW_NOISE_PROBE_V18
-    // MARBLE_VERIFIED_RTT_V19
-    // MARBLE_WARM_TUNNEL_RANK_V42
-    // MARBLE_RANK_RECOVERY_CARD_UX_V43
-    // MARBLE_REPEATABLE_RANK_V44
-    // MARBLE_V2RAYNG_SMART_RANK_V45
-    // MARBLE_SNI_RTT_V47
-    // MARBLE_IPV6_HOST_HEADER_V65
-
-    /**
-     * The HTTP Host header for a target.
-     *
-     * An IPv6 literal has to be bracketed — `Host: 2606:4700::1:443` is ambiguous and strict servers
-     * reject it — while a hostname or an IPv4 literal is left exactly as written. The TLS server name
-     * keeps the unbracketed form, because that is what certificate verification matches against.
-     */
     private fun httpHostHeader(host: String, port: Int, defaultPort: Int = 443): String {
         val literal = if (host.contains(':') && !host.startsWith("[")) "[$host]" else host
         return if (port == defaultPort) literal else "$literal:$port"
@@ -87,11 +67,6 @@ object SocksHttpClient {
         maxBytes: Int = 1024 * 1024
     ): HttpProbe = request(port, host, 443, "GET", path, null, timeoutMs, maxBytes)
 
-    /**
-     * HTTPS GET through SOCKS5 using ATYP=domain, so the Android resolver never sees the target
-     * hostname. Redirects remain inside the same SOCKS path. Cleartext HTTP is intentionally
-     * rejected for management traffic.
-     */
     fun getTextUrl(
         port: Int,
         url: String,
@@ -141,15 +116,6 @@ object SocksHttpClient {
         return probe.body.toString(Charsets.UTF_8)
     }
 
-    /**
-     * Low-noise route timing for live jitter control.
-     *
-     * Measures only: local SOCKS negotiation -> remote TCP connect. It deliberately avoids DNS,
-     * TLS and HTTP so the live "jitter" number is not polluted by resolver timeouts, certificate
-     * work, CDN origin differences or response-body scheduling.
-     *
-     * Pass a literal IP (Marble currently pins one per session) to keep the sample DNS-free.
-     */
     fun connectLatency(
         port: Int,
         host: String,
@@ -205,24 +171,6 @@ object SocksHttpClient {
         }
     }
 
-
-    /**
-     * Verified live application RTT through the already-running Xray route.
-     *
-     * connectLatency() remains available for callers that explicitly need SOCKS CONNECT setup
-     * timing, but setup timing must not be displayed as Internet ping: some transports can accept
-     * CONNECT before a complete remote application round trip has actually happened.
-     *
-     * This probe:
-     *  1. opens SOCKS5 to a literal IP (DNS-free),
-     *  2. completes certificate-verified TLS,
-     *  3. starts the latency clock only after TLS is ready,
-     *  4. sends a tiny HTTPS request,
-     *  5. stops only after the first remote response byte arrives.
-     *
-     * Thus the displayed RTT requires genuine remote response traffic while excluding DNS,
-     * TCP/TLS cold-start setup and body-download time.
-     */
     fun httpsFirstByteLatency(
         port: Int,
         host: String,
@@ -312,15 +260,6 @@ object SocksHttpClient {
         }
     }
 
-    /**
-     * Honest survival + byte transfer test for censored networks.
-     * In filtered networks, fake SYN-ACK or early RST gives deceptively good ping numbers,
-     * but connections die after a few KB. This test requires:
-     * 1. Successful TCP + TLS handshake.
-     * 2. First byte arrival (TTFB).
-     * 3. Sustained transfer of >= minBytesRequired (default 20 KB) or living >= minDurationMs
-     *    without an injected RST or silent socket drop.
-     */
     fun verifySurvivalAndTransfer(
         port: Int,
         host: String,
@@ -452,12 +391,6 @@ object SocksHttpClient {
         )
     }
 
-    /**
-     * MARBLE_PING_SPEED_V160 — the interruptible quiet gap between two samples.
-     *
-     * `false` means the run was cancelled while the gap was being observed, which is the same
-     * answer the old between-rounds pause gave the caller: stop, keep what was measured.
-     */
     private fun quietGap(spacingMs: Long): Boolean = try {
         Thread.sleep(spacingMs.coerceIn(0L, 5_000L))
         true
@@ -466,34 +399,12 @@ object SocksHttpClient {
         false
     }
 
-    /**
-     * Xray real-delay semantics aligned with v2rayNG 2.3.5:
-     * two complete HTTPS GET attempts, only 200/204 is healthy, and the caller keeps the minimum.
-     * Attempt one includes SOCKS/outbound/TLS setup; attempt two reuses the same verified session
-     * when the origin permits keep-alive. A later failure never erases an earlier valid response.
-     *
-     * @param spacingMs MARBLE_PING_SPEED_V160 — the quiet gap kept *between* two samples taken on
-     * one session. Back-to-back requests on a keep-alive connection are the burst signature an
-     * adaptive filter learns, so the gap the product has always inserted between two samples of
-     * one server survives the move onto a single connection; pass 0 only for a caller that
-     * measures something other than a user-visible delay.
-     */
     fun tunnelRttBatchUrl(
         port: Int,
         url: String,
         samples: Int,
         timeoutMs: Int,
         spacingMs: Long = 0L,
-        /**
-         * MARBLE_HOME_PING_SPEED_V200 — called once per sample, the moment it lands.
-         *
-         * The Home ping used to publish nothing until the last sample of the batch had been
-         * taken, its median computed and the result posted back to the main thread. On a
-         * three-sample run at the shipped 60 ms spacing that is three round trips plus two
-         * quiet gaps before the user sees a single digit, and the readout sat on "•••" the
-         * whole time. The number is real the instant the first response arrives — it is just
-         * not the final number yet — so it is published here and refined later.
-         */
         onSample: ((Double) -> Unit)? = null
     ): TunnelRttBatch {
         val parsed = URL(url)
@@ -501,9 +412,7 @@ object SocksHttpClient {
         require(samples in 1..8)
         val host = parsed.host.removePrefix("[").removeSuffix("]")
         val path = parsed.file.ifBlank { "/" }
-        // The deadline is the honest wall clock of the whole run: every sample keeps its own
-        // socket budget, and the quiet gaps between them are now part of that budget too —
-        // otherwise a run that spends its spacing would be cut off before its last sample.
+
         val gap = spacingMs.coerceIn(0L, 5_000L)
         val windowMs = timeoutMs.toLong() * samples + gap * (samples - 1)
         val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(windowMs)
@@ -526,19 +435,11 @@ object SocksHttpClient {
                 if (measured.isEmpty()) throw error
                 break
             }
-            // Connection: close is normal origin behavior, not packet loss. If a keep-alive
-            // batch ended early, open a fresh connection for the remaining requested samples.
         }
         require(measured.isNotEmpty()) { "No valid real-delay response before the deadline" }
         return TunnelRttBatch(measured, warmup)
     }
 
-    /**
-     * @param spacingMs MARBLE_PING_SPEED_V160 — quiet gap between two samples of this session.
-     * See [tunnelRttBatchUrl]: keeping the samples on one connection is the speed win, and
-     * keeping the gap between them is what stops the win from turning into a burst an adaptive
-     * filter throttles.
-     */
     fun tunnelRttBatch(
         port: Int,
         host: String,
@@ -548,7 +449,6 @@ object SocksHttpClient {
         targetPort: Int = 443,
         spacingMs: Long = 0L,
         tlsFactory: SSLSocketFactory = SSLSocketFactory.getDefault() as SSLSocketFactory,
-        /** MARBLE_HOME_PING_SPEED_V200 — published per sample; see [tunnelRttBatchUrl]. */
         onSample: ((Double) -> Unit)? = null
     ): TunnelRttBatch {
         require(port in 1..65535)
@@ -665,8 +565,7 @@ object SocksHttpClient {
             for (index in 0 until samples) {
                 try {
                     SingBoxProcessSession.checkInterrupted()
-                    // Preserve signed/custom query strings. Cache-Control is sufficient; an
-                    // invented query parameter can invalidate a perfectly working test URL.
+
                     val requestPath = path
                     val request = buildString {
                         append("GET $requestPath HTTP/1.1\r\n")
@@ -696,19 +595,13 @@ object SocksHttpClient {
                     val elapsed = (System.nanoTime() - started) / 1e6
                     if (elapsed.isFinite() && elapsed > 0.0) {
                         measured += elapsed
-                        // MARBLE_HOME_PING_SPEED_V200 — publish before the quiet gap, so the
-                        // first digit reaches the screen in one round trip instead of three.
+
                         runCatching { onSample?.invoke(elapsed) }
                     }
                     if (index == samples - 1 || headers["connection"]?.equals("close", true) == true) break
-                    // TTFB/header time is the measurement. Body size/connection-close behavior
-                    // only decides whether reuse is possible; it cannot erase a valid sample.
+
                     consumeBody(status, headers)
-                    // MARBLE_PING_SPEED_V160 — the quiet gap between two samples of one server.
-                    // Three requests back-to-back on a live TLS session are a burst, and an
-                    // adaptive filter that throttles bursts would make the second and third
-                    // sample describe the filter instead of the route. Keeping the gap costs
-                    // milliseconds and is the only reason reusing the session is safe.
+
                     if (spacingMs > 0L && !quietGap(spacingMs)) break
                 } catch (error: Throwable) {
                     if (measured.isEmpty()) throw error
@@ -746,11 +639,6 @@ object SocksHttpClient {
         val deadline = ProbeSocketDeadline(tcp, timeoutMs.toLong())
         var ssl: SSLSocket? = null
 
-        /*
-         * Every failure below (SOCKS refusal, TLS handshake, truncated response, size limit) must
-         * release the local socket. Benchmarks probe hundreds of dead nodes per run, so leaking one
-         * file descriptor per failure exhausts the process FD table and breaks the whole engine.
-         */
         try {
             tcp.soTimeout = timeoutMs
             tcp.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)
@@ -758,17 +646,12 @@ object SocksHttpClient {
             val output = BufferedOutputStream(tcp.getOutputStream())
             val input = BufferedInputStream(tcp.getInputStream())
 
-            // SOCKS5 no-auth negotiation.
             output.write(byteArrayOf(5, 1, 0))
             output.flush()
             require(input.read() == 5 && input.read() == 0) { "SOCKS auth negotiation failed" }
 
-            // Use a real literal address type when the caller supplied an IPv4 literal.
-            // The previous implementation sent even "1.1.1.1" as ATYP=domain, so the so-called
-            // DNS-independent transport probe could still enter Xray's domain-resolution path.
             val target = socksTarget(host)
-            // ATYP=1/4 keeps a literal address literal and ATYP=domain keeps ordinary hostnames away
-            // from Android/system DNS.
+
             output.write(buildSocks5Request(target.first, target.second, targetPort))
             output.flush()
 
@@ -794,10 +677,6 @@ object SocksHttpClient {
             ssl = secure
             secure.soTimeout = timeoutMs
 
-            /*
-             * Raw SSLSocket does not automatically enable HTTPS endpoint identification on every
-             * Android/JSSE path. Enforce hostname verification before the handshake.
-             */
             val parameters = secure.sslParameters
             parameters.endpointIdentificationAlgorithm = "HTTPS"
             secure.sslParameters = parameters
@@ -880,21 +759,6 @@ object SocksHttpClient {
         }
     }
 
-
-    /**
-     * MARBLE_IRAN_AWARE_PING_L1_THROUGHPUT — bounded 256 KiB download with transfer-shape
-     * sampling.
-     *
-     * Unlike [get], which reads the body as fast as the socket gives it and reports only an
-     * average, this function records a `(elapsedMs, cumulativeBytes)` point whenever a chunk
-     * arrives. The point stream is what [SawtoothDetector.evaluate] needs to distinguish a
-     * rate that collapses deliberately (DPI ramping in) from a rate that was simply low from
-     * the start (congestion).
-     *
-     * Injection handling is deliberately different from Layer 0: a reset after bytes were
-     * already flowing is the *volumetric* signature (`reset-after-volume`). Layer 0 already
-     * covers `reset-before-answer`; together they cover both phases of a stateful filter.
-     */
     fun sampledGet(
         port: Int,
         host: String,
@@ -976,9 +840,6 @@ object SocksHttpClient {
             sslOut.write(requestText.toByteArray(Charsets.ISO_8859_1))
             sslOut.flush()
 
-            // Header is read byte-by-byte so not a single body byte is lost to buffering.
-            // Only the small header section pays the per-byte cost; the 256 KiB body is read
-            // in 16 KiB chunks and every chunk becomes a shape sample.
             val headerText = readHttpHeader(sslIn)
             val headerLines = headerText.split("\r\n")
             status = headerLines.firstOrNull()?.split(' ')?.getOrNull(1)?.toIntOrNull() ?: 0
@@ -992,8 +853,6 @@ object SocksHttpClient {
             }
             expected = responseHeaders["content-length"]?.toLongOrNull() ?: -1L
 
-            // Cap the transfer to what we asked for: a larger-than-expected body on a bulk
-            // endpoint means the server ignored our byte cap and the sample is not comparable.
             val targetBytes = min(maxBytes.toLong(), if (expected > 0L) expected else maxBytes.toLong())
             val buffer = ByteArray(16 * 1024)
             while (received < targetBytes) {
@@ -1004,11 +863,9 @@ object SocksHttpClient {
                         min(buffer.size.toLong(), targetBytes - received).toInt().coerceAtLeast(1)
                     )
                 } catch (timeout: java.net.SocketTimeoutException) {
-                    // Bytes flowed, then nothing: the volume-shaped stall of an adaptive filter.
                     silentTimeout = received > 0L
                     break
                 } catch (reset: java.net.SocketException) {
-                    // Reset-after-volume: a genuine server closing cleanly sends EOF, not RST.
                     injectedReset = received > 0L
                     break
                 } catch (sslError: SSLException) {
@@ -1028,7 +885,7 @@ object SocksHttpClient {
                     bytes = received
                 )
             }
-            // Always record the terminal point so the detector sees the full transfer shape.
+
             val finalElapsed = (System.nanoTime() - startNs) / 1e6
             if (samples.isEmpty() || samples.last().bytes != received) {
                 samples += ProtocolFingerprintAwareVerifier.ThroughputSample(
@@ -1059,14 +916,9 @@ object SocksHttpClient {
         )
     }
 
-    /**
-     * Reads exactly one HTTP header section (through the blank line). Reads are single-byte and
-     * each consumed byte is appended to the returned string, so body bytes always stay in the
-     * stream for the caller.
-     */
     private fun readHttpHeader(input: java.io.InputStream, maxChars: Int = 8 * 1024): String {
         val sb = StringBuilder()
-        var state = 0 // 0 fresh, 1 saw \r, 2 saw \r\n, 3 saw \r\n\r
+        var state = 0
         while (sb.length < maxChars) {
             val b = input.read()
             if (b < 0) break
@@ -1085,27 +937,6 @@ object SocksHttpClient {
         error("Header section too large or truncated")
     }
 
-    /**
-     * The SOCKS5 target for a literal IPv4 (ATYP 1), literal IPv6 (ATYP 4) or hostname (ATYP 3).
-     *
-     * Only ATYP 1 and 3 were supported, so an IPv6 node — bare or bracketed — went out as a
-     * *hostname* called "2606:…". The proxy tried to resolve that, failed, and every measurement for
-     * the node reported it unreachable: IPv6 endpoints looked broken instead of connectable.
-     */
-    /**
-     * The SOCKS5 target for a literal IPv4 (ATYP 1), literal IPv6 (ATYP 4) or hostname (ATYP 3).
-     *
-     * Only ATYP 1 and 3 were supported, so an IPv6 node — bare or bracketed — went out as a
-     * *hostname* called "2606:…". The proxy tried to resolve that, failed, and every measurement for
-     * the node reported it unreachable: IPv6 endpoints looked broken instead of connectable.
-     *
-     * MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — RFC 1928 wire shape restored: ATYP 1/4 carry
-     * fixed-width addresses, ATYP 3 carries `1 length byte + name`. The length byte was missing,
-     * so the inbound's `ReadSockString` read fqdn-len = name[0]: a desync that ended in
-     * `read fqdn: unexpected EOF` whenever the request tail ran out (the 2026-09-09 02:04
-     * cluster) and in a garbage-hostname resolution failure otherwise — MarbleNG's own
-     * domain-target requests were malformed at the byte level. Internal for the V158 wire tests.
-     */
     internal fun socksTarget(host: String): Pair<Int, ByteArray> {
         literalIpv4Bytes(host)?.let { return 1 to it }
         literalIpv6Bytes(host)?.let { return 4 to it }
@@ -1115,18 +946,12 @@ object SocksHttpClient {
         return 3 to byteArrayOf(hostBytes.size.toByte()) + hostBytes
     }
 
-    /**
-     * The SOCKS5 CONNECT request — VER CMD RSV ATYP | DST.addr | DST.port — assembled into one
-     * buffer. Three separate writes let a scheduler flush the header as its own segment, which a
-     * core reading the name would surface as the same `read fqdn: unexpected EOF` family; one
-     * write makes a partial request impossible from this client.
-     */
     internal fun buildSocks5Request(atyp: Int, addr: ByteArray, port: Int): ByteArray {
         require(port in 1..65535)
         val request = ByteArray(4 + addr.size + 2)
         request[0] = 5
-        request[1] = 1 // CONNECT
-        request[2] = 0 // RSV
+        request[1] = 1
+        request[2] = 0
         request[3] = atyp.toByte()
         addr.copyInto(request, 4)
         request[request.size - 2] = (port ushr 8).toByte()
@@ -1134,14 +959,12 @@ object SocksHttpClient {
         return request
     }
 
-    /** One flushed write of the whole request — the only way this client sends a request. */
     internal fun writeSocks5Request(output: java.io.OutputStream, host: String, port: Int) {
         val (atyp, addr) = socksTarget(host)
         output.write(buildSocks5Request(atyp, addr, port))
         output.flush()
     }
 
-    /** A bracketed or bare IPv6 literal, resolved syntactically — never through DNS. */
     private fun literalIpv6Bytes(host: String): ByteArray? {
         val raw = host.trim().removePrefix("[").removeSuffix("]")
         if (!raw.contains(':')) return null

@@ -4,21 +4,7 @@ import org.junit.Test
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 
-/**
- * MARBLE_FLOATING_CHROME_V201 — the contrast guarantee behind the floating buttons.
- *
- * The defect being fixed is that the chrome's colours were *assumed* rather than measured:
- * an accent painted at 100 % on top of the same accent at 24 %, a glyph painted
- * `Color.White` whatever it sat on, and a shadow painted `Color.Black` whatever it fell on.
- * Nothing in the product could have caught those, because nothing in it computed a ratio.
- *
- * These tests pin the two numbers the design actually promises — 4.5:1 for text, 3:1 for a
- * graphical object — across the whole palette, including the Material You pastels that broke
- * the old assumption.
- */
 class MarbleFloatingChromeTest {
-
-    // The palette, as the theme writes it.
     private val electricBlue = 0xFF0066CC.toInt()
     private val brightBlue = 0xFF3399FF.toInt()
     private val cyan = 0xFF00E5FF.toInt()
@@ -30,9 +16,8 @@ class MarbleFloatingChromeTest {
     private val icePage = 0xFFF4F8FD.toInt()
     private val navyPage = 0xFF0B1220.toInt()
 
-    // Material You `primary` is routinely a pastel. This is the case the old design failed.
     private val pastels = listOf(
-        0xFFA8C7FA.toInt(), // dynamic light primary
+        0xFFA8C7FA.toInt(),
         0xFFFFB8C6.toInt(),
         0xFFC3E8AC.toInt(),
         0xFFF2B8B5.toInt(),
@@ -55,8 +40,6 @@ class MarbleFloatingChromeTest {
 
     @Test
     fun `a translucent colour is flattened before it is compared`() {
-        // 24 % of the electric blue over the ice page must not be compared as if it were the
-        // electric blue itself — that was the exact bug in the selected-pill recipe.
         val wash = marbleWithAlphaArgb(electricBlue, 0.24f)
         val asIfOpaque = marbleContrastRatioArgb(electricBlue, icePage)
         val flattened = marbleContrastRatioArgb(wash, icePage)
@@ -66,8 +49,6 @@ class MarbleFloatingChromeTest {
 
     @Test
     fun `white glyphs fail on the dark theme bright blue and the fix catches it`() {
-        // #FFFFFF on #3399FF is 2.94:1 — under the 3:1 floor for a graphical object, on the
-        // single most important control in the product. This is the regression test.
         val asShipped = marbleContrastRatioArgb(0xFFFFFFFF.toInt(), brightBlue)
         assertTrue("the old hard-coded white really was failing: $asShipped", asShipped < 3.0f)
 
@@ -101,7 +82,6 @@ class MarbleFloatingChromeTest {
 
     @Test
     fun `readableOn leaves a passing accent completely untouched`() {
-        // Identity matters: a selected tab must still be the colour the user recognises.
         for (accent in listOf(electricBlue, emerald, danger)) {
             val onDark = marbleReadableOnArgb(accent, navyPage, 4.5f)
             val onLight = marbleReadableOnArgb(accent, icePage, 4.5f)
@@ -130,8 +110,6 @@ class MarbleFloatingChromeTest {
 
     @Test
     fun `readableOn degrades gracefully instead of snapping to ink`() {
-        // Pushed toward the endpoint, but recognisably still the accent — otherwise every
-        // selected tab in a pastel theme would look the same.
         val repaired = marbleReadableOnArgb(0xFFA8C7FA.toInt(), icePage, 4.5f)
         val distance = kotlin.math.abs(
             ((repaired ushr 16) and 0xFF) - 0xA8
@@ -140,10 +118,6 @@ class MarbleFloatingChromeTest {
         assertNotBlackOrWhite(repaired)
     }
 
-    // MARBLE_DOCK_LIGHT_PRESENCE_V205 — the selected pill must be a visibly lit container on
-    // the light bar, not a wash that disappears into it. The dock paints the fill as the
-    // accent at [fillAlpha] composited over the bar's own body, so the test reproduces that
-    // exact recipe with the shipped tokens.
     private val lightBar = 0xFFEDF3FB.toInt()
     private val darkBar = 0xFF090D14.toInt()
 
@@ -152,7 +126,6 @@ class MarbleFloatingChromeTest {
 
     @Test
     fun `the selected pill is visibly distinct from the light bar`() {
-        // Every accent the dock can be configured with, at the light-theme fill strength.
         for (accent in listOf(electricBlue, brightBlue, emerald, amber)) {
             val fill = dockFill(accent, lightBar, 0.36f)
             val separation = marbleContrastRatioArgb(fill, lightBar)
@@ -170,7 +143,6 @@ class MarbleFloatingChromeTest {
 
     @Test
     fun `the AMOLED pill keeps its tuned quieter presence`() {
-        // The dark bar was already right; the fix must not over-lighten it.
         val fill = dockFill(brightBlue, darkBar, 0.24f)
         val separation = marbleContrastRatioArgb(fill, darkBar)
         assertTrue("dark pill separation $separation:1", separation >= 1.10f)
@@ -181,9 +153,6 @@ class MarbleFloatingChromeTest {
 
     @Test
     fun `the fade-off endpoint keeps the hue and drops only the alpha`() {
-        // MARBLE_DOCK_ALPHA_PATH_V205 — a colour fade toward "invisible" must hold its RGB and
-        // animate alpha alone. A tween toward black-at-zero-alpha drags the midpoint grey,
-        // which is the defect this invariant replaced.
         for (colour in listOf(electricBlue, brightBlue, emerald, amber)) {
             val off = marbleWithAlphaArgb(colour, 0f)
             assertEquals("red drifted", (colour ushr 16) and 0xFF, (off ushr 16) and 0xFF)
@@ -224,7 +193,7 @@ class MarbleFloatingChromeTest {
         assertEquals(white, marbleCompositeArgb(white, black))
         assertEquals(black, marbleCompositeArgb(black, white))
         assertEquals(black, marbleCompositeArgb(marbleWithAlphaArgb(black, 0f), black))
-        // Half-transparent white over black is mid grey.
+
         val grey = marbleCompositeArgb(marbleWithAlphaArgb(white, 0.5f), black)
         val channel = (grey ushr 16) and 0xFF
         assertTrue("expected mid grey, got $channel", channel in 126..129)

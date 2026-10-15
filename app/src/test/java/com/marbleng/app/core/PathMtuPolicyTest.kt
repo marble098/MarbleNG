@@ -6,16 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_PATH_MTU_STABILITY_V133 regressions.
- *
- * The attached runtime log showed the userspace MTU alternating between 1360 and 1400 between
- * sessions, and `TURBO live-inconclusive-backoff` storms that were fed by it: every PMTU sample was
- * committed to the learned store, and `activeMtu > pmtu` forced a full transport re-measurement on
- * every socket rotation. These tests pin the corroboration rule that stops both.
- */
 class PathMtuPolicyTest {
-
     @Test
     fun `a single sample is never committed`() {
         val decision = PathMtuPolicy.observe(

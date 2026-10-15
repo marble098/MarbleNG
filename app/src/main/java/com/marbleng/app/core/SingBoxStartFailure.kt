@@ -1,14 +1,6 @@
 package com.marbleng.app.core
 
-/**
- * MARBLE_SINGBOX_START_FAILURE
- *
- * Classifies a sing-box start failure into actionable diagnosis and remediation.
- * When a profile cannot build a proxy outbound or the core cannot start, it is classified
- * honestly on the diagnostic plane (in BugFinder, blocked state, and runtime events).
- */
 object SingBoxStartFailure {
-
     enum class Kind(val label: String) {
         NO_PROXY_OUTBOUND("No proxy outbound"),
         CONFIG_REJECTED("Configuration rejected by sing-box"),

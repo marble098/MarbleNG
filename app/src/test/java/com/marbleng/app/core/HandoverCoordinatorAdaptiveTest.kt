@@ -5,16 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Regression tests for soft session migration (MARBLE_SMART_RANK_V90).
- *
- * The adaptive scorer decides WHEN and TO WHOM a live session should migrate;
- * the make-before-break coordinator decides HOW — always a soft migration (start challenger, move
- * new flows, drain the old route), never a raw reconnect. Catastrophic degradation bypasses the
- * anti-flap dwell/cooldown via forceBegin.
- */
 class HandoverCoordinatorAdaptiveTest {
-
     private fun scorer() = AdaptiveAegisScorer(dwellTimeMs = 90_000L) { 0L }
 
     @Test
@@ -28,7 +19,7 @@ class HandoverCoordinatorAdaptiveTest {
             activeRoute = "active",
             quality = AdaptiveAegisScorer.Quality(rttMs = 600, lossPercent = 25.0, stressFlag = true),
             candidateScores = mapOf("challenger" to 95.0),
-            nowMs = 1_000_000L // no prior switch: dwell is already satisfied
+            nowMs = 1_000_000L
         )
 
         assertFalse(migration.decision.keep)

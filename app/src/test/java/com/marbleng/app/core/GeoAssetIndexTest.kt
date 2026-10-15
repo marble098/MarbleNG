@@ -12,24 +12,18 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 
 class GeoAssetIndexTest {
-
     @get:Rule
     val tmp = TemporaryFolder()
 
     @Before
     fun resetIndex() {
-        // The index is a process-wide singleton; every test must scan its own fixture cleanly.
         GeoAssetIndex.resetForTests()
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Hand-encoded protobuf fixtures — the exact wire format Xray's geo files use.
-    // ---------------------------------------------------------------------------------------
 
     private fun lenField(field: Int, payload: ByteArray): ByteArray {
         val out = ByteArrayOutputStream()
         out.write((field shl 3) or 2)
-        // varint length (all fixtures stay below 128 bytes)
+
         require(payload.size < 128)
         out.write(payload.size)
         out.write(payload)
@@ -89,7 +83,6 @@ class GeoAssetIndexTest {
         return out.toByteArray()
     }
 
-    // 4-byte little/big-endian is irrelevant for containment — the scanner only counts them.
     private val ipA = byteArrayOf(1, 2, 3, 4)
     private val ipB = byteArrayOf(5, 6, 7, 8)
 
@@ -198,7 +191,7 @@ class GeoAssetIndexTest {
     fun `a corrupted file degrades to no index instead of crashing`() {
         val site = geositeFile(geoSite("google", listOf(domain(2, "google.com"))))
         val dir = tmp.newFolder()
-        File(dir, "geosite.dat").writeBytes(site + byteArrayOf(0x7F, 0x2A, 0x11)) // junk tail
+        File(dir, "geosite.dat").writeBytes(site + byteArrayOf(0x7F, 0x2A, 0x11))
         File(dir, "geoip.dat").writeBytes(byteArrayOf(0xFF.toByte(), 0xFF.toByte(), 0x01))
 
         val snapshot = GeoAssetIndex.update(dir)
@@ -230,8 +223,6 @@ class GeoAssetIndexTest {
 
     @Test
     fun `wrong wire type on a known domain field cannot publish a valid-looking tag`() {
-        // Domain.value is a protobuf string (wire type 2). A varint in that field would be ignored
-        // by the previous permissive scanner, even though Xray's generated decoder rejects it.
         val malformedDomain = ByteArrayOutputStream().apply {
             write(varintField(1, 2L))
             write(varintField(2, 1L))
@@ -268,7 +259,7 @@ class GeoAssetIndexTest {
         assertTrue(snapshot!!.geosite.isEmpty())
         assertTrue(GeoAssetIndex.suggest(GeoAssetIndex.Kind.GEOSITE, "googl").any { it.tag == "google" })
         assertTrue(GeoAssetIndex.suggest(GeoAssetIndex.Kind.GEOIP, "de").any { it.tag == "de" })
-        // Membership is honest about what it cannot verify.
+
         assertNull(GeoAssetIndex.matchesGeosite("google.com"))
         assertFalse(GeoAssetIndex.canVerifyGeositeMembership())
     }

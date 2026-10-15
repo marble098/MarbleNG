@@ -3,7 +3,6 @@ import com.marbleng.app.model.AppSettings
 import kotlin.math.roundToInt
 
 data class SmartIpRaceDecision(val tryDelayMs:Int,val maxConcurrentTry:Int,val prioritizeIpv6:Boolean,val reason:String)
-/** Adaptive Xray Happy-Eyeballs/multi-address racing. MARBLE_REALTIME_ENGINE_V70 */
 object SmartIpRacePolicy{
  fun decide(n:NetworkSnapshot,h:NodeHealthRecord?,s:AppSettings):SmartIpRaceDecision{
   if(!s.adaptiveHappyEyeballsEnabled)return SmartIpRaceDecision(s.happyEyeballsTryDelayMs.coerceIn(0,500),s.happyEyeballsMaxConcurrent.coerceIn(2,8),s.ipv6Enabled&&s.preferIpv6,"manual")

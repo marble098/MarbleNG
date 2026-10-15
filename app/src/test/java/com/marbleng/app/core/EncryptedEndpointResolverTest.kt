@@ -9,8 +9,6 @@ import java.net.InetAddress
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-/** No network required: verifies that management/probe lookups never fall through to netd and
- * that an IPv6-only endpoint remains usable when an A question receives NOERROR/NODATA. */
 class EncryptedEndpointResolverTest {
     private fun response(question: ByteArray, address: String): ByteArray {
         val data = InetAddress.getByName(address).address

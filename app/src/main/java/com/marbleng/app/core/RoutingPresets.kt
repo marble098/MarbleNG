@@ -4,20 +4,7 @@ import com.marbleng.app.model.RoutingOutbound
 import com.marbleng.app.model.RoutingRule
 import com.marbleng.app.model.RoutingRuleKind
 
-/**
- * MARBLE_ROUTING_PRESETS_V136 — one-tap rule sets, the v2rayNG template idea done Marble-style.
- *
- * v2rayNG ships whitelist/blacklist templates as asset files (custom_routing_white, …_iran,
- * …_russia) and replaces the whole rule list from them. MarbleNG keeps that power but makes the
- * presets region-aware rather than assuming any single country: the Recommended set is the
- * balanced anti-censorship baseline, Privacy is blocking-only, Global is minimal, and the
- * country sets exist for the users who actually live there — including the ones outside Iran.
- *
- * A preset replaces the user's rule list (after confirmation) but never touches the routing
- * mode, the geo asset source or the expert text lists, so "try a preset" is always reversible.
- */
 object RoutingPresets {
-
     enum class Preset(
         val id: String,
         val title: String,
@@ -174,9 +161,5 @@ object RoutingPresets {
 
     fun byId(id: String): Preset? = Preset.entries.firstOrNull { it.id == id }
 
-    /**
-     * Preset rules carry stable ids derived from the preset so re-applying a preset never
-     * duplicates ids inside the persisted list.
-     */
     fun materialize(preset: Preset): List<RoutingRule> = preset.rules.map { it.copy(enabled = true) }
 }

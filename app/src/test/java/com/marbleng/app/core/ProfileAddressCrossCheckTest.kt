@@ -8,17 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Regression tests for cross-source address classification (MARBLE_SMART_RANK_V90).
- *
- * The central simulation here reproduces the exact failure the rewrite fixes: a 14-node library
- * where 13 nodes' emitted Xray JSON lost its server address during a severe-filtration refresh.
- * The old validator quarantined all 13 with a blanket `missing-address` and the whole Rank run
- * finished empty. The new validator cross-checks the address against the local cache (host/port +
- * raw URI) and the fresh subscription, then reports a precise, machine-readable reason.
- */
 class ProfileAddressCrossCheckTest {
-
     private fun profile(
         id: String,
         configJson: String,
@@ -67,14 +57,12 @@ class ProfileAddressCrossCheckTest {
 
     @Test
     fun thirteenOfFourteenMissingAddressesAreClassifiedPrecisely() {
-        // 14 nodes: node-14 keeps a real emitted address; the other 13 lost it in the emitted JSON
-        // but the address still exists in the local cache (host/port) and the fresh subscription.
         val nodes = (1..14).map { i ->
             val config = if (i == 14) vlessConfig("node$i.example.com") else vlessConfig("")
             profile("node-$i", config, host = "node$i.example.com", port = 443)
         }
         val sources = ProfileAddressCrossCheck.CrossCheckSources(
-            freshSubscriptionProfiles = nodes, // the fresh subscription redelivered the same nodes
+            freshSubscriptionProfiles = nodes,
             freshSubscriptionRaw = ""
         )
 
@@ -100,7 +88,6 @@ class ProfileAddressCrossCheckTest {
 
     @Test
     fun staleLocalCopyIsClassifiedAsStaleSubscription() {
-        // Address only survives in the local cache; the fresh subscription has no evidence of it.
         val config = vlessConfig("")
         val node = profile("stale-node", config, host = "stale.example.com", port = 443)
         val result = ProfileAddressCrossCheck.crossCheck(

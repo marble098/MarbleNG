@@ -29,32 +29,9 @@ enum class SmartNotificationKind {
     TEST
 }
 
-/**
- * Central notification policy for MarbleNG.
- *
- * The running VPN/proxy foreground status is deliberately separate from optional event alerts.
- * Optional alerts are permission-aware, category-aware and rate-limited so route probes cannot
- * spam the notification shade during a bad underlay.
- */
 class SmartNotifier(private val context: Context) {
     private val manager = context.getSystemService(NotificationManager::class.java)
 
-    /**
-     * MARBLE_NOTIFICATION_CHANNELS_ONCE_V206 — the channel table is a constant of this build.
-     *
-     * It was rebuilt on *every* settings write. [AppRepository.updateSettings] ends with a call
-     * to this method, and `updateSettings` is what every control in Settings calls — so typing
-     * `100-200` into the Fragment length field performed, on the main thread, nine times in
-     * nine hundred milliseconds: three channel constructions, one group creation and one
-     * `createNotificationChannels` binder call into `system_server`, each of which makes the
-     * system process write its own XML. Dragging the Mux concurrency slider did the same at
-     * frame rate. None of it could ever have changed anything: the channel set is fixed at
-     * compile time, and re-creating an existing channel with identical parameters is a no-op
-     * the framework still has to parse, persist and re-sort.
-     *
-     * The flag is set only on success, so a call that threw (a wedged NotificationManager, a
-     * device still booting) is retried instead of being suppressed for the rest of the process.
-     */
     private val channelsEnsured = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun ensureChannels() {
@@ -64,16 +41,7 @@ class SmartNotifier(private val context: Context) {
             manager.createNotificationChannelGroup(
                 NotificationChannelGroup(GROUP_ID, "MarbleNG")
             )
-            // MARBLE_NATIVE_ANDROID_V213 — every channel is configured the way Android's own
-            // settings screen reads it back.
-            //
-            // Until this chapter the channels carried a name, a description and an importance and
-            // nothing else, so the system's per-channel page showed Android's *defaults* for them:
-            // the ongoing tunnel channel buzzed and dinged on every live-stats update (a status
-            // notification is not an interruption — Android's own "ongoing" channels are silent),
-            // and the alert channel showed no badge. A channel is the user's contract with the app
-            // and every field of it is visible in Settings → Apps → Notifications; leaving them
-            // unset is not neutrality, it is the platform's defaults standing in for decisions.
+
             val connection = NotificationChannel(
                 CHANNEL_CONNECTION,
                 "Connection status",
@@ -82,8 +50,7 @@ class SmartNotifier(private val context: Context) {
                 description = "Persistent VPN/proxy connection, route and live status"
                 group = GROUP_ID
                 setShowBadge(false)
-                // The live-stats line updates while the tunnel runs; a status channel that makes a
-                // sound per update is a status channel every user mutes.
+
                 setSound(null, null)
                 enableVibration(false)
                 setLockscreenVisibility(Notification.VISIBILITY_PRIVATE)
@@ -136,24 +103,6 @@ class SmartNotifier(private val context: Context) {
             .setSilent(true)
             .build()
 
-        // MARBLE_NATIVE_ANDROID_V213 — the ongoing notification is drawn the way the platform
-        // draws one.
-        //
-        // Three platform features were unused, and each of them is the difference between a
-        // notification that looks like Android's and one that looks hand-built:
-        //
-        //  • `setColor` — the accent the system uses to tint the small icon and the app name in
-        //    the shade. Without it a brand product's notification renders in the system's default
-        //    grey, which is the most visible "this app did not bother" signal in the shade.
-        //  • `setSubText` — the platform's own second line, which is where a live status belongs
-        //    (the body stays the route; the subtext carries the state).
-        //  • `setGroup` / `setLocalOnly` / `setBadgeIconType` — the group is the one the channels
-        //    already declare, the status of a tunnel is nobody's business on the user's other
-        //    devices, and the badge uses the small icon the platform is designed around.
-        //
-        // The middle line is also where the live telemetry goes when the user asked for it, so the
-        // shade's own hierarchy — subtext, title, body, action — is what carries the information,
-        // instead of one long sentence in the body.
         return NotificationCompat.Builder(context, CHANNEL_CONNECTION)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(ACCENT)
@@ -167,7 +116,6 @@ class SmartNotifier(private val context: Context) {
             .setContentIntent(openAppIntent())
             .addAction(R.drawable.ic_notification_stop, "Disconnect", stopServiceIntent())
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            // Server names and live network details belong behind the lock screen.
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -239,14 +187,7 @@ class SmartNotifier(private val context: Context) {
         } else {
             NotificationCompat.CATEGORY_STATUS
         }
-        // MARBLE_NATIVE_ANDROID_V213 — an alert wears its own kind's colour.
-        //
-        // Every optional alert used to be the same grey rectangle: a privacy warning, a recovery
-        // event and a subscription refresh were indistinguishable in the shade until the text was
-        // read, and none of them carried the accent the platform uses to tint a notification's
-        // icon. The kind now decides the colour and the subtext, both of which are platform roles
-        // rather than decoration — `error` red for a privacy warning is the same red Android paints
-        // its own permission alerts in, so the shade's colour language stays the system's.
+
         val kindTone = when (kind) {
             SmartNotificationKind.PRIVACY -> TONE_PRIVACY
             SmartNotificationKind.RECOVERY -> TONE_RECOVERY
@@ -320,16 +261,8 @@ class SmartNotifier(private val context: Context) {
     }
 
     companion object {
-        /**
-         * MARBLE_NATIVE_ANDROID_V213 — the accent the platform tints the small icon, the app name
-         * and (on Android 12+) the notification's own colour chip with. It is the brand's electric
-         * blue in every theme: a notification is drawn by the system, on the system's surface, and
-         * the one thing it must carry is which app it came from.
-         */
         const val ACCENT = 0xFF0066CC.toInt()
 
-        // The four kind tones, as packed ARGB. They are Android's own semantic reds/greens/blues,
-        // not brand accents: an alert's colour is a category, and a category is the system's.
         private const val TONE_PRIVACY = 0xFFB3261E.toInt()
         private const val TONE_RECOVERY = 0xFF146C2E.toInt()
         private const val TONE_NETWORK = 0xFF0B57D0.toInt()
@@ -352,17 +285,6 @@ class SmartNotifier(private val context: Context) {
     }
 }
 
-/**
- * MARBLE_NATIVE_ANDROID_V213 — the platform's *subtext* line, filled with the state.
- *
- * A status notification has three lines and Android gives each of them a job: the title names the
- * app, the subtext names the state, the body names the detail. MarbleNG was writing one long body
- * ("Connected • Frankfurt • 42 ms") into the second and third at once, so the shade showed the
- * state somewhere in the middle of a sentence. The body's first clause *is* the state — the service
- * builds it that way — so it is lifted into the platform's own line, and the body keeps the route.
- *
- * Pure, so the split is a unit test rather than a screenshot.
- */
 internal fun statusSubText(text: String): String {
     val head = text.substringBefore('•').trim().trimEnd('.', ',', ':', '-', '·').trim()
     return when {
@@ -372,13 +294,6 @@ internal fun statusSubText(text: String): String {
     }
 }
 
-/**
- * MARBLE_NATIVE_ANDROID_V213 — the one word the platform's subtext line carries for an alert.
- *
- * The category is the user's own filing system: "Privacy", "Recovery", "Network" and "Update" are
- * the four things Android's notification settings will let them tune separately, so the shade says
- * which one this is before the sentence does.
- */
 internal fun kindSubText(kind: SmartNotificationKind): String = when (kind) {
     SmartNotificationKind.CONNECTION -> "Connection"
     SmartNotificationKind.RECOVERY -> "Recovery"

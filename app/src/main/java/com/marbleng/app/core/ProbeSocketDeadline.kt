@@ -5,9 +5,6 @@ import java.net.Socket
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
-/** Socket readTimeout alone is not a wall-clock deadline (a trickle can keep resetting it), and
- * thread interruption does not unblock SSLSocket.read. One shared daemon closes timed-out or
- * cancelled measurement sockets; cancelled timer entries are removed immediately. */
 internal class ProbeSocketDeadline(socket: Socket, timeoutMs: Long) : Closeable {
     private val owner = Thread.currentThread()
     private val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)

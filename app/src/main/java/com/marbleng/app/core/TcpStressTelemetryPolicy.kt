@@ -1,22 +1,11 @@
 package com.marbleng.app.core
 
-/**
- * Converts kernel TCP_INFO aggregates into conservative stress signals.
- *
- * `lost` is not a packet-loss rate, `unacked` is not the number of packets sent in the sample
- * window, and the minimum MSS/PMTU may come from different sockets. Treating those raw counters as
- * percentages made one retransmission with one unacked segment look like 100% retransmit and 50%
- * loss, which could drive the MTU to its IPv6 floor in a few monitor ticks. Rates below are bounded
- * by the congestion window and socket count; loss and RTT need independent corroboration. MSS is
- * retained as a diagnostic only — stable PMTU decisions belong to [PathMtuPolicy].
- */
 object TcpStressTelemetryPolicy {
     data class Assessment(
         val retransmitRate: Double,
         val lossRate: Double,
         val mssRatio: Double,
         val stressed: Boolean,
-        /** Packet-counter pressure relevant to MTU decisions; jitter alone is not path-MTU proof. */
         val mtuRelevantStress: Boolean,
         val retransmissionPressure: Boolean,
         val lossPressure: Boolean,
@@ -32,7 +21,7 @@ object TcpStressTelemetryPolicy {
         val retransDelta = sample.retransDelta.coerceAtLeast(0)
         val congestionWindow = sample.cwndPackets.coerceAtLeast(0).toLong() * socketCount
         val rateDenominator = maxOf(MIN_RATE_DENOMINATOR, congestionWindow)
-        // A lone retransmit is a normal recovery event and cannot produce a critical percentage.
+
         val retransmissionPressure = retransDelta >= maxOf(MIN_RETRANSMITS_FOR_PRESSURE, socketCount * 2)
         val retransmitRate = if (retransmissionPressure) {
             (retransDelta.toDouble() / rateDenominator.toDouble()).coerceIn(0.0, 1.0)
@@ -40,8 +29,6 @@ object TcpStressTelemetryPolicy {
             0.0
         }
 
-        // TCP_INFO.lost is cumulative for a socket's lifetime. Only its interval delta is evidence;
-        // combining the lifetime total with a momentary unacked count creates a fictitious loss rate.
         val lostDelta = sample.lostDelta.coerceAtLeast(0)
         val unacked = sample.unacked.coerceAtLeast(0)
         val lossPressure = lostDelta >= maxOf(MIN_LOST_FOR_PRESSURE, socketCount * 2) &&

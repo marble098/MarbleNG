@@ -4,10 +4,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Required for the user-approved direct battery-optimization exemption flow. -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- Android 8/9 only. Android 10+ Debug Mode uses MediaStore Downloads. -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+        <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+        <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
     <queries>
         <intent>
@@ -16,16 +14,7 @@
         </intent>
     </queries>
 
-    <!--
-      MARBLE_NATIVE_ANDROID_V213 — the system's back gesture, not the app's copy of it.
-
-      The product already answers the platform's predictive-back *progress* (V212 draws the surface
-      receding as the gesture travels), but until this flag is set the platform never offers the app
-      its new back callback: Android falls back to the legacy `onBackPressed` path, where the
-      gesture is invisible to the app until it commits. The one line is the difference between a
-      prediction and a snap.
-    -->
-    <application
+        <application
         android:name=".MarbleApplication"
         android:allowBackup="false"
         android:largeHeap="true"
@@ -37,13 +26,7 @@
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.MarbleNG">
 
-        <!--
-          MARBLE_NATIVE_ANDROID_V213 — resize, never pan. Every full-screen surface in the product
-          is drawn edge to edge and reserves the keyboard's own height with `imePadding()`; without
-          this the platform pans the whole window instead, sliding the app's own header off the top
-          of the screen while the user types in a field near the bottom of it.
-        -->
-        <activity
+                <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
@@ -65,13 +48,7 @@
             </intent-filter>
         </service>
 
-        <!--
-          MARBLE_DURABLE_TUNNEL_INTENT_V133 — Android kills this process to install a new APK
-          (ApplicationExitInfo.REASON_PACKAGE_UPDATE, reason 16) and gives it no teardown callback.
-          This receiver runs in the fresh process, discards the stale runtime state the killed
-          process left on disk, and offers the one-tap restore of the route the user was on.
-        -->
-        <receiver
+                <receiver
             android:name=".MarblePackageReplacedReceiver"
             android:exported="false">
             <intent-filter>

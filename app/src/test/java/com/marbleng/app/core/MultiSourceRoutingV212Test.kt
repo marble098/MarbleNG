@@ -12,22 +12,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_MULTI_SOURCE_ROUTING_V212 — several databases, and the precision layer.
- *
- * Two contracts, both of which fail in a way the user cannot see:
- *
- *  - **fail-closed emission.** A geo rule names a file. If the file is not on disk the core
- *    refuses to load the whole config, so a source that has not reported itself ready must
- *    contribute *no* token rather than a hopeful one — the tunnel still connects, with the
- *    sources that did answer.
- *  - **the precision layer is a DIRECT rule set**, so it belongs only in the mode whose job is
- *    keeping domestic traffic here. In CUSTOM the user's own list is the policy; in PROXY_ALL
- *    nothing is direct by design. Emitting it anyway would be a product-authored override of a
- *    choice the user made, and invisible in Settings.
- */
 class MultiSourceRoutingV212Test {
-
     @Test
     fun withOneSourceTheTokensAreTheOnesEveryEarlierReleaseWrote() {
         val settings = AppSettings()
@@ -58,8 +43,6 @@ class MultiSourceRoutingV212Test {
 
     @Test
     fun aSourceWhoseFileIsNotOnDiskContributesNoToken() {
-        // Only the canonical pair reported itself: the second source is enabled but its download
-        // has not landed. A reference to a missing file is a config the core will not load.
         val settings = twoSources(readyFiles = "geoip.dat,geosite.dat")
         assertEquals(
             listOf("geoip:ir"),
@@ -156,15 +139,14 @@ class MultiSourceRoutingV212Test {
         val text = standard.toString()
         assertFalse(text.contains("domain:ir"))
         assertFalse(text.contains("keyword:"))
-        // The geo tags themselves are untouched by the dial: it adds, it never replaces.
+
         assertTrue(text.contains("geoip:ir"))
     }
 
     @Test
     fun precisionNeverDuplicatesADomainTheUserAlreadyRouted() {
         val settings = AppSettings(
-            // The user's own rules are opt-in, so the test has to opt in: the point is the
-            // interaction between the user's rule and the product's, not one of them alone.
+
             customRoutingEnabled = true,
             routingRulesJson = RoutingEngine.serializeRules(
                 listOf(
@@ -190,7 +172,6 @@ class MultiSourceRoutingV212Test {
 
     @Test
     fun aRuleIsNeverEmittedForATagNoEnabledSourceCanAnswer() {
-        // v2fly-geoip publishes geoip only: enabling it must not create a geosite reference.
         val settings = AppSettings(
             geoAssetSourceIds = "chocolate4u-iran,v2fly-geoip",
             geoMultiSourceEnabled = true,
@@ -253,8 +234,6 @@ class MultiSourceRoutingV212Test {
 
     @Test
     fun theSimulatorAnswersWithThePrecisionLayerWhenThatIsWhatDecided() {
-        // The page that has to explain "why did a domestic site go through the tunnel" is the
-        // simulator, so the layer has to appear in it — and only when it is what answered.
         val curated = IranPrecisionPack.ENTRIES.first().domain
         val sim = RoutingEngine.simulate(AppSettings(), curated)
         val step = sim.steps.firstOrNull { it.title == "Domestic precision" }
@@ -262,7 +241,6 @@ class MultiSourceRoutingV212Test {
         assertEquals(true, step?.matched)
         assertEquals(RoutingOutbound.DIRECT, sim.verdict)
 
-        // The geo-tags level has no curated knowledge, so the same host is not claimed by it.
         val tagsOnly = RoutingEngine.simulate(
             AppSettings(geoPrecision = GeoPrecision.STANDARD.id),
             curated

@@ -5,16 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Regression tests for resolver endpoint quarantine (MARBLE_RESOLVER_QUARANTINE_V1).
- *
- * These lock in the fix for resolver stability in 4.0.0: expired certificates, repeated TLS
- * handshake failures, repeated EOF bursts and repeated deadline storms must quarantine an endpoint
- * instead of letting it stay in rotation and accumulate large retained error counts. Cancellation /
- * teardown events must never quarantine anything, and a healthy winner is sticky for the session.
- */
 class ResolverEndpointQuarantineTest {
-
     @Test
     fun expiredCertificateQuarantinesImmediately() {
         val q = ResolverEndpointQuarantine { 0L }
@@ -26,7 +17,7 @@ class ResolverEndpointQuarantineTest {
     fun repeatedHandshakeFailuresQuarantineAfterThreshold() {
         val q = ResolverEndpointQuarantine { 0L }
         q.record(ResolverFailureKind.TLS, "ep")
-        assertFalse(q.isQuarantined("ep")) // one is not enough
+        assertFalse(q.isQuarantined("ep"))
         q.record(ResolverFailureKind.TLS, "ep")
         assertTrue(q.isQuarantined("ep"))
     }
@@ -89,7 +80,6 @@ class ResolverEndpointQuarantineTest {
         )
         assertEquals("https://1.1.1.1/dns-query", order.first())
 
-        // A quarantined endpoint is never sticky even if it previously won.
         q.record(ResolverFailureKind.CERT_EXPIRED, "https://1.1.1.1/dns-query")
         assertFalse(q.isSticky("https://1.1.1.1/dns-query"))
     }

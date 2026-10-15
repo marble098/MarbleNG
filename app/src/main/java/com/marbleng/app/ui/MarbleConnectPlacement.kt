@@ -1,12 +1,5 @@
 package com.marbleng.app.ui
 
-// MARBLE_CONNECT_PLACEMENT_V123
-// MARBLE_CONNECT_BUTTON_STYLES_V132
-// MARBLE_HOME_V137
-//
-// One file, no Compose: where a connection control sits inside a Home presentation is a pure
-// mapping from the user's choice, so it stays unit-testable without a UI runtime.
-
 import com.marbleng.app.model.ConnectButtonStyle
 
 /**
@@ -30,7 +23,6 @@ internal enum class ConnectControlZone {
     HERO_CENTER, HERO_FLOOR, POWER_DOCK, PAGE_FLOOR, PAGE_PILL
 }
 
-/** True when the presentation pins the control to the floor of the page instead of the hero. */
 internal fun ConnectControlZone.isPageDocked(): Boolean =
     this == ConnectControlZone.PAGE_FLOOR || this == ConnectControlZone.PAGE_PILL
 

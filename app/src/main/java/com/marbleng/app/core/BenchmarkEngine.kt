@@ -15,30 +15,10 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/**
- * Real-tunnel benchmark and predictive route selector.
- *
- * Endpoint-only TCP evidence is never allowed to reject a profile during a real Xray Rank. Some
- * fronted, chained and provider-specific routes work through the protocol core even when a naked
- * socket gate is blocked. Historical tunnel health still decides test order.
- */
 class BenchmarkEngine(
     private val xray: XrayManager,
     private val intelligence: MarbleIntelligence? = null
 ) {
-    // MARBLE_EVIDENCE_TIERS_V24
-    // MARBLE_BENCHMARK_ALL_NODES_V27
-    // MARBLE_DIRECT_PING_TIMEOUT_V33
-    // MARBLE_TEMP_PORT_CONSUMER_V38
-    // MARBLE_WARM_TUNNEL_RANK_V42
-    // MARBLE_RANK_RECOVERY_CARD_UX_V43
-    // MARBLE_REPEATABLE_RANK_V44
-    // MARBLE_V2RAYNG_SMART_RANK_V45
-    // MARBLE_EVIDENCE_WEIGHTED_QUALITY_V46
-    // MARBLE_BENCH_COMPAT_V47
-    // MARBLE_RUNTIME_PARITY_RANK_V61
-    // MARBLE_REALTIME_ENGINE_V70
-
     fun run(
         profiles: List<ProxyProfile>,
         settings: AppSettings,
@@ -47,27 +27,13 @@ class BenchmarkEngine(
         onCandidates: (List<ProxyProfile>) -> Unit = {},
         onStart: (ProxyProfile) -> Unit = {},
         onResult: (ProxyProfile, BenchmarkResult) -> Unit = { _, _ -> },
-        /**
-         * MARBLE_PING_CANCEL_V156 — the caller's cancel flag, polled between candidates and
-         * between completions. A sweep across a big subscription can run for minutes and used to
-         * have no undo at all. Cancellation is honest about what it means: what never started is
-         * abandoned, what was already measured is kept and published, and nothing is erased.
-         *
-         * Declared before [onProgress] on purpose: three call sites pass progress as a trailing
-         * lambda, and a trailing lambda only ever binds to the LAST parameter.
-         */
         shouldStop: () -> Boolean = { false },
         onProgress: (Int, Int, String) -> Unit = { _, _, _ -> }
     ): List<BenchmarkResult> {
         if (profiles.isEmpty()) return emptyList()
         val s = tuned(settings)
         val batchNetworkKey = intelligence?.currentSnapshot()?.key()
-        // TUNNEL means "test everything for real". The v2rayNG-style path also keeps every card
-        // and goes straight to Xray, because an underlay TCP failure cannot prove a proxy failure.
-        // MARBLE_SMART_PING_V122 / MARBLE_PING_METHODS_V148 — every non-TUNNEL method carries its
-        // own honest probe inside RouteProbe or BenchmarkEngine.directResult, so the raw-SYN
-        // precheck must never run: it rejected healthy-but-filtered nodes with zero evidence
-        // before the real measurement started.
+
         val precheck = false
         val candidates = selectCandidates(profiles, s, precheck).distinctBy { it.id }
         if (candidates.isEmpty()) return emptyList()
@@ -75,13 +41,7 @@ class BenchmarkEngine(
 
         val thermal = intelligence?.thermalBudget(s) ?: 1.0
         val cpu = Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
-        // Probing waits on sockets far more than on the CPU, and direct probes spawn no process at
-        // all, so the old (cpu / 2) cap left most of the batch idle behind four workers.
-        //
-        // MARBLE_PING_SPEED_DIAL_V199 — the width is one pure policy (see [sweepWidth]): the
-        // user's concurrency for the direct sweep, the device's child ceiling for every native
-        // measurement, and the speed dial on the Xray Real-delay pool, which had stayed pinned
-        // to 2..4 CPU-derived children whatever the device could carry.
+
         val nominalWorkers = sweepWidth(
             method = s.probeMethod,
             engine = s.coreEngine(),
@@ -96,25 +56,19 @@ class BenchmarkEngine(
             .coerceAtMost(candidates.size)
 
         val livePool = Executors.newFixedThreadPool(liveWorkers)
-        // MARBLE_PING_CANCEL_V156 — a completion queue, so the batch waits in ONE place that can
-        // be re-polled every slice instead of blocking on each future in turn.
+
         val completion = ExecutorCompletionService<Unit>(livePool)
         val completed = AtomicInteger(0)
         val results = Collections.synchronizedList(mutableListOf<BenchmarkResult>())
         val jobs = candidates.mapIndexed { idx, p ->
             completion.submit {
-                // Cancelled before this candidate was picked up: leave it unmeasured rather than
-                // reporting a fabricated failure for a server nobody looked at.
                 if (shouldStop()) return@submit
                 onStart(p)
-                // Score each measurement as it lands so the caller can publish a finished node
-                // immediately instead of holding every result back until the batch ends.
+
                 val measured = testCandidate(p, benchmarkPort(idx), s, v2rayStyleDelay)
                 val result = rank(listOf(measured), s).firstOrNull() ?: measured
                 results += result
-                // Every direct method proves endpoint/underlay reachability, not that the Xray
-                // route/account works. Never poison persistent tunnel intelligence with
-                // underlay-only measurements; only the native TUNNEL path records it.
+
                 if (
                     !directProbe(s) &&
                     (batchNetworkKey == null || intelligence?.currentSnapshot()?.key() == batchNetworkKey)
@@ -125,20 +79,7 @@ class BenchmarkEngine(
                 onProgress(completed.incrementAndGet(), candidates.size, p.name)
             }
         }
-        /*
-         * MARBLE_BATCH_DEADLINE_V144 — the old `jobs.forEach { it.get() }` waited for EVERY
-         * candidate with NO global deadline: one wedged worker (a DNS stall inside a probe, a
-         * native core that never reports back, a socket that ignores its own timeout) froze the
-         * whole batch, its progress bar and every result behind it — Ping-all "hangs at 87%"
-         * forever. Each task still owns its own timeouts, but the batch as a whole now owns a
-         * wall clock: slowest-plausible-task × wave count plus grace, with a 15-minute absolute
-         * ceiling. Stragglers past the deadline are cancelled (probes are idempotent; partial
-         * results rank exactly like a task that failed fast) and the pool is stopped hard so no
-         * wedged thread outlives the run. Healthy runs never touch the deadline — it only binds
-         * the runs that used to hang.
-         */
-        // MARBLE_PING_SPEED_DIAL_V199 — the deadline describes the pacing the prober will really
-        // use: the dial-scaled quiet gap, not the shipped constant.
+
         val sampleSpacingMs = settings.pingSampleSpacingMs()
         val perTaskCapMs = PingBudget.perServerBudgetMs(s.benchTimeoutSec, s.benchSamples, sampleSpacingMs) +
             if (s.probeMethod == ProbeMethod.TCP_PING) BATCH_DIRECT_GRACE_MS else maxOf(BATCH_TUNNEL_GRACE_MS, 15_000L)
@@ -146,14 +87,6 @@ class BenchmarkEngine(
         val batchCapMs = (perTaskCapMs * waves + BATCH_WAVE_GRACE_MS)
             .coerceAtMost(BATCH_ABSOLUTE_CAP_MS)
         val batchDeadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(batchCapMs)
-        /*
-         * MARBLE_PING_CANCEL_V156 — `job.get(leftMs)` blocks for the whole remaining budget, so
-         * the old loop could not notice a cancel until the slowest worker finished on its own.
-         * The same waits are now sliced: every slice re-reads the caller's flag, so a cancelled
-         * sweep stops starting work within one slice and the workers already in flight are
-         * interrupted instead of being waited out. Results that already landed were published as
-         * they landed, so a cancel never discards a measurement.
-         */
         try {
             var remaining = jobs.size
             while (remaining > 0) {
@@ -166,8 +99,7 @@ class BenchmarkEngine(
                     jobs.forEach { if (!it.isDone) it.cancel(true) }
                     break
                 }
-                // One bounded wait per slice. A cancelled task still reaches the queue (cancelling
-                // a FutureTask runs its `done()` hook), so the counter stays exact.
+
                 val finished = completion.poll(minOf(leftMs, CANCEL_POLL_SLICE_MS), TimeUnit.MILLISECONDS)
                 if (finished != null) {
                     remaining--
@@ -191,11 +123,6 @@ class BenchmarkEngine(
         return ranked
     }
 
-    /**
-     * Small happy-eyeballs style race across the historically best candidates. Each candidate gets
-     * a real Xray process and one HTTPS route probe. First healthy completion wins; losers are
-     * cancelled and their temporary processes terminate in XrayManager.temporary() finally blocks.
-     */
     fun race(
         profiles: List<ProxyProfile>,
         settings: AppSettings,
@@ -259,20 +186,12 @@ class BenchmarkEngine(
         return winner
     }
 
-    /**
-     * Autopilot background comparison. Fast cycles do two real HTTPS samples for latency.
-     * Deep cycles do three samples plus one bounded 128 KiB download for fresh speed evidence.
-     */
     fun continuousProbe(
         profiles: List<ProxyProfile>,
         settings: AppSettings,
         deep: Boolean,
         onProgress: (String) -> Unit = {}
     ): List<BenchmarkResult> {
-        // MARBLE_SMART_PING_V122 / MARBLE_PING_METHODS_V148 — autopilot challenger evidence must
-        // stay real-tunnel: it is recorded straight into the persistent intelligence and can
-        // trigger route switches, so a light Smart/address-level gate is never an acceptable
-        // substitute here.
         val effectiveSettings = if (settings.probeMethod != ProbeMethod.REAL_DELAY) {
             settings.copy(probeMethod = ProbeMethod.REAL_DELAY)
         } else {
@@ -389,9 +308,6 @@ class BenchmarkEngine(
                     s
                 ) ?: profiles
 
-        // Evidence lookups are resolved once per selection pass. Querying history per profile (or
-        // worse, per comparison) turned every "test all" on a large subscription into thousands of
-        // synchronized SQLite reads before a single node was probed.
         val health: Map<String, NodeHealthRecord> =
             intelligence
                 ?.healthSnapshot()
@@ -412,7 +328,6 @@ class BenchmarkEngine(
                 )
 
         if (!usePrecheck) {
-            // Caller explicitly disabled candidate gating: test every distinct supplied node.
             return ordered
         }
 
@@ -420,7 +335,6 @@ class BenchmarkEngine(
             s.tcpWorkers
                 .coerceIn(1, 32)
 
-        // Huge subscriptions no longer receive a TCP SYN test for every config on every tap.
         val precheckBudget =
             min(
                 profiles.size,
@@ -451,7 +365,6 @@ class BenchmarkEngine(
                     ).coerceAtLeast(0)
                 )
 
-        // Rotate unknown exploration every six hours so new nodes are not permanently starved.
         val rotation =
             (
                 (
@@ -605,7 +518,6 @@ class BenchmarkEngine(
                     alive += pair
                 }
 
-                // Enough healthy pre-gate survivors; let actual Xray tunnel tests decide.
                 if (
                     alive.size >=
                     maxCandidates * 2 &&
@@ -719,25 +631,10 @@ class BenchmarkEngine(
         val loadedLatency: Double = 0.0
     )
 
-    /**
-     * True when the selected method never needs a temporary Xray process.
-     *
-     * MARBLE_PATTNG_PING_V151 — two of the three methods run directly in the worker:
-     *
-     *  - [ProbeMethod.TCP_PING] is a raw connect to the node's own endpoint.
-     *  - [ProbeMethod.URL_TEST] drives sing-box extended, which owns its own throwaway instance
-     *    ([SingBoxManager.urlTestProfile]); it must not be wrapped in a second Xray child.
-     *
-     * Only [ProbeMethod.REAL_DELAY] needs a throwaway Xray child per candidate, because proving
-     * protocol + account + route is exactly what that child is for.
-     */
     private fun directProbe(s: AppSettings): Boolean =
         s.probeMethod != ProbeMethod.REAL_DELAY
 
     private fun directResult(p: ProxyProfile, s: AppSettings): BenchmarkResult {
-        // MARBLE_PING_CONTROL_V145 — the probe budget is the user's budget, for every method.
-        // Even Smart no longer has an extra 1 s `tcpPrecheckTimeoutMs` clamp: a deliberate
-        // "10 s per server" choice is honoured by the gate as well.
         val directTimeoutMs = (s.benchTimeoutSec * 1000).coerceIn(
             PingBudget.TIMEOUT_MIN_SEC * 1_000,
             PingBudget.TIMEOUT_MAX_SEC * 1_000
@@ -797,11 +694,7 @@ class BenchmarkEngine(
             val direct = measure(p, port, effective, true)
             return benchmarkResult(p, direct, effective.muxEnabled && !s.muxEnabled)
         }
-        // MARBLE_CORE_OPTIONS_V211 — nothing here flips a setting the user did not set. The
-        // baseline is exactly their configuration, and the adaptive-mux experiment that used to
-        // live here — turning the user's Mux switch on for a measurement and keeping it when the
-        // number looked better — is gone with the fragment stack that made the Mux switch a
-        // suggestion in the first place. The benchmark measures what the user configured.
+
         val baselineSettings = effective.copy(muxEnabled = s.muxEnabled)
         val chosen = measure(p, port, baselineSettings, true)
         return benchmarkResult(p, chosen, false)
@@ -836,10 +729,6 @@ class BenchmarkEngine(
             candidate.success >= baseline.success + 25
     }
 
-    /**
-     * Round-trip evidence for the node about to be measured, or [LinkEvidence.UNKNOWN] when neither
-     * the node nor this physical network has been measured yet.
-     */
     private fun linkEvidenceFor(profileId: String): LinkEvidence =
         runCatching { intelligence?.linkEvidenceFor(profileId) }.getOrNull() ?: LinkEvidence.UNKNOWN
 
@@ -850,26 +739,10 @@ class BenchmarkEngine(
         includeThroughput: Boolean,
         v2rayStyleDelay: Boolean = false
     ): Measurement {
-        // MARBLE_IRAN_AWARE_PING_L1 — the sawtooth confidence produced by this measurement is
-        // recorded with the same measurement, never inferred later from a different one.
         var sawConfidence = 0.0
         val requested = if (v2rayStyleDelay) 2 else PingBudget.samples(s.benchSamples)
-        /*
-         * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — the throwaway core a node is judged by is hardened
-         * with the same measured link evidence as the live tunnel. It used to be hardened with
-         * `LinkEvidence.UNKNOWN`, i.e. with the legacy 1350/1650 ms encrypted-DNS budgets, so on a
-         * slow route the measurement core could not resolve the probe hostname and every node scored
-         * as unreachable no matter how good it was. The per-sample probe budget below is deliberately
-         * *not* inflated with it: Rank is a comparative measurement with a user-visible wall clock,
-         * and a node that needs seconds per sample deserves the score it gets. What was mis-sized
-         * here was the resolver inside the measurement core, not the stopwatch outside it.
-         */
         val linkEvidence = linkEvidenceFor(p.id)
-        // MARBLE_PING_CONTROL_V145 — the per-sample tunnel budget follows the configured
-        // timeout instead of a hidden 2.5 s ceiling. "Real test" is the method a user picks
-        // precisely to give a slow route the time to answer; capping it two seconds below the
-        // configured budget turned that choice into a lie and marked healthy long-haul nodes
-        // dead. The batch still owns a wall clock (see the deadline in [run]).
+
         val timeoutMs = if (v2rayStyleDelay) {
             (s.benchTimeoutSec * 1000).coerceIn(4_000, 12_000)
         } else {
@@ -882,22 +755,8 @@ class BenchmarkEngine(
         var failureReason = "${s.coreEngine().id}-start"
 
         val started = runCatching {
-            // Reachability must be judged with the same runtime-compatible hardening class
-            // used by a real user connection. The old delayTest=true path deliberately stripped
-            // managed runtime pieces; a config could therefore fail Rank yet work immediately when
-            // tapped. v2rayStyleDelay still controls the lightweight HTTP measurement semantics.
-            //
-            // MARBLE_REAL_DELAY_TRUTH_V156 — one retry when the child never came up. A spawn
-            // storm (four measurement cores starting at once on a phone) is a fact about the
-            // device, not a verdict about the server, and it used to be reported as
-            // `xray-start` / `singbox-start` FAILED. A genuinely unbuildable config exits
-            // instantly on both attempts, so the retry costs milliseconds where it is pointless
-            // and saves a healthy node where it is not.
             fun attempt(): Boolean = xray.temporary(p, port, s, delayTest = false, link = linkEvidence) { livePort ->
-                // MARBLE_IRAN_AWARE_PING_L0_TARGETS — no fixed gstatic/cloudflare reference set
-                // anymore. Both styles now probe the rotating pool (CDN diversity + literal ends)
-                // in the same 10-minute epoch order, so Rank, Home and the tuner all describe the
-                // same measurement plane and no single SNI can poison the fleet verdict.
+
                 val targets = DelayTest.candidates(s.delayTestUrl)
                 val batch = targets.firstNotNullOfOrNull { target ->
                     SingBoxProcessSession.checkInterrupted()
@@ -914,9 +773,6 @@ class BenchmarkEngine(
                 }
 
                 if (includeThroughput && s.probeSpeedTest && times.isNotEmpty()) {
-                    // MARBLE_IRAN_AWARE_PING_L1 — the throughput stage samples the transfer SHAPE,
-                    // not only the average. A rate that collapses toward zero (sawtooth) is the
-                    // deliberate-throttling fingerprint; an average-only readout cannot see it.
                     var bytes = s.benchBytes.coerceIn(64 * 1024, 4 * 1024 * 1024)
                     var transfer = SocksHttpClient.sampledGet(
                         livePort,
@@ -978,16 +834,14 @@ class BenchmarkEngine(
         val ordered = times.sorted()
         val latency = when {
             ordered.isEmpty() -> 9999.0
-            // MARBLE_HONEST_PING_V119 — the first-sample path bypasses summarize(), so it gets
-            // the same positive/ceiling clamp before a stored benchmark can seed the Home ping.
+
             v2rayStyleDelay -> LinkQualityEstimator.sanitaryRtt(ordered.first())
             link != null -> link.medianRttMs.toDouble()
             else -> LinkQualityEstimator.sanitaryRtt(ordered[ordered.size / 2])
         }
         val success = if (v2rayStyleDelay) { if (times.isNotEmpty()) 100 else 0 }
             else link?.successPercent ?: (times.size * 100 / requested)
-        // MARBLE_IRAN_AWARE_PING_L1 — persist the per-transport verdict (VLESS+Reality and
-        // Hysteria2 are recorded separately, never averaged together) plus the throttle shape.
+
         if (!CoreFailurePolicy.isLocal(failureReason)) runCatching {
             intelligence?.recordTransportVerdict(
                 p.id,
@@ -1031,11 +885,6 @@ class BenchmarkEngine(
         )
     }
 
-    /**
-     * A race probe is one real HTTPS round trip through a real Xray process, so it deserves a real
-     * score. Leaving it at 0 made the winning route show "0 / 100" everywhere until the first live
-     * telemetry sample arrived.
-     */
     private fun quickScore(m: Measurement): Double {
         if (m.success <= 0) return -1.0
         val reliability = m.success.toDouble().coerceIn(0.0, 100.0)
@@ -1075,11 +924,7 @@ class BenchmarkEngine(
 
     private fun tcpLatency(p: ProxyProfile, timeoutMs: Int, settings: AppSettings = AppSettings()): Double {
         if (p.host.isBlank() || p.port <= 0) return DEAD_LATENCY
-        // MARBLE_IRAN_AWARE_PING_L0 — the old SYN-only precheck accepted ports that a stateful
-        // filter opens and then kills at the first ClientHello, so injected endpoints entered
-        // ranking as "alive". The precheck is now the same Layer-0 signal the measurement uses:
-        // TCP + TLS ServerHello/Alert with the time-to-RST rule, one relaxed single sample so
-        // the precheck stays cheap while being an honest reachability verdict.
+
         val signal = MultiVectorReachability.probe(
             host = p.host,
             port = p.port,
@@ -1101,10 +946,6 @@ class BenchmarkEngine(
     private fun canMux(p: ProxyProfile): Boolean =
         p.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss") && !isUdpNative(p)
 
-    /**
-     * Preferred ports are only hints. XrayManager owns collision-safe reservation across
-     * benchmark, race, optimizer and Turbo workers.
-     */
     private fun benchmarkPort(index: Int): Int =
         BASE_PORT + (index.coerceAtLeast(0) % BENCHMARK_PORT_SLOTS) * 4
 
@@ -1119,28 +960,11 @@ class BenchmarkEngine(
         const val BENCHMARK_PORT_SLOTS = 10_000
         const val RACE_BASE_PORT = 19280
         const val OPTIMIZER_BASE_PORT = 20580
-        /**
-         * MARBLE_BATCH_DEADLINE_V144 — grace budgets for the batch wall clock in [run]. Direct
-         * probes only juggle sockets, so a small grace suffices; tunnel probes additionally
-         * start and stop a native Xray child per candidate, which legitimately costs tens of
-         * seconds under spawn storms and must never trip the deadline.
-         */
         const val BATCH_DIRECT_GRACE_MS = 5_000L
         const val BATCH_TUNNEL_GRACE_MS = 45_000L
         const val BATCH_WAVE_GRACE_MS = 10_000L
         const val BATCH_ABSOLUTE_CAP_MS = 15 * 60_000L
-        /**
-         * MARBLE_PING_CANCEL_V156 — how often the batch wait re-reads the caller's cancel flag.
-         * Long enough that a healthy run's wait is one `Future.get` per slice rather than a busy
-         * loop; short enough that a cancelled sweep stops starting work within a quarter second.
-         */
         const val CANCEL_POLL_SLICE_MS = 250L
-        /**
-         * MARBLE_IRAN_AWARE_PING_L0_TARGETS — the fixed Google/Cloudflare reference set is gone.
-         * Rank targets come from [ProbeTargetPool] in the deterministic 10-minute rotation (shared
-         * with Home pings, so every measurement describes the same target order), including the
-         * literal-IP ends so a measurement survives proxy-side DNS failures.
-         */
         fun rankTargets(): List<Pair<String, String>> {
             val pool = ProbeTargetPool.ordered(ProbeTargetPool.CDN_TARGETS)
             val literals = ProbeTargetPool.ordered(ProbeTargetPool.LITERAL_TARGETS)
@@ -1152,37 +976,6 @@ class BenchmarkEngine(
     }
 }
 
-/**
- * MARBLE_PING_SPEED_DIAL_V199 — how wide one batch runs, as one pure policy.
- *
- * The rules, per measurement shape:
- *
- *  - **TCP ping (direct sweep)** runs exactly as wide as the caller asked. The sweep constructs
- *    its settings through `AppSettings.pingWorkers()`, which is the user's concurrency at the
- *    speed dial's width — 16 chips-wide at the classic pace, 24 at the shipped default.
- *    MARBLE_PING_CONTROL_V145's rule is unchanged here: no hidden clamp rewrites the number the
- *    user picked, and the engine never scales the caller's value a second time.
- *
- *  - **Every native-child measurement (URL test, and Real delay on the sing-box engine)** stays
- *    capped by the device's measurement-core ceiling. That ceiling is a memory decision
- *    (`MeasurementCoreBudget`), and the dial is a speed preference — the dial feeds the pool as
- *    fast as the device allows and never one child wider. The scaled `tcpWorkers` from the sweep
- *    still matters below the ceiling: a slower dial now genuinely narrows the pool instead of
- *    being silently clamped back up.
- *
- *  - **Real delay on the Xray engine (the default engine)** now scales with the dial, from the
- *    CPU-derived 2..4 pool it was pinned to. The shipped default runs it ~1.5× wider (2..4 →
- *    3..6), bounded by the device's own Xray-child ceiling — the same `MeasurementCoreBudget`
- *    read the sing-box pool uses, and a conservative bound, because an Xray child carries no
- *    controller API and no cache workspace. A device that cannot carry more runs exactly the
- *    pool it has always run.
- *
- *  - **The legacy v2ray-style ladder** keeps its 2..4 envelope unscaled: four is that path's
- *    same-host safety ceiling, chosen before the dial existed and unchanged by it.
- *
- * Top-level and internal on purpose: the width is the sweep's wall clock, so the policy is one
- * pure function pinned from every side by `SweepWidthTest`.
- */
 internal fun sweepWidth(
     method: ProbeMethod,
     engine: CoreEngine,
@@ -1199,9 +992,7 @@ internal fun sweepWidth(
     v2rayStyleDelay -> tcpWorkers.coerceIn(2, 4)
     else -> {
         val base = cpus.coerceIn(2, 4)
-        // MARBLE_PING_SPEED_DIAL_V199 — a hostile factor (NaN or ±Inf) must land inside the
-        // envelope, never crash the sweep: roundToInt() refuses NaN, so non-finite input is
-        // folded back to the classic 1.0 pace before it can reach the rounding.
+
         val factor = if (speedFactor.isFinite()) speedFactor else 1.0
         val scaled = (base * factor).roundToInt()
         scaled.coerceIn(2, xrayChildCeiling.coerceIn(2, 8))

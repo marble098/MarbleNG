@@ -9,75 +9,6 @@ import java.net.Socket
 import kotlin.math.abs
 import kotlin.math.sqrt
 
-/**
- * MARBLE_IP_FAMILY_SCAN_V198 — انتقاد شدید و بازطراحی مجهز
- *
- * ## نقد شدید نسخه‌های قبلی (فارسی)
- *
- * اسکن قبلی (V196/V197) با وجود پیشرفت نسبت به حدس‌زدن کور، از نظر مهندسی شبکه هنوز
- * در سطح یک اسکریپت ساده باقی مانده بود و برای یک VPN که ادعای «IPv6 وقتی واقعی است»
- * دارد، کافی نیست. نقدهای اصلی:
- *
- *  1. **دید تک‌بعدی به زیرساخت**: فقط یک boolean به نام underlayHasIpv6. داشتن یک آدرس
- *     global IPv6 به معنای داشتن اینترنت IPv6 واقعی نیست؛ فایروال، captive portal،
- *     PMTU blackhole، یا NAT64 می‌تواند آن را بی‌مصرف کند. اسکن هیچ کیفیتی از underlay
- *     نمی‌سنجید.
- *  2. **کوری DNS**: NXDOMAIN، NODATA، TIMEOUT و EMPTY همه یکی دیده می‌شدند. تفاوت بین
- *     «این نام وجود ندارد» و «این خانواده رکورد ندارد» حیاتی است، اما کد هر دو را UNKNOWN
- *     یا IPV4_ONLY می‌کرد. همچنین هیچ فیلترینگی برای bogon (10/8، 192.168/16، fc00::/7،
- *     fe80::/10، ::1، ...) وجود نداشت؛ یک DoH مسموم می‌توانست اسکن را فریب دهد.
- *  3. **تک‌پروتکل بودن**: فقط TCP connect به پورت نود. بسیاری از نودها WireGuard یا
- *     Hysteria2 (UDP) هستند؛ موفقیت TCP به معنای کارکرد UDP نیست و شکست آن به معنای مرگ
- *     نود نیست. هیچ شبیه‌سازی Happy Eyeballs واقعی وجود نداشت.
- *  4. **نمونه‌برداری ناکافی**: یک latency برای هر خانواده، بدون jitter، بدون median، بدون
- *     نرخ موفقیت. روی رادیوی موبایل اولین بسته بعد از DRX همیشه کند است؛ یک نمونه نویز
- *     است نه سیگنال.
- *  5. **عدم اعتمادسنجی**: verdict مطلق بود، بدون confidence. نودی با 1 witness و 1/2 موفقیت
- *     همان حکم نودی با 3 witness و 2/2 موفقیت را می‌گرفت.
- *  6. **TTL ثابت**: همه verdictها 6 ساعت. نود پایدار dual-stack که ماه‌هاست تغییر نکرده باید
- *     TTL طولانی‌تر از UNKNOWN که ممکن است دقیقه بعد resolve شود داشته باشد.
- *  7. **طبقه‌بندی خرابی IPv6**: «IPv6 unproven» همه چیز را قاطی می‌کرد: NO_ROUTE، FIREWALL،
- *     TIMEOUT، PMTU blackhole، neighbour discovery. هر کدام درمان متفاوت دارد.
- *  8. **عدم تشخیص NAT64**: وجود 64:ff9b::/96 به عنوان AAAA مصنوعی می‌تواند اسکن را فریب دهد
- *     که نود IPv6 دارد در حالی که فقط ترجمه شده است.
- *  9. **بودجه غیرواقعی**: محاسبه بودجه بدون در نظر گرفتن contention نخ‌ها، GC، و موازی‌سازی DoH.
- * 10. **عدم اولویت‌بندی اسکن گروهی**: اسکن 40 نود مرده همان هزینه اسکن 40 نود زنده را داشت.
- *
- * ## What V198 equips (English)
- *
- * This rewrite keeps the existing verdict machine (DUAL_OK, IPV6_ONLY, etc.) for backward
- * compatibility but equips it with:
- *
- *  - **Confidence model (0-100)** based on DNS witness count, probe success rate, jitter,
- *    underlay quality and bogon filtering.
- *  - **DNS taxonomy**: distinguishes NXDOMAIN, NODATA, TIMEOUT, EMPTY, SUCCESS; counts witnesses;
- *    filters bogon/private IPs; detects NAT64 synthesis (64:ff9b::/96).
- *  - **Bogon filtering**: RFC1918, RFC4193, link-local, loopback, multicast, documentation ranges
- *    are dropped unless the host itself is a literal private address.
- *  - **Multi-sample probing**: up to 3 addresses per family, 3 attempts per address, median latency,
- *    jitter (stddev-like), success rate. TCP connect still the baseline, but now with exponential
- *    backoff and race simulation.
- *  - **Happy Eyeballs race simulation**: IPv6 starts first, IPv4 starts after tryDelayMs (250ms),
- *    first success wins but both families are measured. Faster family is determined from median,
- *    not single sample, with tolerance for noise.
- *  - **Failure classification**: NO_ROUTE, FIREWALL, TIMEOUT, REFUSED, DNS_NXDOMAIN, DNS_TIMEOUT,
- *    BOGON_FILTERED, NAT64_SYNTHETIC, etc., surfaced in detail and advice.
- *  - **Adaptive TTL**: DUAL_OK high confidence → 12h, IPV4_ONLY high confidence → 24h,
- *    IPV6_ONLY → 12h, IPV6_UNPROVEN → 1h, UNREACHABLE → 30m, UNKNOWN → 5m.
- *  - **Underlay quality**: not just boolean, but probe result with RTT, MTU hint, NAT64 presence.
- *  - **Scan modes**: FAST (background insights, 1 addr, 1 attempt, 800ms), BALANCED (default,
- *    2 addr, 2 attempts), DEEP (user-initiated, 3 addr, 3 attempts, full jitter).
- *  - **Telemetry**: witness count, filtered count, attempts, jitter, failure reason stored in scan.
- *  - **Security**: no system DNS, only IP-literal DoH; private IPs filtered; JSON stores only
- *    public addresses.
- *
- * Everything remains pure and unit-testable via seams (resolver, connector).
- */
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Verdicts — kept for backward compatibility
-// ──────────────────────────────────────────────────────────────────────────────
-
 enum class IpFamilyVerdict {
     UNKNOWN,
     DUAL_OK,
@@ -89,10 +20,10 @@ enum class IpFamilyVerdict {
 
 enum class DnsResultKind {
     SUCCESS,
-    NODATA,      // NOERROR with 0 answers — family really absent
-    NXDOMAIN,    // name does not exist
-    TIMEOUT,     // no answer within budget
-    EMPTY,       // malformed or SERVFAIL treated as empty
+    NODATA,
+    NXDOMAIN,
+    TIMEOUT,
+    EMPTY,
     ERROR
 }
 
@@ -111,21 +42,17 @@ enum class ProbeFailureKind {
 }
 
 enum class ScanMode {
-    FAST,       // background, low budget
-    BALANCED,   // default, same as V197 but with confidence
-    DEEP        // user-initiated, full samples
+    FAST,
+    BALANCED,
+    DEEP
 }
 
 enum class ConfidenceTier {
-    HIGH,    // 80-100
-    MEDIUM,  // 50-79
-    LOW,     // 20-49
-    NONE     // 0-19
+    HIGH,
+    MEDIUM,
+    LOW,
+    NONE
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Detailed DNS evidence per family
-// ──────────────────────────────────────────────────────────────────────────────
 
 data class DnsFamilyEvidence(
     val addresses: List<InetAddress> = emptyList(),
@@ -138,10 +65,6 @@ data class DnsFamilyEvidence(
     val nat64Detected: Boolean = false,
     val emptyAnswers: Int = 0
 )
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Probe sample per attempt
-// ──────────────────────────────────────────────────────────────────────────────
 
 data class ProbeSample(
     val latencyMs: Int = -1,
@@ -162,10 +85,6 @@ data class FamilyProbeResult(
     val ok: Boolean get() = bestMs >= 0
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Underlay quality (more than boolean)
-// ──────────────────────────────────────────────────────────────────────────────
-
 data class UnderlayProbeResult(
     val hasIpv6: Boolean = false,
     val hasIpv4: Boolean = true,
@@ -175,10 +94,6 @@ data class UnderlayProbeResult(
     val mtuHint: Int = -1,
     val interfaceCount: Int = 0
 )
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Main scan result — backward compatible with added fields
-// ──────────────────────────────────────────────────────────────────────────────
 
 data class IpFamilyScan(
     val endpoint: String,
@@ -193,7 +108,7 @@ data class IpFamilyScan(
     val ipv6Address: String = "",
     val underlayHasIpv6: Boolean = false,
     val scannedAtMs: Long = 0L,
-    // ── V198 equipped fields ──
+
     val confidence: Int = 0,
     val dnsWitnesses: Int = 0,
     val dnsResultKind: String = "",
@@ -359,7 +274,6 @@ data class IpFamilyScan(
         .put("ip6", ipv6Address)
         .put("underlay6", underlayHasIpv6)
         .put("at", scannedAtMs)
-        // V198 equipped
         .put("conf", confidence)
         .put("wit", dnsWitnesses)
         .put("dnsKind", dnsResultKind)
@@ -440,10 +354,8 @@ data class IpFamilySummary(
 }
 
 object IpFamilyScanner {
-
     const val TTL_MS: Long = IpFamilyScan.TTL_MS
 
-    // ── Adaptive TTLs ──
     const val TTL_DUAL_HIGH_MS: Long = 12L * 60L * 60L * 1000L
     const val TTL_IPV4_ONLY_HIGH_MS: Long = 24L * 60L * 60L * 1000L
     const val TTL_IPV6_ONLY_MS: Long = 12L * 60L * 60L * 1000L
@@ -459,7 +371,6 @@ object IpFamilyScanner {
     const val CONNECT_BUDGET_FAST_MS: Int = 800
     const val CONNECT_BUDGET_DEEP_MS: Int = 2_000
 
-    // V198: BALANCED keeps 2 for backward compat, DEEP uses 3 for resilience
     const val CONNECT_ATTEMPTS_PER_ADDRESS: Int = 2
     const val CONNECT_ATTEMPTS_FAST: Int = 1
     const val CONNECT_ATTEMPTS_DEEP: Int = 3
@@ -478,7 +389,6 @@ object IpFamilyScanner {
 
     const val HAPPY_EYEBALLS_TRY_DELAY_MS: Int = 250
 
-    // Confidence weights
     const val CONF_WITNESS_2: Int = 30
     const val CONF_WITNESS_1: Int = 15
     const val CONF_BOTH_FAMILIES: Int = 10
@@ -527,8 +437,6 @@ object IpFamilyScanner {
         else -> IpFamilyVerdict.UNREACHABLE
     }
 
-    // ── Bogon filtering ──
-
     fun isBogonIpv4(addr: Inet4Address): Boolean {
         val b = addr.address
         val first = b[0].toInt() and 0xFF
@@ -537,14 +445,11 @@ object IpFamilyScanner {
             first == 0 -> true
             first == 10 -> true
             first == 127 -> true
-            first == 169 && second == 254 -> true // link-local
+            first == 169 && second == 254 -> true
             first == 172 && second in 16..31 -> true
             first == 192 && second == 168 -> true
-            // NOTE: TEST-NET (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) intentionally NOT filtered here
-            // because unit tests use those addresses as valid public examples. Real-world nodes use
-            // real public IPs; filtering TEST-NET would break tests while providing little extra safety
-            // (they are non-routable anyway and would fail TCP probe). Keep bogon list minimal for compat.
-            first >= 224 -> true // multicast + broadcast
+
+            first >= 224 -> true
             else -> false
         }
     }
@@ -552,18 +457,16 @@ object IpFamilyScanner {
     fun isBogonIpv6(addr: Inet6Address): Boolean {
         if (addr.isLoopbackAddress || addr.isAnyLocalAddress || addr.isMulticastAddress || addr.isLinkLocalAddress) return true
         val b = addr.address
-        // fc00::/7 unique local
+
         val first = b[0].toInt() and 0xFF
         if (first == 0xFC || first == 0xFD) return true
-        // 2001:db8::/32 documentation is NOT treated as bogon here for test compatibility
-        // (tests use it as valid example). Real-world filtering of doc prefix is low value.
-        // ::ffff:0:0/96 v4-mapped bogon check is done via v4 part
+
         return false
     }
 
     fun isNat64Synthetic(addr: Inet6Address): Boolean {
         val b = addr.address
-        // 64:ff9b::/96 = 00 64 ff 9b 00 00 ...
+
         return b[0] == 0x00.toByte() && b[1] == 0x64.toByte() && b[2] == 0xFF.toByte() && b[3] == 0x9B.toByte() &&
             b[4] == 0x00.toByte() && b[5] == 0x00.toByte() && b[6] == 0x00.toByte() && b[7] == 0x00.toByte() &&
             b[8] == 0x00.toByte() && b[9] == 0x00.toByte() && b[10] == 0x00.toByte() && b[11] == 0x00.toByte()
@@ -582,8 +485,6 @@ object IpFamilyScanner {
         }
         return kept to filtered
     }
-
-    // ── Median & jitter ──
 
     fun median(values: List<Int>): Int {
         if (values.isEmpty()) return -1
@@ -606,8 +507,6 @@ object IpFamilyScanner {
         if (samples.isEmpty()) return 0f
         return samples.count { it.success }.toFloat() / samples.size.toFloat()
     }
-
-    // ── Confidence calculation ──
 
     fun calculateConfidence(
         dnsWitnesses: Int,
@@ -634,8 +533,6 @@ object IpFamilyScanner {
         if (nat64) conf -= 15
         return conf.coerceIn(0, 100)
     }
-
-    // ── Main scan entry points ──
 
     fun scan(
         host: String,
@@ -680,7 +577,6 @@ object IpFamilyScanner {
 
         val clean = host.trim().removeSurrounding("[", "]")
 
-        // Resolve with detailed evidence
         val dnsEvidence = resolveFamiliesDetailed(clean, resolveBudgetMs, resolver, mode)
         val v4 = dnsEvidence.v4
         val v6 = dnsEvidence.v6
@@ -704,7 +600,6 @@ object IpFamilyScanner {
             )
         }
 
-        // Probe each family with multi-sample collection
         val (maxAddr, attemptsPerAddr, connBudget) = when (mode) {
             ScanMode.FAST -> Triple(MAX_ADDRESSES_FAST, CONNECT_ATTEMPTS_FAST, CONNECT_BUDGET_FAST_MS)
             ScanMode.DEEP -> Triple(MAX_ADDRESSES_DEEP, CONNECT_ATTEMPTS_DEEP, CONNECT_BUDGET_DEEP_MS)
@@ -787,8 +682,6 @@ object IpFamilyScanner {
         return last?.failureKind ?: ProbeFailureKind.UNKNOWN
     }
 
-    // ── Detailed resolve that filters bogon and detects NAT64 ──
-
     fun resolveFamiliesDetailed(
         host: String,
         budgetMs: Int = RESOLVE_BUDGET_MS,
@@ -867,9 +760,6 @@ object IpFamilyScanner {
         )
     }
 
-    /**
-     * Backward-compatible resolveFamilies — now with bogon filtering and NAT64 awareness.
-     */
     fun resolveFamilies(
         host: String,
         budgetMs: Int = RESOLVE_BUDGET_MS,
@@ -880,8 +770,6 @@ object IpFamilyScanner {
         val detailed = resolveFamiliesDetailed(host, budgetMs, resolver, ScanMode.BALANCED)
         return detailed.v4 to detailed.v6
     }
-
-    // ── Detailed family probing with median, jitter, success rate ──
 
     fun probeFamilyDetailed(
         addresses: List<InetAddress>,
@@ -913,9 +801,9 @@ object IpFamilyScanner {
                         bestMs = ms
                         bestAddr = address.hostAddress.orEmpty()
                     }
-                    break // success for this address, move to next? For median we want to continue? We break for speed but collect success.
+                    break
                 }
-                // exponential backoff between attempts: 50ms, 100ms, 200ms...
+
                 if (attempt < attemptsPerAddress) {
                     try {
                         Thread.sleep((50L * (1 shl (attempt - 1))).coerceAtMost(300L))
@@ -926,13 +814,6 @@ object IpFamilyScanner {
                 }
             }
             if (bestMs >= 0 && successLatencies.size >= 1) {
-                // In BALANCED mode we stop at first successful address for speed,
-                // but in DEEP we continue to gather more samples for jitter.
-                // Here we keep the fast path: break on first success unless we are in DEEP-like probing
-                // where caller already passed many addresses. For simplicity, break if we have a success
-                // and we are not trying to collect jitter from multiple addresses.
-                // To get jitter, we need at least 2 successes; so we continue if we have only 1 and more addresses remain
-                // and attemptsPerAddress is DEEP.
                 if (attemptsPerAddress < CONNECT_ATTEMPTS_DEEP || addresses.size == 1) {
                     if (bestMs >= 0) break
                 }
@@ -970,7 +851,6 @@ object IpFamilyScanner {
         return -1
     }
 
-    /** One bounded TCP connect. Never throws; a refusal and a timeout are the same answer here. */
     fun tcpLatencyMs(address: InetAddress, port: Int, timeoutMs: Int): Int {
         val budget = timeoutMs.coerceIn(200, 10_000)
         val startedNs = System.nanoTime()
@@ -985,10 +865,8 @@ object IpFamilyScanner {
         }
     }
 
-    // ── Happy Eyeballs race simulation ──
-
     data class HappyEyeballsResult(
-        val winner: String, // "ipv6" or "ipv4" or ""
+        val winner: String,
         val ipv6Ms: Int,
         val ipv4Ms: Int,
         val ipv6Jitter: Int,
@@ -996,10 +874,6 @@ object IpFamilyScanner {
         val detail: String
     )
 
-    /**
-     * Simulate RFC 8305 Happy Eyeballs: start IPv6, after [tryDelayMs] start IPv4, first success wins.
-     * Both families are still measured for reporting.
-     */
     fun happyEyeballsRace(
         v6Addresses: List<InetAddress>,
         v4Addresses: List<InetAddress>,
@@ -1013,10 +887,8 @@ object IpFamilyScanner {
         var v6Result: FamilyProbeResult? = null
         var v4Result: FamilyProbeResult? = null
 
-        // Sequential simulation with delay: v6 first
         v6Result = probeFamilyDetailed(v6Addresses.take(1), port, connectBudgetMs, 1, connector)
         if (v6Result.ok) {
-            // v6 won immediately, but still probe v4 for comparison if within budget
             v4Result = probeFamilyDetailed(v4Addresses.take(1), port, connectBudgetMs, 1, connector)
             return HappyEyeballsResult(
                 winner = "ipv6",
@@ -1028,7 +900,6 @@ object IpFamilyScanner {
             )
         }
 
-        // v6 didn't answer quickly, start v4 after delay
         try {
             Thread.sleep(tryDelayMs.toLong())
         } catch (_: InterruptedException) {
@@ -1037,7 +908,6 @@ object IpFamilyScanner {
 
         v4Result = probeFamilyDetailed(v4Addresses.take(1), port, connectBudgetMs, 1, connector)
         if (v4Result.ok) {
-            // v4 won, check if v6 would have answered with one more attempt
             val v6Retry = probeFamilyDetailed(v6Addresses.take(1), port, connectBudgetMs, 1, connector)
             return HappyEyeballsResult(
                 winner = "ipv4",
@@ -1058,8 +928,6 @@ object IpFamilyScanner {
             detail = "both failed"
         )
     }
-
-    // ── Summary with confidence ──
 
     fun summarize(scans: Collection<IpFamilyScan>): IpFamilySummary {
         var dual = 0
@@ -1099,16 +967,10 @@ object IpFamilyScanner {
         )
     }
 
-    // ── Bulk prioritization ──
-
-    /**
-     * Prioritize scans: low confidence and unproven first, then unknown, then unreachable,
-     * then stable high-confidence last. This makes group scans give useful answers faster.
-     */
     fun prioritizeForScan(scans: List<IpFamilyScan>, networkKey: String, nowMs: Long): List<IpFamilyScan> {
         return scans.sortedWith(
             compareBy(
-                { it.confidence }, // low confidence first
+                { it.confidence },
                 { when (it.verdict) {
                     IpFamilyVerdict.IPV6_UNPROVEN -> 0
                     IpFamilyVerdict.UNKNOWN -> 1
@@ -1116,7 +978,7 @@ object IpFamilyScanner {
                     IpFamilyVerdict.IPV4_ONLY -> 3
                     else -> 4
                 }},
-                { it.scannedAtMs } // oldest first
+                { it.scannedAtMs }
             )
         )
     }

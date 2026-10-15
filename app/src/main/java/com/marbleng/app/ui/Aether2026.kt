@@ -5,59 +5,11 @@
 
 package com.marbleng.app.ui
 
-// Marble Product UI v78 • Swipe tabs · Smart Library · Lean Home · Provider Link
-// Marble Product UI v12 • Solid White command surface
 // Compatibility baseline retained for CI: Marble Product UI v9.1.0
-// MARBLE_LIBRARY_UI_V10
-// MARBLE_BUG_FINDER_UI_V11
-// MARBLE_SMART_UI_V14
-// MARBLE_ULTIMATE_BUG_FINDER_UI_V15
-// MARBLE_HOME_LATENCY_V17
-// MARBLE_MANUAL_MOTION_UI_V20
-// MARBLE_HOME_COMMAND_CENTER_V22
-// MARBLE_LIBRARY_INTELLIGENCE_UI_V24
-// MARBLE_LIBRARY_SSH_COMPACT_V25
-// MARBLE_SELECTED_SOURCE_UI_V25_4
-// MARBLE_AURORA_UI_V26
-// MARBLE_HOME_COMMAND_DASHBOARD_V27
-// MARBLE_PATTNG_TLS_PARITY_V28
-// MARBLE_RUNTIME_POLISH_V29
-// MARBLE_INSTANT_QUALITY_V31
-// MARBLE_LIBRARY_SCOPE_UI_V32
-// MARBLE_LIBRARY_MEMORY_UI_V33
-// MARBLE_KINETIC_GLASS_UI_V34
-// MARBLE_SOLID_WHITE_UI_V35
-// MARBLE_UX_CLEANUP_V37
-// MARBLE_SYSTEM_INTEGRITY_UI_V38
-// MARBLE_UPDATE_DOCK_UI_V39
-// MARBLE_NODE_ENDPOINT_UI_V40
-// MARBLE_RANK_RECOVERY_CARD_UX_V43
-// MARBLE_TABBED_SETTINGS_QUALITY_UI_V46
-// MARBLE_REFINED_PRODUCT_UI_V52
+
 // MARBLE_M3_EXPRESSIVE_UI_V53
 // MARBLE_PRISM_UI_V54
 // MARBLE_REAL_DEVICE_POLISH_V55
-// MARBLE_SERVER_INTEL_UI_V56
-// MARBLE_SERVER_INTEL_HOME_UI_V58
-// MARBLE_LIBRARY_MODE_POLISH_UI_V59
-// MARBLE_GLOBAL_CONTROL_POLISH_UI_V60
-// MARBLE_CONNECTED_CARD_REFINEMENT_UI_V61
-// MARBLE_FLUID_LIBRARY_MOTION_UI_V62
-// MARBLE_LEAN_COPY_LIVE_RANK_UI_V63
-// MARBLE_HOME_STATUS_ANCHOR_UI_V64
-// MARBLE_ACTIVE_NODE_HALO_UI_V64
-// MARBLE_LIBRARY_CONTROL_GRADE_UI_V65
-// MARBLE_CONNECTED_PING_READOUT_UI_V65
-// MARBLE_UNIFIED_SURFACE_SYSTEM_UI_V65
-// MARBLE_NAVY_BRAND_UI_V77
-// MARBLE_HOME_PUZZLE_GRID_V77
-// MARBLE_EXPRESSIVE_MOTION_V186 — the Material 3 Expressive motion chapter: pages recede with
-// depth while the pager travels, the app-level busy bar becomes the wavy expressive linear, the
-// detail page opens on a true container transform, Settings pages move on the shared axis, dock
-// glyphs pop once when their tab wakes, list rows cascade in on first open and glide on spring
-// placement, and live readouts roll instead of hard-swapping. All of it reads Marble's one shared
-// frame clock and the expressive spec library (MarbleExpressive.kt); no infinite transition and
-// no measured geometry is added anywhere.
 
 import android.Manifest
 import android.content.Intent
@@ -66,7 +18,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
-// MARBLE_SURFACE_DEPTH_V212 — the system's predictive-back gesture, and the state it reports.
+
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.CancellationException
@@ -96,6 +48,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -174,7 +128,7 @@ import com.marbleng.app.AppRepository
 import com.marbleng.app.R
 import com.marbleng.app.core.AddressFamilyPolicy
 import com.marbleng.app.core.GeoAssetIndex
-// MARBLE_MULTI_SOURCE_ROUTING_V212 — the geo source set and the curated domestic knowledge.
+
 import com.marbleng.app.core.GeoAssetRegistry
 import com.marbleng.app.core.IranPrecisionPack
 import com.marbleng.app.core.RoutingEngine
@@ -225,20 +179,9 @@ private enum class SpatialTab(val label: String) {
     LIBRARY("Servers"),
     SETTINGS("Settings"),
 
-    /**
-     * MARBLE_DOCK_SLOT_V167 — the fourth slot: the tab the user fills with the thing they reach
-     * for most (one subscription, one config, or the live pulse of the route). Its caption and
-     * glyph come from Settings, and the enum label is only the last-resort fallback.
-     */
     CUSTOM("Custom")
 }
 
-/**
- * MARBLE_BILINGUAL_V110 — the dock renders translated tab names, never the enum label.
- *
- * MARBLE_DOCK_SLOT_V167 — the fourth slot renders the caption the user configured for it, or the
- * name of what it opens; [customCaption] is resolved once, above the bar.
- */
 @Composable
 private fun spatialTabLabel(tab: SpatialTab, customCaption: String = ""): String = when (tab) {
     SpatialTab.DECK -> Tr.now.tabHome
@@ -250,10 +193,6 @@ private fun spatialTabLabel(tab: SpatialTab, customCaption: String = ""): String
 private fun rememberedSpatialTab(name: String): SpatialTab =
     runCatching { SpatialTab.valueOf(name) }.getOrDefault(SpatialTab.DECK)
 
-/**
- * MARBLE_DOCK_SLOT_V167 — everything the fourth slot's chrome needs, resolved once per composition:
- * whether the bar carries it at all, the caption it draws, and the glyph it draws it with.
- */
 private data class DockSlotChrome(
     val enabled: Boolean,
     val caption: String,
@@ -268,11 +207,7 @@ private data class DockSlotChrome(
 private fun dockSlotAccentTone(accent: DockSlotAccent): Color = when (accent) {
     DockSlotAccent.OCEAN -> Aether.Cyan
     DockSlotAccent.MINT -> Aether.Emerald
-    // MARBLE_DOCK_VIOLET_REAL_V205 — "Violet" used to resolve to `Aether.AmethystBright`,
-    // which in BOTH the light and the dark brand palettes is the exact same colour as
-    // `Aether.Cyan` — so choosing Violet over Ocean changed literally nothing, in every theme.
-    // The dock now carries a true violet, tuned per brightness: deep enough to hold 4.5:1 ink
-    // on the light bar, lifted to a readable pastel on the AMOLED bar.
+
     DockSlotAccent.VIOLET -> if (homeCloudDark()) Color(0xFFB08CFF) else Color(0xFF7A5CD6)
     DockSlotAccent.AMBER -> Aether.Amber
 }
@@ -286,37 +221,18 @@ private fun dockSlotStateTone(state: String): Color = when (state.trim().upperca
     else -> Aether.InkFaint
 }
 
-/**
- * MARBLE_DOCK_SLOT_V167 — what the fourth slot currently points at, resolved against the library.
- *
- * The slot stores ids; the library stores the truth. Both the caption and the page read this one
- * resolution, so a tab can never be labelled with a subscription it no longer shows, and a node
- * deleted from the Library leaves an honestly empty target instead of a stale name.
- */
 private class DockSlotTarget(
     val kind: DockSlotKind,
-    /** The source id (SOURCE) or the profile id (CONFIG) the slot points at. */
     val id: String,
-    /** The profile's own source id, so a repeated node id resolves to the exact row. */
     val sourceId: String,
-    /** The target's own name, English; the UI decides whether a caption shows it. */
     val displayName: String,
-    /** The source's servers (SOURCE) or the one pinned config (CONFIG); empty means "gone". */
     val profiles: List<ProxyProfile>
 ) {
     val isEmpty: Boolean get() = kind != DockSlotKind.PULSE && profiles.isEmpty()
 }
 
-/** The English default names of the two permanent Library sources. */
 private const val DOCK_SLOT_ALL_SOURCES = "All servers"
 
-/**
- * The caption the fourth slot draws when the user wrote none.
- *
- * A subscription can legitimately be called "Manual" or "Custom", so the target's own name is
- * carried through verbatim; only the product's two own constants are translated, and they are
- * translated as constants rather than as sentences.
- */
 @Composable
 private fun dockSlotCaptionText(kind: DockSlotKind, targetName: String): String {
     val resolved = dockSlotDefaultCaption(kind, targetName)
@@ -325,14 +241,12 @@ private fun dockSlotCaptionText(kind: DockSlotKind, targetName: String): String 
     return if (isProductConstant) trx(resolved) else resolved
 }
 
-/** How many configs the fourth slot's picker renders at once; the search box narrows the rest. */
 private const val DOCK_SLOT_PICKER_CAP = 60
 
 private fun dockSlotTarget(repo: AppRepository, kind: DockSlotKind): DockSlotTarget {
     val settings = repo.settings
     val library = repo.libraryProfiles
     return when (kind) {
-        // The pulse is about the route, not about a source, so its scope is the whole library.
         DockSlotKind.PULSE -> DockSlotTarget(
             kind = kind,
             id = "pulse",
@@ -375,7 +289,6 @@ private fun dockSlotTarget(repo: AppRepository, kind: DockSlotKind): DockSlotTar
 
 private data class InstalledApp(val label: String, val packageName: String)
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun Aether2026App(
@@ -391,10 +304,7 @@ fun Aether2026App(
     var settingsFocus by remember { mutableStateOf<String?>(null) }
     var detailProfile by remember { mutableStateOf<ProxyProfile?>(null) }
     var ipDetailsOpen by remember { mutableStateOf(false) }
-    // MARBLE_SURFACE_DEPTH_V212 — predictive back. The gesture is not an edge any more: the
-    // system reports a progress while the finger travels, and the surface being dismissed recedes
-    // on it. Dismissing a full-screen page is exactly the place where a snap reads as a glitch,
-    // because everything else in the app moves on the shared frame clock.
+
     val detailBackProgress = remember { MutableStateFlow(0f) }
     val detailBack by detailBackProgress.collectAsState()
     PredictiveBackHandler(enabled = detailProfile != null) { events ->
@@ -402,7 +312,6 @@ fun Aether2026App(
             events.collect { event -> detailBackProgress.value = event.progress }
             detailProfile = null
         } catch (cancelled: CancellationException) {
-            // Released short of the threshold: the page stays where it was.
         } finally {
             detailBackProgress.value = 0f
         }
@@ -410,31 +319,20 @@ fun Aether2026App(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // MARBLE_DOCK_SLOT_V167 — a tab's page is its position in the bar that is on screen, never its
-    // enum ordinal: the optional fourth slot rewrites that mapping the moment it is switched off.
     val pageOf: (SpatialTab) -> Int = { tab -> tabs.indexOf(tab).coerceAtLeast(0) }
 
-    // One bounded page turn. Tapping the tab already on screen is a true no-op; a running turn
-    // can be claimed by a finger without leaving behind a visual marker or a stale dock state.
     val goToTab: (Int) -> Unit = { page ->
         if (page != pagerState.currentPage) {
             scope.launch { pagerState.animateScrollToPage(page) }
         }
     }
 
-    // MARBLE_DOCK_SLOT_V167 — the page the pager is actually on, repaired against the list the bar
-    // is drawing. Turning the fourth slot off shrinks the bar to three tabs while the pager may
-    // still be holding page 4; reading the tab through this accessor means no surface can ever ask
-    // for a page that does not exist.
     val currentTab = tabs.getOrElse(pagerState.currentPage) { tabs.first() }
 
-    // A hidden fourth slot is not a page any more, so the pager is walked back onto the bar it has.
     LaunchedEffect(tabs.size) {
         if (pagerState.currentPage > tabs.lastIndex) pagerState.scrollToPage(tabs.lastIndex)
     }
 
-    // Sync pager → tab name for persistence and reset the visible page's scroll report. Each
-    // scrollable page reports its own motion below; the dock itself stays visually stable.
     LaunchedEffect(currentTab) {
         onContentScrollChanged(false)
         repo.rememberAppTab(currentTab.name)
@@ -442,8 +340,6 @@ fun Aether2026App(
 
     val reportContentScroll: (Boolean) -> Unit = onContentScrollChanged
 
-    // Routing focus from Home, and the fourth slot's own Customize entry: both are deep links
-    // into a Settings page, so both turn the pager to Settings.
     LaunchedEffect(settingsFocus) {
         if (
             settingsFocus == "Routing" ||
@@ -455,9 +351,7 @@ fun Aether2026App(
     }
 
     // MARBLE_HOME_NO_TRANSIENT_STATUS_V209 — Home deliberately has no short-lived status strip.
-    // Repository messages still expire after work settles so an old action cannot linger as stale
-    // state; progress and connection truth stay on the controls that own them. Android system
-    // notifications are a separate surface and remain available from Notifications settings.
+
     LaunchedEffect(repo.message, repo.busy) {
         val shown = repo.message
         if (shown.isBlank() || repo.busy) return@LaunchedEffect
@@ -465,15 +359,9 @@ fun Aether2026App(
         if (repo.message == shown) repo.clearMessage()
     }
 
-    // MARBLE_HOME_DECK_V143 — one shared deck truth: every Home presentation (and the Servers
-    // page wiring) reads this exact evidence + action set.
     val deck = rememberDeckEvidence(repo)
     val deckCopyIp = rememberCopyIpAction(repo, deck.evidence.ip)
 
-    // MARBLE_HOME_REDESIGN_V132 — the Home shortcut deck brings the two import entries a user
-    // reaches for most (paste and QR) onto the connection surface, so adding a route no longer
-    // requires a detour through the Servers tab. Both land in exactly the same smart intake the
-    // Servers page uses, so a pasted subscription can never become a bogus proxy profile.
     val deckClipboard = LocalClipboardManager.current
     val deckQrImageLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -487,23 +375,15 @@ fun Aether2026App(
     }
     var deckQrSourceOpen by remember { mutableStateOf(false) }
 
-    // MARBLE_PING_METHODS_V148 — Home ping results live in the in-place meter / shortcut deck;
-    // no separate top-of-page overlay is composed while a ping is running.
     val deckActions = HomeActions(
-        // MARBLE_ROUTE_ATELIER_V207 — the verb comes from the state table, and every verb has a
-        // destination. "Add a server" used to be a word on the button with "start a connection"
-        // behind it: with no route selected the button offered Connect for a connection that cannot
-        // be made, and tapping it ran the reconnect path. Now the label and the action are resolved
-        // from the same value, so they cannot disagree by construction.
+
         onToggleConnection = {
             val ev = deck.evidence
             when (ev.routeState.connectVerb()) {
-                // A tunnel that is already closing ignores the button until it has closed.
                 MarbleConnectVerb.WAIT -> Unit
                 MarbleConnectVerb.ADD_ROUTE -> goToTab(pageOf(SpatialTab.LIBRARY))
                 MarbleConnectVerb.CONNECT -> repo.reconnectLastOrAuto(onConnect)
-                // Cancelling a handshake, resetting a fail-closed session and ending a live one are
-                // all the engine's single teardown path, exactly as before.
+
                 MarbleConnectVerb.CANCEL,
                 MarbleConnectVerb.DISCONNECT,
                 MarbleConnectVerb.RESET -> repo.stopVpn()
@@ -512,16 +392,13 @@ fun Aether2026App(
         onCopyIp = deckCopyIp,
         onRefreshIp = { repo.refreshServerIntel(deck.profile, force = true) },
         onIpDetails = { ipDetailsOpen = true },
-        // MARBLE_HOME_V137 / MARBLE_PING_METHODS_V148 — one route ping that follows Settings →
-        // Tests → Ping in every state. The result surfaces in the in-place live meter and the
-        // shortcut deck, so no top-of-page overlay is ever needed.
+
         onTestPing = {
             repo.measureHomePing()
         },
         onLibrary = { goToTab(pageOf(SpatialTab.LIBRARY)) },
         onConnectProfile = { profile -> onConnect(profile) },
-        // MARBLE_HOME_ADD_MENU_V145 — `+` opens a dropdown anchored under the icon itself
-        // (see HomeTopActionBar); this entry is its "browse the Servers page" destination.
+
         onAddRoute = { goToTab(pageOf(SpatialTab.LIBRARY)) },
         onRank = { repo.smartRank() },
         onPrivacy = {
@@ -532,10 +409,7 @@ fun Aether2026App(
             settingsFocus = "Routing"
             goToTab(pageOf(SpatialTab.SETTINGS))
         },
-        // MARBLE_ROUTE_ATELIER_V207 — the shortcut names a destination, so it goes there: the Tests
-        // workspace with its first card (Testing, the ping method the shortcut is about) on screen —
-        // not merely "the Settings tab", which is what the V143 wiring actually did while promising
-        // something more specific. Routing already had an exact target; now every shortcut has one.
+
         onTests = {
             settingsFocus = SettingsPages.TESTS
             goToTab(pageOf(SpatialTab.SETTINGS))
@@ -549,30 +423,20 @@ fun Aether2026App(
             }
         },
         onQrImport = { deckQrSourceOpen = true },
-        // MARBLE_HOME_PING_ROUTE_GROUP_V146 — the Home pulse icon measures the subscription of
-        // the route shown on the page. Progress/results are reported through the shared probe
-        // batch state and the group label, never through a top-of-page overlay.
+
         onPingGroup = {
             repo.pingHomeGroup()
         },
-        // MARBLE_HOME_ROUTE_PING_V210 — the header's pulse and the split control's second disc
-        // both ask about the one server on screen. While a tunnel is up that is the live route
-        // (measured through the tunnel, which is the only honest answer to "is my connection
-        // alive?"); while it is down it is the selected route, measured at its endpoint.
+
         onPingRoute = {
             repo.measureHomePing()
         },
-        // MARBLE_HOME_PING_CONTROLS_V212 — the whole-library sweep becomes a Home verb, so any of
-        // the three ping surfaces can be pointed at it. It is the same `testAll()` the Servers
-        // page's "Ping all" runs: one bulk measurement, one progress strip, one result list.
+
         onPingLibrary = {
             repo.testAll()
         }
     )
 
-    // MARBLE_DOCK_SLOT_V167 — what the fourth tab is, resolved once and read by both the bar and
-    // the page behind it: the kind it opens, the name of what it opens (for a caption the user did
-    // not write) and the glyph it draws. The two can never disagree, because there is one value.
     val slotKind = parseDockSlotKind(repo.settings.dockSlotKind)
     val slotTarget = dockSlotTarget(repo, slotKind)
     val slotStatusTone = dockSlotStateTone(repo.state)
@@ -588,24 +452,14 @@ fun Aether2026App(
         statusDescription = homeStatusText(deck.evidence)
     )
 
-    // MARBLE_DOCK_CUSTOM_V145 — the dock's chosen footprint is published once, so the bar and
-    // every page's bottom clearance are always derived from the same value.
     CompositionLocalProvider(
         LocalDockMetrics provides DockMetrics.of(repo.settings),
-        // MARBLE_ROUTE_ATELIER_V207 — one switch answers for every ambient surface in the app: the
-        // page backdrop's breathing glow, the status pip's rings, the heartbeat trace. They are the
-        // same cost and the same question ("may this move when it is telling me nothing new?"), so
-        // they are the same preference, published once above every page.
+
         LocalMarbleAmbientField provides repo.settings.homeAmbientBackdrop
     ) {
     // MARBLE_EDGE_TO_EDGE_BACKDROP_V190 — the page gradient is painted under the WHOLE window,
-    // status bar and gesture area included. It used to start inside the Scaffold padding, so the
-    // strips behind the status bar and the gesture handle kept the flat Void tone and showed as
-    // two differently tinted bands above and below every page.
+
     Box(Modifier.fillMaxSize()) {
-    // MARBLE_HOME_GRADIENTS_V116 — the whole page follows the selected Home style's
-    // multi-colour identity, so Home, Servers and Settings share the same professional
-    // gradient family instead of one grey wash.
     DeepSpaceBackdrop(
         Modifier.matchParentSize(),
         flavor = homeFlavorFor(parseHomeStyle(repo.settings.homeStyle))
@@ -618,12 +472,8 @@ fun Aether2026App(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-
             // marble-page-transition-fast — MARBLE_STABLE_NAVIGATION_V202 uses the pager's native
-            // translation only, so swipes track the finger and dock taps use a bounded page turn. There is no
-            // page scale/alpha layer: opaque page roots cannot reveal the backdrop or flash their
-            // headers on a slow frame. Keeping no extra viewport page also avoids a second page's
-            // animated cards and ambient canvases competing for each frame.
+
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
@@ -631,9 +481,7 @@ fun Aether2026App(
                 beyondViewportPageCount = 0
             ) { pageIndex ->
                 val reportThisPageScroll: (Boolean) -> Unit = { scrolling ->
-                    // A pager keeps neighbouring pages alive briefly. Their LazyLists may finish a
-                    // fling after they leave the screen; never let that stale event repaint the dock
-                    // belonging to the visible tab.
+
                     if (pageIndex == pagerState.currentPage) reportContentScroll(scrolling)
                 }
                 Box(
@@ -646,9 +494,6 @@ fun Aether2026App(
                             .widthIn(max = 820.dp)
                             .fillMaxWidth()
                     ) {
-                        // MARBLE_DOCK_SLOT_V167 — the page is looked up rather than indexed: a
-                        // bar that lost its fourth slot can never hand the pager a page it does
-                        // not have, not even for the frame the shrink settles on.
                         when (tabs.getOrNull(pageIndex) ?: SpatialTab.DECK) {
                     SpatialTab.DECK -> CyberDeck(
                         repo = repo,
@@ -669,7 +514,7 @@ fun Aether2026App(
                         focusSection = settingsFocus,
                         onContentScrollChanged = reportThisPageScroll
                     )
-                    // The fourth slot: whatever the user made of it.
+
                     SpatialTab.CUSTOM -> CustomDockPage(
                         repo = repo,
                         deck = deck,
@@ -687,7 +532,6 @@ fun Aether2026App(
                 }
             }
 
-
             AnimatedContent(
                 targetState = detailProfile,
                 modifier = Modifier
@@ -695,10 +539,7 @@ fun Aether2026App(
                     .marblePredictiveBack(detailBack),
                 transitionSpec = {
                     // MARBLE_STABLE_NAVIGATION_V202 — a detail page is a complete opaque surface,
-                    // not a card-sized shared element. The former scale/slide transform exposed
-                    // the transparent pager and made its top edge appear to flash. Fade-through
-                    // is deterministic, keeps the header in its final position, and is cheaper
-                    // than compositing two scaled full-screen trees.
+
                     expressiveFadeThrough()
                 },
                 label = "connection-detail-fade-through-v202"
@@ -715,12 +556,6 @@ fun Aether2026App(
                 }
             }
 
-            // The top bar is the fallback for work that has no card of its own (audits, geo assets,
-            // routing verification). Tests and refreshes report on their own node/source cards.
-            // MARBLE_EXPRESSIVE_MOTION_V186 — the fallback busy bar is the expressive wavy
-            // linear: one breathing blob travelling the track on the emphasized curve, dropping
-            // in from the top edge it owns and leaving on the short accelerated exit. With
-            // animations disabled it resolves to the calm static head form of the same indicator.
             AnimatedVisibility(
                 visible = repo.busy && !repo.inlineProgressActive,
                 modifier = Modifier.align(Alignment.TopCenter),
@@ -738,10 +573,7 @@ fun Aether2026App(
             }
 
             // MARBLE_STABLE_NAVIGATION_V202 — the dock is an opaque floating object. Switching
-            // between an opaque body and translucent glass for every drag gave the bar three
-            // independent alpha clocks (content fling, pager and tab turn), which is the source
-            // of the visible flash on real devices. Content still scrolls below its fixed overlay,
-            // but only the selected tab changes and it does so on the single dock colour tween.
+
             FloatingSpatialDock(
                 selected = currentTab,
                 slot = slotChrome,
@@ -752,8 +584,6 @@ fun Aether2026App(
                 }
             )
 
-            // MARBLE_HOME_REDESIGN_V132 — the QR entry of the Home shortcut deck. One entry,
-            // two ways in: a live camera scan or a saved image.
             if (deckQrSourceOpen) {
                 AlertDialog(
                     onDismissRequest = { deckQrSourceOpen = false },
@@ -798,18 +628,11 @@ fun Aether2026App(
                     }
                 )
             }
-
-            // MARBLE_HOME_ADD_MENU_V145 — the `+` chooser is a dropdown anchored under the icon
-            // in HomeTopActionBar. The full-screen dialog that used to cover the whole product
-            // surface for a three-entry menu is gone: a menu is a menu, not a page.
-
         }
     }
     }
     }
 
-    // The IP row opens an in-app diagnostic surface rather than leaving Home for a browser or
-    // a separate screen. It is safe to show while the metadata request is still resolving.
     if (ipDetailsOpen) {
         IpDetailsDialog(
             info = repo.serverIntel,
@@ -819,7 +642,6 @@ fun Aether2026App(
         )
     }
 
-    // MARBLE_APP_UPDATE_UI_V102
     repo.availableUpdate?.let { update ->
         MarbleUpdateDialog(
             update = update,
@@ -841,11 +663,6 @@ fun Aether2026App(
     }
 
     dialog?.let { what ->
-        /*
-         * Logs, doctor and core-lock read files. Doing that inline in composition ran disk I/O on
-         * the main thread on every recomposition of the dialog; it is loaded once, off the main
-         * thread, and the live Privacy report stays reactive.
-         */
         val dialogBody by produceState(initialValue = "", key1 = what) {
             value = if (what == "Privacy") {
                 ""
@@ -858,9 +675,7 @@ fun Aether2026App(
                             "History" -> repo.history.takeLast(80).asReversed().joinToString("\n") {
                                 "${DateFormat.getDateTimeInstance().format(Date(it.at))} • ${it.name} • ${it.reason}"
                             }
-                            // MARBLE_DOCK_SLOT_V167 — the fourth slot's own tools surface. The
-                            // report is read through the repository's accessor, so this dialog and
-                            // the saved report file can never disagree about what was found.
+
                             "Bug Finder" -> repo.bugFinderReportText()
                             else -> "MarbleNG"
                         }
@@ -967,8 +782,6 @@ private fun IpDetailsDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (loading) {
-                    // MARBLE_EXPRESSIVE_MOTION_V186 — the dialog's resolving bar is the wavy
-                    // expressive linear: the blob breathes while the lookup is genuinely in flight.
                     MarbleExpressiveLinearIndicator(
                         modifier = Modifier.fillMaxWidth(),
                         color = Aether.Cyan,
@@ -1170,37 +983,21 @@ private fun compactInAppMessage(raw: String): String {
     }
 }
 
-
 @Composable
 private fun DeepSpaceBackdrop(
     modifier: Modifier = Modifier,
     flavor: HomeFlavor = HomeFlavor.IOS_SLIDER
 ) {
-    // Clean iOS backdrop without starfield or cosmic blobs
     Box(modifier) {
         PrismBackdrop(Modifier.matchParentSize(), flavor)
     }
 }
 
-/**
- * MARBLE_DOCK_CUSTOM_V145 — everything the bottom dock's geometry depends on, in one value.
- *
- * The dock used to be a set of constants (62 dp tall, 21 dp glyphs, label always drawn) and
- * `dockClearance()` hard-coded the 88 dp of room every page reserves under its content for it.
- * Making the bar customizable therefore has to make that reservation customizable in the same
- * breath, otherwise a small bar leaves a hole under every list and a large one covers the last
- * row. Both now read the same value out of one composition local, so the bar and the space it
- * occupies can never disagree.
- */
 internal data class DockMetrics(
     val size: DockSize = DockSize.MEDIUM,
     val showIcons: Boolean = true,
     val showLabels: Boolean = true
 ) {
-    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the floating bar grows with the refreshed Material
-    // scale: taller pill (+2 dp), one step rounder corners, and glyphs two sizes up so the
-    // dock reads as the bold, modern navigation surface Material apps ship today. Clearance
-    // derives from barHeight, so pages reserve the new footprint automatically.
     val barHeight: Dp
         get() = when (size) {
             DockSize.SMALL -> 52.dp
@@ -1229,7 +1026,6 @@ internal data class DockMetrics(
             DockSize.LARGE -> 9.dp
         }
 
-    /** Room a page must leave under its content so nothing hides behind the bar. */
     val clearance: Dp get() = barHeight + 26.dp
 
     companion object {
@@ -1254,17 +1050,9 @@ private fun FloatingSpatialDock(
     slot: DockSlotChrome,
     onSelect: (SpatialTab) -> Unit
 ) {
-    // MARBLE_DOCK_CUSTOM_V145 — footprint and content come from Settings › General ›
-    // Navigation bar. Everything below is unchanged behaviour drawn at the chosen size.
     val metrics = LocalDockMetrics.current
     // MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661 — unified floating navigation lineage
-    // MARBLE_FLOATING_DOCK_V117 / MARBLE_DOCK_STILL_BAR_V132
-    //  - rendered as an overlay (no Scaffold bottomBar slot), so pages scroll under it
-    //  - never flush with the screen edge: side margins + a lift above the gesture bar
-    //  - THE BAR ITSELF NEVER MOVES OR FADES. Earlier revisions breathed the whole dock,
-    //    blended it to glass during a fling, and shrank it during a page turn. On real screens
-    //    that read as a wobble under the thumb, so V202 keeps one fixed opaque body; only the
-    //    active tab's colour changes on an overshoot-free tween.
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1275,8 +1063,7 @@ private fun FloatingSpatialDock(
         val barShape = RoundedCornerShape(metrics.corner)
 
         // MARBLE_STABLE_NAVIGATION_V202 — one opaque body is deliberately cheaper and more
-        // predictable than blending to a scroll-driven glass state. Scrolling content still moves
-        // underneath, but the dock has no surface, alpha, border or elevation state to chase it.
+
         val chrome = rememberMarbleFloatChrome()
         val dockSurface = chrome.surface
         val dockElevation = 14.dp
@@ -1289,10 +1076,7 @@ private fun FloatingSpatialDock(
                 .shadow(
                     elevation = dockElevation,
                     shape = barShape,
-                    // MARBLE_FLOATING_CHROME_V201 — the lift is cast in the palette's own hue.
-                    // A hard-coded black shadow on an ice-blue light surface reads as dirt, and
-                    // on a wallpaper-derived palette it was the one element that never followed
-                    // the theme at all.
+
                     ambientColor = chrome.shadow.copy(
                         alpha = marbleFloatShadowPair(dockElevation.value).first
                     ),
@@ -1304,7 +1088,7 @@ private fun FloatingSpatialDock(
                 .background(dockSurface)
                 .border(
                     1.dp,
-                    // The rim is part of the same stable body; it never fades on a fling.
+
                     chrome.border,
                     barShape
                 )
@@ -1313,37 +1097,14 @@ private fun FloatingSpatialDock(
             verticalAlignment = Alignment.CenterVertically
         ) {
             SpatialTab.entries.forEach { item ->
-                // MARBLE_DOCK_SLOT_V167 — the fourth slot is a preference: when it is off, the bar
-                // draws the three tabs it was built on and the remaining weights share the row
-                // exactly as before. The iteration itself stays over every modelled tab, so the
-                // bar, the pager and persistence can never disagree about what a tab is.
+
                 if (item == SpatialTab.CUSTOM && !slot.enabled) return@forEach
                 val active = item == selected
                 val isCustomSlot = item == SpatialTab.CUSTOM
                 val slotAccent = if (isCustomSlot) slot.accent else Aether.Cyan
-                // MARBLE_NATIVE_ANDROID_V213 — the selected tab is the platform's *active
-                // indicator*: a full-round pill whose radius follows the box, never a fixed
-                // 22 dp corner. On a 64 dp bar the fixed corner drew a rounded rectangle; the
-                // platform's own navigation indicator is a stadium, and the difference is the
-                // first thing the eye reads as "this is not an Android bar".
+
                 val glassShape = marbleNativePill()
 
-                // MARBLE_DOCK_STABLE_COLOR_V115 — the selected custom tab now uses its own saved
-                // accent, while the three permanent tabs keep the brand cyan. All three chrome
-                // layers still settle on the overshoot-free dock tween.
-                //
-                // MARBLE_FLOATING_CHROME_V201 — the label is no longer the raw accent. It is the
-                // accent pushed toward black or white until it clears 4.5:1 against the pill it
-                // actually sits on. The old code painted `slotAccent` over `slotAccent @ .24f`,
-                // i.e. the same hue at 100 % over the same hue at 24 %, which is a legible
-                // caption only when the accent happens to be dark: with Material You the primary
-                // is routinely a pastel, and two strengths of one pastel is not a contrast.
-                //
-                // MARBLE_DOCK_LIGHT_PRESENCE_V205 — the fill and rim strengths are now
-                // theme-aware. One fixed .22 wash was tuned on the AMOLED bar, where a bright
-                // accent needs very little of itself to read; over the light ice bar the same
-                // wash disappeared into the surface and the selected tab looked unselected.
-                // Light keeps a clearly lit container and a rim that actually frames it.
                 val dockDark = homeCloudDark()
                 val pillFill = marblePillFill(
                     accent = slotAccent,
@@ -1364,22 +1125,7 @@ private fun FloatingSpatialDock(
                     animationSpec = MarbleMotionSpecs.DockColor,
                     label = "dock-tone-${item.name}"
                 )
-                // MARBLE_DOCK_PRESENCE_V191 — the selected pill finally reads as selected. The
-                // V190 "lighter rim" pass (.16 fill / .20 rim) left the active tab almost
-                // indistinguishable from its neighbours on the light theme — a navigation bar
-                // must answer "where am I?" from across the room.
-                //
-                // MARBLE_FLOATING_CHROME_V201 — the fill is composited over the bar's own body
-                // rather than laid over nothing, so a selected tab is a lit *container* (and
-                // therefore has a computable contrast) instead of a translucent film whose
-                // apparent colour changes with whatever scrolls behind the bar.
-                // MARBLE_DOCK_ALPHA_PATH_V205 — the off state is the SAME colour at zero alpha,
-                // never `Color.Transparent`. Compose interpolates every channel of a colour, and
-                // Transparent is black at alpha zero — so a tween toward it drags the pill's RGB
-                // toward black while the alpha falls. Mid-flight the pill composited as a dull
-                // grey wash: on the AMOLED bar that grey is invisible, but on the light system
-                // bar every tab change flashed a dirty grey box and the colour appeared broken.
-                // Holding the hue constant makes the tween a pure fade, identical in both themes.
+
                 val pillBg by animateColorAsState(
                     targetValue = if (active) pillFill else pillFill.copy(alpha = 0f),
                     animationSpec = MarbleMotionSpecs.DockColor,
@@ -1391,9 +1137,7 @@ private fun FloatingSpatialDock(
                     label = "dock-indicator-${item.name}"
                 )
                 // MARBLE_STABLE_NAVIGATION_V202 — selection has one fill and one rim. The old
-                // secondary gradient had its own alpha animation on top of the colour tween,
-                // which made an active tab look as though it blinked during a rapid page turn.
-                // A single opaque-looking container is cheaper to draw and has a stable contrast.
+
                 val spokenTab = if (item == SpatialTab.CUSTOM) slot.caption else trx(item.label)
                 val selectedState = trx("Selected")
                 val notSelectedState = trx("Not selected")
@@ -1413,8 +1157,7 @@ private fun FloatingSpatialDock(
                         ) { onSelect(item) }
                         .semantics {
                             this.selected = active
-                            // MARBLE_DOCK_SLOT_V167 — a slot named by its reader is announced
-                            // with that name: "Pulse tab", not "Custom tab".
+
                             contentDescription = tabDescription
                             stateDescription = when {
                                 active && isCustomSlot && slot.showStatusBadge ->
@@ -1428,9 +1171,7 @@ private fun FloatingSpatialDock(
                 ) {
                     if (metrics.showIcons) {
                         // MARBLE_STABLE_NAVIGATION_V202 — a tab acknowledgement is colour, not
-                        // geometry. Keeping the glyph at a fixed scale removes the last perceived
-                        // "jump" under the thumb; the custom slot's live dot stays pinned to this
-                        // fixed icon box.
+
                         Box(
                             modifier = Modifier.size(metrics.iconSize),
                             contentAlignment = Alignment.Center
@@ -1487,7 +1228,6 @@ private fun FloatingSpatialDock(
     }
 }
 
-
 @Composable
 private fun MarbleTabIcon(
     tab: SpatialTab,
@@ -1499,8 +1239,7 @@ private fun MarbleTabIcon(
     Canvas(modifier) {
         val w=size.width
         val h=size.height
-        // MARBLE_MATERIAL_YOU_REFRESH_V185 — tab glyphs stroke at the Material Symbols weight
-        // so the dock icons read fuller and carry the active state more clearly.
+
         val stroke=if(active) 2.3f.dp.toPx() else 1.9f.dp.toPx()
         val line=Stroke(width=stroke,cap=StrokeCap.Round)
 
@@ -1539,7 +1278,6 @@ private fun MarbleTabIcon(
             }
 
             SpatialTab.SETTINGS -> {
-                // Stroke-only knobs: nothing opaque is painted behind the glass bar.
                 val rows=listOf(
                     .30f to .38f,
                     .50f to .64f,
@@ -1562,9 +1300,6 @@ private fun MarbleTabIcon(
                 }
             }
 
-            // MARBLE_DOCK_SLOT_V167 — the fourth slot's four silhouettes, drawn by the same
-            // Canvas and the same stroke weight as the three fixed tabs, so a user-chosen glyph
-            // never reads as a foreign icon glued onto the bar.
             SpatialTab.CUSTOM -> when(slotIcon) {
                 DockSlotIcon.PULSE -> {
                     val trace=Path().apply {
@@ -1592,7 +1327,6 @@ private fun MarbleTabIcon(
                 }
 
                 DockSlotIcon.LAYERS -> {
-                    // Three chevron-less slabs: a stack, the shape of "more than one of them".
                     listOf(.30f,.50f,.70f).forEachIndexed { index,y ->
                         val inset=if(index==1) .16f else .22f
                         drawLine(
@@ -1613,7 +1347,7 @@ private fun MarbleTabIcon(
                         center=Offset(w*.5f,h*.5f),
                         style=Stroke(width=stroke,cap=StrokeCap.Round)
                     )
-                    // Needle: the only two lines that make a compass read as a bearing.
+
                     drawLine(color,Offset(w*.5f,h*.5f),Offset(w*.70f,h*.30f),stroke,StrokeCap.Round)
                     drawLine(color,Offset(w*.5f,h*.5f),Offset(w*.38f,h*.62f),stroke,StrokeCap.Round)
                 }
@@ -1631,7 +1365,6 @@ private fun SpatialHeader(
     status: String? = null,
     statusColor: Color = Aether.Cyan
 ) {
-    // MARBLE_PAGE_TITLES_V37
     val icon = when (title) {
         "Servers" -> HomeIcon.LIBRARY
         "Settings" -> HomeIcon.MODE
@@ -1709,13 +1442,8 @@ private fun LiveProgressBar(
             cap = StrokeCap.Round
         )
         if (fraction == null) {
-            // MARBLE_SMOOTH_CLOCK_V193 — the indeterminate phases live in the draw phase now:
-            // this bar used to read them in composition, recomposing its whole host at the
-            // frame rate even while it showed a settled percentage. Only the canvas redraws.
             val head = -.4f + motion.loop(1_150) * 1.4f
-            // MARBLE_EXPRESSIVE_MOTION_V186 — the indeterminate segment breathes while it
-            // travels: one more phase on the same shared clock, so the bar's width gently
-            // swells and contracts the way the expressive linear loader does.
+
             val widthPhase = motion.loop(900)
             val segment = size.width * ExpressiveMath.wavyValue(widthPhase, .26f, .48f)
             val start = (size.width * head).coerceAtLeast(0f)
@@ -1759,9 +1487,6 @@ private fun SectionLabel(
     title: String,
     subtitle: String? = null
 ) {
-    // MARBLE_SETTINGS_QUIET_CHROME_V114 — the little gradient bar beside every settings heading is
-    // gone. Hierarchy now comes from type alone: a quiet caption above a lighter, smaller title.
-    // Colour markers next to settings read as status, and nothing here is a status.
     Column(
         modifier=Modifier.padding(vertical=3.dp),
         verticalArrangement=Arrangement.spacedBy(3.dp)
@@ -1786,23 +1511,16 @@ private fun SectionLabel(
     }
 }
 
-// MARBLE_HOME_VECTOR_ICONS_V36
 private enum class HomeIcon {
     BRAND, POWER, STOP, CANCEL, RESET, SHIELD, TUNNEL, ROUTE,
     PING, JITTER, QUALITY, NODES, VERIFIED, CHECK, MODE, BENCHMARK,
     RANK, LIBRARY, PRIVACY, ROUTING, NETWORK, SERVER, DOWNLOAD, UPLOAD,
     DETAILS, SPARK, STATUS, MORE, MENU,
-    // MARBLE_SERVERS_V114 — glyphs the rebuilt Servers screen and the Settings hub need:
-    // a clipboard for the floating magic button, an information mark, a palette for the
-    // theme preview, a globe for language/links, disclosure chevrons, a back arrow and a
-    // typeface mark for the font picker.
+
     CLIPBOARD, INFO, PALETTE, GLOBE, CHEVRON, BACK, FONT,
-    // MARBLE_SERVERS_STYLE_CARDS_V117 — a quiet trash glyph used inside the per-server
-    // overflow sheet, keeping the row itself clean and minimal.
+
     TRASH,
-    // MARBLE_SERVERS_REDESIGN_V120 — the rebuilt Servers screen: add (+), search, sort,
-    // advanced filter, share/export, QR, folder (move), pencil (edit) and the tick that
-    // marks the selected row of a rounded dropdown.
+
     PLUS, SEARCH, SORT, FILTER, SHARE, QR, FOLDER, PENCIL, ACTIVE, CAMERA
 }
 
@@ -1816,16 +1534,10 @@ private fun HomeVectorIcon(
         val w = size.width
         val h = size.height
         val m = size.minDimension
-        // MARBLE_HOME_VECTOR_ICONS_V36 + V77 — size-aware weight. The stroke stays
-        // proportional to the glyph, so an icon scales up or down with its slot and keeps
-        // the same optical weight: thin at micro/inline sizes, confident at hero sizes.
-        // MARBLE_MATERIAL_YOU_REFRESH_V185 — the weight curve lifts to the Material Symbols
-        // optical weight: ~9.4% of the glyph box, so every icon reads fuller and more modern
-        // at both inline and hero sizes without redrawing a single path.
+
         val stroke = (m * .094f).coerceIn(1.5f, 3.8f)
         val fine = (stroke * .80f).coerceIn(1.3f, 2.9f)
-        // MARBLE_ICON_POLISH_V115 — rounded caps AND joins: modern product icon strokes never
-        // leave miter spikes at corners, so every glyph reads clean at 14dp and at 40dp.
+
         val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
         val fineLine = Stroke(width = fine, cap = StrokeCap.Round, join = StrokeJoin.Round)
 
@@ -1869,7 +1581,6 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.TRASH -> {
-                // Lid, handle and a rounded bin: one glance, no ambiguity.
                 drawLine(color, Offset(w*.27f, h*.31f), Offset(w*.73f, h*.31f), stroke, StrokeCap.Round)
                 drawLine(color, Offset(w*.43f, h*.24f), Offset(w*.57f, h*.24f), fine, StrokeCap.Round)
                 val bin = Path().apply {
@@ -1895,14 +1606,12 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.SORT -> {
-                // Three descending rules: "reorder, longest first".
                 drawLine(color, Offset(w*.24f, h*.29f), Offset(w*.76f, h*.29f), stroke, StrokeCap.Round)
                 drawLine(color, Offset(w*.24f, h*.5f), Offset(w*.62f, h*.5f), stroke, StrokeCap.Round)
                 drawLine(color, Offset(w*.24f, h*.71f), Offset(w*.48f, h*.71f), stroke, StrokeCap.Round)
             }
 
             HomeIcon.FILTER -> {
-                // A funnel: broad at the mouth, narrowing to a stem.
                 val funnel = Path().apply {
                     moveTo(w*.2f, h*.26f)
                     lineTo(w*.8f, h*.26f)
@@ -1916,7 +1625,6 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.SHARE -> {
-                // Lift out of a tray: export / copy-link.
                 val tray = Path().apply {
                     moveTo(w*.27f, h*.56f)
                     lineTo(w*.27f, h*.71f)
@@ -1932,7 +1640,6 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.QR -> {
-                // Three finder squares and one solid block: unmistakably a QR code.
                 listOf(
                     Offset(w*.18f, h*.18f) to Offset(w*.38f, h*.38f),
                     Offset(w*.62f, h*.18f) to Offset(w*.82f, h*.38f),
@@ -1971,7 +1678,6 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.PENCIL -> {
-                // Body, nib and the stroke it leaves behind.
                 drawLine(color, Offset(w*.27f, h*.73f), Offset(w*.66f, h*.34f), stroke, StrokeCap.Round)
                 drawLine(color, Offset(w*.66f, h*.34f), Offset(w*.76f, h*.24f), stroke, StrokeCap.Round)
                 drawLine(color, Offset(w*.22f, h*.78f), Offset(w*.35f, h*.75f), fine, StrokeCap.Round)
@@ -1994,7 +1700,6 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.MENU -> {
-                // Three round-capped bars: an unmistakable hamburger at any size.
                 drawLine(color, Offset(w*.20f, h*.30f), Offset(w*.80f, h*.30f), stroke, StrokeCap.Round)
                 drawLine(color, Offset(w*.20f, h*.50f), Offset(w*.80f, h*.50f), stroke, StrokeCap.Round)
                 drawLine(color, Offset(w*.20f, h*.70f), Offset(w*.80f, h*.70f), stroke, StrokeCap.Round)
@@ -2038,10 +1743,6 @@ private fun HomeVectorIcon(
                 drawPath(route, color, style = fineLine)
             }
 
-            // MARBLE_PING_WIFI_V122 — a confident wifi radiate (three bold arcs around a solid
-            // dot, all centred on one pivot) with a small speed-needle tick at the lower right,
-            // so the glyph reads as "latency + speed" even at 13dp instead of two hairlines
-            // around a speck.
             HomeIcon.PING -> {
                 val pivotX = w * .40f
                 val pivotY = h * .66f
@@ -2049,13 +1750,12 @@ private fun HomeVectorIcon(
                 drawArc(color,205f,130f,false,Offset(pivotX-m*.26f,pivotY-m*.26f),Size(m*.52f,m*.52f),style=line)
                 drawArc(color,205f,130f,false,Offset(pivotX-m*.37f,pivotY-m*.37f),Size(m*.74f,m*.74f),style=line)
                 drawCircle(color, m*.085f, Offset(pivotX,pivotY))
-                // Speed needle: a short rising tick with a round foot at the lower right.
+
                 drawLine(color, Offset(w*.62f, h*.88f), Offset(w*.82f, h*.62f), stroke, StrokeCap.Round)
                 drawCircle(color, (stroke * .62f).coerceAtLeast(1.2f), Offset(w*.62f, h*.88f))
             }
 
             HomeIcon.CAMERA -> {
-                // Body, lens and viewfinder bump: a camera at any size.
                 val bump = Path().apply {
                     moveTo(w*.36f, h*.32f)
                     lineTo(w*.41f, h*.23f)
@@ -2195,7 +1895,6 @@ private fun HomeVectorIcon(
                 drawCircle(color, m*.075f, Offset(w*.75f,h*.50f))
             }
 
-            // MARBLE_SERVERS_V114 — a clipboard: the board, its clip and two captured lines.
             HomeIcon.CLIPBOARD -> {
                 val board = Path().apply {
                     moveTo(w*.28f,h*.24f)
@@ -2222,7 +1921,6 @@ private fun HomeVectorIcon(
                 drawLine(color,Offset(w*.50f,h*.45f),Offset(w*.50f,h*.70f),stroke,StrokeCap.Round)
             }
 
-            // A painter's palette: the dish and three wells of colour.
             HomeIcon.PALETTE -> {
                 drawPath(
                     Path().apply {
@@ -2274,7 +1972,6 @@ private fun HomeVectorIcon(
                 )
             }
 
-            // A typeface mark: a serif capital between two baselines.
             HomeIcon.FONT -> {
                 drawLine(color,Offset(w*.20f,h*.78f),Offset(w*.80f,h*.78f),fine,StrokeCap.Round)
                 drawPath(
@@ -2291,10 +1988,6 @@ private fun HomeVectorIcon(
 
 @Composable
 private fun HomeIconTile(icon: HomeIcon, color: Color, modifier: Modifier = Modifier) {
-    // MARBLE_NAVY_BRAND_UI_V77 — tiles carry a soft tone gradient + hairline so icon
-    // "chips" read as crafted glass rather than flat tinted squares.
-    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the tile grows to a 42 dp Material touch-square with a
-    // 22 dp glyph inside, so leading icons read as confident, modern affordances.
     val shape = RoundedCornerShape(14.dp)
     Box(
         modifier
@@ -2342,7 +2035,6 @@ private fun HomeStatusChip(
     }
 }
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MarbleCompactTopBar(
@@ -2354,9 +2046,6 @@ private fun MarbleCompactTopBar(
     onAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    // MARBLE_PAGE_HEADER_V117 — a slim, quiet page header shared by Servers and Settings.
-    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the header grows to the taller Material app-bar
-    // proportion and its brand/tile marks scale up with the refreshed icon ramp.
     Row(
         modifier=modifier
             .fillMaxWidth()
@@ -2405,8 +2094,7 @@ private fun MarbleCompactTopBar(
             Text(
                 trx(title),
                 color=Aether.Ink,
-                // MARBLE_PAGE_TITLE_SCALE_V191 — the shared page anchor: headlineSmall Bold,
-                // the same step as the Servers headline and the Home wordmark.
+
                 style=MaterialTheme.typography.headlineSmall,
                 fontWeight=FontWeight.Bold,
                 maxLines=1,
@@ -2436,11 +2124,6 @@ private fun MarbleCompactTopBar(
     }
 }
 
-/**
- * MARBLE_SERVERS_MENU_V117 — the app's own hamburger menu surface. A small anchored panel below the
- * page header, in the same material language as the rest of MarbleNG (Prism tokens, one hairline,
- * no foreign sheet). It opens from the header hamburger button and closes on scrim tap/back.
- */
 @Composable
 private fun MarbleMenuPanel(
     open: Boolean,
@@ -2450,19 +2133,9 @@ private fun MarbleMenuPanel(
     content: @Composable ColumnScope.() -> Unit
 ) {
     BackHandler(enabled = open) { onClose() }
-    // MARBLE_MENU_PANEL_SHADOW_V205 — the sheet's lift is cast in the palette's own shadow hue.
-    // The hard-coded black pair was the exact defect MARBLE_FLOATING_CHROME_V201 removed from
-    // every other floating surface: a grey-brown smudge under an ice-blue sheet in the light
-    // theme.
+
     val chrome = rememberMarbleFloatChrome()
-    // MARBLE_NATIVE_ANDROID_V213 — the panel is the platform's container.
-    //
-    // It was a 22 dp box with a 22 dp lift, an accent-quiet hairline and the *card* fill: a
-    // hand-built sheet whose corner, lift and edge were each one step away from the platform's. It
-    // is now the platform's own container — the 24 dp card corner, the container-high step (which
-    // is what a floating surface takes in the newest Material), the neutral outline family for its
-    // edge, and the platform's shadow *pair*, contact shadow included, so the panel sits on the
-    // page instead of hovering over it.
+
     val panelShape = marbleNativeShape(MarbleNativeSpec.CardCornerDp.dp)
     val panelShadow = marbleNativeShadow(Aether.Cyan)
     AnimatedVisibility(
@@ -2482,8 +2155,6 @@ private fun MarbleMenuPanel(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
-                    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the menu sheet meets the shared 16 dp
-                    // Material edge margin on both sides.
                     .padding(start = 16.dp, end = 16.dp, top = 60.dp)
                     .widthIn(max = 360.dp)
                     .fillMaxWidth()
@@ -2537,7 +2208,6 @@ private fun MarbleMenuPanel(
     }
 }
 
-/** One row in [MarbleMenuPanel]: a small tinted icon chip, title and one-line detail. */
 @Composable
 private fun MarbleMenuPanelItem(
     title: String,
@@ -2591,7 +2261,6 @@ private fun MarbleMenuPanelItem(
         }
     }
 }
-
 
 @Composable
 private fun HomeRouteDetailsRow(
@@ -2658,28 +2327,12 @@ private fun MarbleConnectionQualityRing(
     )
 }
 
-/**
- * MARBLE_IRAN_AWARE_PING_L3_UI — the national-filtering banner. Shown only while a confident
- * [CausalAttribution.AttributedCause.NATIONAL_FILTERING_EVENT] is active, and only on Home.
- *
- * MARBLE_BANNER_IN_FLOW_V205 — the banner lives IN the page flow, one slot under the header,
- * where every Home theme composes it. It used to be a TopCenter overlay of the whole page,
- * which painted a box straight over the wordmark and the header actions — the floating
- * "pop-up box in the header" users reported on the first page. An alert about the network is
- * content of the page, not a layer above its chrome.
- *
- * The same pass ended the translucent-film skin. A 14 % danger wash with no surface, no rim and
- * no shadow read as a stray red rectangle, especially on the light theme where the aurora shone
- * straight through it. The banner is now a proper product card: an opaque float surface, a
- * danger-tinted wash and hairline, and the palette's own shadow hue.
- */
 @Composable
 internal fun NationalEventBanner(repo: AppRepository, modifier: Modifier = Modifier) {
     AnimatedVisibility(
         visible = repo.nationalEventCause.isNotEmpty(),
         modifier = modifier,
-        // MARBLE_EXPRESSIVE_MOTION_V186 — the banner drops in from the top edge it owns on the
-        // decelerate curve and leaves on the short accelerated exit.
+
         enter = fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat) +
             slideInVertically(MarbleExpressiveSpecs.EntranceRiseSpatial) { height -> -height },
         exit = fadeOut(tween(MarbleExpressiveMotion.Short4, easing = MarbleExpressiveMotion.EmphasizedAccelerate)) +
@@ -2724,13 +2377,10 @@ internal fun NationalEventBanner(repo: AppRepository, modifier: Modifier = Modif
 
 @Composable
 private fun HomeMetricBento(repo: AppRepository) {
-    // MARBLE_LIVE_QUALITY_BENTO_V78 — robust sparkline + correct live state guards
     val pingHistory = remember { mutableStateListOf<Int>() }
-    // MARBLE_IRAN_AWARE_PING_UI — parallel flags: which history points carried the
-    // injected-reset signature (sparkline color segments).
+
     val pingFlags = remember { mutableStateListOf<Boolean>() }
 
-    // Accumulate ping samples; only add when there is a real measurement
     LaunchedEffect(repo.livePingMs) {
         val value = repo.livePingMs
         if (value > 0) {
@@ -2743,13 +2393,11 @@ private fun HomeMetricBento(repo: AppRepository) {
                 }
             }
         } else if (repo.state != "CONNECTED") {
-            // Clear sparkline when disconnected so stale history doesn't linger
             pingHistory.clear()
             pingFlags.clear()
         }
     }
 
-    // Clear on disconnect so values don't freeze
     val isConnected = repo.state == "CONNECTED"
     val pingMs = if (isConnected) repo.livePingMs else 0
     val jitterMs = if (isConnected) repo.liveJitterMs else 0
@@ -2770,7 +2418,6 @@ private fun HomeMetricBento(repo: AppRepository) {
     val jitterTone = marbleMetricTone(jitterMetricBand(jitterMs, jitterSamples))
     val qualityTone = marbleMetricTone(qualityMetricBand(routeScore))
 
-    // MARBLE_HOME_PUZZLE_GRID_V77 — Ping/Jitter/Quality share one panel bento
     PrismPanel(
         modifier = Modifier.fillMaxWidth(),
         accent = if (isConnected && pingMs > 0) pingTone else Aether.Cyan,
@@ -2797,13 +2444,10 @@ private fun HomeMetricBento(repo: AppRepository) {
                 value = if (pingMs > 0) pingMs.toString() else "—",
                 unit = if (pingMs > 0) "ms" else "",
                 tone = pingTone,
-                // MARBLE_LIVE_QUALITY_BENTO_V91: pass the remembered snapshot list itself — a fresh
-                // mutableStateListOf() per recomposition churned memory and made the sparkline
-                // flicker/glitch on every live update.
+
                 sparkline = pingHistory,
                 flaggedSamples = pingFlags,
-                // MARBLE_EXPRESSIVE_MOTION_V186 — the bento cascades: Ping leads, Jitter follows
-                // one stagger step behind, Quality a step after that.
+
                 modifier = Modifier
                     .weight(1.08f)
                     .fillMaxHeight()
@@ -2837,21 +2481,9 @@ private fun HomeMetricBento(repo: AppRepository) {
                 )
             }
         }
-
     }
 }
 
-/**
- * MARBLE_NATIVE_ANDROID_V213 — the product's switch palette *is* the platform's.
- *
- * Five hand-picked colours per call site (a white thumb on brand blue in light mode, an
- * `InkMuted` thumb when off, a glass track, a glass border) is a custom control wearing Android's
- * silhouette: it does not move with a wallpaper palette, its off state is not the platform's, and
- * the same setting rendered differently in three places. Every switch in MarbleNG now takes the
- * four roles Material defines for it — `primary` / `onPrimary` for the on state,
- * `surfaceContainerHighest` / `outline` for the off state — so it is the same switch Android
- * Settings draws, in the user's own colours, in all four themes.
- */
 @Composable
 private fun marbleSwitchColors() = SwitchDefaults.colors(
     checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
@@ -2870,9 +2502,7 @@ private fun HomeQuickSettingRow(
     onChecked: (Boolean) -> Unit
 ) {
     val tone=if(checked) Aether.Cyan else Aether.InkMuted
-    // MARBLE_NATIVE_ANDROID_V213 — the tile keeps its Home geometry and takes the platform's card
-    // skin: the native corner, the native container fill instead of a welled glass step, and a
-    // leading container at the platform's 40 dp size so the glyph has an object to sit in.
+
     val shape=marbleNativeShape(MarbleNativeSpec.CardCornerDp.dp)
     val nativeShadow = marbleNativeShadow(tone)
     val tileFill = if (checked) {
@@ -2934,14 +2564,6 @@ private fun HomeQuickSettingRow(
     }
 }
 
-// =================================================================================================
-// DECK
-// =================================================================================================
-
-/**
- * The Home deck facts (selected profile + shared evidence) resolved once per composition and
- * shared by every Home presentation, so no surface can ever disagree about the truth.
- */
 private class DeckEvidence(
     val profile: ProxyProfile?,
     val evidence: HomeEvidence
@@ -2949,14 +2571,8 @@ private class DeckEvidence(
 
 @Composable
 private fun rememberDeckEvidence(repo: AppRepository): DeckEvidence {
-    // MARBLE_SELECT_IS_NOT_CONNECT_V121 — Home follows, in order: the route actually carrying
-    // traffic, then the server the user selected on the Servers page, then the remembered one.
-    // MARBLE_HOME_PING_ROUTE_GROUP_V146 — the resolution is the repository's single source of
-    // truth (`AppRepository.homeRoute`), so the deck, the connect button and the top ping
-    // action can never disagree about which route the page is showing.
     val active = repo.homeRoute()
-    // Identity always comes from the selected profile, never from the runtime state detail
-    // string (which carries engine progress copy and is not a node name).
+
     val activeName = active?.name ?: "Choose a route"
     val endpoint = active?.host?.trim()?.removeSurrounding("[", "]").orEmpty()
     val serverInfo = repo.serverIntel?.takeIf {
@@ -2980,9 +2596,6 @@ private fun CyberDeck(
     actions: HomeActions,
     onContentScrollChanged: (Boolean) -> Unit
 ) {
-    // MARBLE_HOME_STYLE_V110 — Home is one evidence model rendered by one of the four themes.
-    // The style is a pure presentation choice made in Settings; the runtime facts (node, source,
-    // IP + flag + 3 actions, session uptime, one-shot ping) are identical in all of them.
     val evidence = deck.evidence
     val active = deck.profile
     val connected = evidence.connected
@@ -2996,11 +2609,7 @@ private fun CyberDeck(
     }
 
     // MARBLE_PING_USER_TAPPED_ONLY_V143 — Home never measures ping in the background. The value
-    // is refreshed only when the user taps the ping shortcut; nothing here re-arms a probe.
 
-    // MARBLE_CONNECT_BUTTON_V121 — the chosen connection-button silhouette reaches every Home
-    // presentation through one composition local, so each style renders the same button without
-    // reading Settings itself.
     val connectButtonStyle = parseConnectButtonStyle(repo.settings.connectButtonStyle)
 
     Box(Modifier.fillMaxSize()) {
@@ -3010,22 +2619,11 @@ private fun CyberDeck(
                 evidence = evidence,
                 actions = actions,
                 bottomClearance = dockClearance(),
-                // MARBLE_DOCK_SCROLL_ONLY_V123 — the Home page reports its own scrolling so the
-                // dock turns to glass exactly when content moves under it.
+
                 onScrollChanged = onContentScrollChanged,
                 repo = repo
             )
         }
-
-        // MARBLE_PING_METHODS_V148 / MARBLE_BANNER_IN_FLOW_V205 — no top-of-page overlay any
-        // more. The Layer 3 national-filtering banner is composed by each Home theme directly
-        // under its header row (see HomeTopActionBar call sites), so it can never paint a box
-        // over the wordmark and the header actions. Ping results are read from the in-place
-        // meter / shortcut deck, never from a panel that appears at the top while a ping runs.
-
-        // MARBLE_HOME_TELEMETRY_GRID_V187 — optional down/up throughput now lives in the status
-        // card's animated two-cell grid. Keeping it in that card avoids a second floating box
-        // sitting over the Theme 1 page-floor connect track.
 
         if (evidence.blocked && repo.stateDetail.isNotBlank()) {
             Text(
@@ -3068,8 +2666,6 @@ private fun HomeOrbitalHero(
         selected=connected || connecting || blocked,
         contentPadding=PaddingValues(14.dp)
     ) {
-        // Home status copy is runtime text. It is anchored to a reserved block so the Connect control
-        // below keeps its exact position while the sentence changes.
         Row(
             modifier=Modifier.fillMaxWidth(),
             verticalAlignment=Alignment.CenterVertically
@@ -3116,10 +2712,6 @@ private fun HomeStatusAnchor(
     AnimatedContent(
         targetState=title,
         transitionSpec={
-            // MARBLE_EXPRESSIVE_MOTION_V186 — the status sentence rolls on the emphasized pair:
-            // the new line decelerates up into the slot while the old one accelerates away. The
-            // anchored height reservation below is untouched — the roll happens strictly inside
-            // the fixed block, so the Connect control still never moves when copy changes.
             (fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat) +
                 slideInVertically(MarbleExpressiveSpecs.RollInSpatial) { it / 3 }) togetherWith
                 (fadeOut(tween(MarbleExpressiveMotion.Short4, easing = MarbleExpressiveMotion.EmphasizedAccelerate)) +
@@ -3150,11 +2742,6 @@ private fun HomeActionPortal(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home tiles round to the refreshed card radius.
-    // MARBLE_NATIVE_ANDROID_V213 — and now to the *platform's* corner: 24 dp of card, the
-    // platform's container step instead of the product's elevated token, and the native shadow
-    // pair that `prismElevated` already draws. A row of portals is the same material as every
-    // other box in the product because both are made of the same two roles.
     val shape=marbleNativeShape(MarbleNativeSpec.CardCornerDp.dp)
     Row(
         modifier
@@ -3170,7 +2757,7 @@ private fun HomeActionPortal(
                     )
                 )
             )
-            // MARBLE_EXPRESSIVE_MOTION_V186 — the portal tiles spring back with one soft overshoot.
+
             .kineticClickable(
                 role=Role.Button,
                 pressScale=.96f,
@@ -3294,8 +2881,7 @@ private fun HomeRouteRibbon(repo: AppRepository) {
                     checked=repo.settings.ipv6Enabled,
                     enabled=!repo.busy
                 ) { enabled ->
-                    // IPv6 remains CAPTURED by full TUN even when the core is set to IPv4-only:
-                    // a blocked family must not escape over the physical default route.
+
                     repo.updateSettings(
                         repo.settings.copy(
                             addressFamilyMode = if (enabled) AddressFamilyMode.SMART else AddressFamilyMode.FORCE_IPV4,
@@ -3340,15 +2926,12 @@ private fun HomeRouteRibbon(repo: AppRepository) {
     }
 }
 
-
 @Composable
 private fun IranModeStatusPill(state: IranModeState) {
     val forced = state.policy == IranModePolicy.ALWAYS_ON
     val scanning = state.scanning && !forced
     val tone = if (scanning) Aether.Amber else Aether.Emerald
-    // MARBLE_SMOOTH_CLOCK_V193 — the scanning pulse is read in the layer phase (inside the
-    // graphicsLayer lambda), so the pill no longer recomposes at the frame rate while the
-    // detector scans; only this icon's layer redraws.
+
     val motion = MarbleMotion.current
     val shape = RoundedCornerShape(18.dp)
 
@@ -3431,8 +3014,6 @@ private fun ConnectionCore(
     onDetails: () -> Unit,
     onToggle: () -> Unit
 ) {
-    // MARBLE_HOME_LATENCY_V17
-    // MARBLE_HOME_COMMAND_CENTER_V22
     val statusColor = when {
         connected -> Aether.Emerald
         connecting -> Aether.Cyan
@@ -3446,11 +3027,7 @@ private fun ConnectionCore(
         else -> "Connect"
     }
     val shape = RoundedCornerShape(28.dp)
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the securing arc rotates AND stretches on the shared frame
-    // clock (the wavy rhythm of the newest Android loaders).
-    // MARBLE_SMOOTH_CLOCK_V193 — the phase is now read inside the draw lambda below, so the
-    // handshake animates the canvas only; the whole ConnectionCore scope no longer recomposes at
-    // the frame rate for the duration of every connect.
+
     val motion = MarbleMotion.current
 
     Column(
@@ -3512,9 +3089,6 @@ private fun ConnectionCore(
                     val r = size.minDimension / 2f
                     drawCircle(statusColor.copy(alpha = .08f), r)
                     if (connecting) {
-                        // One wavy arc: the sweep breathes between 150° and 280° while the head
-                        // travels the orbit, so "securing" reads as work in flight, not a sticker.
-                        // Draw-phase clock read — recomposes nothing (MARBLE_SMOOTH_CLOCK_V193).
                         val orbPhase = motion.loop(1_300)
                         drawArc(
                             color = statusColor,
@@ -3535,8 +3109,7 @@ private fun ConnectionCore(
                     color = statusColor,
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
-                    // MARBLE_EXPRESSIVE_MOTION_V186 — the state glyph pops once per state change
-                    // (arrow → ellipsis → check) and is perfectly still in between.
+
                     modifier = Modifier.marblePopWhen(statusTitle, peak = 1.28f)
                 )
             }
@@ -3656,8 +3229,6 @@ private fun MiniMetric(
         }
         Spacer(Modifier.height(2.dp))
         Row(verticalAlignment = Alignment.Bottom) {
-            // MARBLE_EXPRESSIVE_MOTION_V186 — live metrics roll: each new sample decelerates up
-            // into the slot instead of hard-swapping, inside the cell's own box.
             MarbleExpressiveValueText(
                 value = value,
                 color = valueColor,
@@ -3684,7 +3255,6 @@ private fun HoloActionPill(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home tiles round to the refreshed card radius.
     val shape = RoundedCornerShape(22.dp)
     Row(
         modifier = modifier
@@ -3699,8 +3269,7 @@ private fun HoloActionPill(
                     )
                 )
             )
-            // MARBLE_EXPRESSIVE_MOTION_V186 — Home's action pills spring back with the expressive
-            // release: one soft overshoot, then still.
+
             .kineticClickable(
                 role = Role.Button,
                 pressScale = .96f,
@@ -3745,30 +3314,9 @@ private fun HoloActionPill(
     }
 }
 
-
-// =================================================================================================
-// SERVERS
-// =================================================================================================
-
-// =============================================================================
-// MARBLE_SERVERS_REDESIGN_V120 — the Servers page is rebuilt around a card
-// system: one page header with a headline title and two round controls, one
-// pill search field with a filter rail under it, one collapsible header per
-// subscription (or per country when grouping is on) and one independent card
-// per server. Every menu is a Material 3 dropdown on a 16dp radius; every
-// colour comes from the active theme palette, so the page follows the Solid
-// White, Dark and System themes without a single hardcoded value.
-//
-// The page owns no business rules of its own. What is visible is decided by
-// [ServersFilter] + [ServersQuery] (unit tested) and what a server can be built
-// from is decided by [ManualConfigBuilder.missingRequirement] (unit tested), so
-// the UI cannot drift from the engine behind it.
-// =============================================================================
-
 private enum class LibraryGroupKind { SUBSCRIPTION, MANUAL, COUNTRY }
 
 private data class LibraryGroup(
-    /** Subscription id for source groups, country code (or "") for country groups. */
     val key: String,
     val title: String,
     val kind: LibraryGroupKind,
@@ -3776,21 +3324,12 @@ private data class LibraryGroup(
     val profiles: List<ProxyProfile>
 )
 
-/** One entry of the protocol dropdown on the Add-node page. */
 private data class AddNodeProtocol(
     val label: String,
-    /** The Marble builder that produces this protocol, or null when the core cannot carry it. */
     val target: ManualProtocol?,
     val note: String = ""
 )
 
-/**
- * Every protocol the Add-node form offers.
- *
- * Marble builds a config only for protocols its Xray-based core can actually dial, so the entries
- * without a [AddNodeProtocol.target] render as disabled rows with an honest reason instead of
- * letting a user fill a form that could never connect.
- */
 private val ADD_NODE_PROTOCOLS: List<AddNodeProtocol> = listOf(
     AddNodeProtocol("VLESS", ManualProtocol.VLESS),
     AddNodeProtocol("VMess", ManualProtocol.VMESS),
@@ -3814,7 +3353,6 @@ private val SERVERS_TRANSPORTS = listOf("raw", "websocket", "xhttp", "grpc", "ht
 private val SERVERS_FLOWS = listOf("", "xtls-rprx-vision", "xtls-rprx-origin")
 private val SERVERS_FINGERPRINTS = listOf("chrome", "firefox", "safari", "randomized", "unsafe")
 
-/** AEAD methods the bundled Xray core accepts for a Shadowsocks outbound. */
 private val SERVERS_SS_METHODS = listOf(
     "aes-128-gcm",
     "aes-256-gcm",
@@ -3826,23 +3364,13 @@ private val SERVERS_SS_METHODS = listOf(
     "none"
 )
 
-/** Shared silhouettes: one card radius, one menu radius, one badge radius, one pill. */
-// MARBLE_NATIVE_ANDROID_V213 — the subscription card moves onto the platform's tile corner. One
-// constant owns the card, its slices and the frame drawn around them, so the whole stacked group
-// rounds together; at 16 dp the subscription still looked like the older Material box beside the
-// 24 dp cards it now sits next to.
 private val ServersCardShape = RoundedCornerShape(20.dp)
 private val ServersMenuShape = RoundedCornerShape(16.dp)
 private val ServersBadgeShape = RoundedCornerShape(8.dp)
 private val ServersPillShape = RoundedCornerShape(999.dp)
 
 // MARBLE_SERVERS_HIERARCHY_V189 — the two levels of the page now own two different silhouettes.
-//
-// Level 1 is the subscription card: the largest radius on the page and the boldest hairline.
-// Level 2 is the server list inside it: a smaller radius, inset from the card's edge on both
-// sides, no border of its own — its rows are separated by a hairline and only the row that
-// carries traffic grows an outline. The radius step (16 → 12) and the inset are what make the
-// nesting readable without a single word of explanation.
+
 private val ServersGroupHeadShape = RoundedCornerShape(
     topStart = ServersHierarchy.GROUP_CORNER_DP.dp,
     topEnd = ServersHierarchy.GROUP_CORNER_DP.dp
@@ -3853,7 +3381,6 @@ private val ServersGroupTailShape = RoundedCornerShape(
 )
 private val ServersGroupBodyShape = RoundedCornerShape(0.dp)
 
-/** The nested server list: its first row rounds the top, its last row rounds the bottom. */
 private val ServersListHeadShape = RoundedCornerShape(
     topStart = ServersHierarchy.LIST_CORNER_DP.dp,
     topEnd = ServersHierarchy.LIST_CORNER_DP.dp
@@ -3873,33 +3400,15 @@ private val ServersListBodyShape = RoundedCornerShape(0.dp)
  */
 private val ServersRailControlSize = 32.dp
 
-/**
- * MARBLE_NATIVE_ANDROID_V213 — the container's edge and the divisions inside it come from the
- * platform's outline family, not from an accent wash.
- *
- * The frame was `Aether.GlassBorder` — the *accent* hairline, i.e. a brand line drawn around every
- * subscription card — and the divider was the same family at 70 %. On a page of six subscriptions
- * that is a dozen accent rims competing with the state colours the rows use to say "connected" and
- * "selected". The platform's rule is the opposite: a container's edge is neutral and the *content*
- * owns the colour.
- */
 @Composable
 private fun serversGroupFrameColor(): Color = marbleNativeOutline()
 
 private val ServersGroupFrameWidth = ServersHierarchy.GROUP_BORDER_DP.dp
 
-/** The hairline between two servers of the same subscription. */
 @Composable
 private fun serversRowDividerColor(): Color =
     marbleNativeOutline().copy(alpha = ServersHierarchy.ROW_DIVIDER_ALPHA)
 
-/**
- * Draws the box hairline of one slice of a stacked group.
- *
- * The frame is a single rounded rectangle stroke that is deliberately extended past the slice on
- * whichever side continues (`openTop` / `openBottom`) and clipped away there, so neighbouring
- * slices contribute one continuous outline with no doubled hairline at the seams.
- */
 private fun Modifier.serversStackedFrame(
     openTop: Boolean = false,
     openBottom: Boolean = false,
@@ -3911,10 +3420,7 @@ private fun Modifier.serversStackedFrame(
     val r = radius.toPx()
     val top = if (openTop) -r * 2f else 0f
     val bottom = if (openBottom) size.height + r * 2f else size.height
-    // MARBLE_SERVERS_FRAME_CLIP_V190 — the extended stroke MUST be clipped to this slice. Without
-    // the clip every row painted its neighbours' rounded corners and top/bottom edges into the
-    // rows above and below it: stray "(" arcs at the card edge and hairlines struck straight
-    // through server names. Only the two side rails (and the real corners) may survive.
+
     clipRect(left = 0f, top = 0f, right = size.width, bottom = size.height) {
         drawRoundRect(
             color = color,
@@ -3926,7 +3432,6 @@ private fun Modifier.serversStackedFrame(
     }
 }
 
-/** MARBLE_MANUAL_BUCKET_V122 — pasted/imported configs always land in the permanent Manual bucket. */
 private fun libraryIntakeTarget(@Suppress("UNUSED_PARAMETER") repo: AppRepository): String = "manual"
 
 /**
@@ -3942,15 +3447,12 @@ private fun subscriptionUsageText(sub: Subscription): String =
 private fun subscriptionUsedBytes(sub: Subscription): Long =
     (sub.uploadBytes + sub.downloadBytes).coerceAtLeast(0L)
 
-/** The 0f..1f fill of a subscription's usage bar. */
 private fun subscriptionUsageFraction(sub: Subscription): Float =
     ServersHierarchy.usageFraction(subscriptionUsedBytes(sub), sub.totalBytes)
 
-/** Where the plan sits: calm, watch, critical — or unknown when the provider reported no quota. */
 private fun subscriptionUsageTier(sub: Subscription): SubscriptionUsageTier =
     ServersHierarchy.usageTier(subscriptionUsedBytes(sub), sub.totalBytes)
 
-/** The tone of a usage bar and its percent: green, amber, red, or quiet when unmetered. */
 @Composable
 private fun usageTierTone(tier: SubscriptionUsageTier): Color = when (tier) {
     SubscriptionUsageTier.CALM -> Aether.Emerald
@@ -3978,15 +3480,12 @@ private fun CyberLibrary(
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val listState = rememberLazyListState()
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the first-open cascade window: rows composed in the first
-    // moments after the page arrives play their staggered entrance; rows a later scroll creates
-    // appear instantly, so the cascade is a page greeting, never motion under the thumb.
+
     val entranceArmed = rememberMarbleEntranceWindow()
     val settings = repo.settings
 
     var search by rememberSaveable { mutableStateOf("") }
-    // MARBLE_ADD_SERVER_MENU_V121 — the + button opens a menu; `addForm` holds which authoring
-    // form the user asked for (null = no form open).
+
     var addMenuOpen by remember { mutableStateOf(false) }
     var addForm by remember { mutableStateOf<String?>(null) }
     val qrImportLauncher = rememberLauncherForActivityResult(
@@ -3994,9 +3493,7 @@ private fun CyberLibrary(
     ) { uri ->
         if (uri != null) repo.importQrImage(uri, libraryIntakeTarget(repo))
     }
-    // MARBLE_QR_CAMERA_V122 — the live camera frame is decoded on a worker inside the repo.
-    // TakePicturePreview delegates to the system camera app, so no CAMERA permission and no
-    // FileProvider are needed.
+
     val qrCameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicturePreview()
     ) { bitmap ->
@@ -4017,9 +3514,7 @@ private fun CyberLibrary(
     var editSubscriptionName by remember { mutableStateOf("") }
     var editSubscriptionUrl by remember { mutableStateOf("") }
     var deleteSubscription by remember { mutableStateOf<Subscription?>(null) }
-    // MARBLE_FAILED_PRUNE_V204 — the prune target is a *scope id* now, not a subscription row.
-    // The Manual bucket and the whole library are both legitimate scopes and neither has a
-    // subscription to point at, which is exactly why they could not be cleaned before.
+
     var pruneFailedTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
     var manualBucketOpen by remember { mutableStateOf(false) }
     var pruneEverywhere by remember { mutableStateOf(false) }
@@ -4048,8 +3543,6 @@ private fun CyberLibrary(
         allProfiles.filter { it.subscriptionId == filter.sourceId || filter.sourceId == "all" }
     )
 
-    // Groups: one module per subscription (or per country when the switch is on). A source with no
-    // match still renders while nothing is being searched, so a fresh source stays reachable.
     val groups: List<LibraryGroup> = if (settings.serversGroupByCountry) {
         ServersQuery.groupByCountry(visibleProfiles).map { bucket ->
             LibraryGroup(
@@ -4068,7 +3561,7 @@ private fun CyberLibrary(
                     add(LibraryGroup(sub.id, sub.name, LibraryGroupKind.SUBSCRIPTION, profiles = nodes))
                 }
             }
-            // MARBLE_MANUAL_BUCKET_V122 — the local bucket is permanent, never gated.
+
             val manualNodes = visibleProfiles.filter { it.subscriptionId == "manual" }
             if (manualNodes.isNotEmpty()) {
                 add(LibraryGroup("manual", "Manual", LibraryGroupKind.MANUAL, profiles = manualNodes))
@@ -4092,8 +3585,6 @@ private fun CyberLibrary(
         repo.updateSettings(settings.change())
     }
 
-    // ---------------------------------------------------------------- dialogs
-
     renameTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { renameTarget = null },
@@ -4101,9 +3592,6 @@ private fun CyberLibrary(
             shape = ServersCardShape,
             title = { Text(trx("Edit server"), color = Aether.Ink) },
             text = {
-                // MARBLE_IME_HYGIENE_V197 — the dialog owns its IME session: Done releases it,
-                // and leaving the dialog releases it exactly once instead of bequeathing an open
-                // session to the list behind it.
                 val renameIme = rememberMarbleImeHider()
                 MarbleImeReleaseOnDispose(renameIme)
                 OutlinedTextField(
@@ -4163,7 +3651,6 @@ private fun CyberLibrary(
         )
     }
 
-    // MARBLE_QR_CAMERA_V122 — one entry, two ways in: a live camera scan or a saved image.
     if (qrSourceOpen) {
         AlertDialog(
             onDismissRequest = { qrSourceOpen = false },
@@ -4228,7 +3715,6 @@ private fun CyberLibrary(
                     tone = Aether.Danger,
                     enabled = !repo.busy,
                     onClick = {
-                        // Source-aware: the same id can live in two sources at once.
                         repo.removeProfile(profile.id, profile.subscriptionId)
                         deleteTarget = null
                     }
@@ -4303,12 +3789,6 @@ private fun CyberLibrary(
         )
     }
 
-    // MARBLE_FAILED_PRUNE_V204 — the Manual bucket's own page.
-    //
-    // The bucket is permanent and has no subscription row, so the subscription dialog could not
-    // represent it: Manage simply did nothing on that header. Everything a user needs from the
-    // bucket is here — how many servers it holds, how many of them are dead, and the same two
-    // cleanup actions every subscription header offers.
     if (manualBucketOpen) {
         ManualBucketCleanupDialog(
             repo = repo,
@@ -4320,8 +3800,6 @@ private fun CyberLibrary(
         )
     }
 
-    // MARBLE_FAILED_PRUNE_V204 — the library-wide cleanup, one tap for every dead server in
-    // every group at once.
     if (pruneEverywhere) {
         val failedCount = repo.failedNodeCountEverywhere()
         AlertDialog(
@@ -4395,9 +3873,6 @@ private fun CyberLibrary(
         )
     }
 
-    // MARBLE_IP_FAMILY_SCAN_V196 — the scan reports itself. A measurement the user asked for and
-    // then has to hunt for in a toast is a measurement they will not trust; both dialogs are
-    // driven by repository state, so a result survives a recomposition or a rotation mid-sweep.
     repo.ipFamilyScanResult?.let { scan ->
         IpFamilyScanDialog(scan = scan, onDismiss = { repo.dismissIpFamilyScanResult() })
     }
@@ -4405,11 +3880,6 @@ private fun CyberLibrary(
         IpFamilyGroupDialog(summary = summary, onDismiss = { repo.dismissIpFamilyScanResult() })
     }
 
-    // ------------------------------------------------------------------- page
-
-    // MARBLE_SERVER_TILE_LAYOUT_V208 — the one preference that decides how a server is drawn on
-    // this page, resolved once for the whole list: rows (one server per line) or tiles (a small
-    // box per server, as many per line as this window fits).
     val tileLayout = settings.serversLayoutEnum == ServerLayout.GRID
     val tileColumns = rememberServerTileColumns()
 
@@ -4422,13 +3892,7 @@ private fun CyberLibrary(
             top = 8.dp,
             bottom = dockClearance() + 28.dp
         )
-        // MARBLE_SERVERS_STACKED_GROUPS_V121 — no list-wide spacing.
-        //
-        // A subscription is one box: its header and every one of its servers are stacked flush
-        // against each other, so the group reads as a single continuous card instead of a header
-        // followed by a drift of loose per-server cards. Gaps between page sections and between
-        // groups are explicit spacer items below, which is the only way a LazyColumn can space
-        // *some* neighbours without spacing the rows inside a group.
+
     ) {
         item(key = "servers-header") {
             ServersTopBar(
@@ -4440,18 +3904,14 @@ private fun CyberLibrary(
                         ServersAddAction.CLIPBOARD -> {
                             val pasted = clipboard.getText()?.text.orEmpty()
                             if (pasted.isBlank()) {
-                                // Nothing to import: rather than fail silently, hand the user
-                                // the sheet with the paste box already open.
                                 addForm = "node"
                             } else {
-                                // MARBLE_SMART_INTAKE_V122 — pasted subscription URLs become
-                                // real subscriptions; config links are imported as servers.
                                 val intake = libraryIntakeTarget(repo)
                                 val addedId = repo.importClipboard(pasted, intake)
                                 repo.selectLibrarySource(addedId ?: intake)
                             }
                         }
-                        // MARBLE_QR_CAMERA_V122 — the chooser offers the live camera and the gallery.
+
                         ServersAddAction.QR -> qrSourceOpen = true
                         ServersAddAction.FILE -> onImportFile()
                         ServersAddAction.MANUAL_NODE -> addForm = "node"
@@ -4489,9 +3949,7 @@ private fun CyberLibrary(
                 groupLabel = activeGroupLabel,
                 groupActive = filter.sourceId != "all",
                 // MARBLE_SERVERS_HIERARCHY_V189 — the counts the header line used to carry on its
-                // own now live inside the controls that own them: the group control badges how
-                // many groups the page holds, the protocol control badges how many servers the
-                // current scope shows.
+
                 groupBadge = ServersHierarchy.groupBadge(groups.size),
                 serverBadge = "${visibleProfiles.size}",
                 serverBadgeSpoken = ServersHierarchy.serverBadge(visibleProfiles.size),
@@ -4523,9 +3981,6 @@ private fun CyberLibrary(
                         ServersAdvancedAction.ONLY_REACHABLE ->
                             updateSettings { copy(serversOnlyReachable = !serversOnlyReachable) }
                         ServersAdvancedAction.RESET -> {
-                            // "Reset filters" means the list shows everything again, so the scope
-                            // and the search box go back too — the same set ServersFilter.cleared()
-                            // describes, and the only way the active-filters badge can go quiet.
                             search = ""
                             repo.selectLibrarySource("all")
                             updateSettings {
@@ -4569,15 +4024,9 @@ private fun CyberLibrary(
                 else -> group.profiles.size
             }
 
-            // Both row and tile presentations share the same subscription container. The
-            // header opens its lower edge whenever server content follows, and each following
-            // slice continues that one outer frame.
             val stacked = !collapsed && group.profiles.isNotEmpty()
 
             item(key = "group-${group.key}") {
-                // MARBLE_EXPRESSIVE_MOTION_V186 — group boxes cascade on first open: each header
-                // arrives one stagger step behind the previous group, capped by the schedule so
-                // a long library never animates a tail.
                 ServersGroupHeader(
                     group = group,
                     modifier = Modifier.marbleStaggerIn(groupIndex, enabled = entranceArmed()),
@@ -4587,16 +4036,13 @@ private fun CyberLibrary(
                     shown = group.profiles.size,
                     total = total,
                     refreshing = group.key in repo.refreshingSources,
-                    // A sweep marks every member of its batch, so "is this group being pinged?"
-                    // is answered by the batch itself rather than by a second piece of state.
+
                     pinging = repo.probeActive && group.profiles.any { it.id in repo.probeBatch },
                     cancelling = repo.probeCancelling,
                     autoRefresh = settings.subscriptionAutoRefresh,
                     onToggle = { repo.setLibrarySourceCollapsed(group.key, !collapsed) },
                     onRefresh = { repo.refresh(group.key) },
-                    // A country bucket has no source id, so it hands its servers over directly;
-                    // a subscription/manual group pings its whole source (including rows the
-                    // current filter hides), which is what its header count promises.
+
                     onPing = {
                         if (group.kind == LibraryGroupKind.COUNTRY) {
                             repo.pingProfiles(group.profiles, group.title, group.key)
@@ -4609,11 +4055,6 @@ private fun CyberLibrary(
                     onMenu = {
                         when (it) {
                             ServersGroupAction.MANAGE -> {
-                                // MARBLE_FAILED_PRUNE_V204 — a group header with no subscription
-                                // row is the Manual bucket, and tapping Manage on it used to do
-                                // nothing at all: `manageSubscription = null` is a no-op dialog
-                                // state. It now opens the bucket's own page, which carries the
-                                // same cleanup actions every subscription has.
                                 if (subscription == null) {
                                     manualBucketOpen = true
                                 } else {
@@ -4643,21 +4084,7 @@ private fun CyberLibrary(
                 )
             }
 
-            // MARBLE_SERVERS_NO_HIDDEN_LINE_V144 — a folded group shows its header only. The
-            // header already carries the exact count ("N servers • M shown"), so the old
-            // "N servers hidden" line duplicated that fact in vaguer words and is gone for good:
-            // no folded placeholder row, no hidden-count copy anywhere on this page.
             if (tileLayout && !collapsed) {
-                /*
-                 * MARBLE_SERVER_TILE_LAYOUT_V208 — the box presentation of the same list.
-                 *
-                 * A LazyColumn cannot hand a grid its own cells, so the group's servers are
-                 * chunked into lines of [tileColumns] and each line is one item: the list keeps
-                 * its keys, its recycling and its `animateItem` glides, and a reorder still moves
-                 * one line instead of rebuilding the group. The tap is the row's tap — select,
-                 * and connect only when a tunnel is already up — so the two presentations cannot
-                 * disagree about what a server does.
-                 */
                 val tileRows = ServerTilePolicy.chunkRows(group.profiles, tileColumns)
                 itemsIndexed(
                     items = tileRows,
@@ -4670,9 +4097,6 @@ private fun CyberLibrary(
                             .marbleStaggerIn(rowIndex + 1, enabled = entranceArmed() && rowIndex < 6)
                             .fillMaxWidth()
                             .clip(if (lastTileRow) ServersGroupTailShape else ServersGroupBodyShape)
-                            // MARBLE_NATIVE_ANDROID_V213 — the slice is the platform's card
-                            // container, so in dark mode the subscription lifts off the OLED
-                            // floor instead of being black on black.
                             .background(marbleNativeCardFill())
                             .serversStackedFrame(
                                 openTop = true,
@@ -4691,8 +4115,7 @@ private fun CyberLibrary(
                             )
                         ) { profile ->
                             val location = repo.serverLocation(profile)
-                            // MARBLE_SERVER_TILE_PARITY_V212 — the box answers what the row
-                            // answers: the measured address family and the server's own menu.
+
                             val familyScan = repo.ipFamilyScan(profile)
                             ServerTile(
                                 profile = profile,
@@ -4747,18 +4170,12 @@ private fun CyberLibrary(
                 }
             }
 
-            // MARBLE_SERVERS_NO_HIDDEN_LINE_V144 — a folded group shows its header only.
             if (!tileLayout && !collapsed) {
                 itemsIndexed(
                     items = group.profiles,
                     key = { _, profile -> "${group.key}:${profile.id}" }
                 ) { index, profile ->
-                    // MARBLE_EXPRESSIVE_MOTION_V186 — rows now move like physical objects:
-                    // animateItem glides every reorder (a rank sweep, a sort flip, a filter
-                    // change) on spring placement instead of a hard cut, and the first rows of
-                    // the first open cascade in one stagger step behind their group header.
-                    // Rows composed by a later scroll appear instantly — the entrance window
-                    // disarms itself, so no row ever animates under a scrolling thumb.
+
                     Box(
                         Modifier
                             .animateItem()
@@ -4771,13 +4188,11 @@ private fun CyberLibrary(
                             active = repo.isActiveProfile(profile),
                             selected = repo.isSelectedProfile(profile),
                             // MARBLE_SERVERS_HIERARCHY_V189 — the first row rounds the nested
-                            // block's top, the last one its bottom; everything between is square.
+
                             firstInGroup = index == 0,
                             lastInGroup = index == group.profiles.lastIndex,
                             probeState = repo.probeStateOf(profile.id),
-                            // MARBLE_SELECT_IS_NOT_CONNECT_V121 — a tap selects. It only connects when
-                            // a tunnel is already up (switching route is an explicit re-connect) or is
-                            // being established, so browsing the list can never open a connection.
+
                             onConnect = {
                                 if (repo.probeActive || repo.probeCancelling) {
                                     repo.setRuntimeMessage("Wait until ping finishes before changing server")
@@ -4800,8 +4215,6 @@ private fun CyberLibrary(
                 }
             }
 
-            // Space belongs between groups, never after the final server. The trailing spacer used
-            // to show as a small grey tail above the floating dock on the last row.
             if (groupIndex < groups.lastIndex) {
                 item(key = "group-${group.key}-gap") { Spacer(Modifier.height(10.dp)) }
             }
@@ -4833,40 +4246,30 @@ private fun CyberLibrary(
     }
 }
 
-/** Every action the advanced-filter menu can run. */
 private enum class ServersAdvancedAction {
     GROUP_BY_COUNTRY,
     ONLY_REACHABLE,
     RESET,
     REFRESH_ALL,
     RANK_ALL,
-    // MARBLE_FAILED_PRUNE_V204 — "remove everything that did not answer", across every group at
-    // once. It is the bulk form of the per-source action: one tap for a library whose dead half
-    // is spread over six subscriptions and the Manual bucket.
+
     PRUNE_FAILED_ALL,
     ALL_FILTERS
 }
 
-/** Every action a subscription header menu can run. */
 private enum class ServersGroupAction {
     MANAGE,
     REFRESH,
     COPY_URL,
     COPY_SERVERS,
-    // MARBLE_ONE_PING_V121 — a subscription offers exactly one measurement entry, and since
-    // MARBLE_SERVERS_GROUP_PING_V145 that entry is the ping icon in the group header itself,
-    // not a menu row. The old "Rank this group" ran a second, differently-configured probe that
-    // ignored the ping method chosen in Settings, so one menu reported two latencies per server.
+
     SHOW_ONLY,
     SHOW_ALL,
-    // MARBLE_IP_FAMILY_SCAN_V196 — measure which address families this group's servers really
-    // have. One entry for a whole subscription, because the question a user actually asks is
-    // "which of my servers can do IPv6?", not "can this one?".
+
     SCAN_FAMILY,
     DELETE
 }
 
-/** One sort choice of the header menu: the mode plus the direction it implies. */
 private data class ServersSortOption(
     val label: String,
     val mode: NodeSortMode,
@@ -4881,8 +4284,6 @@ private val SERVERS_SORT_OPTIONS = listOf(
     ServersSortOption("Country", NodeSortMode.COUNTRY, false),
     ServersSortOption("Protocol", NodeSortMode.PROTOCOL, false)
 )
-
-// --------------------------------------------------------------------------- top bar
 
 /**
  * The page header: a bold headline and the two round controls that own the page's primary verbs —
@@ -4915,10 +4316,7 @@ private fun ServersTopBar(
             Text(
                 trx("Servers"),
                 color = Aether.Ink,
-                // MARBLE_PAGE_TITLE_SCALE_V191 — every page anchor prints at one scale: the
-                // Servers headline (24 sp) towered over the Settings and fourth-tab headers
-                // (18 sp) beside it in the same dock, so the pages read as different products.
-                // All three now share headlineSmall, the same step the Home wordmark uses.
+
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -4926,9 +4324,7 @@ private fun ServersTopBar(
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(10.dp))
-            // MARBLE_ADD_SERVER_MENU_V121 — every way to get a server into Marble, in one menu
-            // anchored to the + button instead of a sheet that had to be opened before the user
-            // could even see the options.
+
             Box {
                 ServersRoundButton(
                     icon = HomeIcon.PLUS,
@@ -4943,8 +4339,7 @@ private fun ServersTopBar(
                 )
             }
             Spacer(Modifier.width(8.dp))
-            // The dropdown is anchored to the sort control's own box, so it always opens exactly
-            // under the button that summoned it.
+
             Box {
                 ServersRoundButton(
                     icon = HomeIcon.SORT,
@@ -4972,7 +4367,6 @@ private fun ServersTopBar(
     }
 }
 
-/** A round, near-background control: the two verbs of the page header. */
 @Composable
 private fun ServersRoundButton(
     icon: HomeIcon,
@@ -4982,10 +4376,7 @@ private fun ServersRoundButton(
 ) {
     val tone = if (selected) Aether.Cyan else Aether.Ink
     val description = trx(label)
-    // MARBLE_SERVERS_HEADER_PRESENCE_V191 — the header verbs were near-invisible on the aurora
-    // page: card-white fill under a hairline-soft border. They keep the card surface but gain a
-    // soft cool shadow and a legible rim, so "+" and the sort control read as controls from the
-    // first glance.
+
     val buttonElevation by animateDpAsState(
         targetValue = if (selected) 5.dp else 2.dp,
         animationSpec = MarbleMotionSpecs.Dp,
@@ -5002,8 +4393,6 @@ private fun ServersRoundButton(
                 spotColor = if (selected) Aether.Cyan.copy(alpha = .34f) else Color(0xFF1E5FAF).copy(alpha = .22f)
             )
             .clip(CircleShape)
-            // MARBLE_SERVERS_HEADER_V190 — the header verbs sit on the same card surface as the
-            // search field under them, instead of a see-through wash that took the page tint.
             .background(if (selected) Aether.Cyan.copy(alpha = .12f) else Aether.VoidElevated)
             .border(
                 1.dp,
@@ -5011,8 +4400,6 @@ private fun ServersRoundButton(
                 CircleShape
             )
             .semantics { contentDescription = description }
-            // MARBLE_EXPRESSIVE_MOTION_V186 — the round page verbs compress a touch deeper and
-            // spring back with one visible overshoot, the expressive press of the newest Android.
             .kineticClickable(
                 role = Role.Button,
                 pressScale = .92f,
@@ -5022,19 +4409,10 @@ private fun ServersRoundButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // The glyph pops once when the control's selected state flips (sort mode armed, filter on).
         HomeVectorIcon(icon, tone, Modifier.size(21.dp).marblePopWhen(selected))
     }
 }
 
-/**
- * MARBLE_ADD_SERVER_MENU_V121 — everything the + button can do.
- *
- * Importing is one tap from the menu (clipboard, QR image, file). Building something by hand is a
- * deliberate second choice, so "Add manually" opens its own small menu of the three things a user
- * can actually author — a single server, a subscription source, or a multi-hop chain — and only
- * then opens the form for it.
- */
 private enum class ServersAddAction {
     CLIPBOARD,
     QR,
@@ -5050,8 +4428,6 @@ private fun ServersAddMenu(
     onDismiss: () -> Unit,
     onAction: (ServersAddAction) -> Unit
 ) {
-    // The manual submenu replaces the first menu in the same anchor, so the two never overlap and
-    // "back" is simply dismissing it.
     var manualOpen by remember { mutableStateOf(false) }
     LaunchedEffect(expanded) { if (!expanded) manualOpen = false }
 
@@ -5156,10 +4532,6 @@ private fun ServersAddMenu(
     }
 }
 
-/**
- * One row of a Marble dropdown menu: an optional glyph, the label, an optional second line of
- * detail, and a small tick on the right when the row is the chosen one.
- */
 @Composable
 private fun ServersMenuItem(
     label: String,
@@ -5211,7 +4583,6 @@ private fun ServersMenuItem(
     )
 }
 
-/** A switch row inside a dropdown menu; the whole row toggles. */
 @Composable
 private fun ServersMenuSwitch(
     label: String,
@@ -5229,7 +4600,6 @@ private fun ServersMenuSwitch(
             )
         },
         trailingIcon = {
-            // MARBLE_NATIVE_ANDROID_V213 — one switch, one palette, every surface.
             MarbleNativeSwitch(
                 checked = checked,
                 onCheckedChange = { onToggle() }
@@ -5238,20 +4608,12 @@ private fun ServersMenuSwitch(
     )
 }
 
-// --------------------------------------------------------------------------- search
-
-/**
- * The search field: one pill, one hairline, one magnifier. The clear button appears only while
- * there is something to clear, so the field never changes width while typing.
- */
 @Composable
 private fun ServersSearchField(
     value: String,
     onValueChange: (String) -> Unit,
     onClear: () -> Unit
 ) {
-    // MARBLE_IME_HYGIENE_V197 — the field owns its own IME handle, and the keyboard's Search key
-    // is a real event that releases it. Nothing hides the keyboard from a composable body.
     val ime = rememberMarbleImeHider()
     OutlinedTextField(
         value = value,
@@ -5295,15 +4657,12 @@ private fun ServersSearchField(
             unfocusedContainerColor = Aether.VoidElevated,
             cursorColor = Aether.Cyan,
             focusedBorderColor = Aether.Cyan.copy(alpha = .60f),
-            // MARBLE_SERVERS_HEADER_PRESENCE_V191 — the resting rim matches the round verbs
-            // beside it; the old hairline-soft stroke left the field's outline barely there.
+
             unfocusedBorderColor = Aether.GlassBorder,
             disabledBorderColor = Aether.GlassBorder
         )
     )
 }
-
-// --------------------------------------------------------------------------- filter rail
 
 /**
  * The filter rail under the search field: the active group capsule, the protocol capsule, the
@@ -5344,16 +4703,13 @@ private fun ServersFilterRail(
     val settings = repo.settings
     val maxPing = settings.serversMaxPingMs
     val busy = repo.busy || repo.probeActive
-    // How many of the menu's own switches are narrowing the list — the number the filter control
-    // badges, so the menu says how much it is doing before it is opened.
+
     val advancedCount = ServersHierarchy.activeFilterCount(
         groupByCountry = settings.serversGroupByCountry,
         onlyReachable = settings.serversOnlyReachable,
         maxPingMs = maxPing
     )
-    // MARBLE_FAILED_PRUNE_V204 — how many servers the library-wide cleanup would take. Read from
-    // the repository rather than from the visible list: the cleanup acts on every group, while
-    // the list on screen is filtered, so a number derived from the rows would under-report.
+
     val failedEverywhere = repo.failedNodeCountEverywhere()
 
     Row(
@@ -5361,14 +4717,11 @@ private fun ServersFilterRail(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Group / source capsule: the scope, badged with how many groups the page holds.
         Box(modifier = Modifier.weight(1f, fill = false)) {
             ServersFilterCapsule(
                 label = groupLabel,
                 tone = if (groupActive) Aether.Cyan else Aether.InkMuted,
-                // MARBLE_SERVERS_RAIL_V190 — while one group is picked, "1 group" restates the
-                // obvious and was what squeezed the group's own name down to "155.103…". The
-                // capsule then carries the name and its clear button only.
+
                 badge = groupBadge.takeUnless { groupActive },
                 onClick = onGroupMenu,
                 onClear = if (groupActive) {
@@ -5393,7 +4746,6 @@ private fun ServersFilterRail(
             }
         }
 
-        // Protocol capsule: the wire filter, badged with how many servers this scope shows.
         Box(modifier = Modifier.weight(1f, fill = false)) {
             ServersFilterCapsule(
                 label = protocol.ifBlank { "All protocols" },
@@ -5431,7 +4783,6 @@ private fun ServersFilterRail(
             }
         }
 
-        // Advanced filters.
         Box {
             val advancedLabel = trx("Advanced filters") +
                 if (advancedCount > 0) ", " + trx(ServersHierarchy.filterBadge(advancedCount)) else ""
@@ -5456,9 +4807,7 @@ private fun ServersFilterRail(
             ) {
                 HomeVectorIcon(HomeIcon.FILTER, Aether.Ink, Modifier.size(18.dp))
             }
-            // The count badge rides the button's corner: how many switches are narrowing the
-            // list, readable without opening the menu that owns them. It is a sibling of the
-            // clipped button, not a child of it, so its overhang is never cut by the shape.
+
             if (advancedCount > 0) {
                 Box(
                     modifier = Modifier
@@ -5573,9 +4922,7 @@ private fun ServersFilterRail(
                     enabled = !repo.busy,
                     onClick = { onAdvancedAction(ServersAdvancedAction.RANK_ALL) }
                 )
-                // MARBLE_FAILED_PRUNE_V204 — the library-wide cleanup. Disabled while connected
-                // for the same reason the per-source one is: stale evidence must never delete the
-                // route Android is currently using.
+
                 ServersMenuItem(
                     label = "Remove failed everywhere ($failedEverywhere)",
                     icon = HomeIcon.TRASH,
@@ -5593,9 +4940,6 @@ private fun ServersFilterRail(
             }
         }
 
-        // Page-wide ping: measures every server of the current scope at once.
-        // MARBLE_PING_CANCEL_V156 — while a sweep is live the same button is the stop for it, so
-        // the control that started a bulk measurement is always the one that can end it.
         val sweeping = repo.probeActive || repo.probeCancelling
         val pingLabel = trx(
             when {
@@ -5704,10 +5048,6 @@ private fun ServersFilterCapsule(
     }
 }
 
-/**
- * The count inside a filter capsule: the capsule's own tone at badge weight, never a second
- * colour, so the number reads as part of the control and not as a notification.
- */
 @Composable
 private fun ServersFilterCount(
     text: String,
@@ -5715,7 +5055,7 @@ private fun ServersFilterCount(
     spoken: String? = null
 ) {
     val shape = RoundedCornerShape(7.dp)
-    // Resolved here, outside the semantics block: [trx] is composable and that block is not.
+
     val spokenLabel = spoken?.let { trx(it) }
     Text(
         trx(text),
@@ -5741,14 +5081,6 @@ private fun ServersFilterCount(
     )
 }
 
-/**
- * The live probe/refresh strip: it appears only while something is actually being measured.
- *
- * MARBLE_PING_CANCEL_V156 — it also carries the product's cancel control. A sweep across a big
- * subscription can run for minutes and starting one by mistake used to have no undo at all, so
- * the strip that announces the sweep is exactly where the stop lives: one filled square, always
- * visible while anything is being measured, whatever started it.
- */
 @Composable
 private fun ServersProbeStrip(repo: AppRepository) {
     val done = repo.probeDone.coerceAtMost(repo.probeTotal)
@@ -5757,17 +5089,12 @@ private fun ServersProbeStrip(repo: AppRepository) {
     val cancelling = repo.probeCancelling
     val stopLabel = trx("Cancel measuring")
     val washEndPx = with(LocalDensity.current) { 80.dp.toPx() }
-    // MARBLE_NATIVE_ANDROID_V213 — the strip's lift is the platform's pair, not a hand-mixed navy
-    // shadow with an accent spot: the ambient/spot/contact triple is what every other card in the
-    // product now wears, and one surface with its own private shadow recipe is what made the page
-    // read as several products stacked.
+
     val stripShadow = marbleNativeShadow(Aether.Cyan)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            // MARBLE_SERVERS_GROUP_PRESENCE_V191 — the live strip is a page-level card and joins
-            // the depth language while it is on screen.
             .shadow(
                 elevation = MarbleNativeSpec.CardElevationDp.dp,
                 shape = ServersCardShape,
@@ -5830,9 +5157,7 @@ private fun ServersProbeStrip(repo: AppRepository) {
                     )
                 )
             }
-            // MARBLE_PING_CANCEL_V156 — the one control that ends any bulk measurement. It stays
-            // on screen (dimmed, not gone) after the tap so the state reads as "unwinding"
-            // instead of flickering back into a start button.
+
             Box(
                 modifier = Modifier
                     .size(28.dp)
@@ -5855,10 +5180,7 @@ private fun ServersProbeStrip(repo: AppRepository) {
                 )
             }
         }
-        // MARBLE_EXPRESSIVE_MOTION_V186 — the sweep bar is the expressive determinate linear:
-        // the fill settles through the patient progress spring (a server finishing early glides
-        // instead of jumping) and a soft shimmer sweeps the filled part while the batch genuinely
-        // runs, so a paused-looking 60% never reads as a stuck 60%.
+
         MarbleExpressiveLinearIndicator(
             modifier = Modifier.fillMaxWidth(),
             progress = progress.coerceIn(0f, 1f),
@@ -5911,13 +5233,6 @@ private fun ServersProbeStrip(repo: AppRepository) {
     }
 }
 
-// MARBLE_SERVERS_NO_HIDDEN_LINE_V144 — ServersFoldedNote ("N servers hidden") was deleted
-// with the folded placeholder row. A folded group is its header alone; the header's own
-// "N servers • M shown" line is the single source of truth for the count, so no second,
-// vaguer count line may be reintroduced here.
-
-// --------------------------------------------------------------------------- group header
-
 /**
  * One subscription card's header — level 1 of the page's hierarchy.
  *
@@ -5939,21 +5254,18 @@ private fun ServersProbeStrip(repo: AppRepository) {
 @Composable
 private fun ServersGroupHeader(
     group: LibraryGroup,
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the caller hands the group box its place in the
-    // first-open entrance cascade; the header itself stays structurally identical.
+
     modifier: Modifier = Modifier,
     subscription: Subscription?,
-    // MARBLE_SERVERS_STACKED_GROUPS_V121 — true when this header opens a box whose servers are
-    // stacked flush beneath it, so it drops its bottom corners and its bottom hairline.
+
     attachedBelow: Boolean,
     collapsed: Boolean,
     shown: Int,
     total: Int,
     refreshing: Boolean,
-    // MARBLE_SERVERS_GROUP_PING_V145 — true while this group's own ping sweep is running.
+
     pinging: Boolean,
-    // MARBLE_PING_CANCEL_V156 — a cancel has been asked for, so the group's control shows the
-    // sweep unwinding instead of offering to start another one.
+
     cancelling: Boolean,
     autoRefresh: Boolean,
     onToggle: () -> Unit,
@@ -5967,39 +5279,28 @@ private fun ServersGroupHeader(
         else -> Aether.Cyan
     }
     val local = subscription?.url?.isBlank() == true
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the chevron folds and unfolds on the wave spring: it
-    // overshoots its quarter-turn by a hair and settles, the way disclosure affordances move in
-    // the newest Android surfaces.
+
     val chevronRotation by animateFloatAsState(
         targetValue = if (collapsed) 90f else -90f,
         animationSpec = MarbleExpressiveSpecs.WaveSpringFloat,
         label = "servers-group-chevron"
     )
     val shape = if (attachedBelow) ServersGroupHeadShape else ServersCardShape
-    // One plan, three readings of one number: the text, the bar's fill and the bar's colour all
-    // come from the same rounded percent, so they can never disagree.
+
     val usageTier = subscription?.let(::subscriptionUsageTier) ?: SubscriptionUsageTier.UNKNOWN
     val usageTone = usageTierTone(usageTier)
     val metered = subscription != null && ServersHierarchy.hasQuota(subscription.totalBytes)
     val usagePercent = subscription?.let {
         ServersHierarchy.usagePercent(subscriptionUsedBytes(it), it.totalBytes)
     } ?: 0
-    // MARBLE_SERVERS_GROUP_PRESENCE_V191 — the wash fades over real dp, not raw pixels, so the
-    // lit band keeps its proportion on every panel density.
+
     val washEndPx = with(LocalDensity.current) { 80.dp.toPx() }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            // MARBLE_NATIVE_ANDROID_V213 — the card's floor is the platform's container step, so
-            // in dark mode the subscription lifts off the OLED page instead of being black on
-            // black with an accent line around it.
             .background(marbleNativeCardFill())
-            // MARBLE_SERVERS_GROUP_PRESENCE_V191 — the level-1 card carries its own light: a
-            // whisper accent wash down from the header's top edge, fading out long before the
-            // rows begin, so the subscription reads as a lit container rather than one more grey
-            // box — and the wash can never seam into the rows, because it is gone by then.
             .background(
                 Brush.verticalGradient(
                     colors = listOf(accent.copy(alpha = .06f), Color.Transparent),
@@ -6007,9 +5308,7 @@ private fun ServersGroupHeader(
                     endY = washEndPx
                 )
             )
-            // An attached header keeps its side and top hairlines and lets the rows below draw the
-            // rest of the box, so the group never shows a seam between its own parts. The stroke
-            // is the boldest on the page: this is the outline that contains everything else.
+
             .serversStackedFrame(
                 openBottom = attachedBelow,
                 color = serversGroupFrameColor(),
@@ -6064,8 +5363,7 @@ private fun ServersGroupHeader(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
-                    // The count belongs to the name, not to a line of its own: level 1 says how
-                    // much it holds, right where it says what it is.
+
                     ServersGroupCountPill(count = total, tone = accent)
                 }
                 if (shown != total) {
@@ -6079,9 +5377,7 @@ private fun ServersGroupHeader(
                 }
             }
             Spacer(Modifier.width(4.dp))
-            // Refresh / status / menu: three equal controls on one even gap, so the trailing edge
-            // of the card reads as a row of siblings rather than as three unrelated icons that
-            // happen to sit next to each other.
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(ServersHierarchy.GROUP_CONTROL_GAP_DP.dp)
@@ -6117,14 +5413,7 @@ private fun ServersGroupHeader(
                         }
                     }
                 }
-                // MARBLE_SERVERS_GROUP_PING_V145 — every subscription card carries its own ping
-                // control next to its own refresh control. Measuring a group used to be buried in
-                // the three-dot menu: two taps and a menu scan for the action a user runs more
-                // often than any other on this page, while the icon beside it refreshed the same
-                // group in one. The verb moved to where its sibling already lives; the menu entry
-                // is gone, so there is exactly one way to ping a group.
-                // MARBLE_PING_CANCEL_V156 — while this group is the batch, its own ping control is
-                // its stop control. One icon, both directions, next to the group it acts on.
+
                 val pingLabel =
                     trx(if (pinging || cancelling) "Cancel measuring" else "Ping ${group.title}")
                 Box(
@@ -6174,8 +5463,6 @@ private fun ServersGroupHeader(
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 if (subscription != null && !local) {
-                    // The plan, exactly as the provider reported it — and the bar that shows how
-                    // much of it is left, in the plan's own state colour.
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -6211,9 +5498,7 @@ private fun ServersGroupHeader(
                             }
                         }
                         // MARBLE_SERVERS_HIERARCHY_V189 — a real bar, not a sentence. The fill
-                        // settles on the expressive progress spring, and its colour is the tier:
-                        // green while the plan is comfortable, amber as it runs out, red past
-                        // 90 %. An unmetered plan shows an empty track: there is nothing to fill.
+
                         MarbleExpressiveLinearIndicator(
                             progress = if (metered) subscriptionUsageFraction(subscription) else 0f,
                             color = usageTone,
@@ -6222,9 +5507,7 @@ private fun ServersGroupHeader(
                         )
                     }
                 }
-                // The secondary line: three facts that matter once — when the plan ends, where the
-                // provider lives, whether Marble keeps it fresh. One row, secondary weight, under
-                // the bar, so the primary fact above stays the only loud thing in the card.
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -6262,10 +5545,6 @@ private fun ServersGroupHeader(
     }
 }
 
-/**
- * The count a subscription carries beside its own name — level 1's badge, a step louder than the
- * badges inside the filter rail because it belongs to the biggest card on the page.
- */
 @Composable
 private fun ServersGroupCountPill(count: Int, tone: Color) {
     val shape = RoundedCornerShape(8.dp)
@@ -6286,10 +5565,6 @@ private fun ServersGroupCountPill(count: Int, tone: Color) {
     )
 }
 
-/**
- * The provider's website, at secondary weight: a small globe and a word, not a button competing
- * with the card's own controls. It is a link out of the app, and it is dressed like one.
- */
 @Composable
 private fun ServersWebsiteLink(onClick: () -> Unit) {
     val shape = RoundedCornerShape(7.dp)
@@ -6362,7 +5637,6 @@ private fun ServersGroupMenuButton(
     }
 }
 
-/** The three-dot menu of one group header. */
 @Composable
 private fun ServersGroupMenu(
     group: LibraryGroup,
@@ -6427,8 +5701,7 @@ private fun ServersGroupMenu(
                 }
             )
         }
-        // MARBLE_SERVERS_GROUP_PING_V145 — "Ping this group" is no longer a menu entry: the
-        // group header owns a real ping icon beside its refresh icon. One verb, one control.
+
         ServersMenuItem(
             label = "Scan IPv4 / IPv6",
             icon = HomeIcon.NETWORK,
@@ -6473,18 +5746,6 @@ private fun ServersGroupMenu(
     }
 }
 
-// --------------------------------------------------------------------------- server card
-
-/**
- * MARBLE_IP_FAMILY_SCAN_V196 — the colour of an address-family verdict.
- *
- * Green means "both families answer, Force IPv6 is safe here". Cyan is the IPv6-only node: fast,
- * but it needs an IPv6 network. Amber is the honest middle — IPv4-only, or an IPv6 address that
- * did not answer — which is information, not an error, so it never reads red. Red is reserved for
- * the node that answered on neither family, because that one is actually broken.
- */
-// MARBLE_SERVER_TILE_PARITY_V212 — internal, not private: the compact server box shows the same
-// verdict the row does, and a colour that lives in one file is a colour two silhouettes drift on.
 @Composable
 internal fun familyChipTone(scan: IpFamilyScan): Color = when (scan.verdict) {
     IpFamilyVerdict.DUAL_OK -> Aether.Emerald
@@ -6495,7 +5756,6 @@ internal fun familyChipTone(scan: IpFamilyScan): Color = when (scan.verdict) {
     IpFamilyVerdict.UNKNOWN -> Aether.InkMuted
 }
 
-/** The tone of a measured latency, in the active theme's own palette. */
 @Composable
 private fun serverPingTone(latencyMs: Int, measured: Boolean, testing: Boolean): Color = when {
     testing -> Aether.Cyan
@@ -6504,9 +5764,6 @@ private fun serverPingTone(latencyMs: Int, measured: Boolean, testing: Boolean):
     latencyMs <= 250 -> Aether.Amber
     else -> Aether.Danger
 }
-
-// MARBLE_PROTOCOL_IDENTITY — the per-scheme tone table moved to protocolTone(family) in
-// MarbleProtocolIdentity.kt, so the Servers page and the Home page read one identical table.
 
 /**
  * One server — level 2 of the page's hierarchy: a row *inside* its subscription's card.
@@ -6559,18 +5816,16 @@ private fun ServersNodeCard(
     val latency = measured?.latencyMs?.toInt() ?: 0
     val testing = probeState == ProbeState.TESTING
     val securing = !active && repo.state == "CONNECTING" && repo.stateDetail == profile.name
-    // A probe ran and the server did not answer. A fact, not an alarm.
+
     val unreachable = result != null && measured == null && !testing
-    // MARBLE_PROTOCOL_IDENTITY — the row's connection state rides the protocol tile's rim:
-    // emerald when it carries traffic, amethyst while a handshake runs, cyan for the stored
-    // selection, and the protocol's own hue when the row rests.
+
     val tileStateTone: Color? = when {
         active -> Aether.Emerald
         securing -> Aether.Amethyst
         selected -> Aether.Cyan
         else -> null
     }
-    // The nested block rounds at its own two ends and is square everywhere between.
+
     val panelShape = when {
         firstInGroup && lastInGroup -> RoundedCornerShape(ServersHierarchy.LIST_CORNER_DP.dp)
         firstInGroup -> ServersListHeadShape
@@ -6578,10 +5833,7 @@ private fun ServersNodeCard(
         else -> ServersListBodyShape
     }
     val rowShape = if (lastInGroup) ServersGroupTailShape else ServersGroupBodyShape
-    // MARBLE_DOCK_ALPHA_PATH_V205 — the resting state is the neutral hue at zero alpha, never
-    // `Color.Transparent`. A tween toward Transparent interpolates the RGB channels toward
-    // black, so on the light page every select/activate flashed a grey wash mid-flight while
-    // the AMOLED page hid the same artifact; a constant hue makes the fade theme-identical.
+
     val rowFill by animateColorAsState(
         targetValue = when {
             active -> Aether.Emerald.copy(alpha = .10f)
@@ -6596,8 +5848,7 @@ private fun ServersNodeCard(
     val country = ServersQuery.countryOf(profile)
     val name = displayServerName(profile.name, profile.host, profile.scheme)
     val flag = leadingFlagGlyph(profile.name) ?: country.flag
-    // MARBLE_SERVER_LOCATION_V192 — the tile's flag is the repository's answer for this
-    // endpoint: the once-tested geolocation when learned, the label's own country otherwise.
+
     val locationCode = repo.serverLocation(profile).code
     val clipboard = LocalClipboardManager.current
 
@@ -6613,12 +5864,6 @@ private fun ServersNodeCard(
         }
     }
 
-    // MARBLE_SERVERS_FRAME_CLIP_V190 — the card's own surface and its side rails belong to the
-    // WHOLE slice (row + divider + tail spacer), not just to the clickable row. Before, the 8 dp
-    // gutters beside the nested block showed the page gradient instead of the card white, the
-    // rails broke at every divider, and the last row's bottom corners sat 8 dp above the card's
-    // real bottom edge. The slice now paints one continuous card, and the swipe reveal lives
-    // inside it.
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -6641,7 +5886,6 @@ private fun ServersNodeCard(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    // The reveal sits where the row itself sits: inside the card's edge.
                     .padding(horizontal = ServersHierarchy.LIST_INSET_DP.dp)
                     .clip(panelShape)
                     .background(tone.copy(alpha = .12f))
@@ -6663,8 +5907,6 @@ private fun ServersNodeCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // The subscription's outline and surface are painted by the slice around
-                    // this row; the row itself only owns the inset panel below.
                     .kineticClickable(
                         enabled = !repo.busy && !active,
                         role = Role.Button,
@@ -6678,17 +5920,9 @@ private fun ServersNodeCard(
                         .weight(1f)
                         .padding(horizontal = ServersHierarchy.LIST_INSET_DP.dp)
                         .clip(panelShape)
-                        // One container step away from the card's own surface: darker than the
-                        // card in Light (recessed), lighter than it in Dark (an inset well).
-                        // Either way the block is a different surface from the card that holds
-                        // it, which is the whole point of the inset. MARBLE_NATIVE_ANDROID_V213 —
-                        // the step is the platform's container tone rather than the product's
-                        // glass token, so a wallpaper palette moves it with everything else.
                         .heightIn(min = MarbleNativeSpec.RowDenseHeightDp.dp)
                         .background(marbleNativeContainerHigh())
                         .background(rowFill)
-                        // The one outline a nested row is allowed to grow, and only when it is
-                        // the server that is actually doing something.
                         .then(
                             if (tileStateTone != null) {
                                 Modifier.border(1.dp, tileStateTone.copy(alpha = .45f), panelShape)
@@ -6705,22 +5939,12 @@ private fun ServersNodeCard(
                         .alpha(rowAlpha),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the row opens with the server's
-                    // PLACE: a circular avatar whose content is the country's real flag when the
-                    // location is known, or the name's own flag glyph while it is not. The wire
-                    // scheme no longer draws inside the circle at all — the coloured text badge
-                    // under the name speaks the type, each protocol in its own hue.
-                    // MARBLE_SERVER_LOCATION_V192 — the location answer is the repository's
-                    // once-tested geolocation when learned, the label's own country otherwise.
                     ProtocolTile(
                         scheme = profile.scheme,
                         size = ServersHierarchy.ROW_TILE_DP.dp,
                         flag = flag.takeIf { it.isNotBlank() && it != ServerCountry.UNKNOWN.flag },
                         flagCode = locationCode,
-                        // MARBLE_ROUTE_ATELIER_V207 — a flag is a claim about the world, so the tile
-                        // carries the strength of the evidence behind it: confirmed by a quorum, held
-                        // by one lone source, or nothing but a label (the world glyph, dashed rim).
-                        // The emoji an operator wrote in a name stays inside the name, where it lives.
+
                         locationTrust = marbleLocationTrustOf(
                             hasSessionReport = false,
                             hasMeasuredCode = locationCode.isNotBlank(),
@@ -6738,14 +5962,6 @@ private fun ServersNodeCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            // MARBLE_ROUTE_ATELIER_V207 — the marquee is off the list for good.
-                            //
-                            // V193 bounded an endless scroller to three passes, which fixed the frame
-                            // cost and kept the problem: a row whose name moves is a row a user cannot
-                            // compare, and a few of them starting two seconds apart turned the page into
-                            // signage. A list is a comparison surface. Two settled lines carry almost
-                            // every real node name; the remainder belongs to the detail sheet, where
-                            // the full name is also *copyable* — which a scrolling one-liner never was.
                             Text(
                                 name,
                                 color = Aether.Ink,
@@ -6769,8 +5985,6 @@ private fun ServersNodeCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            // The unique per-type identity (MARBLE_PROTOCOL_TEXT_IDENTITY_V193):
-                            // the protocol's name in its own colour — pure text, no glyph.
                             ProtocolBadge(
                                 scheme = profile.scheme,
                                 label = ServersQuery.badge(profile)
@@ -6783,30 +5997,24 @@ private fun ServersNodeCard(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
-                            // MARBLE_IP_FAMILY_SCAN_V196 — the measured address family, shown on
-                            // the row that owns it. Only a real measurement earns a chip: an
-                            // unscanned server shows nothing at all, because inventing "v4" from
-                            // a hostname is the guess this whole feature replaces.
+
                             repo.ipFamilyScan(profile)?.let { scan ->
                                 ServerStateChip(scan.chip, familyChipTone(scan))
                             }
                         }
                     }
-                    // MARBLE_PROTOCOL_IDENTITY — the latency owns its own right-aligned stat
-                    // column (number + quality meter) at the trailing edge, no longer a lone
-                    // number floating free in the middle of the row.
+
                     Spacer(Modifier.width(6.dp))
                     ServerPingStat(
                         latencyMs = latency,
                         measured = measured != null,
                         testing = testing,
-                        // "It failed" and "it was never tried" are different facts and must look
-                        // different — but neither of them is allowed to shout in red.
+
                         attempted = unreachable,
                         compact = true,
                         quietFailure = true
                     )
-                    // Breathing room between the stat column and the three-dot menu.
+
                     Spacer(Modifier.width(1.dp))
                     ServersNodeMenu(
                         profile = profile,
@@ -6829,11 +6037,8 @@ private fun ServersNodeCard(
                     )
                 }
             }
-            // The hairline between two servers of one subscription: inset a little further than
-            // the panel so it reads as a separator inside the block, not as a card edge.
+
             if (!lastInGroup) {
-                // The divider sits ON the nested block's surface, so the block reads as one
-                // continuous recessed list instead of loose strips with card-white seams.
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -6850,8 +6055,6 @@ private fun ServersNodeCard(
                     )
                 }
             } else {
-                // The block ends before the card does, so the nested list never touches the
-                // outline that contains it.
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -6883,7 +6086,7 @@ private fun ServersPingCapsule(
     val tone = when {
         testing -> Aether.Cyan
         measured -> serverPingTone(latencyMs, true, false)
-        // A probe that ran and failed is a real, red fact; one that never ran is simply unknown.
+
         attempted -> Aether.Danger
         else -> Aether.InkFaint
     }
@@ -6896,7 +6099,7 @@ private fun ServersPingCapsule(
     Box(
         modifier = Modifier
             // MARBLE_PING_AIR_V152 — width first, decoration never: the number owns the space and
-            // no fill, border or shape sits behind it.
+
             .widthIn(min = 62.dp)
             .height(28.dp)
             .semantics { contentDescription = spoken },
@@ -6922,7 +6125,6 @@ private fun ServersPingCapsule(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // The latency reads as a measurement at a glance, one step larger than before.
                 HomeVectorIcon(HomeIcon.PING, tone, Modifier.size(15.dp))
                 Text(
                     "$latencyMs",
@@ -6944,14 +6146,6 @@ private fun ServersPingCapsule(
     }
 }
 
-/**
- * The three-dot menu of one server card.
- *
- * MARBLE_SERVER_TILE_PARITY_V212 — internal rather than private, because the compact box is the
- * same server and gets the same menu. Two silhouettes with different capabilities is what the
- * report described ("the box view is missing a lot of things… you cannot tap the three-line
- * icon"), and the fix is one menu composed by two layouts, not a second smaller menu.
- */
 @Composable
 internal fun ServersNodeMenu(
     profile: ProxyProfile,
@@ -6970,8 +6164,7 @@ internal fun ServersNodeMenu(
         mutableStateOf(profile.configJson)
     }
     val canEditJson = !profile.scheme.equals("ssh", true)
-    // MARBLE_IP_FAMILY_SCAN_V196 — read straight from the live scan map, so a sweep that lands
-    // while this menu is open updates the row in place instead of showing a stale verdict.
+
     val familyScan = repo.ipFamilyScan(profile)
 
     if (jsonOpen) {
@@ -6993,9 +6186,6 @@ internal fun ServersNodeMenu(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(MarbleSpacing.S)) {
-                    // MARBLE_IME_HYGIENE_V197 — a JSON editor is the one place a session stays
-                    // open for minutes; releasing it on disposal is what stops the list behind it
-                    // from inheriting a session nobody is typing into any more.
                     MarbleImeReleaseOnDispose(rememberMarbleImeHider())
                     OutlinedTextField(
                         value = jsonText,
@@ -7051,7 +6241,7 @@ internal fun ServersNodeMenu(
             selected = open,
             enabled = !repo.busy,
             // MARBLE_SERVERS_HIERARCHY_V189 — a nested row's own control, one step under the
-            // subscription card's 32 dp controls.
+
             size = 28.dp,
             descriptiveLabel = "More actions for ${stripLeadingFlag(profile.name)}"
         ) {
@@ -7095,10 +6285,7 @@ internal fun ServersNodeMenu(
                 }
             )
             ServersMenuItem(
-                // MARBLE_PROBE_TOOLKIT_V130 / MARBLE_PING_TRUTH_V147 — the menu says which
-                // measurement will actually run: Smart (verified endpoint gate) or Real test
-                // (one Xray core per config). They are one Settings choice, so the ⋯ action can
-                // never be a silent surprise.
+
                 label = "${trx("Ping")} • ${trx(probeMethodTitle(repo.settings.probeMethod))}",
                 icon = HomeIcon.PING,
                 tone = Aether.Cyan,
@@ -7109,11 +6296,7 @@ internal fun ServersNodeMenu(
                 }
             )
             ServersMenuItem(
-                // MARBLE_IP_FAMILY_SCAN_V196 — the answer to "does this server do IPv6?", measured
-                // rather than guessed. The detail line carries the last verdict so the menu itself
-                // is the report: `IPv4 only • no IPv6 address`, `Dual stack • 42 ms / 51 ms`, and
-                // so on. This is also the control that ends the Force-IPv6 guessing game — a node
-                // measured IPv4-only is dialled over IPv4 automatically instead of being refused.
+
                 label = "Scan IPv4 / IPv6",
                 icon = HomeIcon.NETWORK,
                 tone = familyScan?.let { familyChipTone(it) } ?: Aether.Cyan,
@@ -7191,16 +6374,6 @@ internal fun ServersNodeMenu(
     }
 }
 
-// --------------------------------------------------------------------------- server dialogs
-
-/**
- * MARBLE_IP_FAMILY_SCAN_V196 — the result of scanning one server.
- *
- * Deliberately a full report rather than a toast. Every line is a measurement or a consequence of
- * one: which records exist, which of them accepted a TCP connection and how fast, what the phone's
- * own network can carry, and what Marble will therefore do the next time this server is dialled.
- * The last line is the important one — it is what turns "IPv4 only" from a complaint into a plan.
- */
 @Composable
 private fun IpFamilyScanDialog(scan: IpFamilyScan, onDismiss: () -> Unit) {
     val tone = familyChipTone(scan)
@@ -7303,7 +6476,6 @@ private fun IpFamilyScanDialog(scan: IpFamilyScan, onDismiss: () -> Unit) {
     )
 }
 
-/** One `label — value` row of the scan report. */
 @Composable
 private fun IpFamilyLine(label: String, value: String, tone: Color) {
     Row(
@@ -7328,7 +6500,6 @@ private fun IpFamilyLine(label: String, value: String, tone: Color) {
     }
 }
 
-/** MARBLE_IP_FAMILY_SCAN_V196 — what a whole group's scan found, counted by verdict. */
 @Composable
 private fun IpFamilyGroupDialog(summary: IpFamilySummary, onDismiss: () -> Unit) {
     AlertDialog(
@@ -7410,7 +6581,6 @@ private fun IpFamilyGroupDialog(summary: IpFamilySummary, onDismiss: () -> Unit)
     )
 }
 
-/** "Move to group": the server keeps its identity, only its owner changes. */
 @Composable
 private fun ServersMoveDialog(
     profile: ProxyProfile,
@@ -7418,7 +6588,6 @@ private fun ServersMoveDialog(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    // MARBLE_MANUAL_BUCKET_V122 — Manual is always a valid destination.
     val targets: List<Pair<String, String>> = buildList {
         add("manual" to "Manual")
         repo.subscriptions.forEach { add(it.id to it.name) }
@@ -7475,12 +6644,6 @@ private fun ServersMoveDialog(
     )
 }
 
-/**
- * "Export QR code": the config link rendered as a real QR symbol, on device.
- *
- * The symbol itself is deliberately pure black on white — a scanner needs maximum contrast, so
- * this is the one surface that does not follow the theme. Everything around it does.
- */
 @Composable
 private fun ServersQrDialog(
     profile: ProxyProfile,
@@ -7570,7 +6733,6 @@ private fun ServersQrDialog(
     )
 }
 
-/** Manage one subscription: identity, links, failed-server cleanup and deletion. */
 @Composable
 private fun ServersSubscriptionDialog(
     subscription: Subscription,
@@ -7608,8 +6770,6 @@ private fun ServersSubscriptionDialog(
                 modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // MARBLE_IME_HYGIENE_V197 — one handle for the two fields, released on the way
-                // out, and reachable from the keyboard's own Done key.
                 val manageIme = rememberMarbleImeHider()
                 MarbleImeReleaseOnDispose(manageIme)
                 OutlinedTextField(
@@ -7720,18 +6880,6 @@ private fun ServersSubscriptionDialog(
     )
 }
 
-/**
- * MARBLE_FAILED_PRUNE_V204 — the Manual bucket's own page.
- *
- * Manual is where every pasted link, scanned QR code and imported file lands, which makes it the
- * group most likely to accumulate servers that never worked — and, until now, the one group the
- * product could not clean: it has no subscription row, so `removeFailedSubscriptionNodes`
- * answered "Subscription no longer exists" for it and the header's Manage action did nothing.
- *
- * Everything here is something the bucket can honestly answer: how many servers it holds, how
- * many of them are dead by each evidence type, and the same two cleanup actions a subscription
- * offers. There is no URL field and no rename, because a local bucket has neither.
- */
 @Composable
 private fun ManualBucketCleanupDialog(
     repo: AppRepository,
@@ -7818,9 +6966,6 @@ private fun ManualBucketCleanupDialog(
     )
 }
 
-// --------------------------------------------------------------------------- add node
-
-/** One row of a dropdown field: its label plus an optional reason it cannot be chosen. */
 private data class ServersOption(
     val value: String,
     val label: String = value,
@@ -7828,12 +6973,6 @@ private data class ServersOption(
     val detail: String? = null
 )
 
-/**
- * A label-outlined dropdown that opens a fully rounded Material 3 menu.
- *
- * It is a real [OutlinedTextField] so its label floats and its metrics match the text fields next
- * to it; the read-only surface simply forwards taps to the menu.
- */
 @Composable
 private fun ServersDropdownField(
     label: String,
@@ -7852,10 +6991,7 @@ private fun ServersDropdownField(
             label = { Text(trx(label)) },
             shape = ServersCardShape,
             colors = marbleOutlinedTextFieldColors(),
-            // MARBLE_IME_HYGIENE_V197 — this field is a painted menu row: it looks like a text
-            // field so its label floats like the real ones beside it, and a tap opens a menu.
-            // It must never be handed an input session, or the platform spends a hide request
-            // per pass taking away a keyboard that was never there.
+
             modifier = Modifier
                 .fillMaxWidth()
                 .marbleImeInert(),
@@ -7918,7 +7054,6 @@ private fun ServersDropdownField(
     }
 }
 
-/** A text field whose label sits on the outline, used for both text and numeric input. */
 @Composable
 private fun ServersField(
     label: String,
@@ -7944,9 +7079,7 @@ private fun ServersField(
         placeholder = hint,
         singleLine = singleLine,
         isError = isError,
-        // MARBLE_IME_HYGIENE_V197 — a single-line field ends on Done, and Done is an event the
-        // keyboard can raise. Without it the session only ever ends when the framework notices,
-        // which is the request being logged a hundred times a session.
+
         keyboardOptions = marbleImeOptions(if (singleLine) ImeAction.Done else ImeAction.None),
         keyboardActions = marbleImeActions(ime),
         shape = ServersCardShape,
@@ -7955,14 +7088,6 @@ private fun ServersField(
     )
 }
 
-/**
- * The Add-node form.
- *
- * Every transport the engine can actually build is here, and the ones it cannot are still listed —
- * greyed out with the reason — so the list never pretends to offer something that would fail at
- * connect time. The Save button's disabled state comes from the exact same validation the builder
- * uses, and its reason is shown under the form.
- */
 @Composable
 private fun ServersAddNodeForm(
     repo: AppRepository,
@@ -7978,7 +7103,7 @@ private fun ServersAddNodeForm(
         protocol == ManualProtocol.TROJAN
     val realityCapable = draft.transport in setOf("raw", "xhttp", "grpc")
     val missing = ManualConfigBuilder.missingRequirement(draft)
-    // MARBLE_MANUAL_BUCKET_V122 — Manual is always a valid destination.
+
     val targetOptions = buildList {
         add("manual" to "Manual")
         repo.subscriptions.forEach { add(it.id to it.name) }
@@ -8501,7 +7626,6 @@ private fun ServersAddNodeForm(
             )
         }
 
-        // The exact reason Save is unavailable — the builder's own words, not a guess.
         Text(
             when {
                 targetName == null -> trx("Select a group that can hold this server first.")
@@ -8526,7 +7650,6 @@ private fun ServersAddNodeForm(
     }
 }
 
-/** One labelled on/off row inside the Add-node form. */
 @Composable
 private fun ServersInsecureSwitch(
     checked: Boolean,
@@ -8539,9 +7662,6 @@ private fun ServersInsecureSwitch(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // MARBLE_NATIVE_ANDROID_V213 — a switch is not a status light. The amber *warning* stays
-        // on the label, where it names the consequence; the control itself is the platform's
-        // switch in the platform's colours, so "on" looks like on wherever it is.
         MarbleNativeSwitch(
             checked = checked,
             onCheckedChange = { onToggle() }
@@ -8555,7 +7675,6 @@ private fun ServersInsecureSwitch(
     }
 }
 
-/** A credential field with its own reveal control. */
 @Composable
 private fun ServersSecretField(
     label: String,
@@ -8598,12 +7717,6 @@ private fun ServersSecretField(
     )
 }
 
-/**
- * Add servers: a full-screen sheet with rounded top corners.
- *
- * Three ways in — one node at a time, a proxy chain, or a subscription — plus paste and file
- * import, all landing in the group the page is currently showing.
- */
 @Composable
 private fun ServersAddPage(
     repo: AppRepository,
@@ -8611,21 +7724,16 @@ private fun ServersAddPage(
     onImportFile: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    // MARBLE_ADD_SERVER_MENU_V121 — the menu already asked what the user wants to build, so the
-    // form opens on that exact mode. The chips remain so a change of mind costs one tap.
     var mode by remember(initialMode) { mutableStateOf(initialMode) }
     var subName by remember { mutableStateOf("") }
     var subUrl by remember { mutableStateOf("") }
-    // MARBLE_IME_HYGIENE_V197 — the sheet owns one IME handle and releases it when it leaves, so
-    // a full-screen form dismissed with the keyboard open cannot leave the session behind for the
-    // Servers page underneath to inherit.
+
     val addSheetIme = rememberMarbleImeHider()
     MarbleImeReleaseOnDispose(addSheetIme)
     var importText by remember { mutableStateOf("") }
     var target by remember { mutableStateOf(libraryIntakeTarget(repo)) }
     val clipboard = LocalClipboardManager.current
-    // MARBLE_SMART_INTAKE_V122 — the name is optional (the repository picks a readable one);
-    // only a real HTTPS subscription URL arms the button, matching what addSubscription accepts.
+
     val subscriptionReady = subUrl.trim().startsWith("https://", ignoreCase = true)
 
     Dialog(
@@ -8638,7 +7746,6 @@ private fun ServersAddPage(
                 .background(Color.Transparent)
                 .windowInsetsPadding(WindowInsets.safeDrawing)
         ) {
-            // A little scrim above the sheet so its rounded top corners read as a sheet.
             Spacer(Modifier.height(28.dp))
             Column(
                 modifier = Modifier
@@ -8716,8 +7823,6 @@ private fun ServersAddPage(
                     verticalArrangement = Arrangement.spacedBy(MarbleSpacing.M)
                 ) {
                     when (mode) {
-                        // The chain editor owns its own hop list and saves through the
-                        // repository, so it only needs the group it is writing into.
                         "chain" -> ManualChainEditor(repo, target, onDismiss)
 
                         "subscription" -> Column(verticalArrangement = Arrangement.spacedBy(MarbleSpacing.M)) {
@@ -8750,8 +7855,6 @@ private fun ServersAddPage(
                                 modifier = Modifier.fillMaxWidth(),
                                 enabled = subscriptionReady && !repo.busy
                             ) {
-                                // The repository refreshes a remote source on its own and
-                                // reports every refusal through the runtime message.
                                 repo.addSubscription(subName, subUrl)
                                 subName = ""
                                 subUrl = ""
@@ -8765,7 +7868,6 @@ private fun ServersAddPage(
                             onTargetChange = { target = it },
                             onSave = { draft, targetId ->
                                 if (repo.addManualProfile(draft, targetId)) {
-                                    // Land the page on the group that just received the node.
                                     repo.selectLibrarySource(targetId)
                                     onDismiss()
                                 }
@@ -8803,8 +7905,6 @@ private fun ServersAddPage(
                             modifier = Modifier.weight(1f),
                             enabled = !repo.busy && importText.isNotBlank()
                         ) {
-                            // MARBLE_SMART_INTAKE_V122 — a pasted subscription URL becomes a
-                            // real subscription instead of a bogus proxy profile.
                             val landing = repo.intakeTargetOrManual(target)
                             val addedId = repo.importClipboard(importText, landing)
                             importText = ""
@@ -8812,8 +7912,7 @@ private fun ServersAddPage(
                             onDismiss()
                         }
                     }
-                    // MARBLE_MANUAL_BUCKET_V122 — the local bucket is permanent; say where the
-                    // import lands instead of gating anything behind a setting.
+
                     Text(
                         trx("Imports land in") + " " +
                             (repo.subscriptions.firstOrNull { it.id == target }?.name ?: "Manual") +
@@ -8828,11 +7927,6 @@ private fun ServersAddPage(
     }
 }
 
-// =============================================================================
-// Shared surfaces the rest of the app reaches into: field colours, the chain editor,
-// the detail page and the full filter sheet.
-// =============================================================================
-
 @Composable
 private fun marbleOutlinedTextFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTextColor = Aether.Ink,
@@ -8846,7 +7940,6 @@ private fun marbleOutlinedTextFieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedLabelColor = Aether.InkMuted
 )
 
-
 @Composable
 private fun ManualChainEditor(
     repo: AppRepository,
@@ -8856,7 +7949,7 @@ private fun ManualChainEditor(
     var name by remember { mutableStateOf("") }
     var search by remember { mutableStateOf("") }
     var hops by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
-    // MARBLE_MANUAL_BUCKET_V122 — Manual is always a valid destination.
+
     val targetReady = targetSourceId == "manual" ||
         repo.subscriptions.any { it.id == targetSourceId }
     val selectedKeys = hops.toSet()
@@ -8961,7 +8054,6 @@ private fun ManualChainEditor(
     }
 }
 
-
 @Composable
 private fun ManualField(
     label: String,
@@ -8980,7 +8072,7 @@ private fun ManualField(
         minLines = minLines,
         maxLines = if (singleLine) 1 else 18,
         modifier = modifier,
-        // MARBLE_IME_HYGIENE_V197 — every manual field ends on an event the keyboard can raise.
+
         keyboardOptions = marbleImeOptions(if (singleLine) ImeAction.Done else ImeAction.None),
         keyboardActions = marbleImeActions(ime),
         shape = RoundedCornerShape(16.dp),
@@ -8988,7 +8080,6 @@ private fun ManualField(
         textStyle = if (singleLine) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
     )
 }
-
 
 @Composable
 private fun ConnectionDetailPage(
@@ -9003,10 +8094,7 @@ private fun ConnectionDetailPage(
     val clipboard = LocalClipboardManager.current
 
     LazyColumn(
-        // MARBLE_DETAIL_PAGE_AURORA_V191 — the detail overlay no longer paints its own flat Void
-        // floor. The window-level aurora backdrop already lives under this page; letting it show
-        // through keeps the container-transform arrival on the same living page the user left,
-        // instead of landing on a dead black rectangle.
+
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = dockClearance()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -9066,9 +8154,6 @@ private fun ConnectionDetailPage(
             }
         }
 
-        // MARBLE_SESSION_USAGE_V192 — how much this exact server has carried, across all its
-        // recorded sessions plus the live one while connected. Zero-usage servers never grew a
-        // section, so the page stays as quiet as before for unconnected nodes.
         {
             val sessions = repo.usageSessions.filter { it.profileId == current.id }
             val storedBytes = sessions.sumOf { it.bytes }
@@ -9076,8 +8161,6 @@ private fun ConnectionDetailPage(
             val last = sessions.firstOrNull()
             if (storedBytes > 0L || liveBytes > 0L) {
                 item {
-                    // The duration is rendered as text first ("12 min", "45 sec") and only then
-                    // translated, so the pattern rules can read the number off the string.
                     val lastLine = last?.let {
                         val seconds = (it.endedAtMs - it.startedAtMs) / 1000L
                         val duration = if (seconds >= 60) trx("${seconds / 60} min") else trx("${seconds} sec")
@@ -9236,7 +8319,7 @@ private fun LibraryFilterSheet(
                             onClick={ onSourceFilter("all") }
                         )
                     }
-                    // MARBLE_MANUAL_BUCKET_V122 — the local bucket is permanent.
+
                     item("source-manual") {
                         SourceOrbitChip(
                             title="Manual",
@@ -9309,10 +8392,6 @@ private fun LibraryFilterSheet(
         }
     }
 }
-
-
-// Two small helpers the full filter sheet still leans on: the source chip and the
-// human label of each sort mode.
 
 @Composable
 private fun SourceOrbitChip(
@@ -9394,7 +8473,6 @@ private fun SourceOrbitChip(
     }
 }
 
-
 private fun sortModeLabel(mode: NodeSortMode): String = when (mode) {
     NodeSortMode.DEFAULT -> "Default"
     NodeSortMode.PING -> "Ping"
@@ -9423,21 +8501,6 @@ private fun LibrarySortChoice(
     )
 }
 
-
-// =================================================================================================
-// MARBLE_DOCK_SLOT_V167 — THE FOURTH TAB
-// =================================================================================================
-//
-// The bar has four slots, and the fourth one belongs to the user: a whole subscription, one exact
-// config, or the live pulse of the running route together with the tools that act on the library.
-//
-// The three surfaces below are real pages built from the same evidence every other page reads —
-// `repo.probeStateOf`, the remembered measurements, `isSelectedProfile`/`isActiveProfile`, the
-// user's own sort order — so a node chosen here is chosen everywhere, a ping measured here is
-// remembered like any other ping, and no two surfaces can disagree about which server is live.
-// Nothing here invents a second source of truth for a state that already has one.
-
-/** The one-line explanation under the fourth slot's page title. */
 private fun dockSlotSubtitle(target: DockSlotTarget): String = when (target.kind) {
     DockSlotKind.PULSE -> "The live route, and the tools that act on the library"
     DockSlotKind.SOURCE -> when {
@@ -9450,7 +8513,6 @@ private fun dockSlotSubtitle(target: DockSlotTarget): String = when (target.kind
     }
 }
 
-/** The flag tile every fourth-slot surface uses for one node: flat, inset, one glyph. */
 @Composable
 private fun DockFlagTile(profile: ProxyProfile?, size: Dp = 38.dp, flagCode: String? = null) {
     val flag = profile?.name?.let(::leadingFlagGlyph)
@@ -9461,15 +8523,10 @@ private fun DockFlagTile(profile: ProxyProfile?, size: Dp = 38.dp, flagCode: Str
         modifier = Modifier
             .size(size)
             .clip(shape)
-            // MARBLE_NATIVE_ANDROID_V213 — the chip's fill and rim come from the platform's
-            // container and outline roles, so the fourth tab's flag tile is made of the same
-            // material as every other card in the product.
             .background(marbleNativeCardFill())
             .border(1.dp, marbleNativeOutline(), shape),
         contentAlignment = Alignment.Center
     ) {
-        // MARBLE_SERVER_LOCATION_V192 — the real flag fills the tile when the location is
-        // known; the single glyph is the fallback, never a second flag.
         if (code != null) {
             CountryFlagCircle(code = code, size = size - 2.dp)
         } else {
@@ -9484,20 +8541,12 @@ private fun DockFlagTile(profile: ProxyProfile?, size: Dp = 38.dp, flagCode: Str
     }
 }
 
-/** One card surface, in the same language as the Servers page's own cards. */
 @Composable
 private fun DockSlotCard(
     tone: Color,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    // MARBLE_DOCK_SLOT_PRESENCE_V191 — the fourth tab's cards join the product depth language:
-    // one cool shadow, a tone-lit top wash and a gradient rim, so the page reads as the same
-    // physical system as Home and Settings instead of flat grey plates.
-    // MARBLE_NATIVE_ANDROID_V213 — the language is the platform's now: the card container, the
-    // native ambient+spot pair with a contact shadow, and a rim that lights with the surface's own
-    // light at the top before settling into the neutral outline — never a coloured rectangle
-    // drawn around the card.
     val dark = homeCloudDark()
     val washEndPx = with(LocalDensity.current) { 150.dp.toPx() }
     val slotShadow = marbleNativeShadow(tone)
@@ -9540,11 +8589,6 @@ private fun DockSlotCard(
     )
 }
 
-/**
- * The fourth tab's page. One composed surface per slot kind, and the page's own header carries the
- * way back into the customizer — the slot is the user's, so the door to change it is on the page
- * it names, never only in Settings.
- */
 @Composable
 private fun CustomDockPage(
     repo: AppRepository,
@@ -9559,9 +8603,7 @@ private fun CustomDockPage(
     onContentScrollChanged: (Boolean) -> Unit
 ) {
     val listState = rememberLazyListState()
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the fourth tab greets the user the same way every other
-    // page does: its cards cascade one stagger step apart on arrival, and anything composed by
-    // a later scroll appears instantly.
+
     val entranceArmed = rememberMarbleEntranceWindow()
     LaunchedEffect(listState.isScrollInProgress) {
         onContentScrollChanged(listState.isScrollInProgress)
@@ -9597,9 +8639,7 @@ private fun CustomDockPage(
                         DockPulseLiveCard(repo, deck, actions)
                     }
                 }
-                // MARBLE_DOCK_SLOT_PLUS_V193 — the pulse page earns its name: a quality card
-                // between the live route and the raw numbers, so the slot answers "how good is
-                // this route right now?" in one glance, not after mental arithmetic.
+
                 item(key = "dock-slot-pulse-quality") {
                     Box(Modifier.marbleStaggerIn(2, enabled = entranceArmed())) {
                         DockPulseQualityCard(repo, deck)
@@ -9637,19 +8677,13 @@ private fun CustomDockPage(
                         }
                     }
                 } else {
-                    // The user's own order, exactly as the Servers page would draw it. Their hide
-                    // filters are deliberately *not* applied: a page that promises "one
-                    // subscription" has to show the whole subscription.
                     val ordered = ServersQuery.sort(
                         profiles = target.profiles,
                         mode = repo.settings.nodeSortMode,
                         reverse = repo.settings.nodeSortReverse,
                         benchmarks = repo.benchmarks.associateBy { it.profileId }
                     )
-                    // One batch lookup for the whole list, then one row per server that reads it.
-                    // MARBLE_EXPRESSIVE_MOTION_V186 — the source rows glide on spring placement
-                    // (a sort flip in Settings rearranges them as physical motion) and the first
-                    // eight cascade behind the header when the page arrives.
+
                     val measurements = repo.benchmarks.associateBy { it.profileId }
                     itemsIndexed(
                         ordered,
@@ -9700,7 +8734,6 @@ private fun CustomDockPage(
     }
 }
 
-/** One empty state, shared by the slot's surfaces: what is missing, and the way to fix it. */
 @Composable
 private fun DockSlotEmptyCard(
     icon: HomeIcon,
@@ -9736,13 +8769,6 @@ private fun DockSlotEmptyCard(
     }
 }
 
-/**
- * The live half of the pulse slot: which route is carrying traffic, for how long, at what quality.
- *
- * It reads the shared deck evidence, so the state word, the uptime and the score are the same facts
- * Home shows, and the score is only printed when a real score exists — an unmeasured route says so
- * instead of printing a zero.
- */
 @Composable
 private fun DockPulseLiveCard(
     repo: AppRepository,
@@ -9814,11 +8840,7 @@ private fun DockPulseLiveCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            // MARBLE_HOME_ROUTE_PING_V210 — the pill beside a named server no longer shares the
-            // Home verb. The header pulse, the split control's second disc and the Atelier's
-            // corrective row all measure the ROUTE, because each sits on a page showing one
-            // server; this page is the one door left that sweeps the SUBSCRIPTION behind it, and
-            // its label now says so instead of promising one thing and measuring another.
+
             Row(
                 modifier = Modifier
                     .clip(ServersPillShape)
@@ -9841,9 +8863,6 @@ private fun DockPulseLiveCard(
             }
         }
 
-        // MARBLE_DOCK_SLOT_PLUS_V193 — the one verb the page's headline deserves: the same
-        // toggle Home's own connect control runs, so the fourth tab can open and close the
-        // tunnel without a trip back to the first one.
         CyberButton(
             label = when {
                 evidence.disconnecting -> "Disconnecting…"
@@ -9866,12 +8885,6 @@ private fun DockPulseLiveCard(
     }
 }
 
-/**
- * MARBLE_DOCK_SLOT_PLUS_V193 — route quality, read at a glance: the live score as one settled
- * meter, the stability word the intelligence layer attached to the route, and the two signals
- * that change a verdict (jitter and a suspected injected reset). Every fact is the repository's
- * own; the card invents nothing and an unmeasured route says so instead of printing zeros.
- */
 @Composable
 private fun DockPulseQualityCard(repo: AppRepository, deck: DeckEvidence) {
     val evidence = deck.evidence
@@ -9883,7 +8896,7 @@ private fun DockPulseQualityCard(repo: AppRepository, deck: DeckEvidence) {
         score >= 0 -> Aether.Danger
         else -> Aether.Cyan
     }
-    // The meter settles on the shared progress spring, exactly like every other readout.
+
     val fill by animateFloatAsState(
         targetValue = score.coerceIn(0, 100) / 100f,
         animationSpec = MarbleMotionSpecs.ProgressFloat,
@@ -9920,7 +8933,6 @@ private fun DockPulseQualityCard(repo: AppRepository, deck: DeckEvidence) {
             }
         }
 
-        // The meter: one hairline track, one settled fill, one round head.
         Box(
             Modifier
                 .fillMaxWidth()
@@ -9972,12 +8984,6 @@ private fun DockPulseQualityCard(repo: AppRepository, deck: DeckEvidence) {
     }
 }
 
-/**
- * Six live numbers of the running route: what it moves, how fast it answers, how steady it is,
- * and — MARBLE_DOCK_SLOT_PLUS_V193 — how long it has been up and how much data this session has
- * moved. The numbers come from the same engine as the Home ping and are remembered like any
- * other result, so the slot never disagrees with the page it borrows its route from.
- */
 @Composable
 private fun DockPulseMetricsCard(repo: AppRepository, deck: DeckEvidence) {
     val evidence = deck.evidence
@@ -10051,14 +9057,6 @@ private fun DockPulseMetricsCard(repo: AppRepository, deck: DeckEvidence) {
     }
 }
 
-/**
- * The tools half of the pulse slot, arranged MARBLE_DOCK_SLOT_PLUS_V193-style: two quiet captions
- * — what touches the library, and what inspects the session — above six real engine entry points,
- * so the card scans as two short rows instead of one undifferentiated grid.
- *
- * A running sweep is reported by the Servers page's own progress strip, so the control that started
- * a measurement stays the control that can cancel it, exactly as it is everywhere else.
- */
 @Composable
 private fun DockPulseToolsCard(
     repo: AppRepository,
@@ -10134,8 +9132,6 @@ private fun DockPulseToolsCard(
                 compact = true,
                 modifier = Modifier.weight(1f),
                 onClick = {
-                    // An existing report is read; a missing one is produced first, so the button
-                    // can never open an empty dialog on the first tap.
                     if (report == null) repo.runBugFinder() else onDialog("Bug Finder")
                 }
             )
@@ -10169,13 +9165,6 @@ private fun DockPulseToolsCard(
     }
 }
 
-/**
- * The head of a source slot: what the source is, what it costs the account, what its list looks
- * like (MARBLE_DOCK_SLOT_PLUS_V193 — servers, measured, best latency, one row of facts), and the
- * verbs the Servers page gives that same source — ping and rank always, refresh wherever there is
- * something remote to fetch, plus the one tap the list below exists for: connect to the fastest
- * server this source has measured.
- */
 @Composable
 private fun DockSourceHeaderCard(
     repo: AppRepository,
@@ -10183,11 +9172,9 @@ private fun DockSourceHeaderCard(
     onConnect: (ProxyProfile) -> Unit
 ) {
     val subscription = repo.subscriptions.firstOrNull { it.id == target.id }
-    // "All servers" refreshes every source and a subscription refreshes itself; the local Manual
-    // bucket is the one scope with nothing remote to fetch, so it is the one without the verb.
+
     val refreshable = target.id != "manual"
-    // One batch read of the stored measurements: how many of this source's servers answered,
-    // and which measured one is the fastest — the exact definition the Servers list ranks by.
+
     val measurements = remember(target.id, repo.benchmarks) {
         repo.benchmarks.associateBy { it.profileId }
     }
@@ -10232,8 +9219,6 @@ private fun DockSourceHeaderCard(
             )
         }
 
-        // One line of list truth: N servers • M measured • best X ms (name). Nothing invented:
-        // an unmeasured source says "not measured yet" instead of a fake zero.
         Text(
             buildString {
                 append(target.profiles.size)
@@ -10292,8 +9277,6 @@ private fun DockSourceHeaderCard(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !repo.busy && !repo.probeActive,
                 onClick = {
-                    // The same rule every list row follows: select when the tunnel is down,
-                    // switch over when it is up, never fight a running ping sweep.
                     if (repo.probeActive || repo.probeCancelling) {
                         repo.setRuntimeMessage("Wait until ping finishes before changing server")
                     } else if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
@@ -10317,12 +9300,6 @@ private fun DockSourceHeaderCard(
     }
 }
 
-/**
- * One node of a custom slot's list. It is the Servers page's own row grammar — flag, name, wire
- * badge, address, the remembered latency — at the compact scale of a page inside the bar, and it
- * answers a tap with the same rule as every other list: select, and reconnect only when a tunnel is
- * already up.
- */
 @Composable
 private fun DockNodeRow(
     profile: ProxyProfile,
@@ -10335,10 +9312,7 @@ private fun DockNodeRow(
     onDetails: () -> Unit
 ) {
     val measured = result?.takeIf { it.success > 0 && it.latencyMs >= 20 }
-    // MARBLE_NATIVE_ANDROID_V213 — the slot's row is the platform's row: the native corner, the
-    // container step (or the platform's own tonal wash when the row is the active or the chosen
-    // one), one neutral hairline, and the platform's touch floor as a painted minimum rather than
-    // as a hope.
+
     val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
     val outline = marbleNativeOutline()
     val tone = when {
@@ -10411,13 +9385,6 @@ private fun DockNodeRow(
     }
 }
 
-/**
- * The head of a config slot: one exact node, the product's own connect control for the route it is,
- * its own ping, and the two places a user can go from here.
- *
- * "Use this config" is a real selection of that exact row — the same call the Servers list makes —
- * so the fourth slot can never connect to something other than what it names.
- */
 @Composable
 private fun DockConfigCard(
     repo: AppRepository,
@@ -10558,10 +9525,6 @@ private fun DockConfigCard(
     }
 }
 
-// =================================================================================================
-// SETTINGS / SWIPEABLE WORKSPACES
-// =================================================================================================
-
 private enum class SettingsWorkspaceTab(val label: String, val icon: HomeIcon) {
     GENERAL("General", HomeIcon.SPARK),
     TESTS("Tests", HomeIcon.PING),
@@ -10582,13 +9545,6 @@ private fun settingsTabTone(tab: SettingsWorkspaceTab): Color = when (tab) {
     SettingsWorkspaceTab.SYSTEM -> Aether.Cyan
 }
 
-
-/**
- * MARBLE_SETTINGS_HUB_V114 — the four theme choices with their real miniature previews, shared by
- * the Appearance workspace and the dedicated Theme page so the two can never drift apart.
- * "Dynamic phone" paints the phone's own Material You palette (wallpaper colors) instead of a
- * fixed brand swatch, which is the whole point of that mode.
- */
 @Composable
 private fun SettingsThemeGrid(repo: AppRepository) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -10607,9 +9563,7 @@ private fun SettingsThemeGrid(repo: AppRepository) {
                     PrismThemeChoice(
                         label = label,
                         detail = detail,
-                        // Selection compares the canonical stored id through parseAppTheme so
-                        // legacy values ("system"/"light"/"dark", "dynamic") all light up their
-                        // own card — AMOLED stores "dark", never "amoled".
+
                         selected = parseAppTheme(repo.settings.theme) == when (label) {
                             "System" -> AppTheme.SYSTEM
                             "Light" -> AppTheme.LIGHT
@@ -10632,20 +9586,6 @@ private fun SettingsThemeGrid(repo: AppRepository) {
     }
 }
 
-// =================================================================================================
-// MARBLE_SETTINGS_HUB_V114 — Settings is ONE hub page; every title opens its own sub-page.
-// =================================================================================================
-//
-// The workspace tabs did not disappear, they moved down a level: the hub is a hierarchy of titles
-// (Connection / Appearance / System), each title carries a small live preview of what it controls,
-// and tapping one slides its own page in. The handful of decisions people touch every day — theme,
-// Home style, expert mode, auto-reconnect, auto-refresh, smart alerts, the Intelligence engine —
-// stay on the hub itself and apply immediately, so the extra level never costs a tap for them.
-//
-// Type is deliberately lighter here than anywhere else in the product: settings is a reading
-// surface, not a dashboard, so titles are Medium at titleSmall and copy is Normal at labelSmall.
-
-/** Page keys for the settings navigator. Plain strings so the page survives process death. */
 private object SettingsPages {
     const val HUB = "hub"
     const val THEME = "theme"
@@ -10653,28 +9593,13 @@ private object SettingsPages {
     const val TYPEFACE = "typeface"
     const val LANGUAGE = "language"
     const val INFORMATION = "information"
-    // MARBLE_SETTINGS_DEDUP — the separate core pages (CORE / XRAY_CORE / SINGBOX_CORE) are gone:
-    // their content merged into the ENGINE workspace, so one engine page owns the switch, the
-    // pinned versions and both cores' options.
+
     const val ROUTING = "routing"
 
-    /**
-     * MARBLE_ROUTE_ATELIER_V207 — the Home "Tests" shortcut's destination.
-     *
-     * The shortcut used to open the Settings tab and stop, which is a general area rather than the
-     * thing the label names. The value is a focus key (not a page id), so it walks the same one-shot
-     * deep-link path the Routing entry uses and clears itself afterwards.
-     */
     const val TESTS = "tests"
 
-    /** The card the Tests deep link names, matched against [SettingsSectionSpec.title]. */
     const val TESTS_CARD = "Testing"
 
-    /**
-     * MARBLE_DOCK_SLOT_V167 — the fourth tab's own customization page. It is a page rather than a
-     * row of switches because the slot has a subject (which source, which config), a name its user
-     * writes, and a glyph its user picks: that is a workspace, not a toggle.
-     */
     const val DOCK_SLOT = "dock-slot"
     private const val WORKSPACE = "workspace"
 
@@ -10689,11 +9614,6 @@ private object SettingsPages {
     fun workspaceFocus(page: String): String? =
         page.split(":").getOrElse(2) { "" }.ifBlank { null }
 
-    /**
-     * MARBLE_SETTINGS_TREE_V215 — one card as its own page. A hub row names the card it opens, so
-     * every setting is reached from the sub-section it belongs to instead of through a catch-all
-     * workspace. The card's content is the same composable the workspace shows; only the door is new.
-     */
     private const val CARD = "card"
 
     fun card(tab: SettingsWorkspaceTab, title: String): String =
@@ -10708,22 +9628,6 @@ private object SettingsPages {
         page.split(":", limit = 3).getOrElse(2) { "" }
 }
 
-/**
- * The settings reading ramp: lighter and smaller than the product ramp on purpose. Settings is a
- * reading surface, so nothing here is Bold and nothing is larger than it needs to be.
- */
-/**
- * The settings reading ramp.
- *
- * V207's review named the exact trade this ramp had been making: "visual density was bought by
- * lowering legibility". What DNS does, when Fragment is needed and what a Mux mode costs is not
- * ornament — it is the material of the decision — and it had been set in `labelSmall`, the role for a
- * caption under somebody else's heading, on rows that cut the sentence off with an ellipsis.
- *
- * The reading role moves up to `bodySmall` (14/20, plainly body text one step under a row title), the
- * weights settle to Medium/Normal so nothing shouts, and titles grow by the half step they need to
- * stay a step above it. A settings page is allowed to be quiet. It is not allowed to be a puzzle.
- */
 @Composable
 private fun settingsTitleStyle(): TextStyle =
     MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium)
@@ -10736,7 +9640,6 @@ private fun settingsRowTitleStyle(): TextStyle =
 private fun settingsBodyStyle(): TextStyle =
     MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Normal)
 
-/** Opens a URL in the browser directly — no chooser sheet, no in-app page. */
 private fun openExternal(context: android.content.Context, url: String) {
     runCatching {
         context.startActivity(
@@ -10745,10 +9648,6 @@ private fun openExternal(context: android.content.Context, url: String) {
     }
 }
 
-/**
- * The shell of every settings sub-page: a back arrow, a light title, and one column of content.
- * The hub owns the system back gesture, so this only draws the affordance.
- */
 @Composable
 private fun SettingsSubPage(
     title: String,
@@ -10757,9 +9656,6 @@ private fun SettingsSubPage(
     listState: LazyListState = rememberLazyListState(),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    // MARBLE_SETTINGS_RESTORE_V117 — the scroll position is owned by the caller (the settings
-    // navigator) and survives the sub-page's leave/re-enter lifecycle, so returning to a page you
-    // scrolled never dumps you back at the top.
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -10816,22 +9712,11 @@ private fun SettingsSubPage(
     }
 }
 
-/**
- * MARBLE_SETTINGS_ROW_TONE_V141 — the section tone every row inside a Settings card inherits.
- *
- * Settings rows used to be naked text on the card, so a page of switches read as one gray
- * field with no hierarchy and no colour identity. Sections already carry a tone (the card
- * title and its icon chip); this composition local hands that tone to every row inside the
- * card without touching any of the dozens of call sites: each row draws a tone rail, and a
- * checked row lights its hairline with the same hue.
- */
 private val LocalSettingsSectionTone = compositionLocalOf { HomeCloud.BrandAccent }
 
-/** The tone a Settings row should wear: its section's tone, falling back to the brand accent. */
 @Composable
 private fun settingsSectionTone(): Color = LocalSettingsSectionTone.current
 
-/** A hub card: one quiet opaque surface holding a titled group of rows. */
 @Composable
 private fun SettingsHubCard(
     title: String,
@@ -10840,14 +9725,6 @@ private fun SettingsHubCard(
     subtitle: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    // MARBLE_NATIVE_ANDROID_V213 — the card is the platform's card.
-    //
-    // V191 gave every group its own tone-lit wash, a 4 dp lift and a tone-tinted rim. The wash and
-    // the lift were right; the *rim* was not: a navy stroke at 38 % around a card is a drawn
-    // rectangle, which is the one thing Android's own settings cards never have. The card now
-    // wears the native skin — container fill, one directional hairline that catches the light at
-    // the top and settles into the neutral outline at the bottom, the platform's shadow pair plus
-    // the contact shadow that puts it on the page, and the platform's large corner.
     val shape = marbleNativeShape(MarbleNativeSpec.CardCornerDp.dp)
     val dark = homeCloudDark()
     val nativeShadow = marbleNativeShadow(tone)
@@ -10871,9 +9748,6 @@ private fun SettingsHubCard(
                 spotColor = nativeShadow.contact
             )
             .clip(shape)
-            // MARBLE_SETTINGS_OPAQUE_SURFACES_V141 — opaque fill: a 92% surface let the page
-            // gradient bleed through unevenly, the same translucent-stack defect the theme
-            // layer already banned for causing compositing bands.
             .background(marbleNativeCardFill())
             .background(
                 Brush.verticalGradient(
@@ -10894,18 +9768,11 @@ private fun SettingsHubCard(
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            // MARBLE_NATIVE_ANDROID_V213 — the group name stops shouting.
-            //
-            // It was uppercased *and* letterspaced 1.6 sp *and* painted in the section's tone: three
-            // signals for one word, which is why a page of sections read as a wall of labels. The
-            // platform names a group in sentence case, at normal tracking, in the primary tone — and
-            // the colour is already carried by the card's own wash.
             Text(
                 trx(title),
-                color = tone,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = MarbleNativeSpec.SectionLabelTrackingSp.sp,
+                color = Aether.Ink,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -10928,19 +9795,6 @@ private fun SettingsHubCard(
     }
 }
 
-/**
- * One navigable title on the hub: a tone rail, a light label, a one-line explanation, a small
- * preview of the thing it controls, and a chevron. The preview is the point — most settings
- * should be recognizable without opening them.
- */
-/**
- * MARBLE_CORE_NAME_IN_SETTINGS_V160 — [badge] is a short value printed on the title's own line.
- *
- * The hub row is the only place a Settings title and its current value are seen together, and a
- * value small enough to be missed in the faint subtitle line is better read next to the word it
- * belongs to. Engine identity is the first use: "Tunnel core" now names the core that is running
- * beside its own title, so the page answers the question before it is opened.
- */
 @Composable
 private fun SettingsHubRow(
     title: String,
@@ -10950,26 +9804,22 @@ private fun SettingsHubRow(
     badge: String = "",
     preview: @Composable () -> Unit
 ) {
-    // MARBLE_NATIVE_ANDROID_V213 — the door is the platform's list item.
-    //
-    // It was a 14 dp inset box with a tone rail, an 11 dp content inset and a hand-drawn chevron
-    // glyph: a bespoke control where Android has one. This is the platform's row — 56/72 dp, the
-    // native container and outline, a real value slot and the platform's disclosure mark — with
-    // the product's own *preview* kept in the trailing cluster, because a preview of the thing a
-    // row opens is the one part of this surface that was never the problem.
-    //
-    // [title] and its [badge] stay on one line: a title and the value it holds are one thought,
-    // and a badge pushed to the far edge of a 300 dp row is a value the eye has to travel to find.
     val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
-    val outline = marbleNativeOutline()
+    val pressSource = remember { MutableInteractionSource() }
+    val pressed by pressSource.collectIsPressedAsState()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = MarbleNativeSpec.RowTwoLineHeightDp.dp)
             .clip(shape)
-            .background(marbleNativeCardFill())
-            .border(1.dp, outline, shape)
-            .kineticClickable(role = Role.Button, boundedShape = shape, showIndication = false, onClick = onClick)
+            .background(if (pressed) Aether.Ink.copy(alpha = .07f) else Color.Transparent)
+            .kineticClickable(
+                role = Role.Button,
+                boundedShape = shape,
+                showIndication = false,
+                interactionSource = pressSource,
+                onClick = onClick
+            )
             .padding(
                 horizontal = MarbleNativeSpec.RowPaddingHorizontalDp.dp,
                 vertical = MarbleNativeSpec.RowPaddingVerticalDp.dp
@@ -10994,17 +9844,17 @@ private fun SettingsHubRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                // MARBLE_CORE_NAME_IN_SETTINGS_V160 — the live value on the title's own line.
+
                 if (badge.isNotBlank()) {
                     Text(
                         trx(badge),
-                        color = tone,
+                        color = marbleNativeInkVariant(),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         modifier = Modifier
                             .clip(ServersBadgeShape)
-                            .background(tone.copy(alpha = .13f))
+                            .background(marbleNativeContainerHigh())
                             .padding(horizontal = 6.dp, vertical = 1.dp)
                     )
                 }
@@ -11026,8 +9876,8 @@ private fun SettingsHubRow(
         ) {
             preview()
         }
-        // The platform's disclosure mark, drawn rather than typed.
-        MarbleNativeChevron(outline.copy(alpha = .9f))
+
+        MarbleNativeChevron(marbleNativeOutline().copy(alpha = .9f))
     }
 }
 
@@ -11038,7 +9888,6 @@ private fun SettingsHubSwitch(
     checked: Boolean,
     onChecked: (Boolean) -> Unit
 ) {
-    // MARBLE_NATIVE_ANDROID_V213 — the hub's live switch is the platform's row and switch.
     val tone = settingsSectionTone()
     MarbleNativeListItem(
         title = title,
@@ -11056,19 +9905,10 @@ private fun SettingsHubSwitch(
     )
 }
 
-// MARBLE_NATIVE_ANDROID_V213 — `SettingsToneRail` is gone.
-//
-// The 3 dp tone bar on a settings row's leading edge was the product's own invention: no Android
-// surface carries one, it made every row 3 dp wider than the platform's anatomy, and it duplicated
-// a colour the row's own value already speaks. The rows it lived in are [MarbleNativeListItem]s
-// now, so the rail has no call site left — and a helper with no call site is deleted, not kept
-// "just in case", because the next person to add a settings row would otherwise find it.
-
-// ---------------------------------------------------------------------------------------------
-// Hub previews — a tiny picture of what each title controls
 // ---------------------------------------------------------------------------------------------
 
-/** Four theme swatches that apply immediately: the hub keeps the most-touched choice live. */
+// ---------------------------------------------------------------------------------------------
+
 @Composable
 private fun SettingsThemeMiniRow(repo: AppRepository) {
     val active = parseAppTheme(repo.settings.theme)
@@ -11079,7 +9919,7 @@ private fun SettingsThemeMiniRow(repo: AppRepository) {
         null
     }
     val choices = listOf(
-        // MARBLE_MATERIAL_YOU_REFRESH_V185 — swatches preview the refreshed light page tone.
+
         Triple(AppTheme.SYSTEM, "System", listOf(Color(0xFF0A0A14), Color(0xFFF4F8FD), Aether.Cyan)),
         Triple(AppTheme.LIGHT, "Light", listOf(Color(0xFFF4F8FD), Color.White, Aether.Cyan)),
         Triple(AppTheme.DARK, "AMOLED", listOf(Color(0xFF000000), Color(0xFF001144), Aether.Emerald)),
@@ -11111,10 +9951,10 @@ private fun SettingsThemeMiniRow(repo: AppRepository) {
                     modifier = Modifier
                         .weight(1f)
                         .clip(shape)
-                        .background(Aether.Glass.copy(alpha = .40f))
+                        .background(marbleNativeContainerHigh())
                         .border(
                             1.dp,
-                            if (selected) ramp[2].copy(alpha = .62f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                            if (selected) ramp[2].copy(alpha = .62f) else marbleNativeOutline(),
                             shape
                         )
                         .kineticClickable(role = Role.Button, boundedShape = shape) {
@@ -11133,7 +9973,6 @@ private fun SettingsThemeMiniRow(repo: AppRepository) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    // The miniature is the real palette: background, surface and accent.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -11172,7 +10011,6 @@ private fun SettingsThemeMiniRow(repo: AppRepository) {
     }
 }
 
-/** The five Home styles as live thumbnails — picking one repaints Home immediately. */
 @Composable
 private fun SettingsStyleMiniRow(repo: AppRepository) {
     val active = parseHomeStyle(repo.settings.homeStyle)
@@ -11194,8 +10032,7 @@ private fun SettingsStyleMiniRow(repo: AppRepository) {
                     HomeStyle.IOS_FLOATING -> Aether.CyanBright
                     HomeStyle.IOS_EMBOSSED -> Aether.AmethystBright
                     HomeStyle.IOS_MODULAR -> Aether.Amber
-                    // MARBLE_ROUTE_ATELIER_V207 — the presentation's thumbnail carries the brand
-                    // hue, not a fifth category colour: the style is a way of saying the same thing.
+
                     HomeStyle.ROUTE_ATELIER -> Aether.Cyan
                 }
                 val shape = RoundedCornerShape(11.dp)
@@ -11203,10 +10040,10 @@ private fun SettingsStyleMiniRow(repo: AppRepository) {
                     modifier = Modifier
                         .weight(1f)
                         .clip(shape)
-                        .background(Aether.Glass.copy(alpha = .40f))
+                        .background(marbleNativeContainerHigh())
                         .border(
                             1.dp,
-                            if (selected) tone.copy(alpha = .62f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                            if (selected) tone.copy(alpha = .62f) else marbleNativeOutline(),
                             shape
                         )
                         .kineticClickable(role = Role.Button, boundedShape = shape) {
@@ -11229,39 +10066,37 @@ private fun SettingsStyleMiniRow(repo: AppRepository) {
     }
 }
 
-/** A still miniature of each Home style's artwork, so the choice is recognizable at a glance. */
 @Composable
 private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val w = size.width
         val h = size.height
         when (style) {
-            // Theme 1: Slide track at bottom + top status
             HomeStyle.IOS_SLIDER -> {
                 drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.15f, h * 0.15f), Size(w * 0.70f, h * 0.25f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
                 drawRoundRect(tone.copy(alpha = 0.25f), Offset(w * 0.15f, h * 0.45f), Size(w * 0.70f, h * 0.20f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
                 drawRoundRect(tone, Offset(w * 0.15f, h * 0.75f), Size(w * 0.70f, h * 0.20f), CornerRadius(4.dp.toPx(), 4.dp.toPx()))
             }
-            // Theme 2: Top status + center server box + right floating dot
+
             HomeStyle.IOS_FLOATING -> {
                 drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.15f, h * 0.15f), Size(w * 0.70f, h * 0.25f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
                 drawRoundRect(tone.copy(alpha = 0.25f), Offset(w * 0.15f, h * 0.45f), Size(w * 0.55f, h * 0.45f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
                 drawCircle(tone, h * 0.15f, Offset(w * 0.82f, h * 0.75f))
             }
-            // Theme 3: Top status + center bold circle + bottom server box
+
             HomeStyle.IOS_EMBOSSED -> {
                 drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.15f, h * 0.12f), Size(w * 0.70f, h * 0.20f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
                 drawCircle(tone, h * 0.22f, Offset(w * 0.50f, h * 0.52f))
                 drawRoundRect(tone.copy(alpha = 0.25f), Offset(w * 0.15f, h * 0.78f), Size(w * 0.70f, h * 0.18f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
             }
-            // Theme 4: 2x2 modular tiles
+
             HomeStyle.IOS_MODULAR -> {
                 drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.15f, h * 0.15f), Size(w * 0.32f, h * 0.32f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
                 drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.53f, h * 0.15f), Size(w * 0.32f, h * 0.32f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
                 drawRoundRect(tone.copy(alpha = 0.4f), Offset(w * 0.15f, h * 0.55f), Size(w * 0.32f, h * 0.32f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
                 drawRoundRect(tone, Offset(w * 0.53f, h * 0.55f), Size(w * 0.32f, h * 0.32f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
             }
-            // Route: one card, a signet of three nodes, one full-width verb
+
             HomeStyle.ROUTE_ATELIER -> {
                 drawRoundRect(tone.copy(alpha = 0.30f), Offset(w * 0.15f, h * 0.10f), Size(w * 0.70f, h * 0.30f), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
                 val midY = h * 0.25f
@@ -11276,11 +10111,6 @@ private fun SettingsStyleMotif(style: HomeStyle, tone: Color, modifier: Modifier
     }
 }
 
-/**
- * MARBLE_DOCK_SLOT_V167 — the hub's miniature of the bar: three quiet slots, then the fourth in the
- * user's own colour, dimmed when the slot is switched off. It answers "is my tab on the bar?" with
- * a picture instead of a sentence.
- */
 @Composable
 private fun SettingsDockSlotPreview(
     icon: DockSlotIcon,
@@ -11289,8 +10119,6 @@ private fun SettingsDockSlotPreview(
     showStatusBadge: Boolean,
     badgeTone: Color
 ) {
-    // Aether is a composition-local palette, so the mark's own ink is read here, in the composable
-    // body, and never inside the draw lambda — which is not a composable scope.
     val mark = Aether.Void
     Canvas(Modifier.size(width = 34.dp, height = 20.dp)) {
         val w = size.width
@@ -11312,9 +10140,6 @@ private fun SettingsDockSlotPreview(
             cornerRadius = shape
         )
         if (enabled) {
-            // One legible mark inside the lit slot. At 34 × 20 dp a full glyph is mush, and a mark
-            // that reads beats a shape that does not; the four glyphs themselves are previewed at
-            // their real size on the customization page.
             val cx = 3 * (slot + 3.dp.toPx()) + slot / 2f
             val cy = h * .50f
             val stroke = 1.4.dp.toPx()
@@ -11356,7 +10181,6 @@ private fun SettingsDockSlotPreview(
     }
 }
 
-/** "Aa" in the candidate face — the cheapest honest preview of a typeface. */
 @Composable
 private fun SettingsTypefacePreview(fontId: String, tone: Color) {
     Text(
@@ -11367,7 +10191,6 @@ private fun SettingsTypefacePreview(fontId: String, tone: Color) {
     )
 }
 
-/** EN beside فارسی, the Persian half always in Vazirmatn. */
 @Composable
 private fun SettingsLanguagePreview(tone: Color) {
     Row(
@@ -11383,14 +10206,13 @@ private fun SettingsLanguagePreview(tone: Color) {
         Text(
             "فارسی",
             color = tone,
-            // MARBLE_VAZIR_LANGUAGE_KEY_V114 — Vazir in every state, including this preview.
+
             style = MaterialTheme.typography.labelSmall.copy(fontFamily = VazirFamily),
             maxLines = 1
         )
     }
 }
 
-/** Direct versus proxied traffic, in three strokes. */
 @Composable
 private fun SettingsRoutingPreview(tone: Color) {
     Canvas(Modifier.size(width = 34.dp, height = 20.dp)) {
@@ -11409,13 +10231,11 @@ private fun SettingsRoutingPreview(tone: Color) {
     }
 }
 
-/** A measurement ladder: what the Tests workspace runs. */
 @Composable
 private fun SettingsTestPreview(tone: Color) {
     PrismSignalMeter(bars = 3, tone = tone, modifier = Modifier.size(width = 20.dp, height = 16.dp))
 }
 
-/** Version stamp for the Information title. */
 @Composable
 private fun SettingsVersionPreview(tone: Color) {
     Text(
@@ -11427,30 +10247,9 @@ private fun SettingsVersionPreview(tone: Color) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The hub
+
 // ---------------------------------------------------------------------------------------------
 
-/**
- * MARBLE_SETTINGS_SECTIONS_V210 — the hub is a tree: main sections, each holding its own named
- * sub-sections, each closable from its own header.
- *
- * What this replaced is written up in `ui/MarbleSettingsSections.kt`. In short: six cards of
- * equal weight, each a flat column of rows, with nothing on the page saying how they related —
- * so a user looking for the typeface had to know it lived under Appearance, and a user who never
- * touches the engine had no way to put it away.
- *
- * The rewrite keeps every row the old hub had and files it under a parent:
- *
- *  - **a main section** ([SettingsHubGroupSpec]) is a tone-lit card with an icon, a title and a
- *    chevron. Tapping the header closes it, and the state is remembered for the visit;
- *  - **a sub-section** ([SettingsHubSectionSpec]) is an inset card with its own name and rail
- *    inside that parent. This is the depth the page was missing: "Theme", "Navigation" and
- *    "Language & text" are visibly children of Appearance, not three more equal cards;
- *  - **the header's Expand/Collapse all** is how the tree is used rather than admired — a user
- *    who lives in Appearance closes the other five in one tap.
- *
- * Nothing here decides *which* sections exist: that is [settingsHubGroups], immediately below.
- */
 @Composable
 private fun SettingsHub(
     repo: AppRepository,
@@ -11461,10 +10260,6 @@ private fun SettingsHub(
     onCollapseAll: () -> Unit,
     listState: LazyListState = rememberLazyListState()
 ) {
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the hub cascades: arriving from a page turn or back from a
-    // sub-page, its section cards follow the header one stagger step apart. The window disarms
-    // itself, so the restored scroll position (V117) lands on fully-settled cards and nothing
-    // animates under a scrolling thumb.
     val entranceArmed = rememberMarbleEntranceWindow()
     val backupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -11473,8 +10268,6 @@ private fun SettingsHub(
         ActivityResultContracts.OpenDocument()
     ) { uri -> if (uri != null) repo.restoreBackup(uri) }
 
-    // The two file actions are passed down as verbs: the tree below is a description of the page,
-    // and a description that owns an ActivityResultLauncher is a description that cannot be read.
     val groups = settingsHubGroups(
         repo = repo,
         onNavigate = onNavigate,
@@ -11485,8 +10278,6 @@ private fun SettingsHub(
     val openCount = SettingsHubPolicy.openCount(collapsed, keys)
     val allOpen = SettingsHubPolicy.allOpen(collapsed, keys)
 
-    // MARBLE_SETTINGS_RESTORE_V117 — the hub owns its scroll so coming back from a sub-page lands
-    // exactly where you left it instead of reshooting to the top.
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -11502,8 +10293,7 @@ private fun SettingsHub(
     ) {
         item(key = "hub-header") {
             // MARBLE_SETTINGS_HUB_TRIM_V163 — the title stands alone; the version lives on the
-            // Information page. The one line under it now reports the tree's own state, and the
-            // action is the whole tree's, not a single section's.
+
             MarbleCompactTopBar(
                 title = "Settings",
                 subtitle = if (allOpen) {
@@ -11517,9 +10307,6 @@ private fun SettingsHub(
             )
         }
 
-        // MARBLE_SETTINGS_SECTIONS_V210 — one item per MAIN section; its sub-sections are drawn
-        // inside it, so collapsing a parent removes them from the list in one motion instead of
-        // leaving orphaned rows behind.
         groups.forEachIndexed { index, group ->
             item(key = "hub-group-${group.key}") {
                 SettingsHubGroupCard(
@@ -11533,13 +10320,6 @@ private fun SettingsHub(
     }
 }
 
-/**
- * MARBLE_SETTINGS_SECTIONS_V210 — what the hub's six main sections are, and what each holds.
- *
- * The order is the order a user reads their phone: what the connection page shows, the tunnel
- * itself, the measurements that judge servers, the data behind them, how it all looks, and the
- * system around it.
- */
 @Composable
 private fun settingsHubGroups(
     repo: AppRepository,
@@ -11554,7 +10334,6 @@ private fun settingsHubGroups(
     val activeFont = parseAppFont(settings.fontFamily)
     val activeLanguage = parseAppLanguage(settings.appLanguage)
 
-    /** One sub-section of the tree. */
     fun section(
         title: String,
         subtitle: String = "",
@@ -11562,7 +10341,7 @@ private fun settingsHubGroups(
     ): SettingsHubSectionSpec = SettingsHubSectionSpec(title, subtitle, content)
 
     return listOf(
-        // ------------------------------------------------------------ Home & display
+
         SettingsHubGroupSpec(
             key = "home",
             title = t.categoryHome,
@@ -11574,8 +10353,6 @@ private fun settingsHubGroups(
                     title = t.homeStyleTitle,
                     subtitle = "Which of the five presentations Home uses"
                 ) {
-                    // The four Home presentations at a glance — the quick pick stays with the
-                    // surface it changes instead of on a "most used" shelf.
                     SettingsStyleMiniRow(repo)
                     SettingsHubRow(
                         title = t.homeStyleTitle,
@@ -11593,17 +10370,13 @@ private fun settingsHubGroups(
                         subtitle = "Download and upload while connected",
                         checked = settings.homeSpeedWidgetEnabled
                     ) { repo.updateSettings(repo.settings.copy(homeSpeedWidgetEnabled = it)) }
-                    // MARBLE_SESSION_USAGE_V192 — the per-connection data readout: the live total
-                    // while connected, the last session's total when disconnected.
+
                     SettingSwitch(
                         title = "Show data usage",
                         subtitle = "Current and previous session",
                         checked = settings.homeShowDataUsage
                     ) { repo.updateSettings(repo.settings.copy(homeShowDataUsage = it)) }
-                    // MARBLE_ROUTE_ATELIER_V207 — "a full-screen breathing glow says nothing about
-                    // the connection, so its cost has to be a choice". One switch for every
-                    // ambient surface: the backdrop, the status pip's rings and the heartbeat
-                    // trace all hold still, and nothing they report changes.
+
                     SettingSwitch(
                         title = "Ambient page motion",
                         subtitle = "Pause decorative motion",
@@ -11614,8 +10387,6 @@ private fun settingsHubGroups(
                     title = trx("Home layout"),
                     subtitle = "The Customize row of Home style 4"
                 ) {
-                    // MARBLE_MODULAR_CUSTOMIZER_V151 — Home style 4 can hide its Customize affordance.
-                    // The way back lives here, where the rest of Home is set.
                     SettingSwitch(
                         title = "Show the Customize button",
                         subtitle = "Show the Customize row at the top of Home style 4.",
@@ -11626,14 +10397,11 @@ private fun settingsHubGroups(
                     title = trx("Ping controls"),
                     subtitle = "What each ping button on the connection page measures"
                 ) {
-                    // MARBLE_HOME_PING_CONTROLS_V212 — three ping surfaces on Home, three verbs,
-                    // and the user owns all three.
                     HomePingControlsSettings(repo)
                 }
             )
         ),
 
-        // ------------------------------------------------------------ Connection
         SettingsHubGroupSpec(
             key = "connection",
             title = t.categoryConnection,
@@ -11645,9 +10413,6 @@ private fun settingsHubGroups(
                     title = trx("Engine"),
                     subtitle = "Which core builds the tunnel"
                 ) {
-                    // MARBLE_SETTINGS_DEDUP — one door owns the whole engine surface, and it still
-                    // names the running core on the title line (MARBLE_CORE_NAME_IN_SETTINGS_V160)
-                    // before the page is opened.
                     SettingsHubRow(
                         title = "Engine & tunnel",
                         subtitle = "Core switch, Xray and sing-box options",
@@ -11704,7 +10469,6 @@ private fun settingsHubGroups(
             )
         ),
 
-        // ------------------------------------------------------------ Measurement & servers
         SettingsHubGroupSpec(
             key = "measurement",
             title = trx("Measurement & servers"),
@@ -11727,15 +10491,12 @@ private fun settingsHubGroups(
                     title = trx("Server library"),
                     subtitle = "Where servers come from and how they are drawn"
                 ) {
-                    // MARBLE_SERVER_LOCATION_V192 — each server's country is verified once, in the
-                    // background, then remembered; the flags fill the circles on every surface.
                     SettingSwitch(
                         title = "Auto-detect server locations",
                         subtitle = "",
                         checked = settings.serverLocationAutoDetect
                     ) { repo.updateSettings(repo.settings.copy(serverLocationAutoDetect = it)) }
-                    // MARBLE_SERVER_TILE_LAYOUT_V208 — one preference for both lists: how a single
-                    // server is drawn on the Servers page and in the Home server box.
+
                     SettingsHubRow(
                         title = "Server cards",
                         subtitle = serverLayoutSubtitle(repo.settings),
@@ -11748,7 +10509,6 @@ private fun settingsHubGroups(
             )
         ),
 
-        // ------------------------------------------------------------ Data & sources
         SettingsHubGroupSpec(
             key = "data",
             title = t.categoryData,
@@ -11796,7 +10556,6 @@ private fun settingsHubGroups(
             )
         ),
 
-        // ------------------------------------------------------------ Appearance
         SettingsHubGroupSpec(
             key = "appearance",
             title = t.categoryAppearance,
@@ -11808,8 +10567,6 @@ private fun settingsHubGroups(
                     title = trx("Theme"),
                     subtitle = "Colours, and where they come from"
                 ) {
-                    // The quick theme pick moves with its parent card: the mini grid stays one tap
-                    // away, the full previews stay on the Theme page.
                     SettingsThemeMiniRow(repo)
                     SettingsHubRow(
                         title = "Theme",
@@ -11839,7 +10596,6 @@ private fun settingsHubGroups(
                     title = trx("Navigation"),
                     subtitle = "The bar that is on screen on every page"
                 ) {
-                    // MARBLE_SETTINGS_TREE_V215 — the bar's own preferences sit beside the fourth tab.
                     SettingsHubRow(
                         title = "Navigation bar",
                         subtitle = dockSettingsSubtitle(settings),
@@ -11848,8 +10604,7 @@ private fun settingsHubGroups(
                             onNavigate(SettingsPages.card(SettingsWorkspaceTab.GENERAL, "Navigation bar"))
                         }
                     ) { HomeVectorIcon(HomeIcon.SERVER, Aether.Emerald, Modifier.size(22.dp)) }
-                    // MARBLE_DOCK_SLOT_V167 — the fourth tab of the bar is the user's, so the hub
-                    // answers "what is in it right now?" before the page is even opened.
+
                     SettingsHubRow(
                         title = "Fourth tab",
                         subtitle = dockSlotSettingsSubtitle(
@@ -11872,8 +10627,6 @@ private fun settingsHubGroups(
                     title = trx("Text & language"),
                     subtitle = "Size, typeface and language of every screen"
                 ) {
-                    // MARBLE_TEXT_SCALE_V215 — one size for the whole app, applied by the root
-                    // composition, so every page and every row scales together.
                     TextScaleChoice(repo)
                     SettingsHubRow(
                         title = "Typeface",
@@ -11895,7 +10648,6 @@ private fun settingsHubGroups(
             )
         ),
 
-        // ------------------------------------------------------------ System
         SettingsHubGroupSpec(
             key = "system",
             title = t.categorySystem,
@@ -11917,8 +10669,7 @@ private fun settingsHubGroups(
                             )
                         }
                     ) { HomeVectorIcon(HomeIcon.STATUS, Aether.Cyan, Modifier.size(22.dp)) }
-                    // MARBLE_BACKGROUND_UNRESTRICTED_V166 — the one-tap fix for a VPN that Android
-                    // keeps interrupting in the background.
+
                     SettingsHubRow(
                         title = "Background access",
                         subtitle = "Fixes interrupted VPN in background",
@@ -11942,15 +10693,6 @@ private fun settingsHubGroups(
     )
 }
 
-/**
- * MARBLE_SETTINGS_SECTIONS_V210 — one main section of the hub.
- *
- * The card keeps the V191 presence work (a tone-lit wash, one cool shadow and a gradient rim own
- * the section's identity) and adds the one affordance the flat hub had no room for: the header is
- * a control. Tapping it rotates the chevron a quarter turn and closes the section; the badge
- * counts how many sub-sections the parent is holding, so a closed section still says how much it
- * is hiding.
- */
 @Composable
 private fun SettingsHubGroupCard(
     group: SettingsHubGroupSpec,
@@ -11958,23 +10700,13 @@ private fun SettingsHubGroupCard(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // MARBLE_NATIVE_ANDROID_V213 — the hub's group card is the platform's card.
-    //
-    // V191 gave every group a tone-lit wash, a 5 dp lift and a tone-tinted *rim*. The wash and the
-    // lift were right; the rim was not, because a coloured stroke around a card is the one thing
-    // Android's own settings cards never have — an edge is neutral and the content owns the
-    // colour. The card now wears the native skin: the platform's container step, the platform's
-    // card corner, the ambient/spot pair with the contact shadow under it, and one hairline that
-    // catches the light at the top of the card and settles into the neutral outline by its bottom.
     val shape = marbleNativeShape(MarbleNativeSpec.CardCornerDp.dp)
     val dark = homeCloudDark()
     val washEndPx = with(LocalDensity.current) { 150.dp.toPx() }
     val groupShadow = marbleNativeShadow(group.tone)
     val groupOutline = marbleNativeOutline()
     val groupRim = lerp(groupOutline, group.tone, if (dark) .30f else .22f)
-    // A quarter turn is the whole disclosure language: open points down into the contents, closed
-    // points along the row. It is a rotation, never a size change, so nothing in the list moves
-    // when a section opens.
+
     val chevronTurn by animateFloatAsState(
         targetValue = if (expanded) 0f else -90f,
         animationSpec = MarbleMotionSpecs.DockFloat,
@@ -12000,8 +10732,6 @@ private fun SettingsHubGroupCard(
                 spotColor = groupShadow.contact
             )
             .clip(shape)
-            // MARBLE_SETTINGS_OPAQUE_SURFACES_V141 — opaque fill, as on every other settings
-            // surface: a translucent card let the page gradient bleed through in bands.
             .background(marbleNativeCardFill())
             .background(
                 Brush.verticalGradient(
@@ -12036,9 +10766,6 @@ private fun SettingsHubGroupCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // The platform's leading container: 40 dp, round, and filled with the section's tone
-            // at container strength over the card's own surface — never a rounded square borrowed
-            // from a toolbar.
             Box(
                 Modifier
                     .size(MarbleNativeSpec.LeadingContainerDp.dp)
@@ -12055,17 +10782,11 @@ private fun SettingsHubGroupCard(
                 Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
-                // MARBLE_NATIVE_ANDROID_V213 — a heading is not a slogan. It was uppercased *and*
-                // letterspaced 1.4 sp *and* painted in the section's tone: three signals for one
-                // word, which is why a page of groups read as a wall of labels. The platform names
-                // a group in sentence case at normal tracking; the colour is already carried by the
-                // card's own wash and by the badge.
                 Text(
                     trx(group.title),
-                    color = group.tone,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = MarbleNativeSpec.SectionLabelTrackingSp.sp,
+                    color = Aether.Ink,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -12078,20 +10799,19 @@ private fun SettingsHubGroupCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            // How much this parent is holding: the number is the answer to "is it worth opening?"
-            // and it stays readable while the section is closed.
+
             Text(
                 "${SettingsHubPolicy.sectionCount(group)}",
-                color = group.tone,
+                color = marbleNativeInkVariant(),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 modifier = Modifier
                     .clip(ServersBadgeShape)
-                    .background(group.tone.copy(alpha = .13f))
+                    .background(marbleNativeContainerHigh())
                     .padding(horizontal = 7.dp, vertical = 2.dp)
             )
-            // The platform's disclosure mark, drawn rather than typed, and still a rotation.
+
             Box(Modifier.rotate(chevronTurn)) {
                 MarbleNativeChevron(group.tone.copy(alpha = .80f))
             }
@@ -12111,26 +10831,11 @@ private fun SettingsHubGroupCard(
     }
 }
 
-/**
- * MARBLE_SETTINGS_SECTIONS_V210 — one sub-section: a named inset inside its parent card.
- *
- * The inset is the hierarchy. A sub-section sits on the parent's inset fill, carries a short rail
- * in the parent's tone and names itself in the type ramp one step *below* the parent's label, so
- * the two levels can be told apart at a glance without a divider or an indent guide. Its rows are
- * the rows the flat hub already used, inside the section's own tone, so a row's colour still
- * comes from the parent it belongs to.
- */
 @Composable
 private fun SettingsHubSubSectionCard(
     tone: Color,
     section: SettingsHubSectionSpec
 ) {
-    // MARBLE_NATIVE_ANDROID_V213 — the sub-section is a platform inset.
-    //
-    // One step *above* the card it lives in (the platform's container-high role) with the neutral
-    // outline family around it, which is how Android nests a group inside a settings card. The
-    // level marker stops being a 3 dp rail — a Marble invention — and becomes the platform's
-    // leading container: a round, tone-filled dot at the head of the row.
     val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
     val insetFill = marbleNativeContainerHigh()
     val subOutline = marbleNativeOutline()
@@ -12174,8 +10879,9 @@ private fun SettingsHubSubSectionCard(
                 Text(
                     trx(section.title),
                     color = Aether.Ink,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = MarbleNativeSpec.SectionLabelTrackingSp.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -12191,8 +10897,7 @@ private fun SettingsHubSubSectionCard(
                 }
             }
         }
-        // MARBLE_SETTINGS_ROW_TONE_V141 — every row inside inherits the parent's tone, so a
-        // sub-section can never introduce a colour of its own.
+
         CompositionLocalProvider(LocalSettingsSectionTone provides tone) {
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 section.content()
@@ -12202,10 +10907,9 @@ private fun SettingsHubSubSectionCard(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Sub-pages
+
 // ---------------------------------------------------------------------------------------------
 
-/** Theme & colours: the full-size previews, plus the frame personality and studio accent. */
 @Composable
 private fun SettingsThemePage(
     repo: AppRepository,
@@ -12265,7 +10969,6 @@ private fun ThemePreviewIllustration(
         val h = size.height
         val r = 8.dp.toPx()
 
-        // Mini phone frame
         drawRoundRect(
             color = Color(0xFF10141E),
             size = Size(w, h),
@@ -12281,7 +10984,6 @@ private fun ThemePreviewIllustration(
         val pad = 5.dp.toPx()
         val contentW = w - pad * 2
 
-        // 1. Top Wide Status Bar
         val statusH = h * 0.22f
         drawRoundRect(
             color = Color(0xFF1B2234),
@@ -12289,13 +10991,13 @@ private fun ThemePreviewIllustration(
             size = Size(contentW, statusH),
             cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
         )
-        // Status dot
+
         drawCircle(
             color = tone,
             radius = 2.dp.toPx(),
             center = Offset(pad + 5.dp.toPx(), pad + 5.dp.toPx())
         )
-        // Status bar mini lines
+
         drawLine(
             color = Color.White.copy(alpha = 0.7f),
             start = Offset(pad + 11.dp.toPx(), pad + 5.dp.toPx()),
@@ -12313,7 +11015,6 @@ private fun ThemePreviewIllustration(
 
         when (style) {
             HomeStyle.IOS_SLIDER -> {
-                // Center: Sub & Server Box
                 val boxY = pad + statusH + 3.dp.toPx()
                 val boxH = h * 0.46f
                 drawRoundRect(
@@ -12322,14 +11023,14 @@ private fun ThemePreviewIllustration(
                     size = Size(contentW, boxH),
                     cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
                 )
-                // Centered Sub Pill
+
                 drawRoundRect(
                     color = tone.copy(alpha = 0.35f),
                     topLeft = Offset(w * 0.5f - 14.dp.toPx(), boxY + 3.dp.toPx()),
                     size = Size(28.dp.toPx(), 5.dp.toPx()),
                     cornerRadius = CornerRadius(2.5.dp.toPx(), 2.5.dp.toPx())
                 )
-                // 3 Server rows
+
                 for (i in 0..2) {
                     val rowY = boxY + 10.dp.toPx() + i * 7.dp.toPx()
                     drawRoundRect(
@@ -12340,7 +11041,6 @@ private fun ThemePreviewIllustration(
                     )
                 }
 
-                // Bottom: Slide to connect track
                 val slideY = h - pad - 11.dp.toPx()
                 drawRoundRect(
                     color = Color(0xFF1B2234),
@@ -12363,7 +11063,6 @@ private fun ThemePreviewIllustration(
             }
 
             HomeStyle.IOS_FLOATING -> {
-                // Expanded Server Box in Center/Bottom
                 val boxY = pad + statusH + 3.dp.toPx()
                 val boxH = h - boxY - pad
                 drawRoundRect(
@@ -12372,14 +11071,14 @@ private fun ThemePreviewIllustration(
                     size = Size(contentW, boxH),
                     cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
                 )
-                // Centered Sub Pill
+
                 drawRoundRect(
                     color = tone.copy(alpha = 0.35f),
                     topLeft = Offset(w * 0.5f - 14.dp.toPx(), boxY + 3.dp.toPx()),
                     size = Size(28.dp.toPx(), 5.dp.toPx()),
                     cornerRadius = CornerRadius(2.5.dp.toPx(), 2.5.dp.toPx())
                 )
-                // Server rows
+
                 for (i in 0..3) {
                     val rowY = boxY + 10.dp.toPx() + i * 7.dp.toPx()
                     drawRoundRect(
@@ -12390,7 +11089,6 @@ private fun ThemePreviewIllustration(
                     )
                 }
 
-                // Right Floating Split Buttons
                 val fabX = w - pad - 6.dp.toPx()
                 val fab1Y = h - pad - 16.dp.toPx()
                 val fab2Y = h - pad - 6.dp.toPx()
@@ -12399,7 +11097,6 @@ private fun ThemePreviewIllustration(
             }
 
             HomeStyle.IOS_EMBOSSED -> {
-                // Center Bold Embossed Button
                 val btnY = pad + statusH + 14.dp.toPx()
                 drawCircle(
                     color = tone.copy(alpha = 0.25f),
@@ -12412,7 +11109,6 @@ private fun ThemePreviewIllustration(
                     center = Offset(w * 0.5f, btnY)
                 )
 
-                // Bottom: Server Box
                 val boxY = btnY + 16.dp.toPx()
                 val boxH = h - boxY - pad
                 drawRoundRect(
@@ -12433,7 +11129,6 @@ private fun ThemePreviewIllustration(
             }
 
             HomeStyle.IOS_MODULAR -> {
-                // Modular Grid: 4 tiles
                 val gridY = pad + statusH + 3.dp.toPx()
                 val gridH = (h - gridY - pad - 3.dp.toPx()) / 2f
                 val gridW = (contentW - 3.dp.toPx()) / 2f
@@ -12464,8 +11159,6 @@ private fun ThemePreviewIllustration(
                 )
             }
 
-            // MARBLE_ROUTE_ATELIER_V207 — the route presentation: one decision card holding the
-            // status, the three-node signet and the verb under them, then the server and the strip.
             HomeStyle.ROUTE_ATELIER -> {
                 val cardY = pad + statusH + 3.dp.toPx()
                 val cardH = h * 0.40f
@@ -12492,7 +11185,7 @@ private fun ThemePreviewIllustration(
                     end = Offset(pad + contentW - 10.dp.toPx(), signetY),
                     strokeWidth = 1.dp.toPx()
                 )
-                // The one verb, full width
+
                 drawRoundRect(
                     color = tone,
                     topLeft = Offset(pad + 4.dp.toPx(), cardY + cardH - 9.dp.toPx()),
@@ -12517,7 +11210,6 @@ private fun ThemePreviewIllustration(
     }
 }
 
-/** Home style: one thumbnail per presentation, drawn from the style's own artwork. */
 @Composable
 private fun SettingsHomeStylePage(
     repo: AppRepository,
@@ -12553,10 +11245,10 @@ private fun SettingsHomeStylePage(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(shape)
-                                    .background(Aether.Glass.copy(alpha = .42f))
+                                    .background(marbleNativeContainerHigh())
                                     .border(
                                         if (selected) 2.dp else 1.dp,
-                                        if (selected) tone else Aether.GlassBorderSoft.copy(alpha = .5f),
+                                        if (selected) tone else marbleNativeOutline(),
                                         shape
                                     )
                                     .kineticClickable(role = Role.Button, boundedShape = shape) {
@@ -12600,12 +11292,6 @@ private fun SettingsHomeStylePage(
     }
 }
 
-/**
- * A still miniature of each connection control at its own placement, so the choice is
- * recognizable at a glance. MARBLE_CONNECT_PLACEMENT_V123 — the faint baseline under each
- * silhouette shows where it sits in the Home presentation: centred (shutter), floor (slide)
- * or docked (classic bar).
- */
 @Composable
 private fun SettingsConnectButtonMotif(
     style: ConnectButtonStyle,
@@ -12671,8 +11357,6 @@ private fun SettingsConnectButtonMotif(
             }
 
             ConnectButtonStyle.STREAM -> {
-                // A floor bar: full width, with the travelling band drawn as an off-centre
-                // highlight and a small arrow echoing its right-to-left direction.
                 val r = h * .26f
                 val trackTop = h * .46f - r
                 drawRoundRect(
@@ -12688,7 +11372,7 @@ private fun SettingsConnectButtonMotif(
                     cornerRadius = CornerRadius(r, r),
                     style = Stroke(1.2.dp.toPx())
                 )
-                // The band, drawn mid-travel: a soft block that has entered from the right.
+
                 val bandWidth = w * .34f
                 val bandX = w * .58f
                 drawRoundRect(
@@ -12697,7 +11381,7 @@ private fun SettingsConnectButtonMotif(
                     size = Size(bandWidth, r * 2f),
                     cornerRadius = CornerRadius(r, r)
                 )
-                // Direction arrow, right to left.
+
                 drawLine(
                     tone,
                     Offset(w * .84f, h * .46f),
@@ -12722,8 +11406,6 @@ private fun SettingsConnectButtonMotif(
             }
 
             ConnectButtonStyle.FLOATING -> {
-                // MARBLE_HOME_V137 — a circular shutter pinned to the bottom-end corner: the
-                // circle sits right, the dock line sits below it.
                 val r = h * .36f
                 val c = Offset(w * .74f, h * .44f)
                 drawCircle(tone.copy(alpha = .22f), r, c)
@@ -12745,7 +11427,6 @@ private fun SettingsConnectButtonMotif(
             }
 
             ConnectButtonStyle.CLASSIC -> {
-                // A looser outer capsule implies the power-deck chrome it docks in.
                 drawRoundRect(
                     color = tone.copy(alpha = .10f),
                     topLeft = Offset(0f, h * .08f),
@@ -12785,7 +11466,6 @@ private fun SettingsConnectButtonMotif(
     }
 }
 
-/** Typeface: every candidate rendered in its own face. */
 @Composable
 private fun SettingsTypefacePage(
     repo: AppRepository,
@@ -12810,12 +11490,7 @@ private fun SettingsTypefacePage(
                             val selected = repo.settings.fontFamily.equals(font.id, true)
                             CyberSegment(
                                 label = font.label,
-                                // MARBLE_ROUTE_ATELIER_V207 — the detail line states what the app
-                                // actually resolves, because the name alone promised faces this build
-                                // does not carry. Choosing "Google Sans" and getting the platform sans
-                                // is a small lie in the one place where a user is trusting you with
-                                // the typography of the whole app; naming the fallback costs nothing
-                                // and buys the credibility back.
+
                                 detail = when (font) {
                                     AppFont.VAZIR -> "Bundled, real face"
                                     AppFont.SYSTEM -> "The OS default sans"
@@ -12851,7 +11526,6 @@ private fun SettingsTypefacePage(
     }
 }
 
-/** Language: the Persian key is written in Persian and set in Vazirmatn in every state. */
 @Composable
 private fun SettingsLanguagePage(
     repo: AppRepository,
@@ -12872,7 +11546,7 @@ private fun SettingsLanguagePage(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 AppLanguage.entries.forEach { language ->
-                    // MARBLE_VAZIR_LANGUAGE_KEY_V114
+
                     val persianKey = language == AppLanguage.PERSIAN
                     CyberSegment(
                         label = when (language) {
@@ -12904,8 +11578,6 @@ private fun SettingsLanguagePage(
     }
 }
 
-// MARBLE_SINGBOX_CORE_V151 / MARBLE_SETTINGS_DEDUP — the names and details of the two tunnel
-// cores, now read by the ENGINE workspace's "Engine" card (the dedicated core pages are gone).
 private fun coreEngineTitle(engine: CoreEngine): String = when (engine) {
     CoreEngine.XRAY -> "Xray core"
     CoreEngine.SINGBOX -> "sing-box extended"
@@ -12918,28 +11590,12 @@ private fun coreEngineDetail(engine: CoreEngine): String = when (engine) {
         "The extended core: one process owns the tunnel, adds warp, masque and mieru, ships the geo rule sets, and answers URL test from its own measurements"
 }
 
-/**
- * MARBLE_SETTINGS_DEDUP_V193 — one core-options surface for both engines.
- *
- * The Xray card and the sing-box card each owned their own "Sniffing", "Allow LAN inbound",
- * "HTTP inbound port", "Log level" and "TCP Fast Open" control, scattered across two sections of
- * the same Engine page. They all did one job per concept — and TCP Fast Open is literally one
- * shared setting consumed by both cores. This composable draws each concept exactly once,
- * reading and writing the fields of whichever engine is selected in the Engine card above; the
- * options that genuinely belong to one core (route-only sniffing for Xray, resolve-destination
- * and the extended parser choices for sing-box) appear with it.
- */
 @Composable
 private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     val s = repo.settings
     val isXray = engine == CoreEngine.XRAY
     val tone = if (isXray) Aether.Emerald else Aether.Amethyst
 
-    // MARBLE_CORE_OPTIONS_V211 — this card is the cores' own surface, and every control in it is
-    // the user's. Nothing below is derived, defaulted away or rewritten on the way to a config:
-    // [CoreOptions] writes these fields verbatim into the document and [SingBoxTransportPolicy]
-    // does the same for the sing-box half. The card therefore states the same promise the words
-    // say: what you set here is what the core is told.
     Text(
         trx(
             "Every option here is written to the core exactly as you set it, and nothing on this " +
@@ -12955,7 +11611,6 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
         InformationRow(trx("Control API"), trx("127.0.0.1 inside this app; read for URL test only"), Aether.CyanBright)
     }
 
-    // ── Log ───────────────────────────────────────────────────────────────────────────────────
     Text(trx("Log level"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
@@ -12994,7 +11649,6 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
         ) { repo.updateSettings(repo.settings.copy(singBoxLogTimestamp = it)) }
     }
 
-    // ── Sniffing ──────────────────────────────────────────────────────────────────────────────
     SettingSwitch(
         title = trx("Sniffing"),
         subtitle = trx("Read HTTP/TLS/QUIC so routing sees the real host"),
@@ -13051,7 +11705,6 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
         }
     }
 
-    // ── Inbounds ──────────────────────────────────────────────────────────────────────────────
     SettingSwitch(
         title = trx("Allow LAN inbound"),
         subtitle = trx("Bind the inbounds on 0.0.0.0 so other devices can use this phone"),
@@ -13104,7 +11757,6 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
-    // ── Multiplexing ──────────────────────────────────────────────────────────────────────────
     Text(trx("Multiplexing"), color = Aether.Ink, style = MaterialTheme.typography.titleSmall)
     if (isXray) {
         SettingSwitch(
@@ -13194,7 +11846,6 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
-    // ── The socket the network sees ───────────────────────────────────────────────────────────
     SettingSwitch(
         title = trx("TCP Fast Open"),
         subtitle = trx("Send data with the handshake • applies to both cores"),
@@ -13261,13 +11912,8 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
     if (isXray) {
-        // ── Routing and policy ────────────────────────────────────────────────────────────────
         Text(trx("Routing"), color = Aether.Ink, style = MaterialTheme.typography.titleSmall)
-        // MARBLE_CORE_OPTIONS_V211 — `routing.domainStrategy` and `routing.domainMatcher` are the
-        // Routing page's own fields (`routeDomainStrategy`/`routeDomainMatcher`), written into the
-        // document by the hardener next to the rules they describe. A second pair of chips here
-        // would be a second writer for one key, and one of the two would silently lose — so this
-        // page names the control instead of duplicating it.
+
         Text(
             trx("Domain strategy and matcher stay on the Routing page, next to the rules they apply to."),
             color = Aether.InkFaint,
@@ -13311,11 +11957,7 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
             subtitle = trx("Verify the final config with Xray before connecting"),
             checked = s.configCompatibilityMode
         ) { repo.updateSettings(repo.settings.copy(configCompatibilityMode = it)) }
-        // MARBLE_CORE_CONFIG_SUPERSET_V165 — the consent switch for a cleartext public node. The
-        // core policy patch (`scripts/inject-xray-config-superset.py`) asks the application this
-        // one question, and this is the control that answers it. Switching it off restores
-        // fail-closed behaviour exactly; leaving it on is what makes a plaintext subscription
-        // usable instead of "0/42".
+
         SettingSwitch(
             title = trx("Dial unencrypted nodes"),
             subtitle = trx("Plaintext VLESS/Trojan nodes stay usable; switching off refuses them"),
@@ -13359,13 +12001,6 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
-    // ── The escape hatch ──────────────────────────────────────────────────────────────────────
-    // MARBLE_CORE_OPTIONS_V211 — a settings screen can never draw every field a core accepts, and
-    // a client that cannot express the last field makes it unreachable. This box is merged on top
-    // of the generated document (objects key by key, arrays and scalars replaced), and the blocks
-    // the app owns — Xray's `routing`, sing-box's `route`, and `inbounds`/`outbounds`/`dns`/`log`
-    // on both — are refused rather than half-merged: a tunnel that starts and then does something
-    // nobody asked for is worse than a sentence explaining why the box was ignored.
     Text(
         trx("Extra JSON (advanced)"),
         color = Aether.Ink,
@@ -13394,8 +12029,7 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
         colors = marbleOutlinedTextFieldColors(),
         modifier = Modifier.fillMaxWidth()
     )
-    // The refused set is the core's own: Xray calls its routing block `routing`, sing-box calls it
-    // `route`, so naming the wrong one would be worse than naming none.
+
     val ownedBlocks = if (isXray) "inbounds, outbounds, routing, dns, log"
     else "inbounds, outbounds, route, dns, log"
     Text(
@@ -13409,11 +12043,6 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     )
 }
 
-/**
- * Information: what this build actually is. App version, the pinned tunnel cores read from
- * core-lock.json at build time, and the source repository — tapping a link opens the browser
- * directly, never an in-app page.
- */
 @Composable
 private fun SettingsInformationPage(
     repo: AppRepository,
@@ -13434,14 +12063,11 @@ private fun SettingsInformationPage(
             InformationRow("Version code", BuildConfig.VERSION_CODE.toString(), Aether.InkMuted)
             InformationRow("Xray core", BuildConfig.XRAY_CORE_TAG, Aether.Emerald)
             InformationRow("Tunnel core", BuildConfig.HEV_CORE_TAG, Aether.Amber)
-            // MARBLE_SINGBOX_CORE_V151 — the third pinned core, shown next to the other two so a
-            // user can confirm the app, the native build and the release notes all agree.
+
             InformationRow("sing-box core", BuildConfig.SINGBOX_CORE_TAG, Aether.CyanBright)
             InformationRow("Build type", BuildConfig.BUILD_TYPE, Aether.InkMuted)
         }
-        // MARBLE_BUGFINDER_HOME_V144 — Bug Finder lives here now, not next to Notifications.
-        // A diagnostics scanner belongs with the build identity, the debug export and the
-        // issue tracker: the scan writes the report, Diagnostics exports it, Links files it.
+
         SettingsHubCard(
             title = "Bug Finder",
             subtitle = "Scan the runtime, then copy or save the report",
@@ -13529,10 +12155,6 @@ private fun SettingsInformationPage(
 
 @Composable
 private fun InformationRow(label: String, value: String, tone: Color) {
-    // MARBLE_SETTINGS_ROW_TONE_V141 — same boxed row language as the rest of Settings.
-    // MARBLE_NATIVE_ANDROID_V213 — and that language is the platform's row: the container step, one
-    // neutral hairline, the platform's row corner and its touch floor. The tone rail is gone — the
-    // row's colour is already in its value.
     val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
     Row(
         modifier = Modifier
@@ -13575,16 +12197,12 @@ private fun InformationLinkRow(
     tone: Color,
     onClick: () -> Unit
 ) {
-    // MARBLE_NATIVE_ANDROID_V213 — the informational door is the platform's two-line row: the
-    // native container and outline, the native corner, the 72 dp anatomy and the disclosure mark at
-    // the trailing edge. `homeCloudInset*` and the tone rail are off this surface for good.
     val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = MarbleNativeSpec.RowTwoLineHeightDp.dp)
             .clip(shape)
-            // MARBLE_SETTINGS_OPAQUE_SURFACES_V141 — opaque inset fill, never translucent glass.
             .background(marbleNativeCardFill())
             .border(1.dp, marbleNativeOutline(), shape)
             .kineticClickable(role = Role.Button, boundedShape = shape, showIndication = false, onClick = onClick)
@@ -13627,21 +12245,10 @@ private fun SpatialSettings(
     focusSection: String? = null,
     onContentScrollChanged: (Boolean) -> Unit = {}
 ) {
-    // MARBLE_SETTINGS_HUB_V114 — Settings is one hub page. Every title below it opens its own page,
-    // and the pages are plain string keys so the navigator survives a saved-state restore.
-    // MARBLE_SETTINGS_RESTORE_V117 — the starting page is the one the user last visited (restored
-    // from persistence), so reopening the Settings tab after a Theme visit returns to the Theme page
-    // instead of reshooting to the top of the hub.
     var page by rememberSaveable {
         mutableStateOf(repo.lastSettingsPage.ifBlank { SettingsPages.HUB })
     }
 
-    // MARBLE_SETTINGS_RESTORE_V117 — the scroll position of the hub (and the workspace pages) is
-    // owned here, above the page switch, so it is never torn down with a page's composition. Each
-    // workspace tab gets its own slot in the persistent map so switching between pages keeps their
-    // places for the whole session.
-    // MARBLE_SETTINGS_RESTORE_V117 — scroll states are owned here, above the page switch, so the
-    // hub and each dedicated sub-page never lose their place when the user navigates away and back.
     val hubListState = rememberLazyListState()
     val themeListState = rememberLazyListState()
     val homeStyleListState = rememberLazyListState()
@@ -13649,47 +12256,31 @@ private fun SpatialSettings(
     val languageListState = rememberLazyListState()
     val informationListState = rememberLazyListState()
     val routingListState = rememberLazyListState()
-    // MARBLE_FRAGMENT_MUX_PAGE_V206
-    // MARBLE_DOCK_SLOT_V167
+
     val dockSlotListState = rememberLazyListState()
-    // One scroll state per workspace tab; only the active tab's is shown at a time.
+
     val workspaceListStates = remember {
         SettingsWorkspaceTab.entries.associateWith { LazyListState() }
     }
     fun workspaceListState(tab: SettingsWorkspaceTab): LazyListState =
         workspaceListStates.getValue(tab)
 
-    // MARBLE_SETTINGS_SECTIONS_V210 — which main sections of the hub the user has closed. It is
-    // owned here, above the page switch, for the same reason the scroll states are: collapsing
-    // Appearance and then going into Theme and back must not silently re-open everything. The
-    // state is the set of CLOSED keys, so a section added in a later release opens by default
-    // instead of inheriting a stored decision nobody made.
     var hubCollapsed by remember { mutableStateOf(emptySet<String>()) }
 
-    // Persist the current page so the next visit restores it.
     LaunchedEffect(page) {
         repo.rememberSettingsPage(page)
     }
 
-    // A deep link from Home ("Routing") lands directly on the dedicated Routing page, the fourth
-    // tab's Customize entry lands on its customization page, and MARBLE_ROUTE_ATELIER_V207 adds the
-    // Tests shortcut, which lands on the Tests workspace itself rather than the hub.
     LaunchedEffect(focusSection) {
         if (focusSection == "Routing") {
             page = SettingsPages.ROUTING
         } else if (focusSection == SettingsPages.TESTS) {
-            // The card inside the workspace is named, not just the tab: the deep link says
-            // "the Testing card", which is the first thing that page shows.
             page = SettingsPages.workspace(SettingsWorkspaceTab.TESTS, SettingsPages.TESTS_CARD)
         } else if (focusSection == SettingsPages.DOCK_SLOT) {
-            // MARBLE_DOCK_SLOT_V167 — the fourth tab's Customize entry is a focus value too, and
-            // it lands on the slot's own page rather than the hub.
             page = SettingsPages.DOCK_SLOT
         }
     }
 
-    // System back walks up one level: sub-page → hub. It never leaves Settings by accident.
-    // MARBLE_SURFACE_DEPTH_V212 — and it does so on the gesture's own progress, not at its end.
     val settingsBackProgress = remember { MutableStateFlow(0f) }
     val settingsBack by settingsBackProgress.collectAsState()
     PredictiveBackHandler(enabled = page != SettingsPages.HUB) { events ->
@@ -13697,7 +12288,6 @@ private fun SpatialSettings(
             events.collect { event -> settingsBackProgress.value = event.progress }
             page = SettingsPages.HUB
         } catch (cancelled: CancellationException) {
-            // Released short of the threshold: the sub-page stays open.
         } finally {
             settingsBackProgress.value = 0f
         }
@@ -13710,10 +12300,7 @@ private fun SpatialSettings(
             .marblePredictiveBack(settingsBack),
         transitionSpec = {
             // MARBLE_STABLE_NAVIGATION_V202 — settings pages all own large scrolling headers.
-            // Translating two independently measured LazyColumns at once caused their headers to
-            // cross and briefly clip on slower GPUs. Fade-through keeps the hierarchy change clear
-            // without moving either page's geometry; the outgoing page is gone before the incoming
-            // header becomes fully visible.
+
             expressiveFadeThrough()
         },
         label = "settings-page"
@@ -13779,7 +12366,6 @@ private fun SpatialSettings(
                     onBack = { page = SettingsPages.HUB }
                 )
 
-            // MARBLE_DOCK_SLOT_V167 — the fourth tab's customization workspace.
             target == SettingsPages.DOCK_SLOT ->
                 SettingsDockSlotPage(
                     repo = repo,
@@ -13787,9 +12373,6 @@ private fun SpatialSettings(
                     onBack = { page = SettingsPages.HUB }
                 )
 
-            // MARBLE_SETTINGS_DEDUP — a restored page key from an older build ("core",
-            // "xray-core", "singbox-core") falls through to Information: the pages are gone,
-            // the navigator must not crash on the saved state that still names them.
             else -> SettingsInformationPage(
                 repo = repo,
                 listState = informationListState,
@@ -13815,12 +12398,7 @@ private fun SettingsTabPage(
     listState: LazyListState = rememberLazyListState()
 ) {
     val sections = settingsSections(tab, repo, focusSection, onNavigate)
-    // MARBLE_ROUTE_ATELIER_V207 — a focus request means "show me that control". Restoring the scroll
-    // position is the rule for ordinary visits (V117); a deep link is not an ordinary visit. The whole
-    // of a workspace's content sits inside one list item (a header plus one body), so there is no
-    // per-card scroll to perform — which means the honest version of this rule is: land at the top
-    // when the thing asked for IS the first card, and otherwise do not pretend to have moved. That is
-    // why the check is against the first section's title and not simply "focus != null".
+
     val focusIsFirstCard = focusSection != null &&
         sections.firstOrNull()?.title?.contains(focusSection, ignoreCase = true) == true
     if (focusIsFirstCard) {
@@ -13857,7 +12435,6 @@ private fun SettingsTabPage(
     }
 }
 
-/** The page title of a dedicated Settings page, matching its hub row wording. */
 private fun settingsTabPageTitle(tab: SettingsWorkspaceTab): String = when (tab) {
     SettingsWorkspaceTab.GENERAL -> "General"
     SettingsWorkspaceTab.TESTS -> "Tests & ranking"
@@ -13866,7 +12443,6 @@ private fun settingsTabPageTitle(tab: SettingsWorkspaceTab): String = when (tab)
     SettingsWorkspaceTab.SYSTEM -> "System"
 }
 
-/** The quiet one-line description under the title of a dedicated Settings page. */
 private fun settingsTabPageSubtitle(tab: SettingsWorkspaceTab): String = when (tab) {
     SettingsWorkspaceTab.GENERAL -> "Home layout, sources and app updates"
     SettingsWorkspaceTab.TESTS -> "Probes, ranking and live route intelligence"
@@ -13875,10 +12451,6 @@ private fun settingsTabPageSubtitle(tab: SettingsWorkspaceTab): String = when (t
     SettingsWorkspaceTab.SYSTEM -> "Notifications and background access"
 }
 
-/**
- * One section card worth of content, shared by the lazy page and the zero-viewport fallback so
- * the two render paths can never drift apart.
- */
 private class SettingsSectionSpec(
     val title: String,
     val subtitle: String,
@@ -13887,12 +12459,6 @@ private class SettingsSectionSpec(
     val content: @Composable () -> Unit
 )
 
-/**
- * The single source of truth for what each Settings workspace shows.
- *
- * Every tab is guaranteed at least one real card in both expert and standard modes, and the
- * Home -> Routing focus flow renders its target card without mutating Expert mode.
- */
 @Composable
 private fun settingsSections(
     tab: SettingsWorkspaceTab,
@@ -13911,21 +12477,16 @@ private fun settingsSections(
     return when (tab) {
         SettingsWorkspaceTab.GENERAL -> listOf(
             card("Connection","Tunnel, proxy, port",HomeIcon.TUNNEL,Aether.Cyan) { ConnectionSettings(repo) },
-            // MARBLE_DOCK_CUSTOM_V145 — the bar that is on screen on every page is a preference.
+
             card(
                 "Navigation bar",
                 dockSettingsSubtitle(repo.settings),
                 HomeIcon.SERVER,
                 Aether.Emerald
             ) { DockSettings(repo) },
-            // MARBLE_SETTINGS_DEDUP — the "Fourth tab" card used to duplicate the slot's own
-            // page: the show/hide switch and the Customize button both live on the Fourth tab
-            // page (Settings › Appearance › Fourth tab), so this second door is gone.
+
             card("Subscriptions","Refresh & sources",HomeIcon.LIBRARY,Aether.Amethyst) { SubscriptionSettings(repo) },
-            // MARBLE_MODULAR_CUSTOMIZER_V151 — the Customize switch now sits in the Home section of the
-            // hub (MARBLE_SETTINGS_TREE_V215), so this workspace keeps only the server-card door.
-            // MARBLE_SERVER_TILE_LAYOUT_V208 — one preference for both lists: how a single
-            // server is drawn on the Servers page and in the Home server box.
+
             card(
                 "Server cards",
                 serverLayoutSubtitle(repo.settings),
@@ -13933,19 +12494,16 @@ private fun settingsSections(
                 Aether.Amethyst
             ) { ServerLayoutChoice(repo) }
         )
-        // MARBLE_SETTINGS_EXPERT_ALWAYS_V118 — every low-level option is shown; there is no gate.
-        // The expert switch and its read-out row were removed in MARBLE_SETTINGS_TREE_V215.
+
         SettingsWorkspaceTab.TESTS -> listOf(
             card(
                 "Testing",
-                // The one ping method, named on the card so it is visible without opening it.
+
                 "Ping method • ${probeMethodShortLabel(repo.settings.probeMethod)}",
                 HomeIcon.BENCHMARK,
                 Aether.Amethyst
             ) { ProbeSettings(repo) },
-            // MARBLE_AUTO_SERVER_SELECTOR_V202 — the selector lives under Tests because the
-            // measurement is what it decides from: every strategy except rotation is a way of
-            // reading the same numbers this section configures.
+
             card(
                 "Automatic server selector",
                 if (repo.settings.autoServerSelectorEnabled) {
@@ -13965,24 +12523,18 @@ private fun settingsSections(
             }
         )
         SettingsWorkspaceTab.NETWORK -> listOf(
-            // Routing now lives on its own dedicated page (MARBLE_ROUTING_SEPARATE_V143).
-            // This card is only the entry point; the full rules workspace is one tap away.
+
             card("Routing","Open the dedicated routing workspace",HomeIcon.ROUTING,Aether.Emerald) {
                 RoutingEntryCard(repo) { onNavigate(SettingsPages.ROUTING) }
             },
             card("DNS","TUN & DoH",HomeIcon.NETWORK,Aether.Cyan) { DnsSettings(repo) },
-            // Per-app proxy moved into Network & Routing — no standalone section, no hub card.
+
             card("Per-app proxy","Tunnel or bypass per app",HomeIcon.PRIVACY,Aether.Emerald) { SplitTunnelSettings(repo) }
         )
         SettingsWorkspaceTab.ENGINE -> {
-            // MARBLE_SETTINGS_DEDUP — the engine surface is one page now. The separate "Tunnel
-            // core", "Xray core settings" and "sing-box extended" pages used to re-render these
-            // same cards; their unique content (the core switch, the pinned build tags, the
-            // delay test) moved up into this list instead.
             val engine = parseCoreEngine(repo.settings.coreEngineId)
             listOf(
-                // MARBLE_CORE_NAME_IN_SETTINGS_V160 — the card opens with the answer on its own
-                // title line: which core this build is running right now.
+
                 card("Engine",CoreEngineInfo.displayName(engine) + " • Switching closes the tunnel; reconnect to run the new core",HomeIcon.TUNNEL,Aether.Cyan) {
                     CoreEngine.entries.forEach { candidate ->
                         val selected = engine == candidate
@@ -13992,10 +12544,10 @@ private fun settingsSections(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(shape)
-                                .background(Aether.Glass.copy(alpha = .42f))
+                                .background(marbleNativeContainerHigh())
                                 .border(
                                     1.dp,
-                                    if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                                    if (selected) tone.copy(alpha = .58f) else marbleNativeOutline(),
                                     shape
                                 )
                                 .kineticClickable(role = Role.Button, boundedShape = shape) {
@@ -14049,11 +12601,7 @@ private fun settingsSections(
                         InformationRow(trx("Last start error"), repo.coreStartError, Aether.Danger)
                     }
                 },
-                // MARBLE_SETTINGS_DEDUP_V193 — the two per-core option cards are one surface now.
-                // "Sniffing", "Allow LAN inbound", "HTTP inbound port", "Log level" and "TCP Fast
-                // Open" each existed twice — once under Xray, once under sing-box — describing the
-                // same single setting in two different sections. The merged card adapts to the
-                // engine chosen above, so every option appears exactly once.
+
                 card(
                     "Core options",
                     "Sniffing, LAN, log • ${CoreEngineInfo.displayName(engine)}",
@@ -14081,15 +12629,10 @@ private fun settingsSections(
                 },
             )
         }
-        // MARBLE_BUGFINDER_HOME_V144 — Bug Finder is a runtime-diagnostics instrument, not an
-        // alert control, so it no longer lives next to Notifications. It moved to
-        // Settings › Information, beside Versions, the Diagnostics export and Report an issue:
-        // the scan produces the exact report an issue filing asks for, and the page already
-        // owns the debug-log switch Bug Finder also drives — one flag, one home, no split brain.
+
         SettingsWorkspaceTab.SYSTEM -> listOf(
             card("Notifications","Alerts",HomeIcon.STATUS,Aether.Cyan) { NotificationSettings(repo) },
-            // MARBLE_BACKGROUND_UNRESTRICTED_V166 — the one-tap fix for a VPN that Android keeps
-            // interrupting in the background: the OS-level unrestricted-activity grant.
+
             card("Background access","Fixes interrupted VPN in background",HomeIcon.POWER,Aether.Amber) {
                 BackgroundAccessSettings(repo)
             }
@@ -14097,13 +12640,6 @@ private fun settingsSections(
     }
 }
 
-/**
- * MARBLE_SETTINGS_TREE_V215 — one Settings card as a page of its own.
- *
- * The card is the same section the workspace would draw; it is simply opened from the sub-section
- * it belongs to. The page title is the card's own title and its subtitle the card's own line, so the
- * hub row that opened it and the page it leads to say the same thing.
- */
 @Composable
 private fun SettingsCardPage(
     repo: AppRepository,
@@ -14144,12 +12680,6 @@ private fun SettingsCardPage(
     }
 }
 
-/**
- * MARBLE_TEXT_SCALE_V215 — the text-size ladder, as four equal chips with the live percentage.
- *
- * The chips show the percentage rather than a sample "A": a sample would be drawn by the same root
- * scale it is choosing, so it could not show the difference honestly.
- */
 @Composable
 private fun TextScaleChoice(repo: AppRepository) {
     val current = TextScale.clamp(repo.settings.textScalePercent)
@@ -14226,10 +12756,6 @@ private fun SettingsSectionCard(
     color: Color,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    // MARBLE_PRODUCT_SIMPLE_V117 — a calmer, more spacious card: a small tinted icon chip,
-    // a compact title row, and air instead of a divider between header and options.
-    // MARBLE_SETTINGS_ROW_TONE_V141 — the section's colour is provided to every row inside,
-    // so the rows, their rails and their checked hairlines share the card's identity.
     PrismPanel(
         modifier=Modifier.fillMaxWidth(),
         accent=color,
@@ -14289,7 +12815,6 @@ private fun SettingsSectionCard(
     }
 }
 
-
 @Composable
 private fun homeStyleLabel(style: HomeStyle): String = when (style) {
     HomeStyle.IOS_SLIDER -> Tr.now.styleIosSlider
@@ -14339,9 +12864,7 @@ private fun ConnectionSettings(repo: AppRepository) {
     ) {
         repo.updateSettings(repo.settings.copy(localProxyPort = it))
     }
-
 }
-
 
 @Composable
 private fun NotificationSettings(repo: AppRepository) {
@@ -14516,18 +13039,6 @@ private fun NotificationSettings(repo: AppRepository) {
     }
 }
 
-/**
- * MARBLE_BACKGROUND_UNRESTRICTED_V166 — the one-tap fix when the user's VPN keeps getting
- * interrupted in the background.
- *
- * Android's battery optimization is allowed to pause a VPN app the moment the screen is off,
- * which on restricted networks reads as "the tunnel dies and never comes back". This card shows
- * the live state of the OS-level exemption — what Android calls unrestricted background
- * activity — and one button opens Android's own dialog for this package, so the tap in Settings
- * becomes the grant itself the moment the user confirms. The activity-result launcher re-reads
- * the truth the instant the user returns from the Android page; a ROM that removed the direct
- * dialog still gets the exemption list page.
- */
 @Composable
 private fun BackgroundAccessSettings(repo: AppRepository) {
     val context = LocalContext.current
@@ -14535,7 +13046,6 @@ private fun BackgroundAccessSettings(repo: AppRepository) {
     val returnFromAndroidPage = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        // Whatever the user chose on the Android page, the exemption state is the repository's.
         granted = repo.backgroundExemptionGranted()
     }
 
@@ -14576,8 +13086,6 @@ private fun BackgroundAccessSettings(repo: AppRepository) {
             }.recoverCatching {
                 returnFromAndroidPage.launch(fallback)
             }.onFailure {
-                // No exemption surface at all on this ROM: fall back to the plain launch,
-                // which reports honestly through the repository message.
                 repo.requestUnrestrictedBackgroundAccess(context)
             }
         }
@@ -14817,7 +13325,6 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
                     if(current.tor) HoloBadge("TOR",Aether.Danger,compact=true)
                 }
 
-                // MARBLE_SERVER_PROVIDER_LINK_V78 — Provider website link
                 val providerDomain = current.domain.ifBlank {
                     current.isp
                         .lowercase()
@@ -14897,13 +13404,11 @@ private fun ServerIntelHomeCard(repo: AppRepository) {
                 )
             }
         }
-
     }
 }
 
 @Composable
 private fun SplitTunnelModeSelector(repo: AppRepository) {
-    // MARBLE_PRODUCT_SIMPLE_V117 — flat segmented pills, no elevation.
     Row(
         modifier=Modifier.fillMaxWidth(),
         horizontalArrangement=Arrangement.spacedBy(6.dp)
@@ -14957,8 +13462,7 @@ private fun SplitTunnelModeSelector(repo: AppRepository) {
 @Composable
 private fun SplitTunnelSettings(repo:AppRepository){
     val context=LocalContext.current;val pm=context.packageManager;var search by remember{mutableStateOf("")}
-    // Querying every launcher activity and resolving each label is slow on real devices, so the
-    // list is built off the main thread instead of blocking the first frame of this section.
+
     val apps by produceState(initialValue = emptyList<InstalledApp>()) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -14987,7 +13491,6 @@ private fun SplitTunnelSettings(repo:AppRepository){
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).kineticClickable(role=Role.Checkbox,onClick=onToggle).padding(horizontal=10.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(if(checked)Aether.Emerald.copy(alpha=.12f) else Aether.GlassStrong),contentAlignment=Alignment.Center){Text(app.label.trim().firstOrNull()?.uppercase()?:"•",color=if(checked)Aether.Emerald else Aether.InkMuted,style=MaterialTheme.typography.labelLarge)};Spacer(Modifier.width(11.dp));Column(Modifier.weight(1f)){Text(app.label,color=Aether.Ink,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis);Text(app.packageName,color=Aether.InkFaint,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)};Checkbox(checked,{onToggle()},colors=CheckboxDefaults.colors(checkedColor=Aether.Emerald,checkmarkColor=Aether.Void,uncheckedColor=Aether.GlassBorder))}
 }
 
-/** MARBLE_SERVER_TILE_LAYOUT_V208 — the one line the Server cards card answers by itself. */
 private fun serverLayoutSubtitle(settings: AppSettings): String =
     if (settings.serversLayoutEnum == ServerLayout.GRID) {
         "Compact boxes • several servers per line"
@@ -14995,21 +13498,12 @@ private fun serverLayoutSubtitle(settings: AppSettings): String =
         "Rows • one server per line"
     }
 
-/** The name of one server silhouette, as the chooser prints it. */
 @Composable
 private fun serverLayoutLabel(layout: ServerLayout): String = when (layout) {
     ServerLayout.ROW -> trx("Rows")
     ServerLayout.GRID -> trx("Compact boxes")
 }
 
-/**
- * MARBLE_SERVER_TILE_LAYOUT_V208 — rows or boxes.
- *
- * Both choices are drawn here, at the size they will actually appear, because "row" and "grid"
- * are words that mean nothing until you have seen the two: a chooser for a *shape* has to show
- * the shape. The choice is one preference ([com.marbleng.app.model.AppSettings.serversLayout])
- * read by both lists, so it cannot put the two pages in different layouts.
- */
 @Composable
 private fun ServerLayoutChoice(repo: AppRepository) {
     val current = repo.settings.serversLayoutEnum
@@ -15067,7 +13561,6 @@ private fun ServerLayoutChoice(repo: AppRepository) {
     }
 }
 
-/** The one sentence that tells the two silhouettes apart. */
 @Composable
 private fun serverLayoutDetail(layout: ServerLayout): String = when (layout) {
     ServerLayout.ROW -> "One server per line, with its full address and actions"
@@ -15075,10 +13568,9 @@ private fun serverLayoutDetail(layout: ServerLayout): String = when (layout) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// MARBLE_HOME_PING_CONTROLS_V212 — what each Home ping surface does
+
 // ---------------------------------------------------------------------------------------------
 
-/** The three ping surfaces on the connection page, and the setting that owns each one's verb. */
 private enum class HomePingSurface { GAUGE, CHIP, HEADER }
 
 @Composable
@@ -15095,16 +13587,6 @@ private fun homePingSurfaceDetail(surface: HomePingSurface): String = when (surf
     HomePingSurface.HEADER -> "The round pulse control beside the wordmark"
 }
 
-/**
- * MARBLE_HOME_PING_CONTROLS_V212 — one chooser per ping surface.
- *
- * The report was "two ping buttons, one of them does nothing". The fix has two halves and this is
- * the second: making a surface tappable is worth nothing if the user cannot say what the tap
- * should do, because then the product has just moved the argument from the layout to the release
- * notes. Every surface is a control, every control's verb is one of these four, and the same
- * [HomePingAction] vocabulary is what the controls on the page resolve — so a choice made here is
- * the choice the button obeys, with no second mapping to drift.
- */
 @Composable
 private fun HomePingControlsSettings(repo: AppRepository) {
     val settings = repo.settings
@@ -15204,13 +13686,6 @@ private fun HomePingControlsSettings(repo: AppRepository) {
     }
 }
 
-/**
- * The shape, drawn: two stacked bars for rows, four squares for boxes.
- *
- * It is deliberately crude — a preview that tries to look like the real list would have to be
- * maintained beside it, and a chooser only has to make the two options distinguishable at a
- * glance.
- */
 @Composable
 private fun ServerLayoutPreview(layout: ServerLayout, tone: Color, active: Boolean) {
     val ink = if (active) tone else Aether.InkFaint
@@ -15256,8 +13731,7 @@ private fun ServerLayoutPreview(layout: ServerLayout, tone: Color, active: Boole
 @Composable
 private fun DnsSettings(repo: AppRepository) {
     val underlay = repo.networkSnapshot
-    // One line of truth. The switches below are inputs; this is what the engine will actually do,
-    // computed by the same policy the tunnel, the delay test and the pings use.
+
     val familyPlan = AddressFamilyPolicy.plan(
         settings = repo.settings,
         underlayHasIpv6 = underlay.hasIpv6
@@ -15370,12 +13844,6 @@ private fun DnsSettings(repo: AppRepository) {
         }
     }
 
-    // MARBLE_IPV6_FALLBACK_LADDER_V196 — what a forced family does when it cannot be honoured.
-    //
-    // Off by default, and the copy says exactly what that means, because the old behaviour (the
-    // only behaviour) is what produced a run of `Kill switch active` states: Force IPv6 refused
-    // every IPv4-only server in the library instead of dialling it over IPv4 and keeping IPv6 for
-    // destinations. The switch is still here for people who mean "IPv6 or nothing" literally.
     if (repo.settings.addressFamilyMode == AddressFamilyMode.FORCE_IPV6 ||
         repo.settings.addressFamilyMode == AddressFamilyMode.FORCE_IPV4 ||
         repo.settings.strictAddressFamily
@@ -15410,8 +13878,6 @@ private fun DnsSettings(repo: AppRepository) {
             style = MaterialTheme.typography.bodySmall
         )
     } else {
-        // Older stored Full TUN settings might still have interception off. Show the switch so
-        // the user can recover from a fail-closed startup rather than hiding the only remedy.
         SettingSwitch(
             title = "Intercept traditional DNS",
             subtitle = if (repo.settings.connectionMode == ConnectionMode.FULL_TUN)
@@ -15420,10 +13886,7 @@ private fun DnsSettings(repo: AppRepository) {
             checked = repo.settings.dnsHijackEnabled
         ) { repo.updateSettings(repo.settings.copy(dnsHijackEnabled = it)) }
     }
-    // MARBLE_FAKE_IP_V184 — the cold-DNS fix, visible. On by default: without it the app's
-    // first ~15 domain lookups ride the encrypted resolvers through the tunnel one after
-    // another before any flow can start; with it the core answers locally in the same tick
-    // and resolves the real address per connection inside the tunnel.
+
     SettingSwitch(
         title = "Fake IP DNS",
         subtitle = "Instant local answers; real IP resolved in-tunnel",
@@ -15488,9 +13951,6 @@ private fun DnsSettings(repo: AppRepository) {
     TinyField("Secondary DoH", repo.settings.dnsSecondaryDoH, Modifier.fillMaxWidth()) {
         repo.updateSettings(repo.settings.copy(dnsSecondaryDoH = it))
     }
-
-    // DNS record-family controls are intentionally not duplicated here: the five-state selector
-    // above owns endpoint resolution, DNS answers and TUN capture as one atomic policy.
 }
 
 @Composable
@@ -15572,7 +14032,6 @@ private fun RoutingAssetCard(
     }
 }
 
-/** Network workspace entry point into the dedicated Routing page. */
 @Composable
 private fun RoutingEntryCard(
     repo: AppRepository,
@@ -15624,7 +14083,6 @@ private fun RoutingEntryCard(
     }
 }
 
-/** The dedicated routing page: the whole routing workspace lives here, not squeezed into Network. */
 @Composable
 private fun SettingsRoutingPage(
     repo: AppRepository,
@@ -15647,21 +14105,6 @@ private fun SettingsRoutingPage(
     }
 }
 
-/**
- * MARBLE_MULTI_SOURCE_ROUTING_V212 — the set of geo databases routing reads.
- *
- * The old control was one dropdown and it *replaced*: choosing Loyalsoldier silently dropped the
- * Iranian database, which is how "my routing sends Iranian traffic direct but some sites still go
- * through the proxy" survived — the user had to pick between the database that knows Iran and the
- * database that knows the world. This is a set now: every source can be on at the same time, the
- * first one in the list owns the canonical `geoip.dat`/`geosite.dat` names (so a fresh install
- * still routes from the bundled copy), and each additional source contributes its own file, which
- * the config writer references by name.
- *
- * The rows report readiness because a source that is enabled but not downloaded is not an error and
- * must not read as one: the writer simply does not emit its rules until the file is there, and the
- * row says exactly that instead of a red badge.
- */
 @Composable
 private fun GeoSourceSetControls(repo: AppRepository) {
     val settings = repo.settings
@@ -15709,9 +14152,6 @@ private fun GeoSourceSetControls(repo: AppRepository) {
                         if (multi && selected && spec.id != ids.first()) {
                             repo.toggleGeoAssetSource(spec.id)
                         } else {
-                            // The primary is never toggled off: routing needs one database. Tapping
-                            // it re-orders the set instead, which is what "make this my primary"
-                            // means with a set rather than a single choice.
                             repo.applyGeoAssetSource(spec.id)
                         }
                     }
@@ -15754,14 +14194,6 @@ private fun GeoSourceSetControls(repo: AppRepository) {
     }
 }
 
-/**
- * MARBLE_MULTI_SOURCE_ROUTING_V212 — how finely domestic traffic is separated.
- *
- * Three levels of one dial, and the difference between them is stated in words and numbers rather
- * than left to a label: geo tags alone, geo tags plus the product's curated domestic knowledge, or
- * that plus brand keywords. The count under the chips comes from the same list the config writer
- * emits, so the number on screen cannot drift from the number of rules in the config.
- */
 @Composable
 private fun GeoPrecisionChoice(repo: AppRepository) {
     val precision = parseGeoPrecision(repo.settings.geoPrecision)
@@ -15806,10 +14238,6 @@ private fun geoPrecisionDetail(level: GeoPrecision): String = when (level) {
 
 @Composable
 private fun RoutingSettings(repo: AppRepository) {
-    // MARBLE_ROUTING_UI_V136 — the routing workspace, rebuilt around one honest model:
-    // the mode decides the implicit behaviour, the rule list is the user's own ordered policy,
-    // the geo databases power live suggestions + validation, and the simulator answers the
-    // only question that matters when a site breaks: *which rule did it, and what now?*
     val s = repo.settings
     val assets = repo.routingAssetStatus()
     val rules = remember(s.routingRulesJson) { RoutingEngine.effectiveRules(s) }
@@ -15819,11 +14247,9 @@ private fun RoutingSettings(repo: AppRepository) {
     var sourceMenu by remember { mutableStateOf(false) }
     val currentSource = RoutingDefaults.sourceById(s.geoAssetSourceId)
 
-    // Sheet state: null = closed; a rule + isNew flag = the professional editor.
     var editorRule by remember { mutableStateOf<RoutingRule?>(null) }
     var editorIsNew by remember { mutableStateOf(false) }
 
-    // Drag-reorder state (pixel space; heights measured per card).
     var dragIndex by remember { mutableStateOf(-1) }
     var dragOffsetPx by remember { mutableStateOf(0f) }
     val itemHeights = remember { mutableStateMapOf<Int, Int>() }
@@ -15838,7 +14264,6 @@ private fun RoutingSettings(repo: AppRepository) {
 
     var confirmPreset by remember { mutableStateOf<RoutingPresets.Preset?>(null) }
 
-    // ------------------------------------------------------------------ 0. Master Switch
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -15868,17 +14293,6 @@ private fun RoutingSettings(repo: AppRepository) {
         )
     }
 
-    // ------------------------------------------------------------------ 1. Routing mode
-    // MARBLE_ROUTING_MODE_ROWS_V144 — critique of the 2×2 card grid this replaces, so it is
-    // never rebuilt: the cards spoke a different control language from every other single
-    // choice in Settings (probe methods are full-width rows, matchers are chips), their title
-    // (labelLarge Bold) and detail (labelSmall) ramp matched nothing around them, and Persian
-    // details wrapped to two lines in some cells but one in others, so the four "equal" tiles
-    // never shared a height and the grid looked ragged. The mode is one decision with four
-    // mutually exclusive answers, and it now reads as one: four full-width option rows in the
-    // exact shape of the Testing › ping-method list — same ramp (row title + one-line detail),
-    // same selection dot, same heights, ellipsis instead of wrapping. Nothing was removed from
-    // the model; only the buttons were disciplined.
     Text(trx("Routing mode"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         RoutingModeRow(
@@ -15921,7 +14335,6 @@ private fun RoutingSettings(repo: AppRepository) {
         )
     }
 
-    // ------------------------------------------------------------------ Strategy
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             trx("Domain resolution strategy"),
@@ -15933,10 +14346,6 @@ private fun RoutingSettings(repo: AppRepository) {
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            // MARBLE_ROUTING_CHIP_LABELS_V144 — the human label is the chip text, never the raw
-            // Xray token. The list always carried both and then threw the label away
-            // (`(value, _)`), so users chose between "IPIfNonMatch" and "AsIs" while the
-            // explanation line below described something else. State still keys on [value].
             listOf(
                 "IPIfNonMatch" to "Domain first (default)",
                 "IPOnDemand" to "IP on demand",
@@ -15962,7 +14371,6 @@ private fun RoutingSettings(repo: AppRepository) {
         )
     }
 
-    // ------------------------------------------------------------------ 2. Presets
     Text(trx("Presets"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
@@ -15978,13 +14386,6 @@ private fun RoutingSettings(repo: AppRepository) {
         }
     }
 
-    // ------------------------------------------------------------------ 3. Geo databases
-    // MARBLE_MULTI_SOURCE_ROUTING_V212 — "Geo data source" became "Geo databases", plural, because
-    // that is what routing reads now. One dropdown that *replaced* the previous source was the
-    // structural half of the reported defect: the user who wanted a second database had to give up
-    // the first, so the domestic coverage and the world coverage could never both be on. The set is
-    // additive, the primary is the one that owns the canonical file names, and every source in the
-    // set is a rule the engine can name.
     Text(trx("Geo databases"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
     GeoSourceSetControls(repo)
     GeoPrecisionChoice(repo)
@@ -16035,10 +14436,6 @@ private fun RoutingSettings(repo: AppRepository) {
         )
     }
 
-    // MARBLE_GEO_READY_GATE_V145 — while a database the policy needs is still missing, geo
-    // rules are switched off for real (the tunnel still connects, it just proxies everything
-    // that would have gone direct). Saying so here is the difference between "the app is
-    // ignoring my routing settings" and "the app is waiting for a 3 MiB download".
     val geoGate = repo.geoGateNote.ifBlank {
         RoutingEngine.geoDowngradeReason(s, assets.geoIpReady, assets.geoSiteReady)
     }
@@ -16071,21 +14468,18 @@ private fun RoutingSettings(repo: AppRepository) {
         }
     }
 
-    // ------------------------------------------------------------------ 4. Switches the mode leaves independent
     SettingSwitch(
         title = "Block ads",
         subtitle = "geosite ad categories never load — in every mode",
         checked = s.routeBlockAds
     ) { repo.updateSettings(s.copy(routeBlockAds = it)) }
-    // SettingSwitch has no enabled lane: when the mode pins the bypass on, the switch reads
-    // pinned-on and the subtitle says so instead of offering a toggle that cannot do anything.
+
     SettingSwitch(
         title = "Bypass private LAN",
         subtitle = if (implicit.forceBypassPrivate) "Always on in this mode" else "RFC1918 stays off the tunnel",
         checked = s.routeBypassPrivate || implicit.forceBypassPrivate
     ) { pinnedOn -> repo.updateSettings(s.copy(routeBypassPrivate = pinnedOn || implicit.forceBypassPrivate)) }
 
-    // ------------------------------------------------------------------ 5. The rule list
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
@@ -16154,10 +14548,8 @@ private fun RoutingSettings(repo: AppRepository) {
         editorIsNew = true
     }
 
-    // ------------------------------------------------------------------ 6. Route simulator
     RoutingSimulatorCard(repo)
 
-    // ------------------------------------------------------------------ 7. Expert
     RoutingExpertSection(repo, s)
 
     confirmPreset?.let { preset ->
@@ -16193,7 +14585,6 @@ private fun RoutingSettings(repo: AppRepository) {
     }
 }
 
-/** Slot under the dragged card's centre — the index a live reorder would land on. */
 private fun routingDragTarget(count: Int, from: Int, delta: Float, heightAt: (Int) -> Float): Int {
     if (from !in 0 until count) return from
     val newCenter = run {
@@ -16210,14 +14601,6 @@ private fun routingDragTarget(count: Int, from: Int, delta: Float, heightAt: (In
     return count - 1
 }
 
-/**
- * One routing-mode answer as a full-width option row — the same control shape the Testing
- * page uses for the ping method, so the two single-choice lists in Settings can never drift
- * apart again. Title and detail are each a single ellipsized line on the shared settings
- * reading ramp; the dot is the only selection chrome, so all four rows share one height in
- * every language. See MARBLE_ROUTING_MODE_ROWS_V144 above for the critique that retired the
- * 2×2 card grid.
- */
 @Composable
 private fun RoutingModeRow(
     title: String,
@@ -16306,8 +14689,6 @@ private fun RoutingRuleCard(
             .onGloballyPositioned { onHeight(it.size.height) }
             .graphicsLayer {
                 translationY = if (dragging) {
-                    // The dragged card follows the finger so the grab never feels binary;
-                    // displacement cards get the exact swap offset instead.
                     dragOffset
                 } else {
                     displacementPx
@@ -16336,8 +14717,6 @@ private fun RoutingRuleCard(
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // The drag handle: a long-press anywhere on it lifts the card, then plain dragging
-            // reorders live. Icon-only, so the whole row stays one tap-to-edit surface.
             Box(
                 Modifier
                     .size(30.dp, 40.dp)
@@ -16360,7 +14739,7 @@ private fun RoutingRuleCard(
                 HomeVectorIcon(HomeIcon.SORT, if (dragging) tone else Aether.InkFaint, Modifier.size(16.dp))
             }
             Spacer(Modifier.width(6.dp))
-            // Outbound colour spine: one glance says what this rule does.
+
             Box(
                 Modifier
                     .size(3.dp, 34.dp)
@@ -16499,7 +14878,6 @@ private fun RoutingRuleEditorSheet(
     val errors = issues.filter { it.severity == RoutingEngine.IssueSeverity.ERROR }
     val preview = remember(draft) { routingRulePreviewJson(draft) }
 
-    // Live suggestions from the geo databases — the app guesses while the user types.
     val suggestions = remember(draft.kind, draft.matcher) {
         when {
             draft.kind == RoutingRuleKind.GEOSITE ->
@@ -16564,7 +14942,6 @@ private fun RoutingRuleEditorSheet(
                 }
             }
 
-            // ---- Kind
             Text(trx("What does it match?"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -16598,7 +14975,6 @@ private fun RoutingRuleEditorSheet(
                 style = MaterialTheme.typography.labelSmall
             )
 
-            // ---- Matcher
             TinyField(
                 label = when (draft.kind) {
                     RoutingRuleKind.GEOSITE -> "GeoSite tag"
@@ -16644,7 +15020,6 @@ private fun RoutingRuleEditorSheet(
                 }
             }
 
-            // ---- Refinements
             Text(trx("Refine (optional)"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 listOf("" to "Any net", "tcp" to "TCP", "udp" to "UDP").forEach { (value, label) ->
@@ -16664,12 +15039,6 @@ private fun RoutingRuleEditorSheet(
                 draft = draft.copy(protocol = it.trim())
             }
 
-            // ---- Outbound
-            // MARBLE_ROUTING_EQUAL_THIRDS_V144 — the three outbounds are equal owners of this
-            // row: each third is identical and the pill fills it, so PROXY / DIRECT / BLOCK read
-            // as one segmented decision instead of three left-hugging pills of different sizes.
-            // (The old Box(weight) wrapped the pill at the start of each third — equal columns,
-            // ragged buttons.)
             Text(trx("Then what?"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -16689,7 +15058,6 @@ private fun RoutingRuleEditorSheet(
                 }
             }
 
-            // ---- Issues
             issues.forEach { issue ->
                 Text(
                     issue.message,
@@ -16698,7 +15066,6 @@ private fun RoutingRuleEditorSheet(
                 )
             }
 
-            // ---- Emitted-shape preview
             if (errors.isEmpty()) {
                 Text(
                     trx("Emitted Xray rule"),
@@ -16748,7 +15115,6 @@ private fun RoutingRuleEditorSheet(
     }
 }
 
-/** The exact `type: field` shape this rule becomes in the emitted config. */
 private fun routingRulePreviewJson(rule: RoutingRule): String {
     val obj = JSONObject().put("type", "field")
     when (rule.kind) {
@@ -16893,9 +15259,6 @@ private fun RoutingExpertSection(repo: AppRepository, s: AppSettings) {
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                // MARBLE_ROUTING_CHIP_LABELS_V144 — same fix as the strategy chips above: the
-                // list carried human labels ("Hybrid (Trie + Regex)", …) and displayed the raw
-                // tokens ("hybrid", "mph"). The label is shown, the token stays the state key.
                 listOf(
                     "hybrid" to "Hybrid (Trie + Regex)",
                     "linear" to "Linear",
@@ -16945,7 +15308,6 @@ private fun RoutingExpertSection(repo: AppRepository, s: AppSettings) {
 
 @Composable
 private fun SubscriptionSettings(repo: AppRepository) {
-    // MARBLE_MANUAL_BUCKET_V122 — the Manual bucket is permanent, so the toggle is gone.
     SettingSwitch(
         title = "Automatic refresh",
         subtitle = "Refresh stale sources on start",
@@ -17090,29 +15452,6 @@ private fun BugFinderSettings(repo: AppRepository) {
     }
 }
 
-// =================================================================================================
-// TESTING & PING
-// =================================================================================================
-
-/**
- * MARBLE_PING_TRUTH_V147 — the page has exactly two answers to two honest questions.
- *
- *  - ICMP / HTTP / DNS never touched the proxy (they measured the carrier path or the local
- *    resolver), so they were removed from both the method list and the enum.
- *  - TCP was the verified Layer-0 gate used *inside* Smart; as a standalone choice it made an
- *    endpoint handshake look like a proxy verdict, so it is no longer a product method either.
- */
-// MARBLE_PROBE_METHODS_V151 — three methods, and only three.
-//
-// Marble shipped seven probes (Smart, Real test, raw TCP Connect, TCP+TLS gate, HTTP GET, HTTP
-// HEAD and ICMP). Five of them answered the same question with a different socket call, so the
-// same server reported five different numbers depending on which button a user happened to
-// press, and ICMP was the one that always lied: an Iranian ISP answers an echo request even when
-// the proxy behind it is unusable. The list is now the three measurements that mean something
-// different from each other — how long a real page takes through the tunnel (Real delay), how
-// fast the server's port answers at all (TCP ping), and what the running sing-box core reports
-// for its own live outbound (URL test).
-
 private fun probeMethodTitle(method: ProbeMethod): String = when (method) {
     ProbeMethod.REAL_DELAY -> "Real delay"
     ProbeMethod.TCP_PING -> "TCP ping"
@@ -17134,26 +15473,6 @@ private fun probeMethodShortLabel(method: ProbeMethod): String = when (method) {
     ProbeMethod.URL_TEST -> "URL test"
 }
 
-/**
- * MARBLE_ONE_PING_V121 / MARBLE_PING_METHODS_V148 — one ping setting for the whole product.
- *
- * Marble used to run several differently-configured probes behind buttons that all said "ping":
- * the Servers group menu forced TCP, the Home button ran its own tunnel ladder, and this page
- * quietly rewrote a TCP choice into a tunnel test. The same server therefore reported different
- * latencies depending on which button was pressed. There is now exactly one method, chosen here,
- * and every measurement in the app — the Home ping button, a subscription's ping entry, Ping all
- * and ranking — runs it.
- *
- * The list is the seven methods a user can reason about: Smart (default), Real test, raw TCP
- * Connect, the recommended TCP+TLS gate, HTTP GET / HTTP HEAD and ICMP. All methods share the
- * same measurement budget (timeout, samples, concurrency), and the Home readout obeys the chosen
- * method even while a tunnel is connected.
- *
- * Smart is the default and the best comparative answer for most users; Real test is the one that
- * proves the account/route when a server must actually be qualified. The engine's raw operating
- * numbers (samples, timeouts, batch size) are not hidden here — they are the measurement budget
- * below, with the consequence of each value stated.
- */
 @Composable
 private fun ProbeSettings(repo: AppRepository) {
     val s = repo.settings
@@ -17174,9 +15493,7 @@ private fun ProbeSettings(repo: AppRepository) {
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         ProbeMethod.entries.forEach { candidate ->
             val selected = method == candidate
-            // MARBLE_URLTEST_SINGBOX_ONLY_V156 — a method the selected core cannot run is dimmed
-            // and refuses the tap instead of being selectable and then reporting a permanent
-            // failure. Switching the engine back re-enables it without touching the choice.
+
             val available = candidate.availableOn(s.coreEngine())
             val unavailable = candidate.unavailableReason(s.coreEngine())
             val tone = when (candidate) {
@@ -17189,10 +15506,10 @@ private fun ProbeSettings(repo: AppRepository) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(shape)
-                    .background(Aether.Glass.copy(alpha = .42f))
+                    .background(marbleNativeContainerHigh())
                     .border(
                         1.dp,
-                        if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                        if (selected) tone.copy(alpha = .58f) else marbleNativeOutline(),
                         shape
                     )
                     .alpha(if (available) 1f else .45f)
@@ -17235,7 +15552,6 @@ private fun ProbeSettings(repo: AppRepository) {
                                     .padding(horizontal = 6.dp, vertical = 1.dp)
                             )
                         }
-
                     }
                     Text(
                         trx(probeMethodDetail(candidate)),
@@ -17266,17 +15582,6 @@ private fun ProbeSettings(repo: AppRepository) {
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_PING_SPEED_DIAL_V199 — the speed dial of every ping measurement.
-    //
-    // Switched OFF (the default) every sweep runs at the shipped speed: about 50 % faster than
-    // the classic pace, delivered as sweep width and sample pacing — never as a shorter timeout
-    // or fewer samples, so a number stays a number. Switched ON, the slider IS the multiplier
-    // against the classic pace: 100 % plays it classic, dragging right runs the sweep faster
-    // (wider pool, shorter quiet gaps), dragging left trades speed for gentleness on a weak
-    // link. The dial never touches the measurement budget chips below: they stay the accuracy
-    // contract, the dial only decides how fast that contract is executed.
-    // ─────────────────────────────────────────────────────────────────────────
     Text(
         trx("Ping speed"),
         color = Aether.Ink,
@@ -17302,8 +15607,6 @@ private fun ProbeSettings(repo: AppRepository) {
 
     AnimatedVisibility(s.pingSpeedCustom) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            // The slider commits on release, not per frame: a drag must not write thirty
-            // settings to disk on the way past. Local state leads; the store follows the lift.
             var dialPercent by remember(s.pingSpeedPercent) {
                 mutableFloatStateOf(PingSpeed.percent(s.pingSpeedPercent).toFloat())
             }
@@ -17406,15 +15709,6 @@ private fun ProbeSettings(repo: AppRepository) {
 
     HorizontalDivider(color = Aether.GlassBorderSoft)
 
-    // MARBLE_PING_CONTROL_V145 — the measurement budget, back under the user's control.
-    //
-    // V121 removed these controls on the grounds that "no user can know the right answer". The
-    // real problem was never that they were visible: it was that four different code paths
-    // silently overrode whatever they said (one sample, two-second deadline, 24-32 parallel
-    // handshakes), so the same server reported a different latency depending on which button
-    // was pressed. That is fixed at the engine (see PingBudget), and these three numbers are now
-    // the ONLY thing that decides a measurement's shape — which makes them worth showing, with
-    // an explicit statement of what each one costs.
     Text(
         trx("Measurement budget"),
         color = Aether.Ink,
@@ -17435,15 +15729,6 @@ private fun ProbeSettings(repo: AppRepository) {
         tone = Aether.Cyan
     ) { repo.updateSettings(repo.settings.copy(pingTimeoutSec = PingBudget.timeoutSec(it))) }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_PING_PARALLEL_V200 — how many servers are measured at the same time.
-    //
-    // The old control was a single row of chips (1/2/4/8/16/32) whose default answered a
-    // question the product had no business answering for everyone: "how much CPU does your
-    // phone have". A four-core handset was handed a flagship's 16-way sweep, and the cost was
-    // not only battery — parallel handshakes inflate each other's latency, so the *numbers*
-    // were wrong too. The knob now has an owner: the device, or the user.
-    // ─────────────────────────────────────────────────────────────────────────
     Text(
         trx("Parallel servers"),
         color = Aether.Ink,
@@ -17506,10 +15791,6 @@ private fun ProbeSettings(repo: AppRepository) {
         tone = Aether.Amethyst
     ) { repo.updateSettings(repo.settings.copy(pingSamples = PingBudget.samples(it))) }
 
-    // MARBLE_PING_SPEED_DIAL_V199 — the read-out shows the numbers the sweep will really run:
-    // the budget wall clock at the dial's spacing, and the dial's width, not the raw chip.
-    // MARBLE_PING_PARALLEL_V200 — and the width now names the device's own number when the dial
-    // is automatic, because "16 at once" on a four-core phone is not the number that will run.
     Text(
         "${trx("Worst case per server")}: " +
             "${PingBudget.perServerBudgetMs(s.pingTimeoutSec, s.pingSamples, s.pingSampleSpacingMs()) / 1000}s • " +
@@ -17519,14 +15800,6 @@ private fun ProbeSettings(repo: AppRepository) {
     )
 }
 
-/**
- * MARBLE_AUTO_SERVER_SELECTOR_V202 — Settings › Tests › Automatic server selector.
- *
- * The page is built so the switch that hands over the route is never the only thing on it:
- * the strategy, the three moments it may act, the width of its pool and the margin that stops
- * it flapping are all separate and all visible, because "the app moved my connection" is only
- * acceptable to a user who can see exactly why.
- */
 @Composable
 private fun AutoServerSelectorSettings(repo: AppRepository) {
     val s = repo.settings
@@ -17829,7 +16102,6 @@ private fun AutoServerWeightSlider(
     }
 }
 
-/** One budget row: a title, its consequence in one line, and the exact values as chips. */
 @Composable
 private fun PingBudgetChoiceRow(
     title: String,
@@ -17859,7 +16131,6 @@ private fun PingBudgetChoiceRow(
     }
 }
 
-/** The hub subtitle of the Navigation bar card: what the dock currently looks like. */
 private fun dockSettingsSubtitle(settings: AppSettings): String {
     val size = when (parseDockSize(settings.dockSize)) {
         DockSize.SMALL -> "Small"
@@ -17875,14 +16146,6 @@ private fun dockSettingsSubtitle(settings: AppSettings): String {
     return "$size • $content"
 }
 
-/**
- * MARBLE_DOCK_CUSTOM_V145 — Settings › General › Navigation bar.
- *
- * Three honest controls for the one piece of chrome that is on screen on every page: draw the
- * captions, draw the glyphs, and how much room the bar takes. Turning both off is refused at the
- * model level ([dockShowsIcons]) rather than by disabling a switch, so no combination of taps
- * can produce three blank rectangles.
- */
 @Composable
 private fun DockSettings(repo: AppRepository) {
     val s = repo.settings
@@ -17925,7 +16188,7 @@ private fun DockSettings(repo: AppRepository) {
         repo.updateSettings(
             repo.settings.copy(
                 dockShowLabels = enabled,
-                // A bar with neither labels nor icons is not a navigation control.
+
                 dockShowIcons = if (!enabled) true else repo.settings.dockShowIcons
             )
         )
@@ -17945,23 +16208,12 @@ private fun DockSettings(repo: AppRepository) {
     }
 }
 
-// =================================================================================================
-// MARBLE_DOCK_SLOT_V167 — Settings › Fourth tab
-// =================================================================================================
-//
-// One page owns the whole slot: whether the bar carries it, what it opens, what it is called and
-// which glyph it draws. Everything on this page changes the bar immediately — there is no Save,
-// because the bar is on screen behind the page and a preview that lies about the result is worse
-// than no preview at all.
-
-/** The readable name of a slot kind, shown on the segments and the hub row. */
 private fun dockSlotKindLabel(kind: DockSlotKind): String = when (kind) {
     DockSlotKind.PULSE -> "Live pulse"
     DockSlotKind.SOURCE -> "One subscription"
     DockSlotKind.CONFIG -> "One config"
 }
 
-/** The one-line explanation under a slot kind's segment. */
 private fun dockSlotKindDetail(kind: DockSlotKind): String = when (kind) {
     DockSlotKind.PULSE -> "State, rates and tools"
     DockSlotKind.SOURCE -> "Every server of one source"
@@ -17975,7 +16227,6 @@ private fun dockSlotKindTone(kind: DockSlotKind): Color = when (kind) {
     DockSlotKind.CONFIG -> Aether.Amethyst
 }
 
-/** The hub row's subtitle: what the slot currently is, or that it is not on the bar. */
 private fun dockSlotSettingsSubtitle(settings: AppSettings, target: DockSlotTarget): String {
     if (!settings.dockSlotEnabled) return "Hidden • the bar keeps three tabs"
     val caption = dockSlotCaption(settings.dockSlotLabel)
@@ -17984,11 +16235,6 @@ private fun dockSlotSettingsSubtitle(settings: AppSettings, target: DockSlotTarg
         .joinToString(" • ")
 }
 
-/**
- * The master switch, the kind, the subject, the name and the glyph — in that order, because that is
- * the order the questions come in: is it there, what does it do, what does it act on, what does it
- * say, what does it look like.
- */
 @Composable
 private fun SettingsDockSlotPage(
     repo: AppRepository,
@@ -18162,7 +16408,6 @@ private fun SettingsDockSlotPage(
     }
 }
 
-/** A full-width, accessible choice card for each of the slot's three real jobs. */
 @Composable
 private fun DockSlotKindChoice(
     kind: DockSlotKind,
@@ -18171,9 +16416,7 @@ private fun DockSlotKindChoice(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(15.dp)
-    // MARBLE_FLOATING_CHROME_OPAQUE_V205 — the selected wash is flattened onto the resting
-    // fill so the tween runs between two solid colours; a half-alpha midpoint let the page
-    // bleed through the tile while the selection moved.
+
     val fill by animateColorAsState(
         targetValue = if (selected) {
             tone.copy(alpha = .12f).compositeOver(homeCloudInsetFill())
@@ -18251,7 +16494,6 @@ private fun DockSlotKindChoice(
     }
 }
 
-/** A clearly labelled accent swatch; changing it immediately recolors the live dock preview. */
 @Composable
 private fun DockSlotAccentChoice(
     accent: DockSlotAccent,
@@ -18303,11 +16545,6 @@ private fun dockSlotAccentLabel(accent: DockSlotAccent): String = when (accent) 
     DockSlotAccent.AMBER -> "Amber"
 }
 
-/**
- * A live miniature of the dock: the three fixed slots, then the fourth drawn exactly as the bar
- * draws it — the user's caption, the user's glyph. It is the only honest answer to "what did I just
- * change?" that does not require leaving the page.
- */
 @Composable
 private fun DockSlotBarPreview(
     caption: String,
@@ -18368,8 +16605,6 @@ private fun DockSlotBarPreview(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Aether is a composition-local palette: the glyph ink is read here, in the composable
-            // body, and never inside the draw lambda below.
             val glyphInk = tone
             Box(Modifier.size(18.dp)) {
                 Canvas(Modifier.align(Alignment.Center).size(14.dp)) {
@@ -18458,7 +16693,6 @@ private fun DockSlotBarPreview(
     }
 }
 
-/** One tappable icon choice: the exact glyph the bar would draw, on the slot's own tone. */
 @Composable
 private fun DockSlotIconChoice(
     icon: DockSlotIcon,
@@ -18468,8 +16702,7 @@ private fun DockSlotIconChoice(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(14.dp)
-    // The chosen glyph draws on its own tone and an unchosen one on the muted ink; both are read
-    // here, in the composable body, because the Canvas below is not a composable scope.
+
     val glyphInk = if (selected) tone else Aether.InkMuted
     Column(
         modifier = modifier
@@ -18562,7 +16795,6 @@ private fun dockSlotIconLabel(icon: DockSlotIcon): String = when (icon) {
     DockSlotIcon.BEARING -> "Bearing"
 }
 
-/** One row of a picker: a title, one quiet line, and a trailing count or state. */
 @Composable
 private fun DockSlotPickerRow(
     title: String,
@@ -18636,7 +16868,6 @@ private fun DockSlotPickerRow(
     }
 }
 
-/** The subject picker of a subscription slot: All, Manual, or one subscription. */
 @Composable
 private fun DockSlotSourcePicker(repo: AppRepository) {
     val settings = repo.settings
@@ -18685,12 +16916,6 @@ private fun DockSlotSourcePicker(repo: AppRepository) {
     }
 }
 
-/**
- * The subject picker of a config slot: the whole library, searchable, one row per config.
- *
- * The list is a bounded scroll of its own — a page inside a page — so a 500-node library can be
- * searched here without the settings page growing a second, competing scroll of its own.
- */
 @Composable
 private fun DockSlotConfigPicker(repo: AppRepository, target: DockSlotTarget) {
     var search by remember { mutableStateOf("") }
@@ -18775,7 +17000,6 @@ private fun DockSlotConfigPicker(repo: AppRepository, target: DockSlotTarget) {
     }
 }
 
-/** The caption field: the user's own words, or the target's name when they wrote none. */
 @Composable
 private fun DockSlotCaptionField(repo: AppRepository) {
     val settings = repo.settings
@@ -18793,8 +17017,7 @@ private fun DockSlotCaptionField(repo: AppRepository) {
         OutlinedTextField(
             value = draft,
             onValueChange = { raw ->
-                // The bar divides one row between four tabs, so the caption is bounded at the
-                // model level: what is typed here is what the bar can actually draw.
+
                 val bounded = raw.take(DOCK_SLOT_CAPTION_MAX * 2)
                 draft = bounded
                 val stored = dockSlotCaption(bounded)
@@ -18829,10 +17052,6 @@ private fun DockSlotCaptionField(repo: AppRepository) {
     }
 }
 
-// =================================================================================================
-// SHARED CONTROL PRIMITIVES
-// =================================================================================================
-
 @Composable
 private fun CyberButton(
     label: String,
@@ -18846,7 +17065,6 @@ private fun CyberButton(
     compact: Boolean = false,
     onClick: () -> Unit
 ) {
-    // A destructive verb is always dressed as one, whichever accent the caller passed.
     val resolved=if(color == Aether.Danger) PrismButtonVariant.Danger else variant
     PrismButton(
         label=label,
@@ -18863,13 +17081,11 @@ private fun CyberButton(
                 HomeVectorIcon(
                     it,
                     if(enabled) {
-                        // Filled skins carry the button's own content color so the icon never
-                        // collides with the gradient; tonal skins keep the semantic accent.
                         if(resolved == PrismButtonVariant.Primary ||
                             resolved == PrismButtonVariant.Danger
                         ) LocalContentColor.current else color
                     } else Aether.InkFaint,
-                    // MARBLE_MATERIAL_YOU_REFRESH_V185 — button glyphs ride the larger icon ramp.
+
                     Modifier.size(if(compact) 18.dp else 20.dp)
                 )
             }
@@ -18877,7 +17093,6 @@ private fun CyberButton(
     )
 }
 
-/** Dialog verbs share the product button instead of a bare text link. */
 @Composable
 private fun MarbleDialogAction(
     label: String,
@@ -18898,7 +17113,6 @@ private fun MarbleDialogAction(
     )
 }
 
-
 @Composable
 private fun CyberChoiceChip(
     text: String,
@@ -18909,21 +17123,11 @@ private fun CyberChoiceChip(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    // MARBLE_PRODUCT_SIMPLE_V117 — a flat little pill: tint wash + tinted ink when selected,
-    // a quiet hairline when not. No elevation, no tick badge, never resizes.
-    // MARBLE_ROUTING_EQUAL_THIRDS_V144 — [modifier] lets a row hand each chip an equal share
-    // of its width (weight) so segmented decisions fill their thirds instead of hugging the
-    // start; the label stays centred by the Box below in both cases.
     val tone = if (selectionTone == Color.Unspecified) color else selectionTone
-    // MARBLE_NATIVE_ANDROID_V213 — a chip is a stadium on Android, at 40 dp of painted height, and
-    // its unselected edge is the platform's outline rather than the product's glass hairline. The
-    // selected wash is the platform's own container strength rather than a fixed 14 % of the
-    // accent, so it reads the same in a wallpaper palette as in the brand one.
+
     val shape = marbleNativePill()
     val outline = marbleNativeOutline()
-    // MARBLE_DOCK_ALPHA_PATH_V205 — rest at this chip's own hue with zero alpha, never
-    // `Color.Transparent`: a tween toward Transparent ramps the RGB toward black and paints a
-    // grey flash on the light page while the AMOLED page hides the same artifact.
+
     val selectedFill = marbleNativeSelectedFill(tone)
     val fill by animateColorAsState(
         if (selected) selectedFill else tone.copy(alpha = 0f),
@@ -18978,13 +17182,8 @@ private fun CyberSegment(
     rawLabel: Boolean = false,
     onClick: () -> Unit
 ) {
-    // MARBLE_PRODUCT_SIMPLE_V117 — a flat two-line segment tile for the few-per-row choices
-    // (probe method, Iran policy, connection mode). Same language as the chips, just taller.
     val tone = if (selectionTone == Color.Unspecified) color else selectionTone
-    // MARBLE_NATIVE_ANDROID_V213 — the two-line option tile takes the platform's row corner, the
-    // platform's container step as its resting fill (the product's `GlassStrong @ .30f` was a
-    // translucent wash whose apparent colour depended on the page behind it) and the neutral
-    // outline family for its edge.
+
     val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
     val outline = marbleNativeOutline()
     val restingFill = marbleNativeCardFill()
@@ -19020,10 +17219,6 @@ private fun CyberSegment(
         verticalArrangement = Arrangement.spacedBy(2.dp),
         horizontalAlignment = Alignment.Start
     ) {
-        // MARBLE_VAZIR_LANGUAGE_KEY_V114 — a segment can own its face. The Persian language choice
-        // passes Vazir and [rawLabel] so the word "فارسی" is never routed through the translator and
-        // never borrows the currently selected product typeface: it reads as Persian, in Vazir,
-        // selected or not.
         val labelStyle = MaterialTheme.typography.labelMedium
         Text(
             if (rawLabel) label else trx(label),
@@ -19062,21 +17257,6 @@ private fun SettingSwitch(
     debounceMs: Long = 300L,
     onChecked: (Boolean) -> Unit
 ) {
-    // MARBLE_NATIVE_ANDROID_V213 — the option row is the platform's list item now.
-    //
-    // What it was: a 13 dp box at ~36 dp of painted height with a coloured rail on its leading
-    // edge, a tone-tinted hairline and four hand-picked switch colours. Three of those four
-    // things are not how Android draws a setting — the rail is a Marble invention, the box does
-    // not reach the platform's own touch floor, and the switch was custom-painted inside the
-    // platform's silhouette, so it never followed a wallpaper palette.
-    //
-    // What it is: [MarbleNativeListItem] — 56 dp (72 dp with a supporting line), a 16 dp corner,
-    // the platform's container fill and outline family, the supporting line on the platform's
-    // secondary ink — with [MarbleNativeSwitch] as the trailing control, which is the same switch
-    // Android Settings draws, in the user's own colours, in every theme.
-    //
-    // The copy contract is untouched: at most one sentence (V208), the title leads, and the whole
-    // row is still one tap target with the same debounce.
     val tone = settingsSectionTone()
     val localizedTitle = trx(title)
     val switchWord = trx("switch")
@@ -19118,14 +17298,9 @@ private fun NumberSetting(
     suffix: String = "",
     onValue: (Int) -> Unit
 ) {
-    // MARBLE_SETTINGS_ROW_TONE_V141 — the numeric stepper wears the same row language as the
-    // switches: opaque inset surface, tone rail, tone-lit value.
-    // MARBLE_NATIVE_ANDROID_V213 — the row language is the platform's: the native container and
-    // outline, the native corner and the touch floor. The stepper keeps the product's own rounded
-    // buttons — a stepper is a real control, and V213 does not invent a platform one.
     val tone = settingsSectionTone()
     val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
-    // Stale or corrupted stored values must never render or step outside the legal range.
+
     val shown = value.coerceIn(range)
     Row(
         modifier = Modifier
@@ -19197,8 +17372,7 @@ private fun TinyField(
         label = { Text(trx(label)) },
         singleLine = true,
         modifier = modifier,
-        // MARBLE_IME_HYGIENE_V197 — same rule as every other field in the app: the keyboard is
-        // released by an event, never by a recomposition.
+
         keyboardOptions = marbleImeOptions(ImeAction.Done),
         keyboardActions = marbleImeActions(ime),
         shape = RoundedCornerShape(17.dp),
@@ -19228,14 +17402,6 @@ private fun EmptyVisual(
     }
 }
 
-
-/** Score ring. A negative score means "not measured yet" and renders as an empty dash. */
-
-
-// =================================================================================================
-// FORMATTING / HEALTH
-// =================================================================================================
-
 @Composable
 private fun healthColor(latencyMs: Int, success: Int): Color = when {
     success <= 0 -> Aether.InkFaint
@@ -19246,8 +17412,6 @@ private fun healthColor(latencyMs: Int, success: Int): Color = when {
     else -> Aether.Cyan
 }
 
-// MARBLE_LIBRARY_PING_HELPERS_V25_3_1
-// Product metric bands: green <100 ms, amber 100..250 ms, red >250 ms.
 private fun libraryPingQuality(latencyMs: Int): String = when {
     latencyMs <= 0 -> "Waiting"
     latencyMs < 100 -> "Fast"
@@ -19255,7 +17419,6 @@ private fun libraryPingQuality(latencyMs: Int): String = when {
     else -> "Slow"
 }
 
-/** One line of evidence for a measured route; speed only appears when it was actually measured. */
 private fun routeEvidenceLine(result: BenchmarkResult): String = listOfNotNull(
     "${result.latencyMs.toInt()} ms",
     "${result.success}% reachable",
@@ -19317,17 +17480,10 @@ private fun countryGlyph(host: String): String {
     }
 }
 
-
-// =================================================================================================
-// IRAN MODE
-// =================================================================================================
-
-
 @Composable
 private fun IranModeSettings(repo: AppRepository) {
     val settings = repo.settings
     val state = repo.iranMode
-
 
     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
         CyberSegment(

@@ -4,16 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Regression tests for the weighted multi-signal rank scorer (MARBLE_SMART_RANK_V90).
- *
- * These lock in the replacement of the single short HTTPS probe with a composite built from TCP
- * handshake success ratio, RTT median/p95, jitter, retransmission and packet loss. The crucial
- * behaviour for Iran's filtering: a single timeout must NOT fail a node — a node is only convicted
- * after the probe's 2-3 backoff attempts all fail.
- */
 class MultiSignalRankScorerTest {
-
     private fun signals(
         ratio: Double,
         attempts: Int,
@@ -48,7 +39,6 @@ class MultiSignalRankScorerTest {
 
     @Test
     fun oneTimeoutIsUncertainNotDead() {
-        // Exactly the bug being fixed: one failed attempt must never convict a node.
         val score = MultiSignalRankScorer.score(signals(ratio = 0.0, attempts = 1))
         assertEquals(MultiSignalRankScorer.Classification.UNCERTAIN, score.classification)
         assertTrue("uncertain nodes stay selectable", score.score > 0.0)

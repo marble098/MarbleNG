@@ -26,7 +26,6 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.exp
 import kotlin.math.roundToInt
 
-// MARBLE_APP_UPDATE_REPO_V102
 data class AppUpdateInfo(
     val version: String,
     val tag: String,
@@ -35,7 +34,6 @@ data class AppUpdateInfo(
     val url: String
 )
 
-// MARBLE_SERVER_INTEL_REPO_V56
 data class ServerIntelInfo(
     val endpoint: String,
     val ip: String,
@@ -62,46 +60,13 @@ data class ServerIntelInfo(
         get() = listOf(city, region, country).filter(String::isNotBlank).distinct().joinToString(", ")
 }
 
-/**
- * MARBLE_PING_FIRST_VALUE_V215 — the lowest sample that may be shown while a run is still in
- * progress. It was 20 ms, which held back every faster first sample until a later one arrived.
- * A provisional value is marked with "~" and replaced by the settled median, so showing the first
- * real sample at once is honest; the final verdict still uses the unchanged 20 ms floor.
- */
 internal const val PROVISIONAL_PING_FLOOR_MS = 1
 
 class AppRepository(private val context: Context, val xray: XrayManager) {
-
-    /**
-     * MARBLE_SINGBOX_CORE_V151 — the second engine.
-     *
-     * Owned here, next to [xray], because the repository is the object that already serialises
-     * every connect/disconnect and holds the settings both cores are configured from. The VPN
-     * service reaches it through [MarbleApplication] exactly like it reaches [xray].
-     */
     val singBox: SingBoxManager = SingBoxManager(context).also { xray.singBox = it }
 
-    /**
-     * MARBLE_SINGBOX_CORE_V151 — the engine the current settings select, plus the last start
-     * report from whichever core that is.
-     *
-     * Both are read straight from the managers instead of a cached copy: each core writes its own
-     * start phase and error, and the Engine page shows the pair that belongs to the engine the
-     * user actually picked. The `else` arm always names [xray], so neither getter can read itself.
-     */
     val activeCoreEngine: CoreEngine get() = parseCoreEngine(settings.coreEngineId)
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_PING_PARALLEL_V200 — the device this app is running on.
-    //
-    // The sweep width is a CPU and memory decision, so it has to be answerable by the object
-    // that owns the sweep. Both values are read once at construction: a phone does not gain
-    // cores mid-session, and `availableProcessors()` is not free to call on every sweep.
-    //
-    // Memory is read through ActivityManager's `MemoryInfo` rather than a build-time constant
-    // because the same APK ships to a 2 GB handset and to a 12 GB one, and the difference is
-    // exactly the decision [PingParallel.deviceClass] exists to make.
-    // ─────────────────────────────────────────────────────────────────────────
     val deviceCores: Int = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
 
     val deviceMemoryMb: Long = runCatching {
@@ -112,23 +77,15 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         (bytes / (1024L * 1024L)).coerceAtLeast(0L)
     }.getOrDefault(0L)
 
-    /** The width the device earns, in [PingParallelMode.AUTO], for the current method. */
     fun recommendedPingParallelism(method: ProbeMethod = settings.probeMethod): Int =
         PingParallel.recommend(deviceCores, deviceMemoryMb, method)
 
-    /** The width a sweep will actually run at, right now. */
     fun effectivePingParallelism(method: ProbeMethod = settings.probeMethod): Int =
         PingParallel.resolve(settings, deviceCores, deviceMemoryMb, method)
 
-    /** One line for the setting: what the device is and what it bought. */
     fun pingParallelismSummary(method: ProbeMethod = settings.probeMethod): String =
         PingParallel.describe(deviceCores, deviceMemoryMb, method)
 
-    /**
-     * How many representatives a sweep re-measures when every node came back dead and no local
-     * fault explains it. Three is the smallest number that can distinguish "the measurement did
-     * not happen" from "all of them really are down", which is the whole question.
-     */
     private val CANARY_NODES = 3
 
     val coreStartPhase: String
@@ -137,82 +94,18 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     val coreStartError: String
         get() = if (activeCoreEngine == CoreEngine.SINGBOX) singBox.lastStartError else xray.lastStartError
 
-    // MARBLE_LIBRARY_POWER_V10
-    // MARBLE_ENGINE_RESCUE_V11
-    // MARBLE_CONNECT_DISPATCH_V13
-    // MARBLE_SMART_ENGINE_V14
-    // MARBLE_ULTIMATE_BUG_FINDER_REPO_V15
-    // MARBLE_REPO_ANR_HARDENING_V16
-    // MARBLE_LIVE_LATENCY_V17
-    // MARBLE_IRAN_FORCE_RUNTIME_V22
-    // MARBLE_INTELLIGENCE_V24
-    // MARBLE_FAST_CONNECT_SSH_LIBRARY_V25
-    // MARBLE_SELECTED_SOURCE_V25_4
-    // MARBLE_MEMORY_PRESSURE_V26
-    // MARBLE_SMART_XRAY_RANK_ALL_V27
-    // MARBLE_LIBRARY_SCOPE_V32
-    // MARBLE_LIBRARY_MEMORY_V33
-    // MARBLE_SYSTEM_INTEGRITY_REPO_V38
-    // MARBLE_WARM_TUNNEL_RANK_V42
-    // MARBLE_REPEATABLE_RANK_V44
-    // MARBLE_V2RAYNG_SMART_RANK_V45
-    // MARBLE_EVIDENCE_WEIGHTED_QUALITY_V46
-    // MARBLE_RANK_RECOVERY_REPO_V61
-    // MARBLE_PATTNG_BATCH_RANK_REPO_V62
-    // MARBLE_LIVE_RANK_EVENT_REPO_V63
-
     private val store = AppStore(context)
     private val io = Executors.newFixedThreadPool(3)
 
-    // IntelligenceStatus includes a SQLite count + thermal inspection. Coalesce it on a worker so
-    // a DB writer can never make the Android input thread wait on the HealthDb monitor.
     private val statusWorker = Executors.newSingleThreadExecutor()
     private val statusRefreshInFlight = AtomicBoolean(false)
 
-    // `busy` is UI state, not a cross-thread lock. This atomic gate is the actual task mutex.
     private val taskInFlight = AtomicBoolean(false)
 
-    /**
-     * MARBLE_PING_CANCEL_V156 — the handle of the task a sweep is running on, so a cancel can
-     * interrupt the worker instead of merely asking it nicely. Kept only while a task is in
-     * flight; `null` means there is nothing to cancel.
-     */
     private val activeTask = AtomicReference<Future<*>?>(null)
 
-    // MARBLE_SMART_RANK_V90: debounce + single-flight gate for the Rank action, so a tap storm can
-    // never re-run the whole preflight + benchmark pool (observed: 9 triggers in 7s, zero results).
     private val rankGate = SmartRankGate()
 
-    /*
-     * MARBLE_SETTINGS_WRITE_COALESCE_V206 — the settings writer.
-     *
-     * [AppStore.saveSettings] rebuilds a ~250-entry `SharedPreferences` editor: every key the
-     * product owns, coerced, formatted and put again. That is fine once; it is not fine nine
-     * times in nine hundred milliseconds, which is exactly what typing `100-200` into the
-     * Fragment length field costs, or what dragging the Mux concurrency slider costs at 60 Hz —
-     * on the main thread, while the field is animating its caret and the page is compositing.
-     *
-     * The fix is not "write less often" (a lost setting is worse than a slow one) — it is
-     * **write once per pause, off the main thread**:
-     *
-     *  • the in-memory settings update *immediately* and synchronously, so the UI is never a
-     *    frame behind what the user typed and nothing can be lost by navigating away;
-     *  • the disk write is scheduled on this single thread with a trailing debounce, so a burst
-     *    of keystrokes or a whole slider drag costs exactly one full rewrite;
-     *  • [flushSettings] forces the write now, and every caller that must not lose a value
-     *    (process death, an activity stopping, a connect) calls it.
-     *
-     * A trailing debounce means the last 400 ms of a burst live only in memory. That window is
-     * closed by [flushSettings] at every lifecycle exit and before every connect, and the
-     * settings object itself is already the value the whole app reads — so the disk copy is a
-     * persistence detail, not the source of truth inside a running process.
-     */
-    /**
-     * How long a burst of edits may stay in memory before it is written to disk.
-     *
-     * Long enough to swallow a fast typist and a whole slider drag, short enough that a
-     * process death inside the window costs one field and not a page of settings.
-     */
     private val SETTINGS_WRITE_DEBOUNCE_MS = 400L
 
     private val settingsWriter = Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -222,17 +115,11 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private var settingsWritePending: AppSettings? = null
     private var settingsWriteFuture: ScheduledFuture<*>? = null
 
-    // Iran Mode scanning runs on its own thread so a detection sweep can never block or be blocked
-    // by a user-visible task such as a subscription refresh.
     private val iranScanner = Executors.newSingleThreadExecutor()
     private val iranScanInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private val iranPolicyGeneration = java.util.concurrent.atomic.AtomicLong(0L)
 
     val intelligence = MarbleIntelligence(context).also {
-        // MARBLE_SINGBOX_PROTOCOLS_V153 — the sing-box config writer now consumes the same
-        // resolver pool that the Xray hardener already races. Without this wiring the second
-        // engine would keep emitting the two configured literals forever while the evidence
-        // loop was reordering a pool it never saw.
         singBox.intelligence = it
         xray.intelligence = it
     }
@@ -247,8 +134,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     var settings by mutableStateOf(store.settings()); private set
 
-
-    // MARBLE_MANUAL_BUCKET_V122 — Manual is a permanent local bucket, never a gated option.
     private fun normalizeLibrarySourceFilter(id: String): String = when {
         id == "all" -> "all"
         id == "manual" -> "manual"
@@ -281,11 +166,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         store.setLastSettingsTab(normalized)
     }
 
-    /**
-     * Last opened Settings page (key from [com.marbleng.app.ui.Aether2026.SettingsPages]). Restored
-     * when the Settings tab is re-entered so a user who was on the Theme page lands back on the Theme
-     * page rather than reshooting to the hub — the back-navigation bug.
-     */
     var lastSettingsPage by mutableStateOf(store.lastSettingsPage())
         private set
 
@@ -296,7 +176,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         store.setLastSettingsPage(normalized)
     }
 
-    /** Public diagnostics hook for UI-level tripwires (e.g. the Settings viewport fallback). */
     fun diagnosticsEvent(component: String, event: String, vararg fields: Pair<String, Any?>) {
         diagnostics.event(component, event, *fields)
     }
@@ -314,8 +193,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         )
     }
 
-    // MARBLE_LIBRARY_COLLAPSIBLE_V113 — the open/closed state of every Library source group,
-    // persisted so the layout the user folds is the layout they come back to.
     var libraryCollapsedSources by mutableStateOf(store.libraryCollapsedSources())
         private set
 
@@ -339,20 +216,12 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     private data class LibraryTarget(val id: String, val name: String)
 
-    /**
-     * A concrete Library source can receive user imports; "all" is only a view.
-     * MARBLE_MANUAL_BUCKET_V122 — Manual always accepts imports, no toggle involved.
-     */
     private fun resolveLibraryTarget(id: String): LibraryTarget? = when {
         id == "manual" -> LibraryTarget("manual", "Manual")
         id == "all" || id.isBlank() -> null
         else -> subscriptions.firstOrNull { it.id == id }?.let { LibraryTarget(it.id, it.name) }
     }
 
-    /**
-     * A concrete source id that can receive imports; anything else falls back to the
-     * always-on Manual bucket instead of refusing the import.
-     */
     fun intakeTargetOrManual(id: String): String = resolveLibraryTarget(id)?.id ?: "manual"
 
     val libraryProfiles: List<ProxyProfile>
@@ -361,12 +230,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private fun enabledProfilesSnapshot(): List<ProxyProfile> =
         profiles.toList().distinctBy { it.id }
 
-    /**
-     * Resolve the exact Library source selected by the user.
-     *
-     * Fail closed: a stale/unknown source id returns an empty set — never the whole Library.
-     * "all" expands to every enabled subscription profile.
-     */
     private fun libraryScopeSnapshot(sourceId: String): List<ProxyProfile> {
         val available = enabledProfilesSnapshot()
         return when (sourceId) {
@@ -379,20 +242,12 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * Human name of one library scope.
-     *
-     * MARBLE_FAILED_PRUNE_V204 — public, because the failed-server cleanup dialogs name the
-     * scope they are about to prune and a second, drifting copy of this mapping is how a dialog
-     * ends up saying "Missing source" about the Manual bucket it is about to empty.
-     */
     fun libraryScopeLabel(sourceId: String): String = when (sourceId) {
         "all" -> "All sources"
         "manual" -> "Manual"
         else -> subscriptions.firstOrNull { it.id == sourceId }?.name ?: "Missing source"
     }
 
-    /** Refresh exactly the source represented by the Library selection. */
     fun refreshLibrarySource(sourceId: String) {
         when (sourceId) {
             "all" -> refreshAll()
@@ -425,31 +280,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         if (changed) store.saveProfiles(profiles)
     }
 
-    /**
-     * MARBLE_SINGBOX_LINK_AUTHORITY_V156 — make the stored config agree with the link it came
-     * from, for every node that has one.
-     *
-     * A profile keeps two copies of the same truth: the share link the user subscribed to
-     * (`raw`) and the Xray JSON derived from it at import time (`configJson`). The Xray engine
-     * runs the JSON and, until now, the sing-box engine ran a translation of that same JSON — so
-     * anything the importer got wrong, or that a later app version learned to read better, was
-     * frozen into every node forever and neither core could reach the real configuration.
-     *
-     * This pass re-reads each link with the *current* parser and repairs the stored copy where
-     * the two disagree on anything that decides how the node dials (protocol, endpoint,
-     * transport, security) or where the stored copy is missing entirely. It is deliberately
-     * narrow:
-     *
-     *  - only single-line share links are touched, so a pasted JSON document or a subscription
-     *    blob a user edited by hand is never rewritten;
-     *  - identity (id, name, source, ownership) always comes from the stored profile;
-     *  - a link-only scheme the parser stores with a blank `configJson` (tuic, anytls) never
-     *    blanks a working stored config — it is handed to the sing-box core's own parser instead;
-     *  - it is idempotent: after one repair the comparison matches and nothing is written again.
-     *
-     * Both engines consume the result, which is what makes "the original config link is the
-     * authority" true for Xray as well as for sing-box.
-     */
     private fun reconcileProfilesWithTheirLinks() {
         var changed = false
         val repaired = mutableListOf<String>()
@@ -470,14 +300,11 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         )
     }
 
-    /** The repaired copy of [profile], or `null` when the stored one already agrees with its link. */
     private fun reconcileWithLink(profile: ProxyProfile): ProxyProfile? {
         val link = SingBoxConfigBuilder.shareLink(profile) ?: return null
         val derived = ProxyParser.parseInput(link).singleOrNull() ?: return null
         val derivedJson = derived.configJson.takeIf { it.isNotBlank() } ?: return null
-        // Host:port alone cannot identify a working node. Older imports of HTML-escaped links
-        // kept the endpoint but lost security=REALITY, SNI and XHTTP extra, so they never got
-        // repaired on startup. The link's full wire shape is the cache's authority.
+
         if (LinkWireParity.matches(profile, derived)) return null
         return profile.copy(
             scheme = derived.scheme,
@@ -496,29 +323,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var state by mutableStateOf("DISCONNECTED"); private set
     var stateDetail by mutableStateOf(""); private set
 
-    /**
-     * Id of the profile currently carrying traffic. Screens must identify the active node by id;
-     * display names are user-editable and are frequently duplicated inside one subscription.
-     */
     var activeProfileId by mutableStateOf(""); private set
     var activeProfileSourceId by mutableStateOf(""); private set
 
-    /**
-     * MARBLE_SELECT_IS_NOT_CONNECT_V121 — the server the user has *chosen*, which is not the same
-     * thing as the server that is carrying traffic.
-     *
-     * Tapping a server in the Servers list used to open a tunnel immediately, so browsing the list
-     * while disconnected kept starting connections nobody asked for. Selection is now a plain,
-     * durable choice: it moves the Home surface onto that server and the connect button acts on
-     * it, and nothing else happens until the user presses connect. (Tapping another server *while*
-     * a tunnel is up still switches the route — that is an explicit re-connect, not a browse.)
-     */
     var selectedProfileId by mutableStateOf(store.lastProfileId()); private set
     var selectedProfileSourceId by mutableStateOf(store.lastProfileSourceId()); private set
     var busy by mutableStateOf(false); private set
 
-    // Background engines are allowed to publish status text, but Compose state itself is committed
-    // on the main looper. This removes cross-thread snapshot churn from benchmark/refresh callbacks.
     private var messageState by mutableStateOf("")
     var message: String
         get() = messageState
@@ -526,61 +337,25 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             postToMain { messageState = value }
         }
 
-    /**
-     * MARBLE_REMEMBERED_PING_V160 — the last measurement of every server, restored on launch.
-     *
-     * The table used to be pure memory: closing the app (or Android killing the process, which
-     * happens nightly) threw away every ping the user had paid for, and the Servers list came
-     * back blank. The rows are read from disk at construction and written back every time a
-     * measurement lands, so the number next to a node survives restarts, updates and process
-     * death — while a node that no longer exists is dropped on the way in, because a measurement
-     * of a server the library does not have is not a memory, it is clutter.
-     */
     var benchmarks by mutableStateOf(rememberedBenchmarks()); private set
     var privacy by mutableStateOf<PrivacyReport?>(null); private set
     var bugReport by mutableStateOf<BugReport?>(null); private set
 
-    // Selected-server public metadata. Requests are opt-in, cached and generation-guarded.
     var serverIntel by mutableStateOf<ServerIntelInfo?>(null); private set
     var serverIntelLoading by mutableStateOf(false); private set
     var serverIntelError by mutableStateOf(""); private set
     private val serverIntelGeneration = AtomicLong(0L)
 
-    // MARBLE_SERVER_LOCATION_V192 — the once-per-server location tests and their live answers.
-    //
-    // Keyed by the canonical endpoint (ServerLocationKey), not by profile id: a subscription
-    // refresh renumbers ids but a node's address is the thing that has a location, so the flag
-    // a row earned survives a refresh that renames it. Seeded with the offline label guess
-    // (ServerCountry) and upgraded in the background by the real test; a learned code is the
-    // authoritative answer and is never re-tested (the cache is durable, in the store).
     val serverLocations: MutableMap<String, ServerCountry> = initialServerLocations()
     var serverLocationScanning by mutableStateOf(false); private set
     private val locationInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val locationBudget = java.util.concurrent.atomic.AtomicInteger(LOCATION_SESSION_BUDGET)
 
-    /**
-     * MARBLE_SERVER_LOCATION_V197 — the evidence behind each learned location.
-     *
-     * The country alone cannot tell the sweep what to do next: a code five providers agreed on is
-     * finished work, while a code one provider produced while four were unreachable is waiting for
-     * a better moment. This table is what lets the app show the thin answer *and* keep trying to
-     * earn the strong one. It does not drive recomposition — the visible flag is [serverLocations].
-     */
     val serverLocationVerdicts: MutableMap<String, ServerLocationVerdict> =
         java.util.concurrent.ConcurrentHashMap()
 
-    /**
-     * MARBLE_ROUTE_ATELIER_V207 — which learned locations are still a lone provider's answer.
-     *
-     * The resolver already writes this to the store (a thin verdict is re-queued on the next sweep)
-     * and the UI already reads it for Bug Finder, but nothing connected it to the tile a user looks
-     * at. A flag earned by three providers and a flag one provider guessed are different facts, and
-     * the surface that paints them must be able to tell them apart. Seeded from the durable store,
-     * so the answer survives a restart exactly as the code it qualifies does.
-     */
     val serverLocationProvisional: MutableMap<String, Boolean> = initialServerLocationProvisional()
 
-    /** True when this endpoint's country rests on a single witness and is queued for re-testing. */
     fun serverLocationIsProvisional(profile: ProxyProfile?): Boolean = profile?.let {
         serverLocationProvisional[ServerLocationKey.of(it.host, it.port)] == true
     } ?: false
@@ -590,42 +365,21 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             putAll(runCatching { store.loadServerLocationProvisional() }.getOrDefault(emptyMap()))
         }
 
-    /** How strong the learned location of one endpoint is, for the diagnostics surfaces. */
     fun serverLocationEvidence(profile: ProxyProfile): String =
         serverLocationVerdicts[ServerLocationKey.of(profile.host, profile.port)]?.evidence.orEmpty()
 
-    /**
-     * The location a server row should show. Only a persisted multi-provider result is
-     * authoritative; subscription labels and host TLDs are hints, not proof, and must never be
-     * painted as a national flag before the quick location quorum completes.
-     */
     fun serverLocation(profile: ProxyProfile): ServerCountry =
         serverLocations[ServerLocationKey.of(profile.host, profile.port)] ?: ServerCountry.UNKNOWN
 
-    // MARBLE_IP_FAMILY_SCAN_V196 — "does this server actually have IPv4, IPv6, or both?"
-    //
-    // The library answers this with folklore: a node name, a TLD, sometimes an AAAA record nobody
-    // ever dialled. Folklore is how a whole evening was spent watching `Kill switch active` scroll
-    // past — Force IPv6 was on, eleven of the saved servers were IPv4-only, and nothing in the app
-    // could say so before the connection was refused. This table is the measured answer: resolve
-    // both families, then *dial* both, and keep the verdict per endpoint with the network it was
-    // taken on.
-    //
-    // Keyed like the location cache (canonical `host:port`), so a subscription refresh that
-    // renumbers profile ids does not lose a single measurement.
     val ipFamilyScans: MutableMap<String, IpFamilyScan> = initialIpFamilyScans()
 
-    /** True while a scan sweep is running; the Servers page shows it on the scanned rows. */
     var ipFamilyScanning by mutableStateOf(false); private set
 
-    /** Scanned / total for a group sweep, so the sheet can show honest progress. */
     var ipFamilyScanDone by mutableStateOf(0); private set
     var ipFamilyScanTotal by mutableStateOf(0); private set
 
-    /** The single-node result awaiting its dialog, or null when nothing is pending. */
     var ipFamilyScanResult by mutableStateOf<IpFamilyScan?>(null); private set
 
-    /** The group result awaiting its dialog, or null when nothing is pending. */
     var ipFamilyScanSummary by mutableStateOf<IpFamilySummary?>(null); private set
 
     private val ipFamilyScanInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -638,7 +392,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         return map
     }
 
-    /** The remembered family verdict for a row, measured or not. */
     fun ipFamilyScan(profile: ProxyProfile): IpFamilyScan? =
         ipFamilyScans[IpFamilyScanner.endpointKey(profile.host, profile.port)]
 
@@ -647,16 +400,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         ipFamilyScanSummary = null
     }
 
-    /**
-     * Which rung of the IPv6 ladder this profile would run on right now, and why.
-     *
-     * The Servers page, the connect path and the VPN service all read this one answer so the
-     * screen can never promise a family the tunnel is not going to use.
-     */
     fun familyResolutionFor(profile: ProxyProfile): FamilyResolution =
         intelligence.familyResolution(profile, settings)
 
-    /** One server, scanned on demand from its row menu. */
     fun scanIpFamily(profile: ProxyProfile): Boolean =
         task("Scanning ${profile.name} • IPv4 / IPv6") {
             postToMain {
@@ -666,7 +412,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 ipFamilyScanResult = null
                 ipFamilyScanSummary = null
             }
-            // V198: user-initiated single scan uses DEEP mode — full confidence, jitter, NAT64 detection
+
             val scan = runFamilyScan(profile, com.marbleng.app.core.ScanMode.DEEP)
             postToMain {
                 ipFamilyScanning = false
@@ -676,14 +422,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             }
         }
 
-    /**
-     * A whole subscription (or the whole library) scanned at once, concurrently.
-     *
-     * Serial scanning of forty nodes at up to four seconds each is a coffee break, so the sweep
-     * runs on a small bounded pool and dedupes by endpoint: two profiles that differ only by
-     * transport share one measurement. Results land as they land — a cancelled sweep keeps
-     * everything it already learned.
-     */
     fun scanIpFamilyForProfiles(targets: List<ProxyProfile>, label: String): Boolean {
         val unique = targets
             .filter { IpFamilyScanner.endpointKey(it.host, it.port).isNotBlank() }
@@ -708,15 +446,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             try {
                 val futures = unique.map { profile ->
                     pool.submit {
-                        // V198: group scan uses BALANCED mode — fast enough for batch, equipped with confidence
                         val scan = runFamilyScan(profile, com.marbleng.app.core.ScanMode.BALANCED)
                         if (scan != null) results += scan
                         val n = done.incrementAndGet()
                         postToMain { ipFamilyScanDone = n }
                     }
                 }
-                // The sweep is bounded end to end: a hung DNS server must not hold the task mutex.
-                // V198: budget now accounts for scan mode
+
                 val deadline = System.currentTimeMillis() +
                     IpFamilyScanner.budgetMsFor(unique.size, IP_FAMILY_SCAN_CONCURRENCY, com.marbleng.app.core.ScanMode.BALANCED)
                 for (f in futures) {
@@ -740,13 +476,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * Measures one endpoint and publishes the verdict everywhere it matters: the live map (so the
-     * row repaints), the durable store (so the next launch starts informed) and nothing else —
-     * the ladder reads the same map through the evidence seam installed in `init`.
-     *
-     * V198: now equipped with scan modes — FAST for background, BALANCED for group, DEEP for user.
-     */
     private fun runFamilyScan(
         profile: ProxyProfile,
         mode: com.marbleng.app.core.ScanMode = com.marbleng.app.core.ScanMode.BALANCED
@@ -781,16 +510,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * Measure the family of a node the user is about to connect to, in the background.
-     *
-     * Deliberately *not* on the connect path's critical section: the dial must never wait on a
-     * scan. The point is the second attempt. An unmeasured node under Force IPv6 is given the
-     * benefit of the doubt exactly once (the dial is itself the cheapest possible measurement),
-     * and this makes sure that by the time a failed v6 dial comes back around, the ladder has a
-     * measured answer instead of the same guess — so a retry lands on IPv4 by itself rather than
-     * repeating the failure. Free when a fresh verdict already exists.
-     */
     private fun ensureIpFamilyEvidence(profile: ProxyProfile) {
         val key = IpFamilyScanner.endpointKey(profile.host, profile.port)
         if (key.isBlank()) return
@@ -800,7 +519,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         io.execute { runCatching { runFamilyScan(profile, com.marbleng.app.core.ScanMode.FAST) } }
     }
 
-    /** How many of the visible library's endpoints have a location answer at all. */
     fun serverLocationSummary(): Pair<Int, Int> {
         val visible = libraryProfiles
         val known = visible.count { p ->
@@ -824,21 +542,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                     ServerCountry.flagFor(learnedCode)
                 )
             }
-            // Do not seed this map from the node name/TLD. Those are useful hints for the
-            // resolver's queue, but presenting them as flags is exactly how a UK endpoint can
-            // end up with a German flag before verification.
         }
         return map
     }
 
-    // MARBLE_SESSION_USAGE_V192 — data used per connection.
-    //
-    // The tunnel carries the user's traffic through this process, so the app's own uid traffic
-    // counter (android.net.TrafficStats) is, to within the app's housekeeping (a few kilobytes
-    // of subscription refresh and location tests), exactly what the session moved. The counter
-    // is sampled at CONNECTED and re-read every two seconds while the session runs; at teardown
-    // the delta becomes one bounded history row and feeds the running total. The anchor is
-    // durable, so a process kill mid-session cannot swallow the accounting.
     var sessionBytes by mutableStateOf(0L); private set
     var lastSessionBytes by mutableStateOf(0L); private set
     var totalUsageBytes by mutableStateOf(runCatching { store.loadTotalUsageBytes() }.getOrDefault(0L)); private set
@@ -906,7 +613,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         )
     }
 
-    /** Completes a session the previous process did not get to close (kill / package replace). */
     private fun finishOrphanedUsageSession() {
         val anchor = runCatching { store.loadSessionAnchor() }.getOrNull() ?: return
         runCatching { store.clearSessionAnchor() }
@@ -926,7 +632,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     private fun recordFinishedUsageSession(rec: UsageSessionRecord) {
         if (rec.bytes <= 0L) {
-            // A session that moved no measurable traffic is not worth a row or a total bump.
             lastSessionBytes = 0L
             return
         }
@@ -941,32 +646,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * MARBLE_SERVER_LOCATION_V197 — the location sweep the user asked for: automatic, on import,
-     * for every server.
-     *
-     * What this replaced, and why the old shape could not satisfy "detect my server's location":
-     *
-     *  1. **A label that named a country was never tested.** The old loop carried the line
-     *     `if (offline.isKnown && answered < candidates.size / 2) continue` — a node called
-     *     "🇩🇪 Germany 3" was skipped, so the flag the user saw was the one the *subscription*
-     *     wrote, not the one the server's address actually geolocates to. A name is a claim;
-     *     the address is a fact. The label is now used only to order the queue (unknown first),
-     *     never to decide whether a server is measured.
-     *  2. **The sweep was serial.** One profile at a time, each with a three-second budget, so a
-     *     forty-server import took minutes and the budget ran out long before the list did. It
-     *     now runs on a small bounded pool and every answer lands as soon as it is known.
-     *  3. **A single-witness answer was thrown away and never retried**, which is the same thing
-     *     as not showing a flag at all on a filtered network. [ServerLocationResolver] now has five
-     *     providers and reports [ServerLocationVerdict.confidence]; a lone answer is shown and
-     *     remembered as [LocationConfidence.LONE], and this sweep re-tests it the next time around.
-     *
-     * Still bounded and still off the frame clock: [LOCATION_SESSION_BUDGET] tests per launch,
-     * deduped by endpoint, in-flight guarded, and cancellable by turning auto-detect off.
-     *
-     * @param force re-test endpoints that already have an answer. Used for the explicit
-     *   "re-detect locations" action and after a physical network change, never on import.
-     */
     fun ensureServerLocations(force: Boolean = false) {
         if (!settings.serverLocationAutoDetect) {
             postToMain { serverLocationScanning = false }
@@ -975,13 +654,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         io.execute {
             if (!settings.serverLocationAutoDetect) return@execute
             val learned = runCatching { store.loadServerLocations() }.getOrDefault(emptyMap())
-            // Explicit type: the store hands back a mutable map, but everything here only reads
-            // it, and `emptyMap()` is a read-only Map — naming the type keeps the fallback from
-            // being inferred as something it cannot be.
+
             val provisional: Map<String, Boolean> =
                 runCatching { store.loadServerLocationProvisional() }.getOrDefault(emptyMap())
 
-            // One entry per endpoint: two profiles that share a host:port share one measurement.
             val queue = LinkedHashMap<String, ProxyProfile>()
             val upgradable = LinkedHashMap<String, ProxyProfile>()
             for (p in profiles) {
@@ -992,16 +668,12 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 when {
                     force -> queue[key] = p
                     learnedCode.isBlank() -> queue[key] = p
-                    // A lone answer is real but thin: put it back in the queue behind the
-                    // endpoints that have never been measured.
+
                     provisional[key] == true -> upgradable[key] = p
                     else -> Unit
                 }
             }
 
-            // Unknown endpoints first, then single-witness answers that a fuller pool could promote
-            // to a quorum. A node whose own label names a country goes last — not skipped: it is
-            // the least likely to surprise the user, not the least worth measuring.
             val ordered = queue.values.sortedBy { p -> if (ServerCountry.of(p.name, p.host).isKnown) 1 else 0 } +
                 upgradable.values.sortedBy { p -> if (ServerCountry.of(p.name, p.host).isKnown) 1 else 0 }
             if (ordered.isEmpty()) {
@@ -1016,7 +688,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 val futures = ordered.map { profile ->
                     pool.submit(Runnable { measureLocationOf(profile) })
                 }
-                // The sweep is bounded end to end: a dead network must not hold the io pool.
+
                 val deadline = System.currentTimeMillis() +
                     LOCATION_SWEEP_DEADLINE_MS
                 for (f in futures) {
@@ -1035,14 +707,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * One endpoint's location test, on a sweep worker.
-     *
-     * Split out of [ensureServerLocations] so the submitting lambda is an honest `Runnable`: every
-     * early exit is a `return` from a named function instead of a labelled return inside a
-     * `try/finally`, which is the shape that makes overload resolution and the in-flight guard
-     * both obvious.
-     */
     private fun measureLocationOf(profile: ProxyProfile) {
         if (!settings.serverLocationAutoDetect) return
         if (locationBudget.get() <= 0) return
@@ -1065,8 +729,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                     ServerCountry.flagFor(verdict.code)
                 )
                 serverLocationVerdicts[key] = verdict
-                // MARBLE_ROUTE_ATELIER_V207 — keep the strength next to the answer, so the tile
-                // can say "one source, not yet confirmed" while the sweep still works on it.
+
                 serverLocationProvisional[key] = verdict.provisional
             }
             diagnostics.event(
@@ -1083,14 +746,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * The whole "tell me what this server is" sweep: where it lives ([ensureServerLocations]) and
-     * which address families it answers on ([IpFamilyScanner]).
-     *
-     * MARBLE_SERVER_LOCATION_V197 / MARBLE_IP_FAMILY_TRUTH_V197 — the two questions the user asks
-     * when a server is added are asked together, in the background, from one call. Neither is ever
-     * on the frame clock and neither is on the connect path's critical section.
-     */
     fun ensureServerInsights(force: Boolean = false) {
         ensureServerLocations(force)
         io.execute {
@@ -1103,9 +758,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                     val known = ipFamilyScans[key]
                     force || known == null || !known.usableOn(networkKey, nowMs)
                 }
-                // A library can be large; one sweep measures a bounded wave of it. The rest is
-                // picked up by the next sweep (or by the connect path's own evidence pass), so an
-                // import of two hundred servers still leaves the app responsive.
+
                 .take(INSIGHT_FAMILY_BATCH)
             if (pending.isEmpty()) return@execute
             val pool = Executors.newFixedThreadPool(
@@ -1113,7 +766,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             )
             try {
                 val futures = pending.map { profile ->
-                    // V198: background insights use FAST mode — low budget, but equipped with bogon filtering and confidence
+
                     pool.submit(java.util.concurrent.Callable { runCatching { runFamilyScan(profile, com.marbleng.app.core.ScanMode.FAST) } })
                 }
                 val deadline = System.currentTimeMillis() +
@@ -1133,43 +786,19 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /** Latest stable GitHub Release that is newer than this APK. */
     var availableUpdate by mutableStateOf<AppUpdateInfo?>(null); private set
 
     private val updateCheckInFlight = AtomicBoolean(false)
     @Volatile private var lastUpdateCheckAt = 0L
     @Volatile private var dismissedUpdateTag = ""
 
-
-    // Live tunnel telemetry. Ping is HTTPS time-to-first-response through the selected Xray path,
-    // not the localhost SOCKS handshake.
-    // ------------------------------------------------------------------
-    // Live batch progress
-    //
-    // Tests and refreshes report per-item state so each node/source card can show its own progress
-    // instead of one anonymous bar at the top of the screen.
-    // ------------------------------------------------------------------
     var probeBatch by mutableStateOf<Set<String>>(emptySet()); private set
     var probeRunning by mutableStateOf<Set<String>>(emptySet()); private set
     var probeFinished by mutableStateOf<Set<String>>(emptySet()); private set
     var probeTotal by mutableStateOf(0); private set
-    /**
-     * MARBLE_PING_CANCEL_V156 — a cancel has been asked for and the sweep is unwinding. The stop
-     * controls read this so the icon does not flip back to "start" while the workers are still
-     * putting their sockets down, which is the moment a second tap would start a new sweep.
-     */
     var probeCancelling by mutableStateOf(false); private set
     private val probeCancelGate = ProbeCancelGate()
 
-    /**
-     * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the reason a sweep stopped because the *device*
-     * could no longer measure (a crashed core, a missing binary, no live tunnel), or `""`.
-     *
-     * This is the state that was missing when 17 identical SIGSEGVs were published as
-     * `reachable = 0 of 17`: the number was right and the meaning was wrong. A sweep that stops
-     * here says why, and the surfaces that report a batch read this before they turn a stopped
-     * batch into a verdict about servers.
-     */
     var probeLocalFault by mutableStateOf(""); private set
     private val probeLocalFaultGate = ProbeLocalFaultGate()
     var probeCurrentName by mutableStateOf(""); private set
@@ -1181,7 +810,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     val probeDone: Int get() = probeFinished.size
     val probeActive: Boolean get() = probeTotal > 0
 
-    /** True while any card is showing its own progress, so the global bar can stay hidden. */
     val inlineProgressActive: Boolean get() = probeActive || refreshingSources.isNotEmpty()
 
     fun probeStateOf(id: String): ProbeState = when {
@@ -1191,12 +819,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     }
 
     private fun beginProbeBatch(candidates: List<ProxyProfile>) {
-        // A new sweep starts un-stopped: the fault that ended the previous one is evidence about
-        // that batch, not a permanent verdict on the device (the core may have been updated, the
-        // tunnel may be up now). Reset *here* and not in the posted block below — the sweep polls
-        // probeShouldStop immediately after its candidates are announced, and a latch cleared one
-        // main-thread turn later would abort the new sweep at its first node. This is why
-        // [endProbeBatch] resets its latch outside postToMain too.
         probeLocalFaultGate.reset()
         postToMain {
             probeLocalFault = ""
@@ -1212,23 +834,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * MARBLE_PING_CANCEL_V156 — stops every kind of bulk measurement in the product.
-     *
-     * "Ping all", a group ping, the Home group ping, Smart and Rank all funnel into the same
-     * probe batch, so one control ends all of them. Cancellation is cooperative *and* immediate:
-     *
-     *  - the flag is polled at every candidate boundary, so nothing new is started;
-     *  - the task's worker thread is interrupted, so a worker already blocked on a socket, a
-     *    core spawn or the measurement semaphore unwinds now instead of at its own timeout;
-     *  - measurements that already finished stay on screen. A cancel means "stop", not "throw
-     *    away what you learned".
-     *
-     * Safe to call at any time: with no sweep live it does nothing at all.
-     */
     fun cancelProbes() {
         if (!probeActive && !probeCancelling) return
-        // Idempotent: only the tap that actually arms the latch publishes the unwind.
+
         if (!probeCancelGate.arm()) return
         diagnostics.event(
             "BENCHMARK",
@@ -1238,8 +846,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         )
         message = "Cancelling • keeping the ${probeDone} measurements already made"
         postToMain { probeCancelling = true }
-        // Interrupt last: the flag must be visible before the worker wakes up, otherwise a
-        // worker that catches the interrupt could immediately pick up the next candidate.
+
         runCatching { activeTask.get()?.cancel(true) }
     }
 
@@ -1251,12 +858,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         probeLastLatencyMs = 0
     }
 
-    /** Publishes one finished node immediately; the card updates while the batch continues. */
     private fun markProbeResult(profile: ProxyProfile, result: BenchmarkResult) {
-        // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — observed here, on the worker, *before* anything
-        // is posted to the main thread: a fault that will end the sweep has to end it now. Posting
-        // it first would let the other workers pick up their next candidates while the message is
-        // still queued, which is precisely how one broken core became 17 "dead" servers.
         if (probeLocalFaultGate.trip(result.failureReason, result.success)) {
             stopProbesForLocalFault(result.failureReason)
         }
@@ -1277,16 +879,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * Ends a sweep because the device cannot measure, not because anyone asked it to stop.
-     *
-     * Runs at most once per sweep ([ProbeLocalFaultGate.trip] is idempotent). It publishes the
-     * reason, arms the cancel latch so every engine sees one uniform stop, and interrupts the
-     * worker so a thread blocked in a core spawn or a socket unwinds immediately — the same three
-     * things [cancelProbes] does, because a fault stop and a user stop must not leave the product
-     * in two different states. Measurements already made are kept: they are real, and throwing
-     * them away would make the honest report look like a failure to report.
-     */
     private fun stopProbesForLocalFault(reason: String) {
         val summary = ProbeLocalFaultGate.summary(reason)
         diagnostics.event(
@@ -1296,8 +888,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             "done" to probeDone,
             "total" to probeTotal
         )
-        // Arm first: the engines poll one predicate, and a fault stop must look like a stop to
-        // every sweep implementation, including the ones that only know about cancels.
+
         probeCancelGate.arm()
         postToMain {
             val left = (probeTotal - probeDone).coerceAtLeast(0)
@@ -1315,9 +906,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     private fun endProbeBatch() {
         probeCancelGate.reset()
-        // Both latches belong to the batch. probeLocalFault (the *reason*) is deliberately kept:
-        // it is the last sweep's evidence, exactly like probeLastOutcome, and the surfaces that
-        // report a batch need it to say "stopped by a device fault" instead of "0 reachable".
+
         probeLocalFaultGate.reset()
         postToMain {
             probeBatch = emptySet()
@@ -1329,34 +918,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * The stop predicate handed to every sweep. Two latches, one question:
-     *
-     *  - [probeCancelGate] — a person pressed stop;
-     *  - [probeLocalFaultGate] — the device proved it cannot measure anything else (a crashed
-     *    core is the same for every remaining node, so continuing only multiplies the crash
-     *    count and then reports it as a server verdict).
-     *
-     * Both unwind through the same path, and both keep the measurements already made.
-     */
     private val probeShouldStop: () -> Boolean = {
         probeCancelGate.isRequested || probeLocalFaultGate.isTripped
     }
 
-    /**
-     * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the summary line a finished batch publishes.
-     *
-     * "$passed reachable" is a statement about servers, and it is only true if this device could
-     * measure them. When the sweep stopped itself on a local fault, printing "0 of 17 reachable"
-     * is the exact sentence that made a crashed core look like a dead network: those 17 nodes were
-     * never contacted, so nothing at all was learned about any of them. The counts stay — they are
-     * real, and a stopped batch still shows what it did measure — but the meaning is corrected,
-     * and the full reason is one Bug Finder scan away.
-     *
-     * Reads the gate first and the published state second: the gate is tripped synchronously on
-     * the worker that found the fault, while [probeLocalFault] reaches the UI one main-thread turn
-     * later, and a summary written in between must not lose the reason.
-     */
     private fun batchSummary(summary: String): String {
         val fault = probeLocalFaultGate.reason.ifBlank { probeLocalFault }
         return if (fault.isBlank()) summary else "$summary • stopped: ${ProbeLocalFaultGate.summary(fault)}"
@@ -1370,52 +935,26 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         refreshingSources = refreshingSources - id
     }
 
-    // MARBLE_HOME_SESSION_EVIDENCE_V110
-    // Wall-clock start of the session currently carrying traffic. Every Home style reads this one
-    // value, so the uptime readout can never disagree between presentations.
     var connectedSinceMs by mutableStateOf(0L); private set
 
-    /** One-shot connection ping. It is measured on demand, never on a repeating timer. */
     var connectionPingMs by mutableStateOf(0); private set
     var connectionPingState by mutableStateOf(ConnectionPingState.IDLE); private set
-    // MARBLE_HOME_V137 — the *why* behind a FAILED tunnel ping, so the Home live-ping panel can
-    // tell a socket timeout ("timeout") from an unreachable endpoint ("unreachable") instead of
-    // collapsing every failure into one word. Empty while IDLE/MEASURING/MEASURED.
+
     var connectionPingFailure by mutableStateOf(""); private set
     private val connectionPingInFlight = AtomicBoolean(false)
 
-    /**
-     * MARBLE_HOME_PING_SPEED_V200 — true while the displayed [connectionPingMs] is a provisional
-     * number: either the previous reading being re-measured, or the first sample of the run in
-     * progress. The readout shows it dimmed with a "refreshing" cue instead of hiding it.
-     *
-     * Why this exists: V114 promised an *instant* Home ping ("the first frame after a tap shows
-     * that real number instead of a measuring placeholder"), and the shipped code did the
-     * opposite — it wrote `connectionPingMs = 0` before every run, so the latency capsule went
-     * blank and then sat on "•••" for the whole batch. A number the user already paid for is
-     * erased by the act of refreshing it, which is the single most visible way a ping button can
-     * feel slow while being exactly as fast as it always was.
-     */
     var connectionPingProvisional by mutableStateOf(false); private set
 
-    // MARBLE_IRAN_AWARE_PING — Layer 0/2/3 signals surfaced to the Home readout: the latency
-    // capsule turns its status glyph into ✅/⚠️/🚫, the sparkline segments injected samples, and
-    // the national-event banner is driven by [nationalEventCause].
     var homePingInjectedReset by mutableStateOf(false); private set
     var homePingStabilityClass by mutableStateOf(""); private set
     var nationalEventCause by mutableStateOf(""); private set
     var nationalEventConfidence by mutableStateOf(0f); private set
-    // MARBLE_HOME_V137 — the selected-server endpoint ping for the DISCONNECTED / CONNECTING
-    // states. The tunnel ladder above needs a live SOCKS port, so it cannot answer while no
-    // traffic flows; this measures the *endpoint* of the server the connect button would act on
-    // (same Settings → Testing method, same family policy, tunnelPort = 0) and is the value the
-    // Home live-ping panel shows before CONNECTED. Measured on demand, never on a timer.
+
     var selectedPingMs by mutableStateOf(0); private set
     var selectedPingState by mutableStateOf(ConnectionPingState.IDLE); private set
     var selectedPingFailure by mutableStateOf(""); private set
     private val selectedPingInFlight = AtomicBoolean(false)
 
-    /** MARBLE_HOME_PING_SPEED_V200 — the disconnected twin of [connectionPingProvisional]. */
     var selectedPingProvisional by mutableStateOf(false); private set
 
     var livePingMs by mutableStateOf(0); private set
@@ -1430,32 +969,21 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var liveJitterSamples by mutableStateOf(0); private set
     var liveRouteProbeStatus by mutableStateOf(""); private set
 
-    /**
-     * MARBLE_GEO_READY_GATE_V145 — latest gate explanation ("" when the full policy is running),
-     * kept in state so the UI never touches the filesystem to render it.
-     */
     var geoGateNote by mutableStateOf("")
         private set
 
     init {
-        // MARBLE_IP_FAMILY_SCAN_V196 — the intelligence layer decides the address family for the
-        // tunnel, the delay test and every prober, so it is handed a read-only view of the
-        // measured scan table. Without this seam the ladder would be reasoning about a node's
-        // IPv6 support from DNS alone, which is the guess that started this whole bug.
         intelligence.ipFamilyEvidence = { host, port ->
             ipFamilyScans[IpFamilyScanner.endpointKey(host, port)]
         }
         migrateLocalSourceOwnershipIfNeeded()
         installUrlTestHook()
         installRealDelayHook()
-        // MARBLE_SINGBOX_LINK_AUTHORITY_V156 — every stored node is checked against the share
-        // link it came from, so both engines run a config that is faithful to that link.
+
         reconcileProfilesWithTheirLinks()
-        // MARBLE_SERVER_LOCATION_V192 — the first location sweep rides the background init:
-        // every server without a learned answer gets its one test while the app settles.
+
         ensureServerInsights()
-        // MARBLE_SESSION_USAGE_V192 — a process death mid-session leaves a durable anchor;
-        // finish that accounting once at launch so the counter never loses a session to a kill.
+
         finishOrphanedUsageSession()
         RuntimeDiagnostics.setDebugEnabled(context, settings.debugModeEnabled)
         diagnostics.event("APP", "repository-init", "debugMode" to settings.debugModeEnabled)
@@ -1466,18 +994,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 networkSnapshot = next
                 refreshIntelligenceStatus()
             }
-            // The physical underlay changed, so the ISP almost certainly changed with it.
+
             scanIranMode(force = true, deep = false)
-            // MARBLE_SERVER_LOCATION_V197 / MARBLE_IP_FAMILY_TRUTH_V197 — a different network is a
-            // different set of reachable geolocation providers and a different IPv6 path, so a
-            // single-witness flag measured on the last network is worth re-testing and a family
-            // verdict from it is already invalid (IpFamilyScan.usableOn keys on the same network).
-            // Only the endpoints that are actually stale are touched: everything with a quorum
-            // answer stays as it is.
+
             ensureServerInsights()
         }
         refreshIntelligenceStatus()
-        // Cheap classification only at app start; deep filtering fingerprints are deferred.
+
         scanIranMode(force = true, deep = false)
         val remoteSubscriptions = subscriptions.filter { it.url.isNotBlank() }
         if (settings.subscriptionAutoRefresh && remoteSubscriptions.isNotEmpty()) {
@@ -1489,32 +1012,16 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 android.os.Handler(android.os.Looper.getMainLooper()).post { refreshAll() }
             }
         }
-        // MARBLE_GEO_READY_GATE_V145 — the geo databases fetch themselves in the background.
-        // Geo routing is disabled while they are absent (see RoutingEngine.withGeoAssetGate), so
-        // the only thing left to do is get them here without ever blocking a connect: this runs
-        // off the main thread, takes no task slot, never touches `busy` and swallows failure —
-        // a missing database costs the geo split for this session and nothing else.
+
         ensureGeoAssetsInBackground()
     }
 
-    /**
-     * Publish the URL test: sing-box extended's own delay controller, and nothing else.
-     *
-     * MARBLE_URLTEST_SINGBOX_ONLY_V156 — the Xray branch this hook used to carry measured
-     * something different behind the same name (a Kotlin HTTPS HEAD through Xray's SOCKS inbound,
-     * with no controller and no unified-delay accounting), so the same server reported two
-     * incomparable numbers depending on which core was selected. The method now belongs to the
-     * engine that owns it and refuses on any other; Settings stops offering it there too.
-     */
     private fun installUrlTestHook() {
         RouteProbe.urlTestHook = { profile, probeSettings, timeoutMs ->
             val targets = DelayTest.candidates(probeSettings.delayTestUrl)
             val effective = intelligence.effectiveSettings(profile, probeSettings)
             val sameLiveProfile = activeProfileId == profile.id && state == "CONNECTED"
             val result = if (effective.coreEngine() == CoreEngine.SINGBOX) {
-                // The live session's controller answers for the route that is actually carrying
-                // traffic; any other profile gets its own throwaway core, because the delay
-                // endpoint can only measure the outbound of the process it belongs to.
                 if (activeCoreEngine == CoreEngine.SINGBOX && singBox.isAlive && sameLiveProfile) {
                     singBox.urlTestLiveTargets(targets, timeoutMs)
                 } else {
@@ -1544,28 +1051,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * MARBLE_REAL_DELAY_TRUTH_V156 — Real delay with no tunnel up.
-     *
-     * The method's promise is "how long a real page takes through the tunnel". Before this hook
-     * existed it could only keep that promise while a tunnel was already connected; disconnected,
-     * it answered `no-live-tunnel` → FAILED, which is why Real delay looked broken on the Home
-     * ping button and on every gate-exempt protocol (Hysteria2, WireGuard, and every pasted Xray
-     * JSON, whose scheme is `json`). A missing tunnel is not a verdict about the server, so the
-     * probe now builds one for the occasion: the same throwaway core the sweep path uses, on the
-     * selected engine, timed with the identical HTTPS round-trip measurement.
-     *
-     * A core that never comes up is retried once — a spawn storm is a fact about the device, not
-     * a dead node.
-     */
     private fun installRealDelayHook() {
         RouteProbe.realDelayHook = { profile, timeoutMs, samples, probeSettings, onSample ->
             val effective = intelligence.effectiveSettings(profile, probeSettings)
-            // MARBLE_PING_FALSE_FAILED_V159 — every DelayTest candidate origin is walked inside
-            // ONE throwaway core (never one core per target). A momentarily filtered primary
-            // used to fail every sample of a healthy route here while the Rank sweep walked on
-            // to the secondary; the walk now hands the next origin the identical budget through
-            // the same tunnel, and only a route silent against every candidate is failed.
+
             val targets = DelayTest.candidates(probeSettings.delayTestUrl)
             var measured: RouteProbe.ProbeResult? = null
             fun attempt() {
@@ -1576,14 +1065,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                             timeoutMs = timeoutMs,
                             samples = samples,
                             urls = targets,
-                            // MARBLE_PING_SPEED_DIAL_V199 — the throwaway tunnel's samples keep
-                            // the caller's dial-driven quiet gap, exactly like the live path.
+
                             sampleSpacingMs = probeSettings.pingSampleSpacingMs(),
-                            // MARBLE_HOME_PING_SPEED_V200 — the throwaway path publishes per
-                            // sample too. This is the disconnected Home ping, and it is the
-                            // slowest of the three (it builds a core before it measures a
-                            // single byte), so it is the one that most needs to show a number
-                            // the moment one exists.
+
                             onSample = onSample
                         )
                     }
@@ -1612,13 +1096,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * MARBLE_GEO_READY_GATE_V145 — silent, non-blocking preparation of the routing databases.
-     *
-     * Only runs when the user's own policy actually needs an asset that is not on disk, and only
-     * while no tunnel is up (a management download belongs on the underlay). Everything it can
-     * fail at is best effort by design.
-     */
     private fun ensureGeoAssetsInBackground() {
         io.execute {
             runCatching {
@@ -1645,26 +1122,11 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * MARBLE_GEO_READY_GATE_V145 — "" while the policy runs exactly as written, otherwise one
-     * line naming the database the engine is waiting for. Surfaced on the Routing page.
-     */
     fun geoGateReason(): String {
         val status = runCatching { xray.routingAssetStatus() }.getOrNull() ?: return ""
         return RoutingEngine.geoDowngradeReason(settings, status.geoIpReady, status.geoSiteReady)
     }
 
-
-    /**
-     * Resolve the selected endpoint and enrich only its public IP with coarse public metadata.
-     *
-     * Privacy boundary:
-     * - the request is intentionally available from the connected Home route, without a hidden
-     *   settings gate that could leave old installations with a permanently blank IP row;
-     * - proxy config, UUID/password, SNI and subscription URL are never sent;
-     * - only the already-public resolved server IP is queried at ipwho.is;
-     * - a 15-minute per-endpoint cache avoids noisy/redundant lookups.
-     */
     fun refreshServerIntel(targetProfile: ProxyProfile? = null, force: Boolean = false) {
         val target = targetProfile
             ?: profile(activeProfileId, activeProfileSourceId)
@@ -1693,8 +1155,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             return
         }
 
-        // The same family plan the tunnel uses: server intelligence that reports the IPv4 address of
-        // a node the engine would dial over IPv6 describes a path the user never gets.
         val familyPlan = AddressFamilyPolicy.plan(settings = settings)
         val generation = serverIntelGeneration.incrementAndGet()
         postToMain {
@@ -1718,7 +1178,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                     throw IllegalStateException("Server endpoint did not resolve to a usable IP")
                 }
 
-                // Already ordered by the plan, so the first entry is the address the engine will dial.
                 val preferred = addresses.first()
 
                 val resolvedIp = preferred.hostAddress
@@ -1842,13 +1301,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
     }
 
-    /**
-     * Checks the latest stable GitHub Release without blocking the UI.
-     *
-     * MainActivity calls this from onStart(), so returning to MarbleNG triggers a fresh check.
-     * A short throttle prevents lifecycle bounce (permission dialogs/browser return) from
-     * hammering GitHub. Dismissing a version hides that exact tag until the process restarts.
-     */
     fun checkForAppUpdate(force: Boolean = false) {
         if (!settings.appUpdateCheckEnabled) return
 
@@ -1978,15 +1430,10 @@ fun updateRouteQuality(
         holdQuality: Boolean = false
     ) {
         if (pingMs <= 0) return
-        // MARBLE_HONEST_PING_V119 — the live monitor, the Home probe and Stored benchmark seeds
-        // all publish through here; the only shared bound is physical (positive, ≤ 10 s), so a
-        // genuinely fast route shows its real latency instead of a synthetic floor.
+
         val honestPing = LinkQualityEstimator.sanitaryRtt(pingMs)
         if (honestPing <= 0) return
 
-        // Quality is computed from the same bounded evidence window as the displayed metrics.
-        // A timeout is reliability evidence, unknown jitter stays neutral, and p90 catches a
-        // congested tail that a median alone can hide.
         val rawScore = calculateLiveRouteScore(
             pingMs = honestPing,
             jitterMs = jitterMs,
@@ -2001,26 +1448,13 @@ fun updateRouteQuality(
                 liveJitterMs = jitterMs.coerceIn(0, 10_000)
             }
 
-            // The inputs are already rolling aggregates. A second EWMA here made Quality lag well
-            // behind Ping/Jitter after a network change, so publish the evidence-window score.
-            //
-            // MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — except right after a target pivot. A pivot
-            // clears the evidence window, so the first burst back is three samples out of three:
-            // a perfectly good route momentarily scores like a route that only answers three times
-            // in a row, because a 95 % confidence interval around 3/3 starts at 44 %. Latency and
-            // jitter are still real measurements the moment they land, so they publish; only the
-            // *score* waits for the window to be worth scoring.
             if (!holdQuality) {
                 liveRouteScore = rawScore
                 liveRouteSuccessPercent = successPercent.coerceIn(0, 100)
             }
             liveRouteAttempts = attemptCount.coerceIn(0, 10_000)
             if (tailLatencyMs >= 0) liveTailLatencyMs = tailLatencyMs.coerceIn(0, 10_000)
-            // MARBLE_AUTO_SERVER_SELECTOR_V202 — the "the route stopped working" moment.
-            //
-            // One shot per session. The monitor calls this every few seconds, so without the
-            // arm a route that stays broken would move the connection every tick. The arm is
-            // set when a session opens and consumed here: one session, one failover.
+
             if (settings.autoServerSelectorEnabled &&
                 settings.autoServerOnFailure &&
                 state == "CONNECTED" &&
@@ -2048,8 +1482,6 @@ fun updateRouteQuality(
                 if (holdQuality) append(" • score settling after target change")
             }
 
-            // v18 counted publications forever although ping came from a bounded window.
-            // Publish the actual current window sizes.
             liveRouteSamples =
                 if (sampleCount >= 0) sampleCount.coerceIn(0, 10_000)
                 else (liveRouteSamples + 1).coerceAtMost(10_000)
@@ -2099,20 +1531,6 @@ fun resetTelemetry() {
         }
     }
 
-    /**
-     * Release only reconstructable UI evidence under Android memory pressure.
-     * The live VPN/Xray route, profiles, subscriptions, health DB and durable history are retained.
-     * Numeric levels follow ComponentCallbacks2: 15 critical, 20 UI hidden, 40 background,
-     * 60 moderate, 80 complete.
-     *
-     * MARBLE_MEMORY_TRIM_V135 — the attached runtime log showed trim levels 20 and 40 arriving
-     * repeatedly while PSS sat near 318 MB and the OS eventually revoked the VPN permission. The
-     * old ladder released too little too late (bug report at 40, benchmarks only at 60), so the
-     * reconstructable Kotlin-side caches kept occupying pages while the kernel was visibly asking
-     * for them back. Everything that can be rebuilt by a later tap or refresh is now released one
-     * step earlier; the heap footprint is reported inside the trim event so the next log shows
-     * whether the trim actually freed Java-side memory.
-     */
     fun onMemoryPressure(level: Int) {
         val runtime = Runtime.getRuntime()
         val heapUsedKb = (runtime.totalMemory() - runtime.freeMemory()) / 1024L
@@ -2126,27 +1544,18 @@ fun resetTelemetry() {
         )
         if (level < 15) return
         intelligence.onMemoryPressure(level)
+        CensorshipAwareDnsResolver.onMemoryPressure(level)
         postToMain {
             if (level >= 15) privacy = null
             if (level >= 20) {
                 bugReport = null
-                // Server intel (exit IP / flag / geo) is rebuilt by the next refresh cycle.
+
                 serverIntel = null
             }
             // MARBLE_REMEMBERED_PING_KEEP_V163 — the benchmark table is NOT trimmed under memory
-            // pressure any more. It is at most 400 small rows (a few tens of KB), and trimming
-            // it to the active node was the reason "last ping" vanished at random: the next
-            // completed probe merged its one result into the trimmed table and persisted THAT,
-            // so the remembered pings of every other server were overwritten on disk by a
-            // TRIM_MEMORY callback the user never saw. The large caches above (privacy report,
-            // bug report, server intel) are what a trim is for.
         }
     }
 
-    /**
-     * Resolve a config. Library mutations pass sourceId so identical configs in two sources remain
-     * independent rows; engine callers may intentionally resolve by canonical config id only.
-     */
     fun profile(id: String, sourceId: String? = null): ProxyProfile? {
         return if (!sourceId.isNullOrBlank()) {
             profiles.firstOrNull { it.id == id && it.subscriptionId == sourceId }
@@ -2155,7 +1564,6 @@ fun resetTelemetry() {
         }
     }
 
-    /** True only for the exact Library row currently carrying traffic. */
     fun isActiveProfile(profile: ProxyProfile): Boolean {
         if (state != "CONNECTED" || profile.id.isBlank()) return false
         if (activeProfileId.isNotBlank()) {
@@ -2166,21 +1574,16 @@ fun resetTelemetry() {
         return stateDetail.isNotBlank() && profile.name == stateDetail
     }
 
-    /** Compatibility helper for engine callers that intentionally identify configs by id. */
     fun isActiveProfile(id: String): Boolean =
         state == "CONNECTED" && id.isNotBlank() && activeProfileId == id
 
     fun setRuntimeState(s: String, d: String) {
-        // A late DISCONNECTING report can never override a state the service has already moved on
-        // from; the watchdog token below is what actually clears a stuck teardown.
         if (s == "DISCONNECTING" && state != "CONNECTED" && state != "CONNECTING") return
         diagnostics.event("APP", "state", "from" to state, "to" to s, "detail" to d.take(160))
         postToMain {
             state = s
             stateDetail = d
-            // MARBLE_SESSION_USAGE_V192 — the teardown is the moment a session's usage becomes a
-            // fact: one bounded history row, one running total, and the live counter frozen at
-            // its final value.
+
             if (s == "DISCONNECTED") {
                 autoFailoverArmed.set(false)
                 finishUsageSession()
@@ -2208,16 +1611,6 @@ fun resetTelemetry() {
         }
     }
 
-    /**
-     * Apply a new settings snapshot.
-     *
-     * @param coalesceWrite MARBLE_SETTINGS_WRITE_COALESCE_V206 — when true the in-memory change
-     *   is applied immediately and synchronously (the UI never lags a keystroke) while the disk
-     *   write is scheduled on the settings writer with a trailing debounce. Use it for every
-     *   control that produces a continuous stream of values: text fields, sliders, steppers.
-     *   Leave it false for a discrete decision (a switch, a preset, a mode) where the write is
-     *   once and the durability must be immediate.
-     */
     fun updateSettings(v: AppSettings, coalesceWrite: Boolean = false) {
         val previous = settings
         val debugChanged = previous.debugModeEnabled != v.debugModeEnabled
@@ -2232,14 +1625,10 @@ fun resetTelemetry() {
         } else null
         val activeMode = previous.connectionMode
         val updateChecksWereEnabled = previous.appUpdateCheckEnabled
-        // MARBLE_URLTEST_SINGBOX_ONLY_V156 — the URL test is the sing-box extended core's own
-        // delay controller, so switching the engine away from it must not leave a stored choice
-        // that can only ever fail. This is the single decision point: every writer of
-        // `coreEngineId` and every restore of a stored preference passes through here.
+
         val usableProbeMethod = v.probeMethod.forEngine(v.coreEngine())
         val probeMethodDemoted = usableProbeMethod != v.probeMethod
-        // MARBLE_INTELLIGENCE_ALWAYS_ON_V143 — Marble Intelligence is a permanent product
-        // contract. No caller, screen or stored preference may switch it off.
+
         settings = v.copy(intelligenceEnabled = true, probeMethod = usableProbeMethod)
         if (!v.appUpdateCheckEnabled) {
             postToMain { availableUpdate = null }
@@ -2263,9 +1652,6 @@ fun resetTelemetry() {
             diagnostics.event("DEBUG", "mode-changed", "enabled" to v.debugModeEnabled)
         }
         if (activeProfile != null) {
-            // Persisting a setting alone does not retune a running core. Re-establish it now;
-            // the service holds the OLD full TUN as a blackhole until the new dual-stack one
-            // is installed, including if preflight or bootstrap fails.
             diagnostics.event("VPN", "family-change-reconnect",
                 "mode" to v.addressFamilyMode.name, "profile" to activeProfile.id.take(12))
             setRuntimeState("CONNECTING", "Applying ${v.addressFamilyMode.name.replace('_', ' ')}")
@@ -2283,14 +1669,6 @@ fun resetTelemetry() {
         refreshIntelligenceStatus()
     }
 
-    /**
-     * MARBLE_SETTINGS_WRITE_COALESCE_V206 — schedule the disk write of the current settings.
-     *
-     * Called on the thread that changed the settings (the main thread, from a field or a
-     * slider), and does nothing there but publish the snapshot and arm one delayed task. A
-     * second call while a task is armed only replaces the snapshot: the debounce is *trailing*,
-     * so a continuous drag produces one write when the finger lifts instead of one per frame.
-     */
     private fun scheduleSettingsWrite() {
         val snapshot = settings
         synchronized(settingsWriteLock) {
@@ -2305,8 +1683,7 @@ fun resetTelemetry() {
                 }
                 if (pending != null) {
                     runCatching { store.saveSettings(pending) }.onFailure { error ->
-                        // A swallowed write failure is a setting that silently reverts on the
-                        // next boot, with no trace anywhere.
+
                         diagnostics.event(
                             "SETTINGS", "coalesced-write-failed",
                             "error" to (error.message ?: error.javaClass.simpleName)
@@ -2322,13 +1699,6 @@ fun resetTelemetry() {
         }
     }
 
-    /**
-     * Write [v] to disk now, cancelling any armed debounce.
-     *
-     * The write happens outside the lock: [AppStore.saveSettings] is a disk-bound operation and
-     * the lock only guards the two bookkeeping fields, which are already consistent by the time
-     * it is released.
-     */
     private fun flushSettingsNow(v: AppSettings) {
         synchronized(settingsWriteLock) {
             settingsWriteFuture?.cancel(false)
@@ -2338,13 +1708,6 @@ fun resetTelemetry() {
         store.saveSettings(v)
     }
 
-    /**
-     * MARBLE_SETTINGS_WRITE_COALESCE_V206 — write any settings that are still only in memory.
-     *
-     * Called at every point where losing the last 400 ms of a burst would be a bug rather than
-     * an optimisation: the activity stopping, a connect starting, an export of the settings.
-     * It is idempotent and cheap when there is nothing pending.
-     */
     fun flushSettings() {
         val pending = synchronized(settingsWriteLock) {
             val snapshot = settingsWritePending
@@ -2363,10 +1726,6 @@ fun resetTelemetry() {
         }
     }
 
-    /**
-     * Effective settings for one profile. Marble Intelligence already folds Iran Mode into its own
-     * output, so the shield is only applied here when the intelligence engine is switched off.
-     */
     fun effectiveSettingsFor(
         profile: ProxyProfile,
         withAcceleration: Boolean = true
@@ -2374,9 +1733,6 @@ fun resetTelemetry() {
         val tuned = if (settings.intelligenceEnabled) {
             intelligence.effectiveSettings(profile, settings, withAcceleration)
         } else {
-            // MARBLE_IPV6_FALLBACK_LADDER_V196 — with the intelligence engine switched off nobody
-            // has walked the ladder yet, so it is walked here. A user who turned off the tuner
-            // asked for fewer opinions, not for `Kill switch active` on every IPv4-only node.
             val resolution = familyResolutionFor(profile)
             DpiEvasionPolicy.heal(
                 IranShield.apply(
@@ -2389,44 +1745,22 @@ fun resetTelemetry() {
                 iranMode
             )
         }
-        // MARBLE_CORE_OPTIONS_V211 — this is where the transport-adaptation learner used to
-        // rewrite the fragment and Mux values on their way to the config builders. That learner
-        // is gone with the feature it served: the two cores' options are the user's, they are
-        // written verbatim, and the only thing Identity Guard still does is bound what may leave
-        // the device. `tuned` is the last word the automatic policies get.
+
         return IdentityGuard.apply(tuned)
     }
 
-    /**
-     * Baseline the acceleration tuner measures against: everything the user, Iran Mode and
-     * Identity Guard ask for, minus any method a previous tuning pass already applied.
-     */
     fun tuningBaseFor(profile: ProxyProfile): AppSettings =
         effectiveSettingsFor(profile, withAcceleration = false)
 
     private fun geoIpReady(): Boolean =
         runCatching { xray.routingAssetStatus().geoIpReady }.getOrDefault(false)
 
-    // ------------------------------------------------------------------
-    // Iran Mode
-    // ------------------------------------------------------------------
-
-    /**
-     * Runs an Iran Mode detection sweep on the physical underlay.
-     *
-     * @param force ignores the re-scan interval (used on network change and manual re-scan).
-     * @param deep also fingerprints the filtering techniques currently applied to the link.
-     */
     fun scanIranMode(force: Boolean = false, deep: Boolean = false) {
         val policy = settings.iranModePolicy
         val previous = iranMode
         val now = System.currentTimeMillis()
         val networkKey = intelligence.currentSnapshot().key()
 
-        /*
-         * ALWAYS_ON / OFF are explicit policy, not detector requests.
-         * No SCANNING state and no physical-network probes are allowed for Force on.
-         */
         if (policy == IranModePolicy.ALWAYS_ON || policy == IranModePolicy.OFF) {
             val generation = iranPolicyGeneration.get()
             val baseState = if (policy == IranModePolicy.ALWAYS_ON) {
@@ -2667,8 +2001,6 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun setConnectionMode(mode: ConnectionMode) {
-        // A user can turn port-53 interception off in Local Proxy. Switching back to Full TUN
-        // must restore it before the service is allowed to install a device-wide route.
         val enableDnsHijack = mode == ConnectionMode.FULL_TUN && !settings.dnsHijackEnabled
         if (settings.connectionMode == mode) {
             if (enableDnsHijack) updateSettings(settings.copy(dnsHijackEnabled = true))
@@ -2683,14 +2015,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /**
-     * MARBLE_SINGBOX_CORE_V151 — switching the tunnel core.
-     *
-     * The engine is the user's choice, and switching it is a real act rather than a flag flip:
-     * the other core's process cannot keep the tun, so a live tunnel is closed first and the user
-     * reconnects into the engine they just picked. The chosen measurement method is retained;
-     * both Real Delay and URL Test have selected-core implementations.
-     */
     fun setCoreEngine(engine: CoreEngine) {
         val previous = parseCoreEngine(settings.coreEngineId)
         if (previous == engine) return
@@ -2701,11 +2025,9 @@ private fun postToMain(block: () -> Unit) {
         message = "Tunnel core set to ${CoreEngineInfo.displayName(engine)}. Reconnect to run it."
     }
 
-    /** MARBLE_SINGBOX_CORE_V151 — the URL every real-delay measurement is timed against. */
     fun setDelayTestUrl(url: String) {
         updateSettings(settings.copy(delayTestUrl = url.trim()))
-        // The hook is rebuilt on every measurement from the current settings, so nothing else has
-        // to be reset here; the message just tells the user the next ping already uses it.
+
         message = if (url.trim().isEmpty()) {
             "Delay URL reset to ${DelayTest.URL}"
         } else {
@@ -2752,16 +2074,6 @@ private fun postToMain(block: () -> Unit) {
         val timeoutMs = settings.pingTimeoutMs()
         val samples = settings.pingSampleCount()
 
-        // MARBLE_HOME_PING_SPEED_V200 — the tap is acknowledged with the number we already have,
-        // not with a blank. The old code zeroed [connectionPingMs] here, which is why the capsule
-        // flashed empty and then sat on "•••" for the whole batch: the *display* was three round
-        // trips behind the *measurement*, and a user reads the display.
-        //
-        // Two things now happen that did not before:
-        //  1. the previous reading stays on screen, marked provisional;
-        //  2. every sample is published the moment it lands ([onSample]), so the first round trip
-        //     replaces it with a fresh real number and the rest only refine it.
-        // Neither changes what is measured: same method, same budget, same median at the end.
         postToMain {
             connectionPingState = ConnectionPingState.MEASURING
             connectionPingProvisional = true
@@ -2779,9 +2091,7 @@ private fun postToMain(block: () -> Unit) {
                         timeoutMs = timeoutMs,
                         settings = settings,
                         onSample = { sampleMs ->
-                            // First sample wins the screen; later ones refine it. The guard keeps
-                            // a stale run from writing over a newer one (the session can end mid
-                            // probe, and a disconnected readout owes the user nothing).
+
                             if (connectionPingInFlight.get() &&
                                 connectedSinceMs == sessionAtStart &&
                                 state == "CONNECTED"
@@ -2840,7 +2150,7 @@ private fun postToMain(block: () -> Unit) {
 
             postToMain {
                 connectionPingInFlight.set(false)
-                // A disconnect or reconnect while the probe was in flight invalidates the result.
+
                 when {
                     state != "CONNECTED" || connectedSinceMs != sessionAtStart -> {
                         connectionPingMs = 0
@@ -2853,10 +2163,6 @@ private fun postToMain(block: () -> Unit) {
                         connectionPingFailure = ""
                     }
                     else -> {
-                        // MARBLE_HOME_PING_SPEED_V200 — a route that just carried traffic does not
-                        // get a bare "✕" because one batch of samples came back empty. The last
-                        // real reading stays, marked provisional, and the failure keeps its own
-                        // word so the panel can still say *what* went wrong.
                         connectionPingState = ConnectionPingState.FAILED
                         connectionPingFailure = classifyPingFailure(probe?.failureReason)
                     }
@@ -2864,9 +2170,7 @@ private fun postToMain(block: () -> Unit) {
                 connectionPingProvisional = false
                 homePingInjectedReset = probe?.injectedResetSuspected == true || measured < 20
                 homePingStabilityClass = stability?.stabilityClass?.name ?: ""
-                // MARBLE_HOME_ONE_PING_V208 — a measurement may raise the banner immediately, but
-                // it may only retire it once it is confident: an inconclusive ping must not delete
-                // the alert, which is how the banner used to blink every time the ping ran.
+
                 nationalEventCause = NationalEventBannerPolicy.next(
                     previous = nationalEventCause,
                     freeze = attribution?.rankingFreeze == true,
@@ -2878,12 +2182,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /**
-     * MARBLE_HOME_V137 — collapse a raw probe failure reason into the three words the Home
-     * live-ping panel may show: `timeout` (the socket budget expired), `unreachable` (the
-     * endpoint answered with nothing usable / refused), or `error` (misconfigured target,
-     * missing tunnel, anything else). Pure, so the exact mapping is unit-testable.
-     */
     fun classifyPingFailure(reason: String?): String {
         val clean = reason.orEmpty().trim().lowercase()
         if (clean.isEmpty()) return "unreachable"
@@ -2896,12 +2194,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /**
-     * MARBLE_HOME_V137 / MARBLE_PING_METHODS_V148 — the one ping entry Home calls. Connected and
-     * disconnected paths both run the Settings → Testing method; connected simply supplies the
-     * live SOCKS port so tunnel-capable methods measure through the route. One tap never reports
-     * two latencies.
-     */
     fun measureHomePing() {
         if (state == "CONNECTED") {
             measureConnectionPing()
@@ -2910,15 +2202,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /**
-     * MARBLE_HOME_V137 / MARBLE_PING_TRUTH_V147 — endpoint ping of the server the connect button
-     * would act on, for the DISCONNECTED / CONNECTING states where the tunnel ladder has no port
-     * to race through. Dispatches to [RouteProbe.measureUnified] with tunnelPort = 0: Smart runs
-     * the verified TCP+TLS gate and Real test honestly falls back to that same gate (there is no
-     * way to prove a config without spawning a tunnel, which this one-shot button does not do),
-     * so the method, the family plan and the 20 ms honest floor are identical to the connected
-     * path. Async, single-flight, measured-only.
-     */
     fun measureSelectedPing() {
         if (!selectedPingInFlight.compareAndSet(false, true)) return
         val target = homeRoute() ?: lastProfile()
@@ -2933,22 +2216,16 @@ private fun postToMain(block: () -> Unit) {
             if (target == null) message = "Select a server first • then ping it"
             return
         }
-        // A successful ping belongs to this exact server; a selection change or a connect
-        // while the probe is in flight invalidates it.
+
         val targetId = target.id
         val targetSource = target.subscriptionId
-        // MARBLE_HOME_PING_SPEED_V200 — same acknowledgement contract as the connected path: the
-        // number stays on screen while it is being re-measured, and the first sample replaces it
-        // as soon as one exists. A disconnected ping is the slowest button in the product when
-        // Real delay has to build a whole core before it can time anything, so nothing about the
-        // wait should be invisible.
+
         postToMain {
             selectedPingState = ConnectionPingState.MEASURING
             selectedPingProvisional = true
             selectedPingFailure = ""
         }
         io.execute {
-            // MARBLE_PING_CONTROL_V145 — same user-owned budget as every other measurement.
             val timeoutMs = settings.pingTimeoutMs()
             val samples = settings.pingSampleCount()
             val probeResult = runCatching {
@@ -2997,8 +2274,7 @@ private fun postToMain(block: () -> Unit) {
                 selectedPingInFlight.set(false)
                 val stillSelected = selectedProfileId == targetId &&
                     (selectedProfileSourceId.isBlank() || selectedProfileSourceId == targetSource)
-                // MARBLE_IRAN_AWARE_PING_L0/L2 — persist the Layer-0 signal (injected reset /
-                // silent timeout travel with the ProbeResult) and append the Layer-2 sample.
+
                 val stability = runCatching {
                     intelligence.recordLiveObservation(
                         targetId,
@@ -3012,8 +2288,6 @@ private fun postToMain(block: () -> Unit) {
                 postToMain {
                     when {
                         state == "CONNECTED" || !stillSelected -> {
-                            // The tunnel took over (tunnel ping owns the readout now) or the user
-                            // moved on to another server: this result belongs to nobody.
                             selectedPingMs = 0
                             selectedPingState = ConnectionPingState.IDLE
                             selectedPingFailure = ""
@@ -3024,9 +2298,6 @@ private fun postToMain(block: () -> Unit) {
                             selectedPingFailure = ""
                         }
                         else -> {
-                            // MARBLE_HOME_PING_SPEED_V200 — keep the last real reading instead of
-                            // blanking it; the failure word travels beside it, so the capsule
-                            // reads "🚫 148 ms" (last known) rather than a bare "✕".
                             selectedPingState = ConnectionPingState.FAILED
                             selectedPingFailure = classifyPingFailure(probeResult?.failureReason)
                         }
@@ -3091,13 +2362,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /**
-     * Replace provider-managed rows atomically while preserving the live config snapshot.
-     *
-     * A provider may remove/rename the node currently carrying traffic. The running service owns a
-     * valid immutable profile snapshot; Repository must not pretend that row vanished until the
-     * active tunnel is disconnected.
-     */
     private fun replaceManagedProfilesForSource(
         sub: Subscription,
         parsed: List<ProxyProfile>
@@ -3133,7 +2397,7 @@ private fun postToMain(block: () -> Unit) {
                 "source" to sub.id.take(16)
             )
         }
-        // MARBLE_SERVER_LOCATION_V192 — a refresh may bring endpoints no one has tested yet.
+
         ensureServerInsights()
         return incoming.size
     }
@@ -3150,42 +2414,68 @@ private fun postToMain(block: () -> Unit) {
         }
         task("Refreshing ${sub.name}") {
             beginRefresh(listOf(sub.id))
-            val payload = httpSubscription(sub.url)
-            val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
-            require(parsed.isNotEmpty()) {
-                "No supported profiles returned; previous servers were kept"
-            }
 
-            val meta = parseSubscriptionUserInfo(payload.userInfo)
-            // MARBLE_SUBSCRIPTION_THREAD_TRUTH_V166 — fetch and parse stay on the worker; the
-            // structural mutations apply on the main looper through the gate, and persistence
-            // writes the immutable snapshot the gate returns (see applyStateOnMainThread).
-            val (refreshedCount, subsSnapshot, profilesSnapshot) = applyStateOnMainThread {
-                val count = replaceManagedProfilesForSource(sub, parsed)
-                val index = subscriptions.indexOfFirst { it.id == sub.id }
-                if (index >= 0) {
-                    val current = subscriptions[index]
-                    subscriptions[index] = current.copy(
-                        updatedAt = System.currentTimeMillis(),
-                        uploadBytes = meta?.upload ?: current.uploadBytes,
-                        downloadBytes = meta?.download ?: current.downloadBytes,
-                        totalBytes = meta?.total ?: current.totalBytes,
-                        expireAt = meta?.expireAt ?: current.expireAt
-                    )
+            val outcome = runCatching {
+                val payload = httpSubscription(sub.url)
+                val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
+                require(parsed.isNotEmpty()) {
+                    "No supported profiles returned; previous servers were kept"
                 }
-                Triple(count, subscriptions.toList(), profiles.toList())
-            }
 
-            store.saveSubscriptions(subsSnapshot)
-            store.saveProfiles(profilesSnapshot)
-            notifier.alert(
-                SmartNotificationKind.SUBSCRIPTION,
-                "subscription:${sub.id}",
-                "Subscription refreshed",
-                "${sub.name} • $refreshedCount servers",
-                settings
+                val meta = parseSubscriptionUserInfo(payload.userInfo)
+
+                applyStateOnMainThread {
+                    val count = replaceManagedProfilesForSource(sub, parsed)
+                    val index = subscriptions.indexOfFirst { it.id == sub.id }
+                    if (index >= 0) {
+                        val current = subscriptions[index]
+                        subscriptions[index] = current.copy(
+                            updatedAt = System.currentTimeMillis(),
+                            uploadBytes = meta?.upload ?: current.uploadBytes,
+                            downloadBytes = meta?.download ?: current.downloadBytes,
+                            totalBytes = meta?.total ?: current.totalBytes,
+                            expireAt = meta?.expireAt ?: current.expireAt
+                        )
+                    }
+                    Triple(count, subscriptions.toList(), profiles.toList())
+                }
+            }
+            outcome.fold(
+                onSuccess = { (refreshedCount, subsSnapshot, profilesSnapshot) ->
+                    store.saveSubscriptions(subsSnapshot)
+                    store.saveProfiles(profilesSnapshot)
+                    notifier.alert(
+                        SmartNotificationKind.SUBSCRIPTION,
+                        "subscription:${sub.id}",
+                        "Subscription refreshed",
+                        "${sub.name} • $refreshedCount servers",
+                        settings
+                    )
+                    message = "$refreshedCount profiles refreshed"
+                },
+                onFailure = { error ->
+                    if (error is InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        diagnostics.event("APP", "task-cancelled", "label" to "Refreshing ${sub.name}")
+                        message = "Refresh cancelled • previous servers kept"
+                    } else {
+                        diagnostics.error("APP", "subscription-refresh-unreachable", error, "source" to sub.name)
+                        message = "Could not refresh ${sub.name} • ${refreshFailureKind(error)} • previous servers kept"
+                    }
+                }
             )
-            message = "$refreshedCount profiles refreshed"
+        }
+    }
+
+    private fun refreshFailureKind(error: Throwable): String {
+        val cause = generateSequence(error) { it.cause }.last()
+        return when (cause) {
+            is java.net.ConnectException -> "the server refused the connection"
+            is java.net.UnknownHostException -> "the server name did not resolve"
+            is java.net.SocketTimeoutException -> "the server did not answer in time"
+            is javax.net.ssl.SSLException -> "the secure handshake failed"
+            is java.io.IOException -> "the network dropped the request"
+            else -> (cause.message ?: cause::class.java.simpleName).take(80)
         }
     }
 
@@ -3211,8 +2501,7 @@ private fun postToMain(block: () -> Unit) {
                     val parsed = ProxyParser.parseInput(payload.text, sub.id, sub.name)
                     require(parsed.isNotEmpty()) { "No supported profiles returned; previous servers were kept" }
                     val meta = parseSubscriptionUserInfo(payload.userInfo)
-                    // MARBLE_SUBSCRIPTION_THREAD_TRUTH_V166 — network and parse on the worker,
-                    // the structural mutations on the main looper where Compose iterates.
+
                     applyStateOnMainThread {
                         val refreshedCount = replaceManagedProfilesForSource(sub, parsed)
                         val index = subscriptions.indexOfFirst { it.id == sub.id }
@@ -3237,9 +2526,7 @@ private fun postToMain(block: () -> Unit) {
                     failed += "${sub.name}: ${error.message ?: error::class.java.simpleName}"
                 }
             }
-            // MARBLE_SUBSCRIPTION_THREAD_TRUTH_V166 — persistence writes the snapshot captured
-            // on the main looper after the last source landed, never the live list from a pool
-            // thread (serialising a SnapshotStateList while Compose draws is the same race).
+
             val (subsSnapshot, profilesSnapshot) = applyStateOnMainThread {
                 subscriptions.toList() to profiles.toList()
             }
@@ -3262,7 +2549,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    // MARBLE_MANUAL_IMPORT_V20
     fun addManualProfile(
         draft: ManualConfigDraft,
         targetSubscriptionId: String = "manual"
@@ -3305,7 +2591,6 @@ private fun postToMain(block: () -> Unit) {
         return true
     }
 
-    /** Persist an independent Manual multi-hop profile; creating another chain never replaces it. */
     fun addManualChain(
         requestedName: String,
         hopRefs: List<Pair<String, String>>,
@@ -3365,13 +2650,6 @@ private fun postToMain(block: () -> Unit) {
         ensureServerInsights()
         return true
     }
-    /**
-     * MARBLE_QR_IMPORT_V121 — import the configs encoded in a QR image the user picked.
-     *
-     * Decoding happens off the main thread (a photo can be several megapixels) and the import
-     * itself runs through the normal [importText] path, so a QR code and a pasted link land in
-     * exactly the same place with exactly the same de-duplication.
-     */
     fun importQrImage(uri: android.net.Uri, targetSubscriptionId: String) {
         io.execute {
             val decoded = runCatching { QrImageDecoder.decode(context, uri) }.getOrNull()
@@ -3379,9 +2657,6 @@ private fun postToMain(block: () -> Unit) {
                 if (decoded.isNullOrBlank()) {
                     message = "No QR code found in that image"
                 } else {
-                    // A QR code may encode a subscription URL, so this runs through the smart
-                    // intake instead of straight config parsing (which used to mint a bogus
-                    // proxy profile out of the provider URL).
                     val addedId = importClipboard(decoded, targetSubscriptionId)
                     selectLibrarySource(addedId ?: intakeTargetOrManual(targetSubscriptionId))
                 }
@@ -3389,10 +2664,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /**
-     * MARBLE_QR_CAMERA_V122 — a live camera frame decoded to text lands exactly like a picked
-     * QR image: configs are imported, subscription URLs become real subscriptions.
-     */
     fun importQrBitmap(bitmap: android.graphics.Bitmap, targetSubscriptionId: String) {
         io.execute {
             val decoded = runCatching { QrImageDecoder.decode(bitmap) }.getOrNull()
@@ -3426,9 +2697,7 @@ private fun postToMain(block: () -> Unit) {
                         sourceManaged = false
                     )
                 }
-            // MARBLE_SUBSCRIPTION_THREAD_TRUTH_V166 — the dedup read and the addAll are ONE
-            // atomic main-looper block (the old io-thread addAll raced Compose's iteration of
-            // the very same list), and persistence writes the snapshot the block returns.
+
             val (addedCount, profilesSnapshot) = applyStateOnMainThread {
                 val fresh = parsed.filter { incoming ->
                     profiles.none {
@@ -3444,15 +2713,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /**
-     * MARBLE_SMART_INTAKE_V122 — the one smart intake for pasted/imported text, used by the
-     * Library + menu, the Add-page import box and decoded QR payloads.
-     *
-     * Config links and JSON go through [importText]; one or more bare subscription URLs become
-     * real subscriptions (added, then refreshed) instead of being mis-parsed into bogus proxy
-     * profiles — the old paste-a-sub bug. Returns the first added (or already-known)
-     * subscription id so the UI can land on it, or null when the text was handled as configs.
-     */
     fun importClipboard(text: String, targetSubscriptionId: String = "manual"): String? {
         val clean = text.trim()
         if (clean.isBlank()) {
@@ -3465,9 +2725,7 @@ private fun postToMain(block: () -> Unit) {
         val hasShareLinks = Regex(
             "(?im)^(vless|vmess|trojan|ss|socks5?|hysteria2|hy2|ssh)://"
         ).containsMatchIn(clean)
-        // An authenticated HTTP(S) proxy config is user:pass@host[:port] with NO path. A
-        // subscription URL that merely carries credentials (/sub/xxxx?token=...) must never be
-        // mistaken for one, or the sub would again land as a bogus proxy profile.
+
         val hasAuthenticatedHttpProxy = lines.any { line ->
             Regex("(?i)^https?://[^\\s/@:]+:[^\\s/@]*@[^\\s/]+/?$").matches(line)
         }
@@ -3522,7 +2780,6 @@ private fun postToMain(block: () -> Unit) {
         return firstAddedId
     }
 
-    /** Original links (or JSON fallback) for every node owned by one subscription. */
     fun subscriptionRawText(id: String): String =
         profiles.asSequence()
             .filter { it.subscriptionId == id }
@@ -3531,7 +2788,6 @@ private fun postToMain(block: () -> Unit) {
             .distinct()
             .joinToString("\n")
 
-    /** Save effective Xray JSON for a node. Xray itself still validates again on connect. */
     fun updateProfileJson(
         id: String,
         jsonText: String,
@@ -3575,14 +2831,13 @@ private fun postToMain(block: () -> Unit) {
         profiles[index] = current.copy(
             id = newId,
             configJson = normalized,
-            // A JSON edit becomes the effective durable source of truth.
+
             raw = normalized
         )
         benchmarks = benchmarks.filterNot {
             it.profileId == current.id || it.profileId == newId
         }
-        // MARBLE_REMEMBERED_PING_V160 — a re-written config is a new node: its old measurement
-        // belongs to a server that no longer exists and must not come back after a restart.
+
         persistBenchmarks()
         intelligence.forgetAcceleration(current.id)
         intelligence.forgetAcceleration(newId)
@@ -3598,7 +2853,6 @@ private fun postToMain(block: () -> Unit) {
         return true
     }
 
-    /** Make a durable Manual copy of any node, including subscription-owned nodes. */
     fun duplicateProfile(id: String, sourceId: String? = null): Boolean {
         if (busy) {
             message = "Wait for the current background task before duplicating a server"
@@ -3736,7 +2990,7 @@ private fun postToMain(block: () -> Unit) {
                 selectedProfileSourceId = surviving.subscriptionId
             } else {
                 store.clearLastProfile()
-                // MARBLE_SELECT_IS_NOT_CONNECT_V121 — a deleted server cannot stay selected.
+
                 selectedProfileId = ""
                 selectedProfileSourceId = ""
                 selectedPingMs = 0
@@ -3749,14 +3003,6 @@ private fun postToMain(block: () -> Unit) {
         message = "Server removed • ${target.name}"
     }
 
-    /**
-     * MARBLE_SERVERS_QUERY_V120 — "Move to group" from a server's own menu.
-     *
-     * The server keeps its identity, its stored measurements and its learned acceleration; only its
-     * owner changes. The moved row becomes user-owned ([ProxyProfile.sourceManaged] = false) so a
-     * later refresh of either source neither deletes it nor silently rewrites the user's copy, and
-     * the exact last-route reference is re-pointed when the live route is the one being moved.
-     */
     fun moveProfile(id: String, sourceId: String?, targetSourceId: String): Boolean {
         if (busy) {
             message = "Wait for the current task before moving a server"
@@ -3818,29 +3064,9 @@ private fun postToMain(block: () -> Unit) {
 
     fun subscriptionNodeCount(id: String): Int = profiles.count { it.subscriptionId == id }
 
-    /**
-     * MARBLE_FAILED_PRUNE_V204 — the source ids a "remove failed servers" action may target.
-     *
-     * Before V204 the cleanup existed for exactly one kind of owner: a row in `subscriptions`.
-     * The Manual bucket is not such a row — it is a permanent local source with no subscription
-     * record — so `removeFailedSubscriptionNodes("manual", …)` answered *"Subscription no longer
-     * exists"* and deleted nothing. The servers a user pastes, scans from a QR code or imports
-     * from a file all land in that bucket, which is to say: the servers most likely to be dead
-     * on arrival were the only ones the product could not clean up.
-     *
-     * `"manual"` and `"all"` are therefore first-class targets, and every other id is still
-     * resolved against the subscription list.
-     */
     val PRUNE_TARGET_MANUAL = "manual"
     val PRUNE_TARGET_ALL = "all"
 
-    /**
-     * Count nodes whose most recent stored benchmark explicitly failed the requested evidence
-     * type, inside one source (a subscription id, `"manual"`, or `"all"`).
-     *
-     * SMART (endpoint-gate verdict) and TUNNEL (real config verdict) stay separate: a node that
-     * failed a real tunnel test is not the same claim as a node whose endpoint did not answer.
-     */
     fun failedSubscriptionNodeCount(id: String, probeKind: String): Int {
         val kind = probeKind.trim().uppercase()
         if (kind !in setOf("SMART", "TUNNEL")) return 0
@@ -3848,43 +3074,25 @@ private fun postToMain(block: () -> Unit) {
         return profiles.count { inPruneScope(it, id) && it.id in failedIds }
     }
 
-    /** Every node of the library whose latest [probeKind] verdict failed. */
     private fun failedNodeIds(probeKind: String): Set<String> =
         benchmarks.asSequence()
             .filter { it.success <= 0 && it.probeKind.equals(probeKind, ignoreCase = true) }
             .mapTo(mutableSetOf()) { it.profileId }
 
-    /**
-     * Distinct nodes with a failed verdict of ANY evidence type, inside [target].
-     *
-     * The count the UI badges. It is deliberately a *distinct node* count and not the sum of the
-     * two per-kind counts: a node that failed both the endpoint gate and the real tunnel test is
-     * one server to delete, and a chip that promised "12" and removed "7" would be a lie.
-     */
     fun failedNodeCount(target: String): Int {
         val failed = failedNodeIds("SMART") + failedNodeIds("TUNNEL")
         if (failed.isEmpty()) return 0
         return profiles.count { inPruneScope(it, target) && it.id in failed }
     }
 
-    /** Convenience for the library-wide control: how many dead servers are there anywhere? */
     fun failedNodeCountEverywhere(): Int = failedNodeCount(PRUNE_TARGET_ALL)
 
-    /** Does this node belong to the prune target [target]? */
     private fun inPruneScope(profile: ProxyProfile, target: String): Boolean = when (target) {
         PRUNE_TARGET_ALL -> true
         PRUNE_TARGET_MANUAL -> profile.subscriptionId == PRUNE_TARGET_MANUAL
         else -> profile.subscriptionId == target
     }
 
-    /**
-     * Remove failed nodes of ONE evidence type from ONE source — a subscription, the Manual
-     * bucket, or the whole library.
-     *
-     * Group cleanup is disabled while connected/connecting so stale evidence cannot delete the
-     * route Android is currently using, and it never touches a node with no verdict: "never
-     * measured" is not the same claim as "measured and dead".
-     */
     fun removeFailedSubscriptionNodes(id: String, probeKind: String): Int {
         if (busy) {
             message = "Wait for the current task before removing failed servers"
@@ -3901,9 +3109,6 @@ private fun postToMain(block: () -> Unit) {
             return 0
         }
 
-        // MARBLE_FAILED_PRUNE_V204 — the only place the old version knew how to fail: the Manual
-        // bucket has no subscription row, so the lookup is skipped for the two synthetic targets
-        // instead of refusing them.
         val isSynthetic = id == PRUNE_TARGET_MANUAL || id == PRUNE_TARGET_ALL
         if (!isSynthetic && subscriptions.none { it.id == id }) {
             message = "Subscription no longer exists"
@@ -3946,7 +3151,6 @@ private fun postToMain(block: () -> Unit) {
         return doomedIds.size
     }
 
-    /** Reassigns a profile to another subscription bucket (or "manual") so nodes can move between library sources. */
     fun lastProfile(): ProxyProfile? {
         val id = store.lastProfileId()
         if (id.isNotBlank()) {
@@ -3956,8 +3160,6 @@ private fun postToMain(block: () -> Unit) {
             if (candidate != null) return candidate
         }
 
-        // No stored profile: check connection history in reverse to seamlessly restore the most
-        // recent enabled library node.
         val fromHistory = history.asReversed().asSequence()
             .mapNotNull { rec -> profile(rec.profileId) }
             .firstOrNull()
@@ -3966,14 +3168,7 @@ private fun postToMain(block: () -> Unit) {
         return null
     }
 
-    /**
-     * MARBLE_SELECT_IS_NOT_CONNECT_V121 — remember the user's chosen server without touching the
-     * tunnel. The choice is persisted with the same key a successful connection writes, so Home,
-     * Quick Tile and the next app start all agree on which server the connect button will use.
-     */
     fun selectProfile(p: ProxyProfile, stopRunningSweep: Boolean = true) {
-        // Selecting a result is an explicit decision: stop a running sweep immediately while
-        // retaining every latency already published on the server cards.
         if (stopRunningSweep && probeActive) cancelProbes()
         diagnostics.event("APP", "select-server", "profile" to p.id.take(12), "name" to p.name.take(80))
         val changed = selectedProfileId != p.id || selectedProfileSourceId != p.subscriptionId
@@ -3981,9 +3176,7 @@ private fun postToMain(block: () -> Unit) {
         postToMain {
             selectedProfileId = p.id
             selectedProfileSourceId = p.subscriptionId
-            // MARBLE_HOME_V137 — a selection change invalidates the endpoint ping: the old
-            // number described a different server. The tunnel ping is session-bound and only
-            // clears on disconnect, so it is untouched here.
+
             if (changed) {
                 selectedPingMs = 0
                 selectedPingState = ConnectionPingState.IDLE
@@ -4008,8 +3201,6 @@ private fun postToMain(block: () -> Unit) {
             return
         }
         task("Restoring backup") {
-            // A document provider is untrusted input.  Do not use readText(): a malicious or
-            // accidentally selected file must not be able to exhaust the app process heap.
             val limit = 8 * 1024 * 1024
             val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
                 val text = StringBuilder()
@@ -4027,27 +3218,18 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /** True when [p] is the server the connect button would act on. */
     fun isSelectedProfile(p: ProxyProfile): Boolean =
         selectedProfileId.isNotBlank() &&
             selectedProfileId == p.id &&
             (selectedProfileSourceId.isBlank() || selectedProfileSourceId == p.subscriptionId)
 
-    /**
-     * MARBLE_DURABLE_TUNNEL_INTENT_V133 — true while the user's last explicit instruction was
-     * "be connected" and no new instruction has replaced it. A process kill — including Android's
-     * `REASON_PACKAGE_UPDATE` kill during an app or core update — leaves it set, which is exactly
-     * what makes the tunnel restorable instead of silently gone.
-     */
     fun tunnelIntentActive(): Boolean = runCatching { store.tunnelIntentActive() }.getOrDefault(false)
 
-    /** Retires the tunnel intent after a startup that Android blocked or that failed outright. */
     fun clearTunnelIntent(reason: String) {
         diagnostics.event("APP", "tunnel-intent-cleared", "reason" to reason)
         io.execute { runCatching { store.setTunnelIntentActive(false) } }
     }
 
-    /** Exact one-tap reconnect for Home after app/process restart. */
     fun reconnectLastOrAuto(onConnect: (ProxyProfile) -> Unit) {
         val remembered = lastProfile()
         if (remembered != null) {
@@ -4072,11 +3254,7 @@ private fun postToMain(block: () -> Unit) {
             message = "No servers yet • add a subscription or import configs first"
             return
         }
-        // MARBLE_AUTO_SERVER_SELECTOR_V202 — the "press connect with nothing chosen" moment.
-        // This is the one entrance where no server has been tapped, so the selector is not
-        // overriding an explicit choice; it is answering a question the user did not answer.
-        // It is off by default for exactly the opposite reason: a tap on a named server IS a
-        // choice, and a selector that ignores it is not assistance.
+
         if (settings.autoServerSelectorEnabled && settings.autoServerOnConnect) {
             val chosen = runAutoServerSelection(reason = "connect", connect = false)
             chosen?.profile?.let {
@@ -4124,23 +3302,20 @@ private fun postToMain(block: () -> Unit) {
             stateDetail = p.name
             activeProfileId = p.id
             activeProfileSourceId = p.subscriptionId
-            // Connecting is itself a selection: the route that carries traffic is the route the
-            // connect button acts on next.
+
             selectedProfileId = p.id
             selectedProfileSourceId = p.subscriptionId
-            // A reconnect onto the same node restarts the session clock; a redundant
-            // markConnected for an already-running session must not.
+
             if (previousState != "CONNECTED" || connectedSinceMs <= 0L) {
                 connectedSinceMs = System.currentTimeMillis()
-                // A new session earns one automatic failover.
+
                 autoFailoverArmed.set(true)
-                // MARBLE_SESSION_USAGE_V192 — the session's byte clock starts with the session.
+
                 beginUsageSession(p)
                 connectionPingMs = 0
                 connectionPingState = ConnectionPingState.IDLE
                 connectionPingFailure = ""
-                // A new session starts unmeasured on both channels: the endpoint probe belongs
-                // to the pre-connect state, the tunnel probe to this session.
+
                 selectedPingMs = 0
                 selectedPingState = ConnectionPingState.IDLE
                 selectedPingFailure = ""
@@ -4154,16 +3329,10 @@ private fun postToMain(block: () -> Unit) {
             )
             while (history.size > MAX_HISTORY_RECORDS) history.removeAt(0)
 
-            // Serialize/persist outside MainActivity. SharedPreferences.apply() is asynchronous, but
-            // building the 200-record JSON string on the input thread was not.
             val historySnapshot = history.toList()
             io.execute {
-                // MARBLE_LAST_ROUTE_V37
-                // Successful connection is durable user intent.
                 runCatching { store.setLastProfileRef(p.id, p.subscriptionId) }
-                // MARBLE_DURABLE_TUNNEL_INTENT_V133 — written together with the route reference so a
-                // process kill (including the REASON_16 package-update kill) can never leave the two
-                // disagreeing about whether the user wanted to be connected.
+
                 runCatching { store.setTunnelIntentActive(true) }
                 runCatching {
                     store.saveHistory(historySnapshot)
@@ -4219,10 +3388,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /**
-     * Asks the running tunnel to re-measure acceleration methods on the active route.
-     * A winner is learned for the next reconnect; the live tunnel is never interrupted.
-     */
     fun boostActiveRoute() {
         if (state != "CONNECTED") {
             message = "Marble Turbo needs an active connection"
@@ -4244,30 +3409,17 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun stopVpn() {
-        // MARBLE_DURABLE_TUNNEL_INTENT_V133 — an explicit user disconnect is the only thing that
-        // retires the tunnel intent. Without this the app would offer to restore a tunnel the user
-        // deliberately closed.
         io.execute { runCatching { store.setTunnelIntentActive(false) } }
         markDisconnecting()
         runCatching {
             context.startService(Intent(context, MarbleVpnService::class.java).setAction(MarbleVpnService.ACTION_STOP))
         }.onFailure { error ->
             message = "Could not stop connection service: ${error::class.java.simpleName}: ${error.message ?: "unknown error"}"
-            // The teardown never even started: do not leave the UI in the closing state.
+
             setRuntimeState("DISCONNECTED", "")
         }
     }
 
-    /**
-     * MARBLE_CONNECT_BUTTON_V121 — closing a tunnel is a state, not an instant.
-     *
-     * Tearing down TUN + Xray takes a real, visible moment. Until now the UI jumped straight back
-     * to "ready to connect" while the interface was still up, so the connect button lied for a
-     * second and an impatient second tap started a connection into a half-closed tunnel. The
-     * repository now owns an explicit DISCONNECTING state: the service's own DISCONNECTED report
-     * clears it, and a bounded watchdog clears it too if the service is killed mid-teardown so the
-     * button can never stick.
-     */
     private fun markDisconnecting() {
         if (state != "CONNECTED" && state != "CONNECTING") return
         diagnostics.event("APP", "state", "from" to state, "to" to "DISCONNECTING")
@@ -4286,25 +3438,13 @@ private fun postToMain(block: () -> Unit) {
         }, DISCONNECT_WATCHDOG_MS)
     }
 
-    /** Guards against an older teardown's watchdog clearing a newer session. */
     private var disconnectWatchdogToken: Long = 0L
 
-    /**
-     * Folds a fresh measurement set into the existing evidence table instead of replacing it.
-     * Testing one node used to erase every other measured route from Library/Quality.
-     */
     private fun clearBenchmarks(ids: Set<String>) = postToMain {
         benchmarks = benchmarks.filterNot { it.profileId in ids }
         persistBenchmarks()
     }
 
-    /**
-     * MARBLE_REMEMBERED_PING_V160 — the measurements the app opens with.
-     *
-     * A result whose node is gone is dropped rather than shown: a subscription refresh can
-     * renumber every row it owns, and a latency attached to a server the library cannot open is
-     * not a remembered ping, it is a ghost.
-     */
     private fun rememberedBenchmarks(): List<BenchmarkResult> {
         val liveIds = profiles.mapTo(mutableSetOf()) { it.id }
         return runCatching { store.loadBenchmarks() }
@@ -4316,12 +3456,6 @@ private fun postToMain(block: () -> Unit) {
             )
     }
 
-    /**
-     * MARBLE_REMEMBERED_PING_V160 — writes the table back without touching the input thread.
-     *
-     * JSON for a few hundred rows is milliseconds, but this runs after every completed node of a
-     * sweep and the thread it would otherwise block is the one drawing that sweep's progress.
-     */
     private fun persistBenchmarks() {
         val snapshot = benchmarks.toList()
         io.execute { runCatching { store.saveBenchmarks(snapshot) } }
@@ -4330,8 +3464,7 @@ private fun postToMain(block: () -> Unit) {
     private fun mergeBenchmarks(fresh: List<BenchmarkResult>) {
         if (fresh.isEmpty()) return
         val stampedAt = System.currentTimeMillis()
-        // The stamp is the moment a measurement becomes history rather than a live reading, so it
-        // is written once here — the single place a result enters the table — and never guessed.
+
         val incoming = fresh.map { if (it.measuredAtMs > 0L) it else it.copy(measuredAtMs = stampedAt) }
         postToMain {
             val freshIds = incoming.mapTo(mutableSetOf()) { it.profileId }
@@ -4355,9 +3488,7 @@ private fun postToMain(block: () -> Unit) {
                 return@task
             }
             val engine = BenchmarkEngine(xray, intelligence)
-            // MARBLE_SMART_PING_V122 / MARBLE_PING_METHODS_V148 — electing the connected route
-            // needs real-tunnel evidence; a light Smart/address-level gate must never choose
-            // which server carries traffic.
+
             val selectSettings = if (settings.probeMethod != ProbeMethod.REAL_DELAY) {
                 settings.copy(probeMethod = ProbeMethod.REAL_DELAY)
             } else {
@@ -4397,13 +3528,7 @@ private fun postToMain(block: () -> Unit) {
 
     fun smartRank() = smartRankSource("all")
 
-    /**
-     * Real Xray ranking confined to the exact Library source selected by the user.
-     * Unknown source ids fail closed to zero candidates instead of falling back to all profiles.
-     */
     fun smartRankSource(sourceId: String) {
-        // MARBLE_SMART_RANK_V90: debounce + single-flight. A Rank tap storm can never re-run the
-        // full preflight + benchmark pool more than once per cooldown.
         val gate = rankGate.tryAcquire()
         if (gate.verdict != SmartRankGate.Verdict.ACCEPTED) {
             message = gate.message
@@ -4430,12 +3555,10 @@ private fun postToMain(block: () -> Unit) {
                 rankGate.release()
             }
         }
-        // If the global task mutex rejected us, the block never ran and the rank gate would be
-        // stuck in-flight forever — release it immediately so Rank stays triggerable.
+
         if (!accepted) rankGate.release()
     }
 
-    /** MARBLE_SMART_RANK_V90: fresh-subscription evidence for profile address cross-checking. */
     private fun rankCrossCheckSources(): ProfileAddressCrossCheck.CrossCheckSources =
         ProfileAddressCrossCheck.CrossCheckSources(
             freshSubscriptionProfiles = profiles.toList(),
@@ -4444,7 +3567,6 @@ private fun postToMain(block: () -> Unit) {
             }
         )
 
-    /** MARBLE_SMART_RANK_V90: map a benchmark result to the weighted multi-signal signals. */
     private fun multiSignalSignals(r: BenchmarkResult): MultiSignalRankScorer.Signals =
         MultiSignalRankScorer.Signals(
             tcpHandshakeSuccessRatio = r.tcpHandshakeSuccessRatio.coerceIn(0.0, 1.0),
@@ -4465,20 +3587,8 @@ private fun postToMain(block: () -> Unit) {
         )
 
     private fun smartRankRun(sourceId: String, scope: String, candidates: List<ProxyProfile>) {
-        // MARBLE_SMART_RANK_V90: fresh-subscription evidence so a stale/blank emitted config is
-        // classified precisely (malformed-config / stale-subscription / address-resolved-but-invalid)
-        // instead of the old blanket "missing-address".
         val crossCheckSources = rankCrossCheckSources()
 
-        // MARBLE_SMART_RANK_V90: remove censorship-unsafe nodes (VLESS without TLS/REALITY, VMess
-        // without forward secrecy) before they can fail a benchmark.
-        //
-        // MARBLE_CORE_CONFIG_SUPERSET_V165 — the gate now asks the *selected core* rather than
-        // repeating a rule the app once invented for it. On the reported account that difference was
-        // the entire outage: 42 imported nodes, all cleartext VLESS, all removed from the rank pool by
-        // this line, and the log said only `rank-deprecated-hidden`. A node the chosen core can dial is
-        // rankable — labelled, but rankable — and a node it cannot load is hidden with the reason that
-        // names the other core.
         val (securitySafe, deprecated) = ProfileSecurityAuditor.partitionForRank(candidates, settings)
         if (deprecated.isNotEmpty()) {
             diagnostics.event(
@@ -4489,11 +3599,6 @@ private fun postToMain(block: () -> Unit) {
             )
         }
 
-        // MARBLE_PROFILE_QUARANTINE_V1: a structurally broken profile (e.g. a VLESS/TLS config
-        // that fails xray-start validation) must never poison ranking or selection. MARBLE_TURBO_RANK_V91:
-        // quarantine is no longer a hard gate — every node gets the real tunnel probe and its
-        // result is shown; broken/unsafe nodes are only pinned to the bottom of the selection
-        // ordering. This is what measures ALL nodes in one parallel wave, with no strict gate.
         val (_, invalidCandidates) = ProfilePreflightValidator.partition(
             securitySafe,
             crossCheckSources,
@@ -4518,19 +3623,14 @@ private fun postToMain(block: () -> Unit) {
                 message = "Rank • $scope • preflight flagged ${invalidCandidates.size} • testing all servers"
             }
 
-            // MARBLE_TURBO_RANK_V91: the whole enabled pool is tested in one parallel real-tunnel
-            // wave. No node is excluded; quarantine and security-deprecation only affect ordering.
             val scoped = candidates
 
-            // Keep the last known measurements visible while fresh evidence streams in.
-            // Clearing first made every latency/result chip disappear and then pop back into place.
             val rankSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = scoped.size.coerceAtLeast(1),
                 benchSamples = 2,
                 benchTimeoutSec = settings.benchTimeoutSec.coerceIn(4, 6),
-                // MARBLE_TURBO_RANK_V91: full-wave parallelism — every node dials at once inside
-                // the helper (capped at 128), instead of 4-16 sequential waves.
+
                 tcpWorkers = maxOf(settings.tcpWorkers, 64).coerceAtMost(128),
                 probeMethod = ProbeMethod.REAL_DELAY,
                 probeSpeedTest = false,
@@ -4576,10 +3676,6 @@ private fun postToMain(block: () -> Unit) {
                 }
             }
 
-            // MARBLE_SURVIVAL_FIRST_RANK_V80: survival-first re-rank for Iran. A node whose short
-            // HTTPS generate204 probe timed out is NOT hard-failed if it carries strong historical
-            // success evidence. Quarantined + deprecated profiles are still measured and shown but
-            // pinned to the end so they are never auto-selected.
             val quarantinedIds = buildSet {
                 invalidCandidates.forEach { add(it.first.id) }
                 deprecated.forEach { add(it.first.id) }
@@ -4596,10 +3692,6 @@ private fun postToMain(block: () -> Unit) {
             ).copy(selectedProfileId = reordered.firstOrNull()?.profileId.orEmpty())
             results = reordered
 
-            // MARBLE_SMART_RANK_V90: attach the weighted multi-signal score (TCP handshake success
-            // ratio, RTT median/p95, jitter, loss) so Library reflects the composite instead of the
-            // old single short HTTPS probe. Ordering stays survival-first; only healthy nodes with
-            // real handshake evidence have their score upgraded to the multi-signal composite.
             val multiSignal = results.associate { r ->
                 r.profileId to MultiSignalRankScorer.score(multiSignalSignals(r))
             }
@@ -4687,13 +3779,8 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /**
-     * Library-wide ping sweep, in the method chosen in Settings.
-     * Smart Xray rank remains available when actual proxy usability must be proven.
-     */
     fun testAll() = testSource("all")
 
-    /** Measure the exact pool currently configured for the automatic selector. */
     fun pingAutoServerPool() {
         val pool = autoServerPool()
         if (pool.isEmpty()) {
@@ -4707,36 +3794,11 @@ private fun postToMain(block: () -> Unit) {
         )
     }
 
-    /**
-     * MARBLE_HOME_PING_ROUTE_GROUP_V146 — the Home ping button measures the subscription that
-     * the route SHOWN on the Home page belongs to.
-     *
-     * The route on the page is whatever the connect button acts on (the deck's own resolution:
-     * the active route, else the selected one, else the remembered one). When the user taps the
-     * pulse icon their question is "how is the subscription I am looking at doing?", so the sweep
-     * covers exactly that route's group. `"all"` is never substituted: a route always belongs to
-     * a concrete source, and a route that somehow resolved without one degrades to the Manual
-     * bucket instead of silently sweeping every subscription.
-     *
-     * The per-server ping of that same route is still one tap away on the status banner, and the
-     * group-chip ping remains available on the Servers page, so neither question lost its answer.
-     */
     fun pingHomeGroup() {
-        // The Home action follows the route it labels. A filter left on the Servers page must
-        // never redirect this tap to a different (or empty) subscription.
         val sourceId = HomePingScope.sourceId(homeRoute()?.subscriptionId)
         testSource(sourceId)
     }
 
-    /**
-     * MARBLE_HOME_ONE_PING_V208 — publish a sweep's sample for the route Home is showing.
-     *
-     * The page's one ping button measures a group, and the page still prints the latency of the
-     * one route on screen. Both are true at once only if the sweep's own result for that route
-     * becomes the route's reading — which is what this does. It never starts a measurement of
-     * its own, and it never touches the connected path: while a tunnel is up, `livePingMs` and
-     * the route monitor own that number and a stored probe is stale the moment it lands.
-     */
     private fun publishHomeRoutePing(results: List<BenchmarkResult>) {
         if (state == "CONNECTED") return
         val route = homeRoute() ?: return
@@ -4756,10 +3818,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /**
-     * The route the Home page is currently showing — the deck's own resolution, in one place.
-     * While connected: the live tunnel. Otherwise: the exact server selected on Servers.
-     */
     fun homeRoute(): ProxyProfile? {
         if (state == "CONNECTED") {
             profile(activeProfileId, activeProfileSourceId)?.let { return it }
@@ -4769,37 +3827,26 @@ private fun postToMain(block: () -> Unit) {
             ?: lastProfile()
     }
 
-    /** Human-readable name of the group [pingHomeGroup] would measure. */
     fun homeGroupPingLabel(): String {
         val sourceId = HomePingScope.sourceId(homeRoute()?.subscriptionId)
         return libraryScopeLabel(sourceId)
     }
 
-    /** True while a ping sweep covering the current Home group is running. */
     val homeGroupPingRunning: Boolean
         get() = probeActive
 
-    /** Identity of one physical endpoint: what address-level probes actually measure. */
     private fun quickPingEndpointKey(profile: ProxyProfile): String =
         "${profile.host.trim().lowercase()}:${profile.port}"
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_AUTO_SERVER_SELECTOR_V202
-    //
-    // The repository owns the library, the measurements, the health records and the
-    // consequences of a choice; [AutoServerSelector] owns the ranking. Nothing below decides
-    // *how* to rank — that is the strategy — and nothing in the selector decides *what happens*
-    // to the winner, which is why the connect step stays here, on the main looper, next to
-    // every other place this product opens a tunnel.
-    // ─────────────────────────────────────────────────────────────────────────
+    private fun quickPingConfigKey(profile: ProxyProfile): String {
+        val link = profile.raw
+        val document = profile.configJson
+        val endpoint = "${profile.host.trim().lowercase()}:${profile.port}"
+        return "${link.length}:$link${document.length}:$document${endpoint.length}:$endpoint"
+    }
 
-    /** The pool the selector is allowed to choose from, for the scope the user picked. */
     fun autoServerPool(): List<ProxyProfile> = when (settings.autoServerScopeEnum) {
         AutoServerScope.SOURCE -> {
-            // Same resolution as the Home ping: the source the user is looking at, else the
-            // source of the route on screen, else the local bucket. Never "all" by accident —
-            // a selector that silently widens its pool is a selector that can move the user to a
-            // subscription they never looked at.
             val sourceId = librarySourceFilter.takeIf { it.isNotBlank() && it != "all" }
                 ?: homeRoute()?.subscriptionId?.takeIf { it.isNotBlank() }
                 ?: "manual"
@@ -4808,38 +3855,19 @@ private fun postToMain(block: () -> Unit) {
         AutoServerScope.ALL -> libraryProfiles.toList()
     }
 
-    /**
-     * True when the live monitor has enough evidence to call the route that is up unusable.
-     *
-     * Deliberately strict, because this is the input that moves a live connection: at least
-     * [AUTO_FAILOVER_MIN_ATTEMPTS] probes (so a slow session start is not a verdict), a success
-     * rate under half, and a score the product already publishes on the Home page. Without the
-     * attempt floor, two lost packets at session start would move everybody's route.
-     */
     private fun liveRouteBroken(): Boolean =
         liveRouteAttempts >= AUTO_FAILOVER_MIN_ATTEMPTS &&
             liveRouteScore >= 0 &&
             liveRouteSuccessPercent in 1..49
 
-    /** Probes the live monitor must have run before its verdict can move the route. */
     private val AUTO_FAILOVER_MIN_ATTEMPTS = 6
 
-    /**
-     * MARBLE_AUTO_SERVER_SELECTOR_V202 — one failover per session.
-     *
-     * Set when a session opens, consumed by the first "this route is unusable" verdict. A
-     * route that stays broken must not move the connection on every monitor tick, and a
-     * session that recovers must not inherit a previous session's spent failover.
-     */
     private val autoFailoverArmed = java.util.concurrent.atomic.AtomicBoolean(false)
 
-    /** Everything the selector is allowed to know about the current pool. */
     fun autoServerCandidates(pool: List<ProxyProfile> = autoServerPool()): List<ServerCandidate> {
         val measured = benchmarks.associateBy { it.profileId }
         val currentId = if (state == "CONNECTED") activeProfileId else selectedProfileId
-        // A node that is up and not working is not an answer to "what should be up". The live
-        // monitor is the freshest evidence in the product — far fresher than a sweep from an
-        // hour ago — so when it has spoken, it outranks the stored benchmark entirely.
+
         val liveBroken = state == "CONNECTED" && liveRouteBroken()
         return pool.distinctBy { it.id }.map { profile ->
             ServerCandidate(
@@ -4864,11 +3892,6 @@ private fun postToMain(block: () -> Unit) {
         freshness = settings.autoServerFreshnessWeight
     ).clamped()
 
-    /**
-     * What the selector would pick right now, without applying it.
-     *
-     * The Settings page uses this live preview to explain the saved strategy before it is applied.
-     */
     fun previewAutoServerChoice(): AutoServerChoice {
         val strategy = settings.autoServerStrategyEnum
         return AutoServerSelector.choose(
@@ -4883,12 +3906,6 @@ private fun postToMain(block: () -> Unit) {
         )
     }
 
-    /**
-     * Run one selection round and, when [connect] asks for it, move the route.
-     *
-     * Returns the choice so the caller can log it and the UI can explain it. `null` only when
-     * there is nothing at all to choose from.
-     */
     fun runAutoServerSelection(
         pool: List<ProxyProfile> = autoServerPool(),
         reason: String = "manual",
@@ -4902,8 +3919,7 @@ private fun postToMain(block: () -> Unit) {
             strategy = strategy,
             nowMs = System.currentTimeMillis(),
             roundRobinCursor = cursor,
-            // Seeded with the wall clock: rotation must be reproducible in a test and fresh in
-            // production, which is the one thing `Random` cannot be both of.
+
             randomSeed = System.nanoTime(),
             switchMarginPercent = settings.autoServerSwitchMarginPercent,
             scope = settings.autoServerScopeEnum,
@@ -4933,19 +3949,10 @@ private fun postToMain(block: () -> Unit) {
             store.saveAutoServerCursor(cursor)
         }
         if (choice.held) {
-            // Nothing to do: the incumbent won. Saying so is still worth it — a user who asked
-            // for a selector and sees no movement has a right to know it moved nothing on purpose.
             message = "Auto-select • ${AutoServerSelector.shortLabel(strategy)} • ${choice.reason}"
             return choice
         }
-        // Profile selection mutates Compose state. Keep both selection and launch on the main
-        // looper instead of racing a frame from whichever thread triggered the round.
-        //
-        // The guard is "is this server already the live route", not "is anything live": moving
-        // from one server to another while a tunnel is up is the service's own hot-switch path
-        // (`startConnection` preserves the TUN across a same-mode restart), which is exactly
-        // what the failure trigger needs. Re-starting the server that is already up would only
-        // drop the session for nothing.
+
         postToMain {
             selectProfile(winner, stopRunningSweep = false)
             val alreadyLive = state == "CONNECTED" && activeProfileId == winner.id
@@ -4958,21 +3965,6 @@ private fun postToMain(block: () -> Unit) {
         return choice
     }
 
-    /**
-     * MARBLE_ONE_PING_V121 / MARBLE_PING_TRUTH_V147 — the one ping of the product, confined to
-     * the selected source.
-     *
-     * There is no longer a hidden "quick TCP ping" that silently overrode the user's choice: this
-     * runs exactly the method configured in Settings → Testing (Smart ping by default), which is
-     * the same method the Home ping button and every other measurement in the app use. Two entry
-     * points can no longer report two different latencies for the same server.
-     *
-     * Endpoint de-duplication still applies to Smart ping, where reachability really is a
-     * host:port property and aggregator subscriptions repeat the same endpoint dozens of times:
-     * one representative is probed and the verified result is fanned out to every config sharing
-     * that endpoint. The real tunnel test proves a *config*, so it is measured per server,
-     * exactly as ranking does.
-     */
     fun testSource(sourceId: String) {
         pingProfiles(
             profiles = libraryScopeSnapshot(sourceId),
@@ -4981,14 +3973,6 @@ private fun postToMain(block: () -> Unit) {
         )
     }
 
-    /**
-     * MARBLE_SERVERS_GROUP_PING_V145 — ping an explicit set of servers under one label.
-     *
-     * The Servers page can group by country as well as by source, and a country bucket has no
-     * source id: routing its ping through [testSource] would resolve "country:de" to "no such
-     * source" and measure nothing. The sweep itself is identical for both — this is the entry
-     * point that takes the servers directly.
-     */
     fun pingProfiles(
         profiles: List<ProxyProfile>,
         scopeLabel: String,
@@ -5008,40 +3992,29 @@ private fun postToMain(block: () -> Unit) {
             ProbeMethod.TCP_PING -> "TCP ping"
             ProbeMethod.URL_TEST -> "URL test (sing-box extended)"
         }
-        // MARBLE_SMART_PING_V122 / MARBLE_PING_METHODS_V148 — Smart and every address-level
-        // method's verdict is an endpoint (host:port) property: a subscription repeating the same
-        // endpoint N times genuinely has one thing to measure, so it shares one verified result
-        // among those members exactly like before. Real test proves a *config* (protocol +
-        // account + route), so it stays per server.
+
         val dedupe = method.isEndpointLevel()
+        val configLevel = method == ProbeMethod.REAL_DELAY || method == ProbeMethod.URL_TEST
+        val groupKey: (ProxyProfile) -> String = when {
+            dedupe -> ::quickPingEndpointKey
+            configLevel -> ::quickPingConfigKey
+            else -> { profile -> profile.id }
+        }
 
         task("$methodLabel • $scope") {
-            val groups = if (dedupe) {
-                scoped.groupBy(::quickPingEndpointKey)
-            } else {
-                scoped.associateBy { it.id }.mapValues { (_, profile) -> listOf(profile) }
+            val groups = scoped.groupBy(groupKey)
+
+            val representatives = groups.values.mapNotNull { members ->
+                members.maxByOrNull { candidate -> if (candidate.id == activeProfileId) 1 else 0 }
             }
-            val representatives = groups.values.mapNotNull { it.firstOrNull() }
-            // MARBLE_PING_CONTROL_V145 — a sweep runs the user's budget, full stop.
-            //
-            // The three numbers below used to be rewritten here: `benchSamples = 1` and
-            // `benchTimeoutSec = 2` for every address-level method, and a concurrency of
-            // `max(tcpWorkers, 24)..32`. That is why a subscription full of working servers came
-            // back red on a slow link — every node was judged by a single handshake with a
-            // two-second deadline, 24 of them fired at once — and why raising the timeout in
-            // Settings changed nothing. The ping budget (Settings › Tests › Ping) is now the one
-            // and only source of these values, and the method is still never overridden.
+
             val quickSettings = settings.copy(
                 benchMode = BenchMode.CUSTOM,
                 benchCandidates = representatives.size.coerceAtLeast(1),
                 benchSamples = settings.pingSampleCount(),
                 benchTimeoutSec = PingBudget.timeoutSec(settings.pingTimeoutSec),
                 tcpPrecheckTimeoutMs = settings.tcpPrecheckTimeoutMs,
-                // MARBLE_PING_PARALLEL_V200 — the width is resolved for *this* device and *this*
-                // method, not read off a chip a flagship owner picked. In AUTO the number comes
-                // from the core count and the memory class, so a four-core handset stops being
-                // handed a 16-way sweep whose parallel handshakes inflate every latency it
-                // measures; in MANUAL the chip is used verbatim, as before.
+
                 tcpWorkers = settings.pingWorkers(
                     cores = deviceCores,
                     memoryMb = deviceMemoryMb,
@@ -5053,11 +4026,7 @@ private fun postToMain(block: () -> Unit) {
             )
 
             fun membersFor(representative: ProxyProfile): List<ProxyProfile> =
-                if (dedupe) {
-                    groups[quickPingEndpointKey(representative)].orEmpty()
-                } else {
-                    listOf(representative)
-                }
+                groups[groupKey(representative)].orEmpty()
 
             fun runQuickPass(): List<BenchmarkResult> =
                 BenchmarkEngine(xray, intelligence).run(
@@ -5078,7 +4047,11 @@ private fun postToMain(block: () -> Unit) {
                         }
                     }
                 ) { done, total, name ->
-                    val unit = if (dedupe) "endpoints" else "servers"
+                    val unit = when {
+                        dedupe -> "endpoints"
+                        configLevel -> "configs"
+                        else -> "servers"
+                    }
                     message = "$methodLabel • $scope • $done/$total $unit • $name"
                 }
 
@@ -5087,41 +4060,6 @@ private fun postToMain(block: () -> Unit) {
             val firstElapsedMs =
                 ((System.nanoTime() - firstStartedNs) / 1_000_000L).coerceAtLeast(0L)
 
-            /*
-             * MARBLE_PING_PARALLEL_V200 — what this block used to be, and why it is gone.
-             *
-             * It re-ran the ENTIRE sweep (`runQuickPass()` over every representative) whenever
-             * every node came back dead in under 350 ms. The intent was sound — a sweep that
-             * finishes that fast did not have time to be a real measurement, so it was probably
-             * a local fault (a core that refused to start, a resolver that answered nothing) —
-             * but the remedy was the single most expensive mistake in the file:
-             *
-             *   - the failure it fires on is the *worst case*, and there it doubles the cost.
-             *     A 200-node subscription whose core is broken now costs two full 200-node
-             *     sweeps plus a 120 ms sleep before the user is told anything.
-             *   - it cannot distinguish "all 200 nodes are dead" (a true verdict, reached
-             *     slowly, correctly) from "the measurement itself never happened" (a local
-             *     fault), because all it looks at is the clock and the empty result.
-             *   - `representativeResults.isNotEmpty()` was the only guard, so a cancelled sweep
-             *     that returned nothing was retried as if it had failed.
-             *
-             * The replacement is a *canary*: at most three representatives, re-measured once
-             * with the real budget. That is the actual question ("did the measurement run at
-             * all?") at 3/nodes of the price, and it is gated on local-fault evidence rather
-             * than on a stopwatch.
-             */
-            /**
-             * MARBLE_PING_PARALLEL_V200 — a canary, not a second sweep.
-             *
-             * The guard is deliberately narrow: only a sweep that measured something, found
-             * nothing alive, and was neither cancelled nor tripped by a *local* fault (a core
-             * that would not start, a resolver that answered nothing) gets a second look. When
-             * it does, only [CANARY_NODES] representatives are re-measured with the identical
-             * budget, and their verdicts replace the first pass's for those nodes and nothing
-             * else. If a local fault is already known, the canary is skipped entirely: re-running
-             * three nodes against a broken core is how a local fault becomes three more dead
-             * rows instead of one honest diagnosis.
-             */
             val canaryNeeded =
                 representatives.size >= 4 &&
                     representativeResults.isNotEmpty() &&
@@ -5176,24 +4114,8 @@ private fun postToMain(block: () -> Unit) {
             }
 
             mergeBenchmarks(expanded)
-            // MARBLE_HOME_ONE_PING_V208 — Home has one ping button now and it measures the
-            // group, so the route latency the page prints has to come out of this sweep: the
-            // per-route button that used to refresh it is gone. Publishing the route's own
-            // sample here keeps the Latency cell honest without starting a second measurement,
-            // and it is skipped while a tunnel is up because there the live monitor owns that
-            // number and a stored probe must not overwrite a live one.
+
             publishHomeRoutePing(expanded)
-            /*
-             * MARBLE_AUTO_SERVER_SELECTOR_V202 — the end of a sweep is the one moment the
-             * selector has fresh evidence for every node in its pool, so it is the one moment
-             * the switch is allowed to act on its own.
-             *
-             * The two switches compose instead of competing: the selector decides *which*
-             * server, `autoConnectBestAfterScan` decides *whether to connect*. Turning the
-             * selector on therefore never silently starts a tunnel for someone who only wanted
-             * a smarter recommendation, and leaving it off keeps the old behaviour exactly —
-             * fastest reachable node, connect if asked.
-             */
             if (!probeCancelGate.isRequested && state == "DISCONNECTED") {
                 if (settings.autoServerSelectorEnabled && settings.autoServerOnScan) {
                     runAutoServerSelection(
@@ -5205,8 +4127,6 @@ private fun postToMain(block: () -> Unit) {
                     val winnerResult = expanded.filter { it.success > 0 }.minByOrNull { it.latencyMs }
                     val winner = winnerResult?.let { result -> scoped.firstOrNull { it.id == result.profileId } }
                     if (winner != null) {
-                        // Profile selection mutates Compose state. Keep both selection and launch
-                        // on the main looper instead of racing a frame from this benchmark worker.
                         postToMain {
                             selectProfile(winner, stopRunningSweep = false)
                             if (settings.connectionMode == ConnectionMode.FULL_TUN) startVpn(winner)
@@ -5267,25 +4187,14 @@ private fun postToMain(block: () -> Unit) {
 
     fun routingAssetStatus(): RoutingAssetStatus = xray.routingAssetStatus()
 
-    /**
-     * Make [sourceId] the primary geo source — and, since
-     * MARBLE_MULTI_SOURCE_ROUTING_V212, keep every other enabled source in the set.
-     *
-     * What this replaced is the reason the report said routing was "still weak": picking a source
-     * *replaced* the previous one, so a user who wanted Loyalsoldier's world coverage lost the
-     * Iranian database that was keeping domestic traffic direct. The set is additive now; this
-     * call only reorders it, and the primary keeps the canonical file names.
-     */
     fun applyGeoAssetSource(sourceId: String) {
         val source = RoutingDefaults.sourceById(sourceId)
-        // The stored preference is a comma list; the registry's own vocabulary is an ordered set.
+
         val ids = com.marbleng.app.core.GeoAssetRegistry.withPrimary(
             com.marbleng.app.core.GeoAssetRegistry.parseIds(settings.geoAssetSourceIds),
             source.id
         )
         val next = if (source.id == "custom") {
-            // The custom entry is the URL form: it becomes a real source the moment its two URL
-            // fields hold something, so selecting it stores the set and nothing else.
             settings.copy(geoAssetSourceId = source.id, geoAssetSourceIds = ids.joinToString(","))
         } else {
             settings.copy(
@@ -5298,11 +4207,6 @@ private fun postToMain(block: () -> Unit) {
         updateSettings(next)
     }
 
-    // ---------------------------------------------------------------------------------------
-    // MARBLE_MULTI_SOURCE_ROUTING_V212 — the geo database set the routing layer reads
-    // ---------------------------------------------------------------------------------------
-
-    /** Switch one source on or off. The primary cannot be switched off: routing needs one. */
     fun toggleGeoAssetSource(sourceId: String) {
         val clean = sourceId.trim().lowercase()
         val ids = com.marbleng.app.core.GeoAssetRegistry.parseIds(settings.geoAssetSourceIds)
@@ -5331,20 +4235,16 @@ private fun postToMain(block: () -> Unit) {
         message = "Routing reads ${next.size} geo source${if (next.size == 1) "" else "s"}"
     }
 
-    /** The per-source state the routing page lists: ready, size, and which one is primary. */
     fun geoSourceStates(): List<com.marbleng.app.core.GeoAssetRegistry.SourceState> =
         runCatching { xray.geoSourceStates(settings) }.getOrDefault(emptyList())
 
-    /** One line for the routing page: how many databases routing is reading, and how big. */
     fun geoSourceSummary(): String =
         com.marbleng.app.core.GeoAssetRegistry.summary(geoSourceStates())
 
-    /** How finely domestic traffic is separated. See [com.marbleng.app.model.GeoPrecision]. */
     fun setGeoPrecision(precision: com.marbleng.app.model.GeoPrecision) {
         updateSettings(settings.copy(geoPrecision = precision.id))
     }
 
-    /** The curated domestic knowledge the precision dial adds, as one readable line. */
     fun geoPrecisionSummary(): String =
         com.marbleng.app.core.IranPrecisionPack.summary(
             com.marbleng.app.model.parseGeoPrecision(settings.geoPrecision)
@@ -5354,10 +4254,6 @@ private fun postToMain(block: () -> Unit) {
         updateSettings(settings.copy(routingRulesJson = RoutingEngine.serializeRules(rules)))
     }
 
-    /**
-     * MARBLE_ROUTING_PRESETS_V136 — replace the rule list with a curated preset. The mode, the
-     * geo source and the expert text lists are untouched, so this is always reversible.
-     */
     fun applyRoutingPreset(preset: RoutingPresets.Preset) {
         setRoutingRules(RoutingPresets.materialize(preset))
         message = when {
@@ -5367,7 +4263,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /** One-off offline route diagnosis for the Routing page simulator. */
     fun simulateRoute(host: String): RoutingEngine.RouteSimulation? {
         val clean = host.trim()
         if (clean.isEmpty()) return null
@@ -5415,9 +4310,7 @@ private fun postToMain(block: () -> Unit) {
             val parts = mutableListOf<String>()
             parts += if (status.geoIpReady) "geoip ${formatBytes(status.geoIpBytes)}" else "geoip missing (add a geoip.dat URL above)"
             parts += if (status.geoSiteReady) "geosite ${formatBytes(status.geoSiteBytes)}" else "geosite missing (add a geosite.dat URL above)"
-            // MARBLE_MULTI_SOURCE_ROUTING_V212 — the summary names the SET, because "which
-            // databases is my routing reading?" is the question the page has to answer before
-            // "is one of them missing?".
+
             val summary = geoSourceSummary()
             message = "Routing assets • $summary • ${parts.joinToString(" • ")}"
         }
@@ -5441,10 +4334,7 @@ private fun postToMain(block: () -> Unit) {
     fun runBugFinder() {
         task("Bug Finder Ultimate • collecting passive runtime evidence") {
             diagnostics.event("BUGFINDER", "scan-begin", "state" to state, "debugMode" to settings.debugModeEnabled)
-            // MARBLE_MEASURED_FAMILY_V133 — Bug Finder must describe the configuration the tunnel
-            // actually runs, not the stored preferences. Reporting "IPv6 preferred, IPv4 raced after
-            // 60 ms" from the raw settings while the live route had measured IPv6 as unhealthy is how
-            // a real defect hid behind a healthy-looking diagnostics line.
+
             val activeProfile = profile(activeProfileId)
             val evidenceSettings = if (activeProfile != null) {
                 runCatching { effectiveSettingsFor(activeProfile) }.getOrDefault(settings)
@@ -5461,18 +4351,13 @@ private fun postToMain(block: () -> Unit) {
                 networkLabel = networkSnapshot.label,
                 sentinel = sentinel,
                 privacy = privacy,
-                // MARBLE_RESOLVER_EVIDENCE_V134 — the denominator for the resolver-health rate. The
-                // core log rotates on every live start, so while connected its contents and this
-                // window describe the same session; disconnected there is no honest window and the
-                // check falls back to the absolute reading instead of inventing a rate.
+
                 tunnelUptimeMs = if (state == "CONNECTED" && connectedSinceMs > 0L) {
                     (System.currentTimeMillis() - connectedSinceMs).coerceAtLeast(0L)
                 } else {
                     0L
                 },
-                // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — why the last sweep stopped, when it
-                // stopped for a reason of its own instead of finishing. Without it the report
-                // shows a batch of failures and no way to tell a dead network from a dead core.
+
                 lastProbeFault = probeLocalFault
             )
             if (settings.debugModeEnabled) diagnostics.exportReport("bugfinder-auto", report.asText())
@@ -5553,20 +4438,6 @@ private fun postToMain(block: () -> Unit) {
     fun clearMessage() { message = "" }
     fun readLogs(): String = RuntimeDiagnostics(context).bundle(xray.logFile)
 
-    // ───────────────────────────────────────────────────────────────────────────────────────────
-    // MARBLE_BACKGROUND_UNRESTRICTED_V166 — one-tap unrestricted background access.
-    // ───────────────────────────────────────────────────────────────────────────────────────────
-    //
-    // A tunnel that Android is allowed to pause is a tunnel that dies on every screen-off, and
-    // the re-connect storm is exactly when a VPN on a restricted network matters most. The
-    // OS-level grant for this is the battery-optimization exemption — Android calls it
-    // "unrestricted background activity" — and Settings → System now carries its one-tap
-    // surface: a live status read-out plus the button that opens Android's own dialog for this
-    // package. The manifest already declares REQUEST_IGNORE_BATTERY_OPTIMIZATIONS; this is the
-    // product surface that exercises it.
-    // ───────────────────────────────────────────────────────────────────────────────────────────
-
-    /** True when Android already grants MarbleNG unrestricted background activity. */
     fun backgroundExemptionGranted(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
         val power = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
@@ -5575,23 +4446,13 @@ private fun postToMain(block: () -> Unit) {
             .getOrDefault(false)
     }
 
-    /**
-     * Android's own dialog that exempts this package from battery optimization — the grant
-     * Android calls "unrestricted background activity". One tap in Settings → System launches it
-     * and the exemption applies the moment the user confirms.
-     */
     fun unrestrictedBackgroundDirectIntent(): Intent =
         Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
             .setData(android.net.Uri.parse("package:${context.packageName}"))
 
-    /**
-     * The exemption list page, for ROMs that removed the direct dialog. The user finds
-     * MarbleNG in the list and switches it there; same grant, one extra tap.
-     */
     fun unrestrictedBackgroundFallbackIntent(): Intent =
         Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
 
-    /** Records the user's attempt to gain unrestricted background access from the Settings card. */
     fun noteBackgroundAccessRequest() {
         diagnostics.event(
             "APP",
@@ -5601,11 +4462,6 @@ private fun postToMain(block: () -> Unit) {
         )
     }
 
-    /**
-     * Open Android's exemption surface for this package. The Settings page prefers its
-     * activity-result launcher (so the granted state refreshes the instant the user returns);
-     * this fire-and-forget path is the shared fallback for callers without one.
-     */
     fun requestUnrestrictedBackgroundAccess(uiContext: Context) {
         if (backgroundExemptionGranted()) {
             message = "Unrestricted background access is already granted"
@@ -5624,33 +4480,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /**
-     * MARBLE_SUBSCRIPTION_THREAD_TRUTH_V166 — the ONE mutation gate for [profiles],
-     * [subscriptions] and [history].
-     *
-     * ## The crash this replaces
-     *
-     * Tapping the subscription refresh icon crashed the app with
-     * `java.util.ConcurrentModificationException` on the main thread, inside the Compose frame
-     * clock, while a screen showing the servers was being drawn. The refresh task ran on the io
-     * pool and mutated the Compose-observed state lists right there — `profiles.removeAll`,
-     * `profiles.addAll`, `subscriptions[index] = …` — while Compose recomposition was iterating
-     * the very same lists on the main looper. `mutableStateListOf` is a SnapshotStateList: every
-     * iterator pins the snapshot it was created in and fails fast the moment the list is
-     * structurally modified outside it, so the worker thread's mutation detonated inside the
-     * UI's iteration. SnapshotStateList is a Compose observation tool, not a concurrent
-     * collection; its one safe mutation discipline is the same one Compose itself applies — on
-     * the main looper, where mutation and iteration are ordered by the looper instead of racing.
-     *
-     * Background tasks therefore compute everything they can off-thread (fetch, parse, dedup)
-     * and apply the resulting structural mutation through this gate. The block runs on the main
-     * looper, the worker waits for its value, and persistence writes the immutable snapshot the
-     * block returns — a worker thread never persists the live list either, because serialising
-     * `mutableStateListOf` while Compose draws is the same race one frame earlier.
-     *
-     * The wait honours task cancellation: an interrupted sweep wakes from the future's `get`
-     * with an [InterruptedException] exactly like one blocked in a socket.
-     */
     private fun <T> applyStateOnMainThread(block: () -> T): T {
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) return block()
         val applied = java.util.concurrent.FutureTask { block() }
@@ -5662,7 +4491,6 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
-    /** Returns true when the task was accepted and will run; false when the mutex rejected it. */
     private fun task(label: String, block: () -> Unit): Boolean {
         if (!taskInFlight.compareAndSet(false, true)) {
             message = "MarbleNG is busy • finish the current task before starting another"
@@ -5678,16 +4506,10 @@ private fun postToMain(block: () -> Unit) {
 
         val future = io.submit(Runnable {
             try {
-                // A cancelled task interrupts this pooled thread. The interrupt is normally
-                // consumed by the InterruptedException that ends the block, but if it landed
-                // between two interruptible calls the flag would survive into the *next* task on
-                // this thread and cancel work nobody asked to cancel. Both ends are cleared.
                 Thread.interrupted()
                 block()
             } catch (t: Throwable) {
                 if (t is InterruptedException) {
-                    // MARBLE_PING_CANCEL_V156 — a cancelled sweep is an outcome, not a failure.
-                    // The measurements that already landed were published as they landed.
                     diagnostics.event("APP", "task-cancelled", "label" to label)
                     message = "Cancelled • ${probeDone} measurements kept"
                 } else {
@@ -5699,7 +4521,7 @@ private fun postToMain(block: () -> Unit) {
                 diagnostics.event("APP", "task-finish", "label" to label)
                 taskInFlight.set(false)
                 activeTask.set(null)
-                // No card may be left spinning if a batch aborts.
+
                 endProbeBatch()
                 postToMain {
                     busy = false
@@ -5792,8 +4614,6 @@ private fun postToMain(block: () -> Unit) {
             return SubscriptionPayload(payload.text, payload.userInfo)
         }
 
-        // Last resort while no tunnel is up: borrow one. A subscription the underlay cannot
-        // reach is still reachable through any working server the user already owns.
         val bootstrapped = if (livePort <= 0) fetchThroughTemporaryTunnel(url) else null
         if (bootstrapped != null) return bootstrapped
 
@@ -5801,20 +4621,12 @@ private fun postToMain(block: () -> Unit) {
             ?: IllegalStateException("Subscription fetch failed on every transport")
     }
 
-    /** The SOCKS port of a tunnel that is genuinely up, or 0 when there is none to borrow. */
     private fun liveSocksPortOrZero(): Int {
         if (state != "CONNECTED") return 0
         if (!(if (activeCoreEngine == CoreEngine.SINGBOX) singBox.isAlive else xray.isAlive)) return 0
         return activeProxyPort().takeIf { it in 1..65535 } ?: 0
     }
 
-    /**
-     * MARBLE_SUBSCRIPTION_REACH_V145 — fetch a blocked subscription through a throwaway tunnel.
-     *
-     * Tries the remembered route first, then the best-ranked alternatives, and stops at the
-     * first server that delivers the payload. The temporary core is always torn down by
-     * [XrayManager.temporary]; nothing here changes the user's selection or session state.
-     */
     private fun fetchThroughTemporaryTunnel(url: String): SubscriptionPayload? {
         val candidates = subscriptionBootstrapCandidates()
         if (candidates.isEmpty()) return null
@@ -5863,7 +4675,6 @@ private fun postToMain(block: () -> Unit) {
         return null
     }
 
-    /** At most three known-good servers worth spending a bootstrap handshake on. */
     private fun subscriptionBootstrapCandidates(): List<ProxyProfile> {
         val ranked = benchmarks
             .asSequence()
@@ -5912,61 +4723,24 @@ private fun postToMain(block: () -> Unit) {
     }
 
     private companion object {
-        /** Detection is cheap but not free; unchanged networks are re-checked every 10 minutes. */
         const val IRAN_RESCAN_INTERVAL_MS = 10L * 60L * 1000L
 
-        /** Mirrors AppStore's persisted history window. */
         const val MAX_HISTORY_RECORDS = 200
 
-        /** Remote subscription payload ceiling for both direct and SOCKS management paths. */
         const val MAX_SUBSCRIPTION_BYTES = 8 * 1024 * 1024
 
-        /**
-         * MARBLE_CONNECT_BUTTON_V121 — ceiling for the visible "disconnecting" state. A healthy
-         * teardown reports DISCONNECTED in well under a second; this only exists so a killed
-         * service can never freeze the connect button in its closing colour.
-         */
         const val DISCONNECT_WATCHDOG_MS = 6_000L
 
-        /**
-         * MARBLE_SERVER_LOCATION_V192 — ceiling on the one-shot location tests per launch. A
-         * subscription of any size gets its unknowns verified; the remainder simply waits for
-         * the next launch. One bounded request per endpoint, once per install (the durable
-         * cache), is the whole radio cost.
-         */
         const val LOCATION_SESSION_BUDGET = 48
 
-        /**
-         * MARBLE_SERVER_LOCATION_V197 — how many endpoints are located at once.
-         *
-         * The sweep used to be serial, one three-second lookup after another, so a forty-server
-         * import spent minutes being measured and the session budget ran out long before the list
-         * did. Five providers per endpoint are already queried in parallel, so four endpoints in
-         * flight is a bounded, polite amount of concurrency — and an answer appears on the row the
-         * moment it is known instead of when its turn comes up.
-         */
         const val LOCATION_SWEEP_CONCURRENCY = 4
 
-        /** End-to-end ceiling for one sweep, so a dead network cannot hold the io pool. */
         const val LOCATION_SWEEP_DEADLINE_MS = 90_000L
 
-        /**
-         * MARBLE_IP_FAMILY_TRUTH_V197 — how many endpoints the background insights sweep measures
-         * per call. Small on purpose: this runs when a server is added, and the measurement the
-         * user is waiting for is the one on the row they just imported.
-         */
         const val INSIGHT_FAMILY_BATCH = 12
 
-        /**
-         * MARBLE_IP_FAMILY_SCAN_V196 — parallel family probes during a group scan.
-         *
-         * Six is deliberately modest: each worker holds one DoH request and up to two TCP
-         * connects, and a scan that saturates a phone's radio to measure the radio is measuring
-         * itself. Six keeps a 40-node subscription under a minute without distorting latencies.
-         */
         const val IP_FAMILY_SCAN_CONCURRENCY = 6
 
-        /** MARBLE_SESSION_USAGE_V192 — how often the live session counter re-samples. */
         const val USAGE_TICK_MS = 2_000L
     }
 }

@@ -9,25 +9,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_FAKE_IP_V184 — the fake-IP cold-DNS fix, pinned on BOTH engines.
- *
- * A WhatsApp cold start asks ~15 domains of the encrypted resolvers *through the cold tunnel*
- * before the first byte of the first flow can leave the device. These tests pin the emitted
- * configs the pinned cores actually load — the shapes below were validated against the pinned
- * XTLS/Xray-core v26.9.9 source (fakedns app + nameserver + sniffing override; the v26
- * `RoutingRule` proto has no `fakedns` field, so no routing rule is emitted) and against the
- * pinned shtorm-7/sing-box-extended v1.14.1 source (`fakeip` DNS server, `query_type` rule,
- * forced route `resolve`, and the `allowFakeIP=false` exclusion that keeps the proxy's own
- * resolution off the fake pool).
- */
 class FakeIpV184Test {
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Xray
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /** One VLESS node with a literal address: no bootstrap ladder, cleanest DNS graph. */
     private fun vlessSource(): String = JSONObject()
         .put(
             "outbounds",
@@ -120,8 +102,6 @@ class FakeIpV184Test {
     fun xrayArmsFakednsPoolNameserverAndSniffingOverride() {
         val hardened = JSONObject(XrayConfigHardener.harden(vlessSource(), 21080, AppSettings()))
 
-        // Explicit FakeDNS pools replace the core's dual-family defaults. Both A and AAAA
-        // must receive reversible fake addresses; an IPv4-only object discards every AAAA.
         val pools = hardened.getJSONArray("fakedns")
         assertEquals(2, pools.length())
         assertEquals(FakeIpPolicy.IPV4_POOL, pools.getJSONObject(0).getString("ipPool"))
@@ -129,10 +109,6 @@ class FakeIpV184Test {
         assertEquals(FakeIpPolicy.XRAY_LRU_SIZE, pools.getJSONObject(0).getInt("poolSize"))
         assertEquals(FakeIpPolicy.XRAY_LRU_SIZE, pools.getJSONObject(1).getInt("poolSize"))
 
-        // The fakedns nameserver exists, carries the list-wide queryStrategy verify() demands,
-        // and sits BEFORE the first encrypted DoH server: in serial mode it answers every
-        // ordinary question in-process and the tunnel resolvers are left to the proxy's own
-        // dial-time lookups, which skip the FakeDNS client.
         val dns = hardened.getJSONObject("dns")
         val servers = dns.getJSONArray("servers")
         val fakeIndexes = xrayFakeIndexes(servers)
@@ -149,12 +125,8 @@ class FakeIpV184Test {
             servers.getJSONObject(fakeIndexes[0]).optString("queryStrategy")
         )
 
-        // The sniffer is what turns a 198.19.x answer back into the real host; every inbound that
-        // carries a sniffing block must name the fakedns destination override.
         assertTrue(xrayDestOverrideHasFake(hardened.getJSONArray("inbounds")))
 
-        // No v25-style fakedns routing rule: fake addresses fall through to the final rule,
-        // which must still ride the selected proxy (the hardener's own invariant).
         val rules = hardened.getJSONObject("routing").getJSONArray("rules")
         assertEquals("proxy", rules.getJSONObject(rules.length() - 1).optString("outboundTag"))
         val ruleText = rules.toString()
@@ -163,8 +135,6 @@ class FakeIpV184Test {
 
     @Test
     fun xrayKeepsFakednsOutWhenSniffingIsDisabled() {
-        // Without the inbound sniffer the domain restore cannot run, and the proxy would dial
-        // the fake address itself — so the whole chain stays off, not just half of it.
         val hardened = JSONObject(
             XrayConfigHardener.harden(
                 vlessSource(),
@@ -193,19 +163,12 @@ class FakeIpV184Test {
 
     @Test
     fun xrayRankInstanceNeverCarriesFakedns() {
-        // The rank instance has no TUN and no sniffing inbound: a fake address there would be
-        // an address nothing can restore. harden() re-arms the block late on purpose, so the
-        // rank path strips it explicitly.
         val rank = JSONObject(XrayConfigHardener.hardenForNativeRank(vlessSource(), AppSettings()))
         assertFalse(rank.has("fakedns"))
         rank.optJSONObject("dns")?.optJSONArray("servers")?.let { servers ->
             assertTrue(xrayFakeIndexes(servers).isEmpty())
         }
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // sing-box
-    // ─────────────────────────────────────────────────────────────────────────
 
     private fun profile(host: String): ProxyProfile = ProxyProfile(
         id = "node-1",
@@ -279,14 +242,9 @@ class FakeIpV184Test {
         assertEquals(FakeIpPolicy.IPV6_POOL, fake.optString("inet6_range"))
         assertFalse("fakeip owns a range, not an upstream server", fake.has("server"))
 
-        // The app can retain a fake answer across a core restart, so the reverse mapping must
-        // survive whenever the user has the (default-on) cache file enabled.
         val cache = config.getJSONObject("experimental").getJSONObject("cache_file")
         assertTrue("fakeip reverse mappings must survive core restarts", cache.getBoolean("store_fakeip"))
 
-        // The app's A/AAAA questions route to the fake pool; `final` stays the encrypted
-        // resolver over the proxy — that is what keeps the engine's own resolution off the
-        // fake addresses.
         assertEquals(SingBoxConfigBuilder.DNS_REMOTE_TAG, dns.optString("final"))
         val rules = dns.getJSONArray("rules")
         var queryRule: JSONObject? = null
@@ -301,9 +259,6 @@ class FakeIpV184Test {
         assertEquals("AAAA", queryTypes.optString(1))
         assertEquals(SingBoxConfigBuilder.DNS_FAKEIP_TAG, queryRule.optString("server"))
 
-        // A restored fake flow reaches the router's pre-match with a domain destination;
-        // without a resolve action the flow would be rejected
-        // ("a resolve action is required before routing to outbound").
         val routeRules = config.getJSONObject("route").getJSONArray("rules")
         var resolve = false
         for (i in 0 until routeRules.length()) {
@@ -314,8 +269,6 @@ class FakeIpV184Test {
 
     @Test
     fun singBoxKeepsNodeBootstrapAheadOfFakeip() {
-        // The VLESS hostname must never see a fake answer: the node-host DNS rule is written
-        // before the query_type rule on both the TUN path and the engine's dial path.
         val config = singBoxBuild(AppSettings(), host = "edge.example.com")
         val rules = config.getJSONObject("dns").getJSONArray("rules")
         var hostRuleIndex = -1
@@ -332,9 +285,6 @@ class FakeIpV184Test {
 
     @Test
     fun bothEnginesKeepFakeIpOffWhenDnsInterceptionIsOff() {
-        // Fake answers cannot reach an app without the port-53 interception rule. Emitting only
-        // the pool/server in that state is a misleading half-configuration and makes sing-box
-        // resolve every routed domain for no benefit.
         val settings = AppSettings(dnsHijackEnabled = false)
         val xray = JSONObject(XrayConfigHardener.harden(vlessSource(), 21080, settings))
         assertFalse(xray.has("fakedns"))
@@ -372,7 +322,7 @@ class FakeIpV184Test {
         for (i in 0 until rules.length()) {
             assertFalse(rules.getJSONObject(i).optJSONArray("query_type") != null)
         }
-        // With fakeip off the resolve action follows the (off-by-default) Exclave switch.
+
         val routeRules = config.getJSONObject("route").getJSONArray("rules")
         for (i in 0 until routeRules.length()) {
             assertFalse(routeRules.getJSONObject(i).optString("action") == "resolve")

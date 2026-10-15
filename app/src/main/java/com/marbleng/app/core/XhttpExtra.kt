@@ -3,7 +3,6 @@ package com.marbleng.app.core
 import org.json.JSONObject
 import java.util.Base64
 
-/** XHTTP share links carry `extra` as either percent-encoded JSON or base64url JSON. */
 object XhttpExtra {
     fun parse(raw: String): JSONObject {
         val value = raw.trim()

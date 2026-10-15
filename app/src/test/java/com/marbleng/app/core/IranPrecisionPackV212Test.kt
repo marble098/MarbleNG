@@ -7,22 +7,11 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_MULTI_SOURCE_ROUTING_V212 — the curated domestic knowledge.
- *
- * Widening the geo sources answers "which list of domains is used"; it cannot answer "what about
- * the domestic service whose domain no list has caught up with". That is what this pack is, and
- * the part of it that can go wrong quietly is its own content and its three levels: a level that
- * emits nothing is a dial that lies, and a keyword that matches a foreign host sends someone's
- * traffic out of the tunnel by accident — the exact leak the feature exists to close.
- */
 class IranPrecisionPackV212Test {
-
     @Test
     fun everyEntryIsALowercaseRegistrableDomainAndNotTheBareTld() {
         assertTrue(IranPrecisionPack.isWellFormed())
-        // The list is the product's own, so its size is a fact worth pinning: a future edit that
-        // empties it would leave the "Curated" level a label with nothing behind it.
+
         assertTrue(
             "the curated list shrank to nothing",
             IranPrecisionPack.ENTRIES.size >= 50
@@ -61,7 +50,7 @@ class IranPrecisionPackV212Test {
         assertEquals(IranPrecisionPack.KEYWORDS, IranPrecisionPack.keywords(GeoPrecision.MAXIMUM))
         assertTrue(IranPrecisionPack.KEYWORDS.size >= 20)
         assertTrue(IranPrecisionPack.summary(GeoPrecision.MAXIMUM).contains("keywords"))
-        // The curated domains are still there: the strongest level is a superset, not a switch.
+
         assertEquals(
             IranPrecisionPack.domains(GeoPrecision.ENHANCED),
             IranPrecisionPack.domains(GeoPrecision.MAXIMUM)
@@ -71,10 +60,10 @@ class IranPrecisionPackV212Test {
     @Test
     fun theTldMatchesTheCountryDomainAndItsSubdomainsOnly() {
         assertTrue(IranPrecisionPack.matches("shaparak.ir", GeoPrecision.ENHANCED))
-        // Case and a trailing dot are not a different host.
+
         assertTrue(IranPrecisionPack.matches("WWW.Shaparak.IR.", GeoPrecision.ENHANCED))
         assertTrue(IranPrecisionPack.matches("ir", GeoPrecision.ENHANCED))
-        // A foreign TLD that merely contains the letters is not domestic.
+
         assertFalse(IranPrecisionPack.matches("iran.example.com", GeoPrecision.ENHANCED))
         assertFalse(IranPrecisionPack.matches("air.example", GeoPrecision.ENHANCED))
     }
@@ -100,7 +89,7 @@ class IranPrecisionPackV212Test {
         val entry = IranPrecisionPack.ENTRIES.first()
         assertEquals(entry.category, IranPrecisionPack.categoryOf(entry.domain, GeoPrecision.ENHANCED))
         assertNull(IranPrecisionPack.categoryOf("unrelated.example", GeoPrecision.ENHANCED))
-        // STANDARD publishes no curated list, so nothing can claim to have answered.
+
         assertNull(IranPrecisionPack.categoryOf(entry.domain, GeoPrecision.STANDARD))
     }
 
@@ -122,12 +111,6 @@ class IranPrecisionPackV212Test {
 
     @Test
     fun everyKeywordIsLongEnoughToBeASubstringMatchWithoutColliding() {
-        // A keyword is matched as a substring of every new host, so a short one is a leak: "mci"
-        // inside a foreign hostname would send that traffic direct. The matcher's own floor and
-        // the list's own spelling have to agree, and this is where they are pinned together.
-        // Four is the matcher's own floor: below it a stem collides with ordinary hostnames, so a
-        // keyword shorter than that would be a rule that can never fire and a name that promises
-        // coverage the config does not deliver.
         assertTrue(
             "every keyword is at least the matcher's own minimum length",
             IranPrecisionPack.KEYWORDS.all { it.length >= 4 }

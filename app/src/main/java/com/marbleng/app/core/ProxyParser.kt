@@ -1,8 +1,5 @@
 package com.marbleng.app.core
 
-// MARBLE_SSH_PARSE_V25
-// MARBLE_PATTNG_TLS_PARITY_V28
-
 import android.net.Uri
 import android.util.Base64
 import com.marbleng.app.model.ProxyProfile
@@ -11,15 +8,7 @@ import org.json.JSONObject
 import java.net.URLDecoder
 import java.security.MessageDigest
 
-/**
- * Xray input normalizer. Share URIs cover common Xray URI formats; full Xray JSON is the
- * compatibility escape hatch and is preserved for XrayManager's final `xray run -test` check.
- */
 object ProxyParser {
-    // MARBLE_SINGBOX_PROTOCOLS_V153 — the sing-box extended parser understands Hysteria v1
-    // (`hysteria://`), TUIC (`tuic://`) and AnyTLS (`anytls://`). The old importer silently
-    // dropped those links from a subscription because the scheme regex never matched them, which
-    // is one reason "all the other types" appeared broken on the sing-box engine.
     private val shareSchemes = Regex(
         "(?i)^(vless|vmess|trojan|ss|hysteria2|hy2|hysteria|tuic|anytls|socks|socks5|http|https|ssh)://"
     )
@@ -28,12 +17,6 @@ object ProxyParser {
     )
     private val infraProtocols = setOf("freedom", "direct", "blackhole", "block", "dns", "loopback")
 
-    /**
-     * MARBLE_CORE_CONFIG_SUPERSET_V165 — share-link parameter → `xhttpSettings` field, using the
-     * names the pinned core's `SplitHTTPConfig` declares. Every value is copied verbatim: the core
-     * accepts a range as a string (`"100-200"`) exactly as it accepts a number, so no parsing here
-     * can turn a valid link into an invalid config.
-     */
     private val XHTTP_LINK_FIELDS = mapOf(
         "xpaddingbytes" to "xPaddingBytes",
         "xpaddingkey" to "xPaddingKey",
@@ -55,20 +38,11 @@ object ProxyParser {
         "scstreamupserversecs" to "scStreamUpServerSecs"
     )
 
-    /**
-     * The two xhttp fields the core types as plain integers rather than as `Int32Range`
-     * (`ScMaxBufferedPosts int64`, `ServerMaxHeaderBytes int32`). `Int32Range.UnmarshalJSON` accepts
-     * a string, so everything in [XHTTP_LINK_FIELDS] can be copied verbatim — including a `"100-200"`
-     * range, which is the whole point of that type — but a *quoted* integer in one of these two is a
-     * fatal `json: cannot unmarshal string into Go value of type int64`. They are written as numbers,
-     * or not at all.
-     */
     private val XHTTP_LINK_NUMBERS = mapOf(
         "scmaxbufferedposts" to "scMaxBufferedPosts",
         "servermaxheaderbytes" to "serverMaxHeaderBytes"
     )
 
-    /** The boolean half of the same table. */
     private val XHTTP_LINK_FLAGS = mapOf(
         "xpaddingobfsmode" to "xPaddingObfsMode",
         "nogrpcheader" to "noGRPCHeader",
@@ -163,18 +137,14 @@ object ProxyParser {
             }
         }
         val outbound = selected ?: error("Xray JSON has no proxy outbound")
-        // MARBLE_TLS_PINNING_V149 — pasted Xray JSON never passes through the share-link parser,
-        // so this is the only place its `tlsSettings` can be brought into line with the core:
-        // pins are re-encoded into the hex form Xray parses and the removed `allowInsecure` flag
-        // is translated instead of being handed to a core that refuses to load it.
+
         TlsPinningPolicy.sanitizeConfigDocument(root)
         val protocol = outbound.optString("protocol", "json").lowercase()
         val settings = outbound.optJSONObject("settings") ?: JSONObject()
         val meta = endpointMeta(outbound)
         val scheme = when (protocol) {
             "shadowsocks" -> "ss"
-            // The extended Xray core uses one outbound name for both wire versions. Preserve the
-            // declared version instead of relabelling every pasted Hysteria v1 document as v2.
+
             "hysteria" -> if (
                 settings.optInt("version", 0) == 1 ||
                 outbound.optJSONObject("streamSettings")
@@ -260,13 +230,6 @@ object ProxyParser {
     private fun pad64(value: String) = value + "=".repeat((4 - value.length % 4) % 4)
     private fun id(raw: String) = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray())
         .take(8).joinToString("") { "%02x".format(it) }
-    /**
-     * Percent-decoding that never drops a node.
-     *
-     * Uri.parse() already returns decoded fragments/user-info, and node names legitimately contain
-     * a bare '%' ("100% uptime"). URLDecoder throws on those and used to make the whole share link
-     * disappear from the library, so decoding is attempted only when it can apply and never throws.
-     */
     private fun dec(value: String?): String {
         val raw = value ?: return ""
         if (!raw.contains('%')) return raw
@@ -305,13 +268,6 @@ object ProxyParser {
         )
     }
 
-    /**
-     * MARBLE_CORE_CONFIG_SUPERSET_V165 — every parameter read in this file goes through
-     * [ShareLinkParams]: case-insensitive keys, declared aliases, `%XX` decoding that keeps UTF-8
-     * node names intact, and a fallback that finds the parameters when a link writes its name
-     * before them (`vless://id@host:443#Germany 1?type=xhttp`). `Uri.getQueryParameter` matched one
-     * exact spelling, and a panel that writes `Security=reality` used to import as plaintext.
-     */
     private fun params(uri: Uri): ShareLinkParams {
         val query = ShareLinkParams.of(uri.encodedQuery)
         return if (query.keys().isEmpty()) ShareLinkParams.ofRawLink(uri.toString()) else query
@@ -323,7 +279,6 @@ object ProxyParser {
 
     private fun stream(uri: Uri, host: String): JSONObject = stream(params(uri), host)
 
-    /** The VLESS reader can also be exercised on a JVM without Android's stub `Uri`. */
     private fun stream(p: ShareLinkParams, host: String): JSONObject {
         val requested = p.first("type", "network", "net", default = "tcp").lowercase()
         val method = when (requested) {
@@ -352,9 +307,7 @@ object ProxyParser {
                     if (headerHost.isNotBlank()) put("host", headerHost)
                     p.get("mode").takeIf { it.isNotBlank() }?.let { put("mode", it) }
                     headerMapOf(headerMap)?.let { put("headers", it) }
-                    // Both raw JSON and base64url JSON are used for XHTTP `extra`. A malformed
-                    // value must NOT be silently dropped: it may contain the server's required
-                    // padding/camouflage. Reject this link rather than dial a different protocol.
+
                     p.get("extra").takeIf { it.isNotBlank() }?.let { put("extra", XhttpExtra.parse(it)) }
                     writeXhttpTuning(p, this)
                 })
@@ -373,9 +326,7 @@ object ProxyParser {
                         .takeIf { it.isNotBlank() }?.let { put("serviceName", it) }
                     p.get("authority").takeIf { it.isNotBlank() }?.let { put("authority", it) }
                     p.get("user_agent").takeIf { it.isNotBlank() }?.let { put("user_agent", it) }
-                    // A gRPC link spells the streaming mode `mode=multi`; the core spells the same
-                    // switch `multiMode`. Without it every gRPC node ran in one-stream mode, which
-                    // is the mode Xray itself deprecates, and the link's own claim was dropped.
+
                     if (p.isTruthy("multiMode") || p.get("mode").equals("multi", ignoreCase = true)) {
                         put("multiMode", true)
                     }
@@ -388,9 +339,6 @@ object ProxyParser {
                     "header", JSONObject().put("type", p.first("headerType", "header", default = "none"))
                 ))
                 "mkcp" -> stream.put("kcpSettings", JSONObject().apply {
-                    // `mtu`/`tti`/capacity are the fields this core reads; its `header` and `seed`
-                    // fields are parsed and then ignored, which is why a camouflaged mkcp node is
-                    // reported as a core gap instead of being emitted with camouflage silently off.
                     p.get("mtu").toLongOrNull()?.takeIf { it >= 21 }?.let { put("mtu", it) }
                     p.get("tti").toLongOrNull()?.takeIf { it in 10..1000 }?.let { put("tti", it) }
                     p.get("uplinkCapacity").toLongOrNull()?.takeIf { it >= 0 }?.let { put("uplinkCapacity", it) }
@@ -402,10 +350,6 @@ object ProxyParser {
         var security = p.first("security", "sec", default = "none").lowercase()
         if (security == "xtls" || security == "1" || security == "true") security = "tls"
         if (security.isEmpty() || security == "none") {
-            // A REALITY public key exists for exactly one reason. Naming the security a link already
-            // proves is not a guess about the server: `pbk` is only ever written by REALITY links, and
-            // importing such a node as plaintext is what produced "Unsupported VLESS" for servers that
-            // do speak TLS.
             if (p.first("pbk", "publicKey", "realityPublicKey").isNotBlank()) security = "reality"
         }
         stream.put("security", security)
@@ -415,21 +359,13 @@ object ProxyParser {
         if (security == "tls") stream.put("tlsSettings", JSONObject()
             .put("serverName", serverName).put("fingerprint", fingerprint).apply {
                 p.get("alpn").takeIf { it.isNotBlank() }?.let { put("alpn", JSONArray(it.split(','))) }
-                // PattNG share-link extension: `cs` carries Xray's colon-separated cipherSuites.
+
                 p.first("cs", "cipherSuites").takeIf { it.isNotBlank() }
                     ?.let { put("cipherSuites", it) }
                 p.first("echConfigList", "ech").takeIf { it.isNotBlank() }?.let { put("echConfigList", it) }
                 p.get("minVersion").takeIf { it.isNotBlank() }?.let { put("minVersion", it) }
                 p.get("maxVersion").takeIf { it.isNotBlank() }?.let { put("maxVersion", it) }
-                // MARBLE_TLS_PINNING_V149 — the two peer-verification options are first-class
-                // Xray fields and MUST reach `tlsSettings`, in Xray's own formats:
-                //   `vcn` → verifyPeerCertByName (comma-separated names)
-                //   `pcs` → pinnedPeerCertSha256 (comma-separated LOWERCASE HEX, 32 bytes each)
-                // Reading only the long-form `pinnedPeerCertSha256` key meant real links (which
-                // use `pcs`/`vcn`) silently produced a plain CA-verified tlsSettings block. A
-                // pinning server is self-signed by construction, so every handshake failed while
-                // the core stayed alive — "connected, no Internet". `allowInsecure` is a removed
-                // feature in this core and is translated here, never emitted.
+
                 TlsPinningPolicy.sanitizeTlsSettings(
                     tls = this,
                     verifyPeerCertByName = p.first(*TlsPinningPolicy.VERIFY_BY_NAME_KEYS.toTypedArray()),
@@ -455,13 +391,6 @@ object ProxyParser {
         return stream
     }
 
-    /**
-     * XHTTP is the transport every new panel ships, and the core models a long list of knobs for it
-     * — padding, session-id placement, stream-up intervals, xmux. A link that carries them used to
-     * have them dropped on the floor, so the node connected with the server's defaults and the
-     * operator's own obfuscation settings were silently off. Only keys the link actually states are
-     * written, with the core's own field names.
-     */
     private fun writeXhttpTuning(p: ShareLinkParams, target: JSONObject) {
         XHTTP_LINK_FIELDS.forEach { (linkKey, configKey) ->
             p.get(linkKey).takeIf { it.isNotBlank() }?.let { target.put(configKey, it) }
@@ -477,13 +406,6 @@ object ProxyParser {
         }
     }
 
-    /**
-     * `headers` on a share link is a JSON object, and the core types it as `map[string]string`. A
-     * value that is not a scalar (an array of header values, a nested object) would turn the whole
-     * config into a load error, so each entry is flattened to its string form and a non-scalar is
-     * dropped rather than guessed at — the key is a header name, and header names are what the
-     * `host` field already carries for the common case.
-     */
     private fun headerMapOf(raw: String?): JSONObject? {
         val text = raw?.trim()?.takeIf { it.startsWith("{") } ?: return null
         val parsed = runCatching { JSONObject(text) }.getOrNull() ?: return null
@@ -509,14 +431,12 @@ object ProxyParser {
         return vlessFromParts(raw, u.host ?: error("host"), u.port, dec(u.userInfo), u.fragment, sid, sname)
     }
 
-    /** The actual VLESS link → Xray document, testable on the JVM without Android's Uri stub. */
     internal fun vlessFromParts(
         raw: String, uriHost: String, port: Int, userId: String, fragment: String?,
         sid: String = "manual", sname: String = "Manual"
     ): ProxyProfile {
         val link = ShareLinkNormalizer.normalize(raw)
-        // Android versions differ on whether Uri.host includes the brackets of an IPv6 literal.
-        // The core and the profile metadata both require the bare address.
+
         val host = uriHost.removeSurrounding("[", "]")
         require(host.isNotBlank() && port in 1..65535 && userId.isNotBlank()) { "Invalid VLESS authority" }
         val p = ShareLinkParams.ofRawLink(link)
@@ -524,7 +444,7 @@ object ProxyParser {
         val out = JSONObject().put("tag", "proxy").put("protocol", "vless").put("settings", JSONObject()
             .put("address", host).put("port", port).put("id", userId).put("encryption", vlessEncryption(p))
             .apply { p.first("flow").takeIf { it.isNotBlank() }?.let { put("flow", it) } }).put("streamSettings", stream)
-        // The security label is taken from the document, never re-read from the unnormalised link.
+
         return prof(
             link, fragment?.substringBefore('?') ?: "VLESS $host", "vless", host, port,
             p.first("type", "network", "net", default = "tcp"),
@@ -578,8 +498,7 @@ object ProxyParser {
 
     private fun parseTrojan(raw: String, sid: String, sname: String): ProxyProfile {
         val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: error("port")
-        // Trojan is TLS-only in practice and share links routinely omit `security`. String
-        // surgery on the raw URI silently failed when there was no query string at all.
+
         val rebuilt = if (q(u, "security").isBlank()) {
             u.buildUpon().appendQueryParameter("security", "tls").build()
         } else {
@@ -601,7 +520,6 @@ object ProxyParser {
         var host = u.host; var port = u.port; var method = ""; var password = ""
         val userInfo = u.userInfo
         if (host != null && !userInfo.isNullOrBlank()) {
-            // SIP002 allows plain "method:password" or base64("method:password") in the user info.
             val credentials = if (userInfo.contains(':')) {
                 dec(userInfo)
             } else {
@@ -638,7 +556,6 @@ object ProxyParser {
             .put("fingerprint", qa(u, "fp", "fingerprint", default = "chrome"))
             .put("alpn", alpnArray)
             .apply {
-                // MARBLE_TLS_PINNING_V149 — same contract as the VLESS/VMess/Trojan path.
                 TlsPinningPolicy.sanitizeTlsSettings(
                     tls = this,
                     verifyPeerCertByName = qa(u, *TlsPinningPolicy.VERIFY_BY_NAME_KEYS.toTypedArray()),
@@ -657,8 +574,7 @@ object ProxyParser {
         if (down.isNotBlank()) hySettings.put("down", down)
         val idleTimeout = qa(u, "udpIdleTimeout", "udp_idle_timeout", "udpTimeout").toIntOrNull() ?: 60
         hySettings.put("udpIdleTimeout", idleTimeout)
-        // Panels use both camelCase and sing-box snake_case spellings. Keep every wire-relevant
-        // Hysteria2 dial option in the canonical document so translating cores never loses it.
+
         qa(u, "mport", "ports", "portHopping", "port_hopping").takeIf(String::isNotBlank)
             ?.let { hySettings.put("ports", it) }
         qa(u, "hopInterval", "hop_interval").takeIf(String::isNotBlank)
@@ -694,13 +610,6 @@ object ProxyParser {
         return prof(raw, profileName, "hysteria2", host, port, "hysteria", "tls", base(out), sid, sname)
     }
 
-    /**
-     * Hysteria v1 share links are distinct from Hysteria2 (`hy2`). The old importer only knew
-     * `hysteria2`/`hy2`, so a `hysteria://` node vanished from the library entirely. This builds
-     * an Xray-shaped config for the v1 protocol while preserving the raw link for sing-box
-     * extended's own parser; [SingBoxConfigBuilder] translates it to `type: hysteria` (not
-     * `type: hysteria2`) using the v1 `auth_str` field.
-     */
     private fun parseHysteria(raw: String, sid: String, sname: String): ProxyProfile {
         val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: 443
         val auth = qa(u, "auth", "auth_str", "password").ifBlank { dec(u.userInfo) }
@@ -742,12 +651,6 @@ object ProxyParser {
         return prof(raw, profileName, "hysteria", host, port, "hysteria", "tls", base(out), sid, sname)
     }
 
-    /**
-     * TUIC and AnyTLS are sing-box extended protocols with no Xray outbound shape. A share link
-     * is preserved as-is so the sing-box engine's parser can run it; the empty [ProxyProfile.configJson]
-     * makes Marble report the node honestly on the Xray engine instead of inventing a config that
-     * core would refuse.
-     */
     private fun parseTuic(raw: String, sid: String, sname: String): ProxyProfile {
         val u = Uri.parse(raw); val host = u.host ?: error("host"); val port = u.port.takeIf { it > 0 } ?: 443
         val name = u.fragment?.let { dec(it) }?.ifBlank { null } ?: "TUIC $host"
@@ -770,8 +673,7 @@ object ProxyParser {
             alpn.split(',').forEach { token -> token.trim().takeIf(String::isNotBlank)?.let(array::put) }
             tls.put("alpn", array)
         }
-        // Insecure/pinning keys are normalised by the single TLS policy authority; the removed
-        // `allowInsecure` field must never be written into an Xray config.
+
         return TlsPinningPolicy.sanitizeTlsSettings(
             tls = tls,
             verifyPeerCertByName = qa(uri, *TlsPinningPolicy.VERIFY_BY_NAME_KEYS.toTypedArray()),

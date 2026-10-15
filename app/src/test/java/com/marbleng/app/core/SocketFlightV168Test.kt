@@ -27,9 +27,6 @@ import org.junit.Test
  * Nothing here spawns a core: the emitted documents ARE the contract.
  */
 class SocketFlightV168Test {
-
-    // ── HEV YAML ────────────────────────────────────────────────────────────────────────────
-
     private val datapath = TunnelTuning(
         maxSessions = 12_000,
         tcpBufferBytes = 65_536,
@@ -37,7 +34,6 @@ class SocketFlightV168Test {
         label = "test"
     )
 
-    /** Every key the pinned hev-socks5-tunnel 2.17.1 parses (src/hev-config.c). */
     private val accepted = mapOf(
         "tunnel" to setOf("mtu", "multi-queue", "ipv4", "ipv6", "icmp", "name",
             "post-up-script", "pre-down-script"),
@@ -98,8 +94,7 @@ class SocketFlightV168Test {
         assertEquals("65536", sections.getValue("misc").getValue("tcp-buffer-size"))
         assertEquals("524288", sections.getValue("misc").getValue("udp-recv-buffer-size"))
         assertEquals("12000", sections.getValue("misc").getValue("max-session-count"))
-        // 32 × 1500 = 48 KiB must stay under the 64 KiB TCP floor so the auto-sized task stack
-        // (TASK_STACK_SIZE + max(tcp buffer, UDP pool)) does not grow beyond the emitted 86 016.
+
         assertTrue(1500 * HevTunnelPolicy.UDP_COPY_BUFFER_NUMS <= 65_536)
         assertTrue(HevTunnelPolicy.CONNECT_TIMEOUT_MS < 16_000)
     }
@@ -124,8 +119,6 @@ class SocketFlightV168Test {
         val yaml = HevTunnelPolicy.buildConfig(10808, 9000, true, "/a'b.log", datapath)
         assertTrue(yaml.contains("log-file: '/a''b.log'"))
     }
-
-    // ── CoreSocketPolicy — Xray shape ─────────────────────────────────────────────────────────
 
     @Test
     fun xrayPhysicalSocketFillsEveryOmission() {
@@ -192,8 +185,6 @@ class SocketFlightV168Test {
         assertFalse("QUIC/KCP have no uTLS layer", quic.getJSONObject("streamSettings").getJSONObject("tlsSettings").has("fingerprint"))
     }
 
-    // ── CoreSocketPolicy — sing-box shape ─────────────────────────────────────────────────────
-
     @Test
     fun singBoxPhysicalDialIsParityForTcp() {
         val outbound = JSONObject()
@@ -223,8 +214,6 @@ class SocketFlightV168Test {
         assertTrue(quic.getBoolean("udp_fragment"))
     }
 
-    // ── Xray hardener integration ─────────────────────────────────────────────────────────────
-
     private fun xrayConfig(host: String = "node.example.com", network: String = "tcp"): String =
         JSONObject()
             .put("outbounds", JSONArray().put(
@@ -243,8 +232,7 @@ class SocketFlightV168Test {
                     )
                     .put(
                         "streamSettings",
-                        // Marble's own builders name the transport "method" (with "network"
-                        // mirrored for Xray proper); set both for realism.
+
                         JSONObject().put("method", network).put("network", network)
                             .put("security", "tls")
                             .put("tlsSettings", JSONObject().put("serverName", host))
@@ -297,8 +285,6 @@ class SocketFlightV168Test {
             assertFalse(sockopt.has("tcpKeepAliveIdle"))
         }
     }
-
-    // ── sing-box builder integration ──────────────────────────────────────────────────────────
 
     private fun linkProfile(raw: String) = ProxyProfile(
         id = "node-1",
@@ -406,7 +392,7 @@ class SocketFlightV168Test {
             host = "entry.example.com",
             port = 443
         )
-        // Force the stored-JSON reader so the detour edge is Marble's own translation.
+
         val config = build(profile, AppSettings(singBoxPreferParser = false))
         val proxy = singOutbound(config, SingBoxConfigBuilder.PROXY_TAG)
         assertEquals("marble-hop-1", proxy.getString("detour"))

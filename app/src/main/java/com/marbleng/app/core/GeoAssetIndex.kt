@@ -4,67 +4,23 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.util.Arrays
 
-/**
- * MARBLE_GEO_ASSET_INDEX_V136 — the offline search engine for geoip.dat / geosite.dat.
- *
- * Before this index existed, the routing page asked the user to type `geosite:…` / `geoip:…`
- * tokens from memory. The files that define the valid tokens were already on disk, but nothing
- * could look inside them, so a typo produced a config Xray rejects at load time — which kills the
- * whole core and reads in the browser as "check your connection" on every site while the tunnel
- * icon still says connected. The fix is structural: parse the two databases the app already
- * manages, index every tag they contain, and let the UI (and the config writer) consult that
- * index before anything reaches the engine.
- *
- * The `.dat` files are protobuf messages with a tiny, stable wire schema:
- *
- * ```
- * GeoSiteList { repeated GeoSite entry = 1; }
- * GeoSite     { string country_code = 1; repeated Domain domain = 2; }
- * Domain      { Type type = 1; string value = 2; repeated string attribute = 3; }
- * GeoIPList   { repeated GeoIP entry = 1; }
- * GeoIP       { string country_code = 1; repeated CIDR cidr = 2; bool reverse_match = 3; }
- * CIDR        { bytes ip = 1; uint32 prefix = 2; }
- * ```
- *
- * The scanner below reads that wire format directly — no codegen, no schema dependency — and it
- * bounds every read, so a corrupted download ends the scan instead of crashing or looping.
- * Results are cached in memory and re-derived only when the source file changes.
- *
- * Three consumers, one truth:
- *  - the rule editor suggests tags as the user types (with real entry counts);
- *  - validation warns about a tag that the loaded database does not actually contain;
- *  - the route simulator tests a hostname against the real geosite domain lists, so the user can
- *    see *which rule* ate a failing site instead of guessing.
- */
 object GeoAssetIndex {
-
     enum class Kind(val label: String) {
         GEOSITE("geosite"),
         GEOIP("geoip")
     }
 
-    /** One indexed tag: `category-ads-all` with its domain count, `ir` with its range count, … */
     data class GeoEntry(
         val kind: Kind,
         val tag: String,
-        /** Domain count (geosite) or CIDR range count (geoip). */
         val count: Int
     )
 
-    /**
-     * One database file the index should read.
-     *
-     * MARBLE_MULTI_SOURCE_ROUTING_V212 — the index stopped being "the two canonical files". Every
-     * enabled geo source contributes a file of each family, and the union of all of them is what
-     * suggestions, validation, provenance and the route simulator answer from. A source the user
-     * switched off is simply not in this list, so its tags stop being suggested on the next scan.
-     */
     class IndexedFile(
         val file: File,
         val kind: Kind
     )
 
-    /** One file's slice of a snapshot: identity, freshness, tags and the match table. */
     class FileState(
         val name: String,
         val kind: Kind,
@@ -72,23 +28,10 @@ object GeoAssetIndex {
         val size: Long,
         val entries: List<GeoEntry>,
         val hashes: LongArray?,
-        /** Absolute identity prevents a same-named file in another directory reusing this slice. */
         val path: String = name,
-        /** True only when the complete protobuf file parsed without truncation or invalid wire data. */
         val parsedSuccessfully: Boolean = false
     )
 
-    /**
-     * Immutable result of one scan. [geositeDomainHashes] carries (fnv1a hash | type in the
-     * top byte) values sorted ascending for binary search; `null` when the file exceeded the
-     * bounded in-memory budget — suggestions and validation still work, only exact domain
-     * matching in the simulator degrades to "cannot verify".
-     *
-     * MARBLE_MULTI_SOURCE_ROUTING_V212 — [geosite] and [geoip] are the *union* of every indexed
-     * file in that family, so a tag any enabled source maintains is a tag the product knows.
-     * [files] and [tagFiles] keep the union honest: they say which database a tag came from, which
-     * is the answer the rule editor and the simulator need before they can say anything at all.
-     */
     class Snapshot(
         val geosite: List<GeoEntry>,
         val geoip: List<GeoEntry>,
@@ -101,7 +44,6 @@ object GeoAssetIndex {
         val files: List<FileState> = emptyList(),
         val tagFiles: Map<String, List<String>> = emptyMap()
     ) {
-        /** The file names that contain [tag] in [kind]'s family, in scan order. */
         fun filesFor(kind: Kind, tag: String): List<String> {
             val clean = tag.trim().lowercase()
             if (clean.isEmpty()) return emptyList()
@@ -113,22 +55,18 @@ object GeoAssetIndex {
             }.distinct()
         }
 
-        /** True only when this exact path is still the successfully parsed file in this snapshot. */
         fun isUsableFile(file: File, kind: Kind): Boolean =
             files.any { state ->
                 state.path == file.absolutePath && state.kind == kind && isFreshAndValid(state)
             }
 
-        /** A name-based form for the managed asset directory, used by the config writer. */
         fun isUsableFile(name: String, kind: Kind): Boolean =
             files.any { state -> state.name == name && state.kind == kind && isFreshAndValid(state) }
 
-        /** Complete tag set for one fresh database, or null when its index is absent/stale. */
         fun tagsForFile(name: String, kind: Kind): Set<String>? =
             files.firstOrNull { it.name == name && it.kind == kind && isFreshAndValid(it) }
                 ?.entries?.mapTo(linkedSetOf()) { it.tag }
 
-        /** Current live suggestions, excluding stale or partially parsed file slices. */
         fun entriesFor(kind: Kind): List<GeoEntry> {
             val best = linkedMapOf<String, GeoEntry>()
             files.asSequence()
@@ -141,7 +79,6 @@ object GeoAssetIndex {
             return best.values.sortedWith(compareBy<GeoEntry> { -it.count }.thenBy { it.tag })
         }
 
-        /** Geosite simulator answers become unknown as soon as any indexed file has changed. */
         fun allFilesFresh(kind: Kind): Boolean =
             files.filter { it.kind == kind }.all(::isFreshAndValid)
     }
@@ -155,17 +92,13 @@ object GeoAssetIndex {
     private fun tagKey(kind: Kind, tag: String): String =
         "${kind.name}:${tag.trim().lowercase()}"
 
-    /** Per-file hash budget. Tag membership is still complete when the simulator budget is reached. */
     private const val MAX_DOMAIN_HASHES = 350_000
 
-    /** Global simulator budget across selected sources; over-budget means "unknown", never partial. */
     private const val MAX_MERGED_DOMAIN_HASHES = 700_000
 
-    /** Domain type values from the v2ray router proto. */
     private const val DOMAIN_FULL = 3L
     private const val DOMAIN_ROOT = 2L
 
-    /** Type is stored in the top byte of each slot; the low 56 bits carry the FNV-1a hash. */
     private const val TYPE_SHIFT = 56
     private const val HASH_MASK = (1L shl TYPE_SHIFT) - 1
 
@@ -175,45 +108,25 @@ object GeoAssetIndex {
     @Volatile
     private var assetsDirPath: String? = null
 
-    /** Per-file scan cache, keyed by absolute path: an unchanged file is never re-parsed. */
     @Volatile
     private var fileStates: Map<String, FileState> = emptyMap()
 
-    /** The index the UI and the config writer should consult; null until the first scan ran. */
     fun current(): Snapshot? = snapshot
 
-    /** Test isolation only: the index is a process-wide singleton keyed by the assets dir. */
     internal fun resetForTests() {
         snapshot = null
         assetsDirPath = null
         fileStates = emptyMap()
     }
 
-    /** The canonical pair: the primary source's two databases. */
     fun defaultFiles(assetsDir: File): List<IndexedFile> = listOf(
         IndexedFile(File(assetsDir, "geosite.dat"), Kind.GEOSITE),
         IndexedFile(File(assetsDir, "geoip.dat"), Kind.GEOIP)
     )
 
-    /**
-     * Re-index the managed assets when they changed. Never throws: a malformed or half-written
-     * download must degrade into "no suggestions" instead of breaking the caller. The in-memory
-     * index is reused when size and mtime of both files are unchanged.
-     */
     @Synchronized
     fun update(assetsDir: File): Snapshot? = update(assetsDir, defaultFiles(assetsDir))
 
-    /**
-     * MARBLE_MULTI_SOURCE_ROUTING_V212 — the multi-source form of [update].
-     *
-     * The cache is per file, so switching one source on re-parses only that source's database and
-     * the union is rebuilt from cached slices. A snapshot is reused only when it was built from
-     * exactly this set of files and none of them moved: a source added or removed changes the
-     * union, so it re-scans, which is the whole point of the set being part of the identity.
-     *
-     * A parse failure publishes no membership from that file. Stale tags must never be treated as
-     * evidence for a token that the current Xray process will load.
-     */
     @Synchronized
     fun update(assetsDir: File, files: List<IndexedFile>): Snapshot? {
         val wanted = files.distinctBy { it.file.absolutePath }
@@ -247,7 +160,6 @@ object GeoAssetIndex {
             val scan = runCatching {
                 if (indexed.kind == Kind.GEOSITE) scanGeosite(file) else scanGeoip(file)
             }.getOrNull()?.takeIf {
-                // A concurrent refresh must never publish a slice read across two file versions.
                 file.isFile && stampOf(file) == stamp && sizeOf(file) == size
             }
             val state = FileState(
@@ -267,8 +179,6 @@ object GeoAssetIndex {
             .filter { it.kind == Kind.GEOSITE }
             .sumOf { it.hashes?.size?.toLong() ?: 0L }
         if (retainedDomainHashes > MAX_MERGED_DOMAIN_HASHES) {
-            // Above the global cap a merged table would be unusable anyway. Drop all per-file
-            // tables too, rather than retaining up to six independent budgets in the process cache.
             for (index in states.indices) {
                 val state = states[index]
                 if (state.kind == Kind.GEOSITE && state.hashes != null) {
@@ -323,12 +233,6 @@ object GeoAssetIndex {
 
     private fun sizeOf(file: File): Long = if (file.isFile) file.length() else 0L
 
-    /**
-     * The union of one family's files: one entry per tag, carrying the largest count any source
-     * reported for it. The count is a suggestion-ranking signal, so the largest is the honest one
-     * — the tag that a rich source maintains with 40 000 domains is not a 3-domain tag just
-     * because a small source also happens to list it.
-     */
     private fun unionEntries(states: List<FileState>, kind: Kind): List<GeoEntry> {
         val usable = states.filter(::isFreshAndValid)
         if (usable.isEmpty()) return emptyList()
@@ -343,14 +247,12 @@ object GeoAssetIndex {
         return entriesSorted(best, kind)
     }
 
-    /** Every source's complete match table, merged within the global in-memory budget. */
     private fun mergeHashes(states: List<FileState>): LongArray? {
         if (states.isEmpty() || states.any { !isFreshAndValid(it) || it.hashes == null }) return null
         val tables = states.mapNotNull { it.hashes }.filter { it.isNotEmpty() }
         if (tables.isEmpty()) return null
         val total = tables.sumOf { it.size }
-        // Returning a partial merged table would make a miss look definitive. Above the bounded
-        // global budget the simulator must say "unknown" instead of silently losing later sources.
+
         if (total > MAX_MERGED_DOMAIN_HASHES) return null
         if (tables.size == 1) return tables[0]
         val merged = LongArray(total)
@@ -372,10 +274,8 @@ object GeoAssetIndex {
         return merged.copyOf(write)
     }
 
-    /** Scan result of one .dat file: the tag list plus the optional match table. */
     private class ScanResult(val entries: List<GeoEntry>, val hashes: LongArray?)
 
-    /** A capped primitive buffer: boxing every domain hash into ArrayList<Long> multiplies peak RAM. */
     private class DomainHashBuffer {
         private var values = LongArray(4_096)
         private var count = 0
@@ -398,19 +298,7 @@ object GeoAssetIndex {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Suggestions
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Live suggestions for the rule editor. The query may carry its own prefix (`geosite:goo`),
-     * because people type naturally. Ranking: exact, then prefix, then `category-…` stem, then
-     * word-boundary hits (`ads` finds `category-ads-all`), then any substring; each tier falls
-     * back to the entry count, so a huge real category outranks an obscure one.
-     */
     fun suggest(kind: Kind, query: String, limit: Int = 8): List<GeoEntry> {
-        // An empty scan (missing/corrupt files) falls back to the built-in discovery catalog too:
-        // "no database yet" and "database with no entries" must suggest identically.
         val live = snapshot?.entriesFor(kind).orEmpty()
         val entries = when (kind) {
             Kind.GEOSITE -> live.ifEmpty { BUILTIN_GEOSITE }
@@ -443,24 +331,14 @@ object GeoAssetIndex {
             .map { it.entry }
     }
 
-    /** Does the loaded database contain this tag? `null` when nothing was indexed yet. */
     fun known(kind: Kind, tag: String): Boolean? {
         val snap = snapshot ?: return null
         val clean = normalizeToken(tag)
         if (clean.isEmpty()) return null
-        // Membership is file-specific and freshness-sensitive; a cached union from a replaced
-        // database is not evidence that the current Xray process can load this tag.
+
         return snap.filesFor(kind, clean).isNotEmpty()
     }
 
-    /**
-     * MARBLE_MULTI_SOURCE_ROUTING_V212 — which indexed databases contain [tag].
-     *
-     * This is the provenance answer the multi-source routing layer needs: the rule editor says
-     * "this tag comes from Chocolate4U Iran and Loyalsoldier" instead of guessing, and the
-     * simulator can name the database that matched instead of the anonymous "geosite". Empty when
-     * nothing indexed yet, which the caller has to read as "unknown", not as "no".
-     */
     fun sourcesFor(kind: Kind, tag: String): List<String> {
         val snap = snapshot ?: return emptyList()
         val clean = normalizeToken(tag)
@@ -468,33 +346,17 @@ object GeoAssetIndex {
         return snap.filesFor(kind, clean)
     }
 
-    /** The number of successfully parsed, still-current database files behind the union. */
     fun fileCount(kind: Kind): Int = snapshot?.files?.count {
         it.kind == kind && isFreshAndValid(it)
     } ?: 0
 
-    // ---------------------------------------------------------------------------------------
-    // Simulator support: does host H sit inside the geosite domain lists?
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Definitive geosite membership test built from the indexed domain lists.
-     *
-     * Xray matches four domain shapes; the hash table answers the two that dominate every real
-     * database — `full:` (exact) and root domains (host equals the value or ends with ".value").
-     * `plain:` (substring) and `regexp:` values are skipped at scan time, so `false` means "no
-     * definitive hit", and the simulator labels its verdict accordingly. Returns `null` when the
-     * match table is not available (no scan yet, or the budget cap was hit).
-     */
     fun matchesGeosite(host: String): Boolean? {
         val snap = snapshot ?: return null
         if (!snap.allFilesFresh(Kind.GEOSITE)) return null
         val table = snap.geositeDomainHashes ?: return null
         val clean = host.trim().trimEnd('.').lowercase()
         if (clean.isEmpty() || !clean.any { it.isLetterOrDigit() }) return null
-        // The host itself (full:), then every parent suffix (root domain): a.b.example.com tests
-        // a.b.example.com, then b.example.com, then example.com, then com — exactly Xray's
-        // RootDomain semantics.
+
         var start = 0
         while (start <= clean.length) {
             val candidate = clean.substring(start)
@@ -511,21 +373,16 @@ object GeoAssetIndex {
         return false
     }
 
-    /** Whether the simulator can really verify geosite membership on this device. */
     fun canVerifyGeositeMembership(): Boolean = snapshot?.let {
         it.geositeDomainHashes != null && it.allFilesFresh(Kind.GEOSITE)
     } == true
-
-    // ---------------------------------------------------------------------------------------
-    // Protobuf wire scanning
-    // ---------------------------------------------------------------------------------------
 
     private fun scanGeosite(file: File): ScanResult? {
         val bytes = readFileBounded(file) ?: return null
         val counters = linkedMapOf<String, Int>()
         val hashes = DomainHashBuffer()
         val reader = ProtobufReader(bytes)
-        // GeoSiteList.entry = 1, wire type 2 (length-delimited).
+
         while (reader.next()) {
             if (reader.fieldNumber == 1) {
                 if (reader.wireType != 2 || !reader.enterMessage()) return null
@@ -539,7 +396,6 @@ object GeoAssetIndex {
         return ScanResult(entriesSorted(counters, Kind.GEOSITE), hashes.sortedArrayOrNull())
     }
 
-    /** Walk one GeoSite entry, validating every nested Domain before trusting its tag. */
     private fun scanGeoSiteEntry(
         reader: ProtobufReader,
         counters: MutableMap<String, Int>,
@@ -572,7 +428,6 @@ object GeoAssetIndex {
 
     private const val UNMATCHABLE_DOMAIN_HASH = Long.MIN_VALUE
 
-    /** Reads a Domain; null means malformed, sentinel means valid but not hash-matchable. */
     private fun readDomainHash(reader: ProtobufReader): Long? {
         var type = 0L
         var value: String? = null
@@ -603,7 +458,6 @@ object GeoAssetIndex {
         return packHash(clean, type)
     }
 
-    /** Validate the nested Attribute message Xray decodes while loading a geosite entry. */
     private fun validDomainAttribute(reader: ProtobufReader): Boolean {
         while (reader.next()) {
             when (reader.fieldNumber) {
@@ -625,7 +479,7 @@ object GeoAssetIndex {
         val bytes = readFileBounded(file) ?: return null
         val counters = linkedMapOf<String, Int>()
         val reader = ProtobufReader(bytes)
-        // GeoIPList.entry = 1, wire type 2.
+
         while (reader.next()) {
             if (reader.fieldNumber == 1) {
                 if (reader.wireType != 2 || !reader.enterMessage()) return null
@@ -657,7 +511,7 @@ object GeoAssetIndex {
                 }
                 3 -> {
                     if (reader.wireType != 0) return false
-                    reader.varint() // reverse_match is a protobuf bool.
+                    reader.varint()
                 }
                 else -> reader.skip()
             }
@@ -668,7 +522,6 @@ object GeoAssetIndex {
         return true
     }
 
-    /** Xray's CIDR requires a four- or sixteen-byte IP and a prefix valid for that family. */
     private fun validCidr(reader: ProtobufReader): Boolean {
         var ipSize = 0
         var prefix: Long? = null
@@ -699,14 +552,6 @@ object GeoAssetIndex {
             .map { GeoEntry(kind, it.key, it.value) }
             .sortedWith(compareBy<GeoEntry> { -it.count }.thenBy { it.tag })
 
-    // ---------------------------------------------------------------------------------------
-    // Protobuf wire reader — bounds-checked everywhere
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Reads at most ~48 MiB so a corrupted length field can never balloon the heap; larger files
-     * are refused instead of half-scanned.
-     */
     private const val MAX_SCAN_BYTES = 48L * 1024L * 1024L
 
     private fun readFileBounded(file: File): ByteArray? {
@@ -724,10 +569,6 @@ object GeoAssetIndex {
         }
     }
 
-    /**
-     * Minimal protobuf wire reader over a byte array. Bounds checked everywhere: one corrupted
-     * varint can only end the scan, never read out of range or loop forever.
-     */
     internal class ProtobufReader(private val bytes: ByteArray) {
         private class ParentFrame {
             var fieldNumber = 0
@@ -750,11 +591,9 @@ object GeoAssetIndex {
         private var varintValue = 0L
         private var malformed = false
         private var depth = 0
-        // Known Xray geo messages nest at most three levels. Reusing this tiny stack avoids a
-        // ByteArray and reader allocation for every domain/CIDR in multi-megabyte geo databases.
+
         private val parents = Array(4) { ParentFrame() }
 
-        /** Positions the cursor on the next complete field; malformed input is never end-of-file. */
         fun next(): Boolean {
             if (malformed || pos == limit) return false
             if (pos < 0 || pos > limit) return fail()
@@ -794,7 +633,6 @@ object GeoAssetIndex {
             return true
         }
 
-        /** Enter the length-delimited field [next] just positioned on, without copying its bytes. */
         fun enterMessage(): Boolean {
             if (malformed || wireType != 2 || depth >= parents.size) return fail()
             val parent = parents[depth++]
@@ -816,7 +654,6 @@ object GeoAssetIndex {
             return true
         }
 
-        /** Leave a nested message, returning false when any byte in it was malformed. */
         fun leaveMessage(): Boolean {
             if (depth <= 0) return fail()
             val complete = isComplete()
@@ -832,10 +669,8 @@ object GeoAssetIndex {
             return complete
         }
 
-        /** True only when the entire current message ended on a valid field boundary. */
         fun isComplete(): Boolean = !malformed && pos == limit
 
-        /** Length of the current length-delimited value; zero for other wire types. */
         fun valueLength(): Int = if (wireType == 2) valueEnd - valueStart else 0
 
         fun stringBytes(): String {
@@ -846,10 +681,8 @@ object GeoAssetIndex {
             return String(bytes, valueStart, valueEnd - valueStart, Charsets.UTF_8)
         }
 
-        /** The varint payload of a wire-type-0 field; only valid right after [next]. */
         fun varint(): Long = varintValue
 
-        /** next() validates and consumes every supported wire value before returning. */
         fun skip() = Unit
 
         private fun validUtf8(start: Int, end: Int): Boolean {
@@ -919,10 +752,6 @@ object GeoAssetIndex {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Hash helpers
-    // ---------------------------------------------------------------------------------------
-
     private fun packHash(value: String, type: Long): Long =
         (fnv1a64(value) and HASH_MASK) or (type shl TYPE_SHIFT)
 
@@ -930,7 +759,7 @@ object GeoAssetIndex {
         Arrays.binarySearch(table, packed) >= 0
 
     private fun fnv1a64(value: String): Long {
-        var hash = -0x340d631b7bdddcdbL // 0xcbf29ce484222325
+        var hash = -0x340d631b7bdddcdbL
         for (i in value.indices) {
             hash = hash xor (value[i].code.toLong() and 0xFFL)
             hash *= 0x100000001b3L
@@ -955,15 +784,6 @@ object GeoAssetIndex {
         return false
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Built-in catalogs — usable before the first asset download lands
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * The categories every mainstream v2fly-family database ships. This is a *discovery* aid, not
-     * a substitute for the real index: as soon as the managed files are scanned, the live list
-     * with real counts replaces this one.
-     */
     internal val BUILTIN_GEOSITE: List<GeoEntry> = listOf(
         "category-ads-all", "category-ads-ir", "category-public-tracker", "category-gov-ir",
         "category-entertainment", "category-games", "category-news", "category-social-media",
@@ -976,7 +796,6 @@ object GeoAssetIndex {
         "speedtest"
     ).map { GeoEntry(Kind.GEOSITE, it, 0) }
 
-    /** Every ISO-3166 alpha-2 code plus the extra vocabulary Xray-family databases ship. */
     internal val BUILTIN_GEOIP: List<GeoEntry> = ("ad ae af ag ai al am ao ap ar as at au aw az ba bb " +
         "bd be bf bg bh bi bj bl bm bn bo br bs bt bv bw by bz ca cc cd cf cg ch ci ck cl cm cn co " +
         "cr cu cv cw cx cy cz de dj dk dm do dz ec ee eg eh er es et eu fi fj fk fm fo fr ga gb gd " +

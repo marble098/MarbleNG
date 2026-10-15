@@ -7,28 +7,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
-/**
- * MARBLE_SERVER_LOCATION_V192 — the once-per-server location test.
- *
- * Pins the contract the Home flags depend on: the cache key is the endpoint (stable across
- * renames), private addresses never cross the wire, a code is accepted only as clean ISO
- * alpha-2, and contradictory lookups resolve to "unknown" rather than a coin flip.
- */
 class ServerLocationResolverV192Test {
-
-    // ── cache key ────────────────────────────────────────────────────────────────────────
-
     @Test
     fun keyNormalisesHostAndPort() {
         assertEquals("node.example.com:443", ServerLocationKey.of("node.example.com", 443))
         assertEquals("node.example.com", ServerLocationKey.of("  NODE.example.com. ", 0))
         assertEquals("2001:db8::1:8443", ServerLocationKey.of("[2001:db8::1]", 8443))
         assertEquals("", ServerLocationKey.of("   ", 443))
-        // A port outside the TCP range is not part of the identity.
+
         assertEquals("node.example.com", ServerLocationKey.of("node.example.com", 70000))
     }
-
-    // ── private-address gate ─────────────────────────────────────────────────────────────
 
     @Test
     fun publicIpv4IsPublic() {
@@ -56,7 +44,7 @@ class ServerLocationResolverV192Test {
         assertFalse(ServerLocationResolver.isPublicAddress("fe80::1"))
         assertFalse(ServerLocationResolver.isPublicAddress("fc00::1"))
         assertFalse(ServerLocationResolver.isPublicAddress("fd12:3456::7"))
-        // Malformed literals are not public either — they are not addresses at all.
+
         assertFalse(ServerLocationResolver.isPublicAddress("1:2:3:4:5:6:7:8:9"))
         assertFalse(ServerLocationResolver.isPublicAddress("::"))
     }
@@ -80,20 +68,17 @@ class ServerLocationResolverV192Test {
     fun privateOnlyAnswersYieldNothing() {
         val dns = LocationDnsSource { listOf("10.0.0.4", "192.168.7.7") }
         assertNull(ServerLocationResolver.publicAddressOf("node.example.com", dns))
-        // A literal IP host is judged directly, no DNS at all.
+
         assertNull(ServerLocationResolver.publicAddressOf("172.20.1.1"))
         assertEquals("1.2.3.4", ServerLocationResolver.publicAddressOf("1.2.3.4"))
     }
 
-    // ── lookup parsing ───────────────────────────────────────────────────────────────────
-
     @Test
     fun parseLookupReadsAllThreeEndpointShapes() {
-        // ipwho.is style: code first, name as fallback.
         assertEquals("TR", ServerLocationResolver.parseLookup("""{"country_code":"tr","country":"Turkey"}""").country)
-        // api.country.is style: lowercase code.
+
         assertEquals("DE", ServerLocationResolver.parseLookup("""{"country_code":"de","country":"Germany"}""").country)
-        // name-only answers map back through the reverse table.
+
         assertEquals("NL", ServerLocationResolver.parseLookup("""{"country":"Netherlands"}""").country)
         assertEquals("US", ServerLocationResolver.parseLookup("""{"country":"USA"}""").country)
     }
@@ -106,8 +91,6 @@ class ServerLocationResolverV192Test {
         assertEquals("", ServerLocationResolver.parseLookup("""{"error":"blocked"}""").country)
     }
 
-    // ── consensus ───────────────────────────────────────────────────────────────────────
-
     @Test
     fun voteRequiresAnIndependentQuorum() {
         val tr = GeoObservation("TR")
@@ -115,15 +98,13 @@ class ServerLocationResolverV192Test {
         assertEquals("TR", ServerLocationResolver.voteCountry(listOf(tr, tr)))
         assertEquals("TR", ServerLocationResolver.voteCountry(listOf(tr, de, tr)))
         assertEquals("TR", ServerLocationResolver.voteCountry(listOf(GeoObservation("tr"), tr)))
-        // One provider is not enough to paint a national flag.
+
         assertEquals("", ServerLocationResolver.voteCountry(listOf(GeoObservation(""), tr)))
-        // A tie is a coin flip — the product refuses to flip.
+
         assertEquals("", ServerLocationResolver.voteCountry(listOf(tr, de)))
         assertEquals("", ServerLocationResolver.voteCountry(listOf(tr, de, GeoObservation("FR"))))
         assertEquals("", ServerLocationResolver.voteCountry(emptyList()))
     }
-
-    // ── end to end, off-device ───────────────────────────────────────────────────────────
 
     @Test
     fun resolveCountryAgreesAcrossLookups() {
@@ -149,7 +130,7 @@ class ServerLocationResolverV192Test {
             }
         }
         assertEquals("", ServerLocationResolver.resolveCountry("node.example.com", 443, dns, http))
-        // A node that only resolves privately is never tested at all.
+
         val privateDns = LocationDnsSource { listOf("192.168.0.9") }
         val countingHttp = LocationHttpSource {
             fail("private address crossed the wire")

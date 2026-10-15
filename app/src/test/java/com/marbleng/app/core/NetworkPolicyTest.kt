@@ -120,9 +120,6 @@ class NetworkPolicyTest {
         assertFalse("there is nothing to race on a single-family plan", plan.raceEnabled)
     }
 
-    /** The VPN must capture both families even when one is disabled or unavailable on the
-     * physical link. Otherwise IPv6 Happy Eyeballs traffic bypasses the tunnel to Android's
-     * underlying network; core-level rules, not absent TUN routes, fail closed. */
     @Test
     fun tunAlwaysCapturesIpv6WithoutDependingOnUnderlayOrPreference() {
         assertTrue(AddressFamilyPolicy.shouldCaptureIpv6())
@@ -138,8 +135,6 @@ class NetworkPolicyTest {
 
     @Test
     fun enablingIpv6OnADualStackLinkActuallyPrefersIt() {
-        // The default profile used to write ForceIP with no happyEyeballs block, which Xray reads as
-        // "resolve both families and pick one at random" - the reported "IPv6 never activates".
         val plan = AddressFamilyPolicy.plan(
             settings = AppSettings(ipv6Enabled = true),
             underlayHasIpv6 = true
@@ -156,7 +151,6 @@ class NetworkPolicyTest {
 
     @Test
     fun aPathThatCannotRacesStillGetsADeterministicOrder() {
-        // Fragment and chained hops set dialerProxy, and UDP transports never reach Xray's TCP race.
         listOf(
             AddressFamilyPolicy.plan(
                 settings = AppSettings(ipv6Enabled = true),
@@ -199,20 +193,12 @@ class NetworkPolicyTest {
             underlayHasIpv6 = true,
             measuredV6Healthy = false
         )
-        // The v6-first order is dropped automatically (the switches ship ON — a preference is an
-        // ordering, never a demand), but the race stays armed so a dead family is discovered in
-        // parallel instead of being dialled serially and timed out.
+
         assertEquals(IpFamilyPreference.DUAL, demoted.preference)
         assertFalse(demoted.prioritizeIpv6)
         assertEquals("ForceIP", demoted.endpointStrategy)
         assertTrue(demoted.raceEnabled)
 
-        // MARBLE_SMART_FAMILY_V136 — with both switches shipped ON, the shipped default IS the
-        // automatic preference, so a broken measurement demotes it exactly like it demoted the
-        // opt-in path before. The only demand a measurement cannot override is the strict v6
-        // configuration (dns.queryStrategy UseIPv6 / a node pinning itself to v6): that plan
-        // answers "v6 only" on purpose and the user must see it as unreachable, not as a silent
-        // IPv4 success.
         val strict = AddressFamilyPolicy.plan(
             settings = AppSettings(ipv6Enabled = true, preferIpv6 = true, dnsQueryStrategy = "UseIPv6"),
             underlayHasIpv6 = true,
@@ -228,8 +214,7 @@ class NetworkPolicyTest {
             underlayHasIpv6 = true,
             measuredV6Healthy = false
         )
-        // Race disarmed + measured-broken v6: the demotion must also pick the deterministic
-        // order, and v4 opens the connection.
+
         assertFalse(preferWithoutRace.raceEnabled)
         assertEquals("ForceIPv4", preferWithoutRace.endpointStrategy)
     }
@@ -286,8 +271,7 @@ class NetworkPolicyTest {
         assertEquals(listOf(v4, v6), AddressFamilyPolicy.orderAddresses(mixed, IpFamilyPreference.DUAL, prioritizeIpv6 = false))
         assertEquals(listOf(v4), AddressFamilyPolicy.orderAddresses(mixed, IpFamilyPreference.IPV4_ONLY))
         assertEquals(listOf(v6), AddressFamilyPolicy.orderAddresses(mixed, IpFamilyPreference.IPV6_ONLY))
-        // A family the user excluded is dropped rather than dialled and timed out: a v6-only demand
-        // against an A-record-only node must read as unreachable, not as a silent IPv4 success.
+
         assertTrue(
             AddressFamilyPolicy.orderAddresses(listOf(v4), IpFamilyPreference.IPV6_ONLY).isEmpty()
         )
@@ -332,10 +316,6 @@ class NetworkPolicyTest {
         assertEquals("route-b", handover.snapshot().activeRoute)
     }
 
-    /**
-     * MARBLE_XRAY_THROUGHPUT_V151 — the precedence bug this pins: `a && b || c` meant a lossy
-     * radio with a healthy TCP stack clamped MTU to 1280 for the whole session.
-     */
     @Test
     fun packetLossAloneDoesNotClampTheMtu() {
         val lossy = AdaptiveMtuPolicy.recommend(
@@ -376,10 +356,6 @@ class NetworkPolicyTest {
         assertEquals(AdaptiveMtuPolicy.Recommendation.Action.CRITICAL, critical.action)
     }
 
-    /**
-     * The recommended MSS is written into the core's socket options, so charging an IPv4 session
-     * the 60-byte IPv6 header cost shrank every segment it sent.
-     */
     @Test
     fun recommendedMssFollowsTheAddressFamily() {
         fun mss(hasIpv6: Boolean): Int = AdaptiveMtuPolicy.recommend(
@@ -394,7 +370,7 @@ class NetworkPolicyTest {
             )
         ).recommendedMss
 
-        assertEquals(1380, mss(hasIpv6 = false)) // 1420 - (20 IP + 20 TCP)
-        assertEquals(1360, mss(hasIpv6 = true))  // 1420 - (40 IP + 20 TCP)
+        assertEquals(1380, mss(hasIpv6 = false))
+        assertEquals(1360, mss(hasIpv6 = true))
     }
 }

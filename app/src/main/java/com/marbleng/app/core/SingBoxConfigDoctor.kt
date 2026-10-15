@@ -3,45 +3,9 @@ package com.marbleng.app.core
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * MARBLE_ENGINE_SELF_HEAL_V152 — the sing-box config doctor.
- *
- * The shipped 8.0.6 log ends in BLOCKED seventeen profiles deep because every start was refused
- * by the core itself:
- *
- * ```
- * sing-box rejected the config: outbounds[3]: dns outbound is deprecated in sing-box 1.11.0
- * and removed in sing-box 1.13.0, use rule actions instead
- * ```
- *
- * That class of fault is *structural*, not per-node: failover walked all 17 servers and every
- * one of them died on the same line. The doctor is Marble Intelligence's automatic answer. When
- * the core rejects a config, the JSON is repaired against the known removals and renames of the
- * sing-box 1.12/1.13 migration, re-checked, and the session proceeds — the user connects instead
- * of reading a schema error. [isEngineLevelFault] is the companion half: it says a failure belongs
- * to the *engine*, so falling over to another node is pointless, no further candidate of the same
- * node is worth spawning, and the report has to name the core rather than the server.
- *
- * It does not, and deliberately must not, move the session onto the other engine by itself:
- * MARBLE_SINGBOX_CORE_V151 makes engine selection an explicit user contract (see
- * `AppRepository.setCoreEngine` — "switching it is a real act rather than a flag flip", and
- * `MarbleVpnService` — "Explicit engine selection is a contract"). What an engine-level fault buys
- * is an immediate, correctly attributed stop plus the remediation that tells the user which of
- * their two engines to pick.
- *
- * Everything here is pure JSON surgery over the exact text [SingBoxManager] wrote, so it is
- * unit-testable without a device and without spawning the core.
- */
 object SingBoxConfigDoctor {
-
-    /**
-     * outbound types the modern core refuses to parse. The `dns` outbound was deprecated in
-     * sing-box 1.11.0 and removed in 1.13.0; the replacement is the `hijack-dns` rule action,
-     * which [SingBoxConfigBuilder.routeConfig] already writes.
-     */
     private val REMOVED_OUTBOUND_TYPES = setOf("dns")
 
-    /** Sentence fragments the core prints when it rejects a config rather than a network. */
     private val CONFIG_FAULT_MARKERS = listOf(
         "rejected the config",
         "deprecated in sing-box",
@@ -61,26 +25,14 @@ object SingBoxConfigDoctor {
         "initialize network manager",
         "create network monitor",
         "independent_cache",
-        // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the 1.14 impending-deprecation exits. The core
-        // logs `<description> is deprecated in sing-box 1.12.0 …` at error level, then
-        // `to continuing using this feature, set environment variable ENABLE_DEPRECATED_…=true`
-        // at fatal level, then calls os.Exit(1). Every one of them is a config fault. The two
-        // domain-resolver markers below spell the option the way the core spells it —
-        // "missing `route.default_domain_resolver` or `domain_resolver` in dial fields" from the
-        // deprecation note, and "default domain resolver not found: <tag>" from route start.
+
         "domain_resolver",
         "default domain resolver not found",
         "enable_deprecated_",
         "is conflict with",
         "unknown transport type",
         "only supported on",
-        // MARBLE_PACKAGES_XML_ROOT_CAUSE_V157 — a package/uid/process matcher that survived
-        // sanitization (see [stripAndroidUnsafeRuleFields]) forces the core to open
-        // /data/system/packages.xml, which an app-UID process is denied; the pinned core does
-        // not nil-check that failure before using the result, so it panics and exits 2. Every
-        // candidate for the same profile carries the same rule, so without this marker the
-        // engine walked all 17 endpoints to an identical crash instead of recognising it as one
-        // structural fault and self-healing onto the other engine after the first.
+
         "initialize package manager",
         "read packages list",
         "packages.xml",
@@ -88,22 +40,11 @@ object SingBoxConfigDoctor {
     )
 
     data class Repair(
-        /** The repaired JSON text; identical to the input when nothing could be fixed. */
         val json: String,
-        /** True when at least one known migration applied. */
         val repaired: Boolean,
-        /** One human-readable line per applied migration, for diagnostics and the log. */
         val notes: List<String>
     )
 
-    /**
-     * Repairs [json] against the sing-box 1.12/1.13 removals. Never throws: an unreadable config
-     * comes back unrepaired, because only the core's own verdict is authoritative.
-     *
-     * @param rejection the verbatim text the core printed when it refused this config, when the
-     *   caller has it. Most migrations are unconditional, but a few are trade-offs that are only
-     *   correct in the presence of a specific complaint — see [downgradeHttpClients].
-     */
     @JvmOverloads
     fun repair(json: String, rejection: String = ""): Repair {
         val root = runCatching { JSONObject(json) }.getOrNull()
@@ -133,29 +74,13 @@ object SingBoxConfigDoctor {
 
         migrateDnsServerAddressKey(root, notes)
         migrateNetworkAndTlsFields(root, notes)
-        // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — everything the preflight pass already guarantees
-        // is re-applied here, because `repair` also runs on configs the builder never wrote
-        // (a re-check after a partial repair, a config restored from disk).
+
         harden(root, notes)
-        // A pinned modern core must not be "repaired" back to removed download_detour fields.
-        // Unknown schema remains a visible configuration failure, not a downgrade.
 
         if (notes.isEmpty()) return Repair(json, false, emptyList())
         return Repair(root.toString(), true, notes)
     }
 
-    /**
-     * MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the **preflight** pass, run on every config before
-     * it is ever handed to the core.
-     *
-     * [repair] is reactive: it only runs once `sing-box check` has already refused a config. That
-     * is the wrong shape for the two faults that made the sing-box engine unusable on Android,
-     * because both of them are *predictable*: a config either asks for a netlink interface
-     * monitor or it does not, and either carries a 1.14 impending deprecation or it does not.
-     * Waiting for the core to die, parsing its Go error and guessing the repair is strictly worse
-     * than never emitting the option. Hardening is therefore unconditional, idempotent, and cheap
-     * enough to run on the throwaway URL-test config too.
-     */
     fun hardenForAndroid(json: String): Repair {
         val root = runCatching { JSONObject(json) }.getOrNull()
             ?: return Repair(json, false, emptyList())
@@ -165,7 +90,6 @@ object SingBoxConfigDoctor {
         return Repair(root.toString(), true, notes)
     }
 
-    /** The shared body of [hardenForAndroid] and the tail of [repair]. */
     private fun harden(root: JSONObject, notes: MutableList<String>) {
         migrateDnsOptions(root, notes)
         migrateRouteOptions(root, notes)
@@ -179,12 +103,6 @@ object SingBoxConfigDoctor {
         ensureDefaultDomainResolver(root, notes)
     }
 
-    /**
-     * Route rules may still point at an outbound that was just removed; a dangling reference is
-     * a fresh rejection. A `protocol: dns` rule aimed at the removed `dns` outbound becomes the
-     * `hijack-dns` rule action — the exact replacement the deprecation error names. Any other
-     * dangling target is dropped so the rule's own matcher falls through to `route.final`.
-     */
     private fun stripReferencesTo(root: JSONObject, removedTags: Set<String>, notes: MutableList<String>) {
         val route = root.optJSONObject("route") ?: return
         val rules = route.optJSONArray("rules") ?: return
@@ -211,7 +129,7 @@ object SingBoxConfigDoctor {
                 continue
             }
             dropped++
-            // Keep the matcher, lose the dead target: the `final` outbound answers instead.
+
             val pruned = JSONObject()
             rule.keys().forEach { key -> if (key != "outbound") pruned.put(key, rule.get(key)) }
             if (pruned.length() > 0) kept.put(pruned)
@@ -227,11 +145,6 @@ object SingBoxConfigDoctor {
         }
     }
 
-    /**
-     * sing-box 1.12 renamed the DNS server address key `address` → `server`. A config written
-     * with the old key parses to nothing and every lookup dies at run time — silently, long
-     * after `check` approved it.
-     */
     private fun migrateDnsServerAddressKey(root: JSONObject, notes: MutableList<String>) {
         val dns = root.optJSONObject("dns") ?: return
         val servers = dns.optJSONArray("servers") ?: return
@@ -249,10 +162,6 @@ object SingBoxConfigDoctor {
         }
     }
 
-    /**
-     * sing-box 1.14 deprecated `independent_cache` (removed in 1.16). Omitting it restores
-     * clean parsing without warnings or rejections.
-     */
     private fun migrateDnsOptions(root: JSONObject, notes: MutableList<String>) {
         val dns = root.optJSONObject("dns") ?: return
         if (dns.has("independent_cache")) {
@@ -261,10 +170,6 @@ object SingBoxConfigDoctor {
         }
     }
 
-    /**
-     * sing-box `auto_detect_interface` attempts to create Linux netlink socket monitors, which
-     * are banned on Android without root/ADB privileges. Removing it prevents fatal process exits.
-     */
     private fun migrateRouteOptions(root: JSONObject, notes: MutableList<String>) {
         val route = root.optJSONObject("route") ?: return
         if (route.has("auto_detect_interface")) {
@@ -273,22 +178,10 @@ object SingBoxConfigDoctor {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the preflight hardening pass
-    // ─────────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Drops every `route.*` key that makes `route.NewNetworkManager` demand a netlink-backed
-     * interface monitor. This is *the* fix for
-     * `initialize network manager: create network monitor: netlink socket in Android is banned by
-     * Google`: with none of these keys present `enforceInterfaceMonitor` is false and the core
-     * tolerates the banned socket, exactly as the upstream code intends.
-     */
     private fun stripAndroidUnsafeRouteOptions(root: JSONObject, notes: MutableList<String>) {
         val route = root.optJSONObject("route") ?: return
         val removed = SingBoxAndroidRuntime.ANDROID_FORBIDDEN_ROUTE_KEYS.filter { key ->
-            // `false`/`0`/`""` are already the Go zero value; only a *requesting* value matters,
-            // and removing an explicit negative would churn the config for nothing.
+
             route.has(key) && isRequesting(route.opt(key))
         }
         removed.forEach { route.remove(it) }
@@ -298,22 +191,6 @@ object SingBoxConfigDoctor {
         }
     }
 
-    /**
-     * MARBLE_PACKAGES_XML_ROOT_CAUSE_V157 — the per-rule half of [stripAndroidUnsafeRouteOptions].
-     *
-     * `route.NewNetworkManager`'s netlink ban is a top-level `route.*` concern, but the
-     * package/uid/process matchers this repairs are fields of an individual `route.rules[]`
-     * object (and of its nested `type: logical` children), so scanning only the top level never
-     * finds them. [harden] previously relied on [SingBoxConfigBuilder]'s own one-time sanitizer
-     * for this, which is correct for a config this app just assembled — but [harden] also runs
-     * inside [repair], on configs the builder never wrote (a re-check after a partial repair, a
-     * config restored from disk). Doing the same job here, from the same canonical
-     * [SingBoxAndroidRuntime.ANDROID_FORBIDDEN_RULE_KEYS] list, makes the doctor self-sufficient
-     * regardless of how a config reaches it: any survivor is what caused
-     * `initialize package manager: read packages list: open /data/system/packages.xml:
-     * permission denied` -> nil-pointer SIGSEGV on every URL test, Real delay probe and connect
-     * attempt for the affected profile alike.
-     */
     private fun stripAndroidUnsafeRuleFields(root: JSONObject, notes: MutableList<String>) {
         val rules = root.optJSONObject("route")?.optJSONArray("rules") ?: return
         val removedFrom = mutableListOf<String>()
@@ -341,7 +218,6 @@ object SingBoxConfigDoctor {
         }
     }
 
-    /** The dial-field half of [stripAndroidUnsafeRouteOptions], applied to every outbound. */
     private fun stripAndroidUnsafeDialOptions(root: JSONObject, notes: MutableList<String>) {
         val outbounds = root.optJSONArray("outbounds") ?: return
         var count = 0
@@ -360,11 +236,6 @@ object SingBoxConfigDoctor {
         }
     }
 
-    /**
-     * A `tun`/`redirect`/`tproxy` inbound belongs to a core that owns the network stack. MarbleNG's
-     * TUN is Android's own `VpnService`, and a `tun` inbound with `auto_route` is the other way to
-     * force the interface monitor the platform bans.
-     */
     private fun stripAndroidUnsafeInbounds(root: JSONObject, notes: MutableList<String>) {
         val inbounds = root.optJSONArray("inbounds") ?: return
         val kept = JSONArray()
@@ -385,7 +256,6 @@ object SingBoxConfigDoctor {
         }
     }
 
-    /** A `dhcp` DNS transport reads the lease through netlink; on Android it can only fail. */
     private fun stripAndroidUnsafeDnsServers(root: JSONObject, notes: MutableList<String>) {
         val dns = root.optJSONObject("dns") ?: return
         val servers = dns.optJSONArray("servers") ?: return
@@ -404,7 +274,7 @@ object SingBoxConfigDoctor {
         dns.put("servers", kept)
         notes += "removed DNS transport(s) that need netlink on Android: " +
             droppedTags.joinToString(", ")
-        // A rule pointing at a server that no longer exists is a fresh rejection.
+
         val rules = dns.optJSONArray("rules") ?: return
         val keptRules = JSONArray()
         for (i in 0 until rules.length()) {
@@ -416,14 +286,6 @@ object SingBoxConfigDoctor {
         if (dns.optString("final") in droppedTags) dns.remove("final")
     }
 
-    /**
-     * `store_rdrc` is deprecated in sing-box 1.14 and scheduled for removal in 1.16; the
-     * documented replacement persists the whole DNS cache instead:
-     *
-     * ```json
-     * { "experimental": { "cache_file": { "enabled": true, "store_dns": true } } }
-     * ```
-     */
     private fun migrateCacheFileOptions(root: JSONObject, notes: MutableList<String>) {
         val cacheFile = root.optJSONObject("experimental")?.optJSONObject("cache_file") ?: return
         if (!cacheFile.has("store_rdrc")) return
@@ -433,16 +295,6 @@ object SingBoxConfigDoctor {
         notes += "migrated the deprecated `store_rdrc` cache-file option to `store_dns`"
     }
 
-    /**
-     * `download_detour` on a remote rule-set is deprecated in 1.14 in favour of an HTTP client:
-     *
-     * ```json
-     * { "type": "remote", "url": "…", "http_client": { "detour": "direct" } }
-     * ```
-     *
-     * The core also rejects a rule-set that carries both (`http_client is conflict with
-     * deprecated download_detour field`), so the migration is a move, never a copy.
-     */
     private fun migrateRuleSetDownloadDetour(root: JSONObject, notes: MutableList<String>) {
         val ruleSets = root.optJSONObject("route")?.optJSONArray("rule_set") ?: return
         var migrated = 0
@@ -471,11 +323,6 @@ object SingBoxConfigDoctor {
         }
     }
 
-    /**
-     * A dialer resolver may resolve the NODE hostname. Local/system/plaintext DNS is never an
-     * acceptable substitute when encrypted bootstrap fails: leaving the resolver missing is
-     * preferable to leaking that name, and on this path we give the user an explicit refusal.
-     */
     private fun ensureDefaultDomainResolver(root: JSONObject, notes: MutableList<String>) {
         val servers = root.optJSONObject("dns")?.optJSONArray("servers") ?: return
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
@@ -524,15 +371,12 @@ object SingBoxConfigDoctor {
         }
         if (existing is JSONObject && currentTag == chosen &&
             existing.optString("strategy") == desiredStrategy) return
-        // Never carry forward a stale/hostile IPv4-only strategy in an otherwise IPv6-only
-        // bootstrap. Both the route default and every physical dialer must follow the same
-        // encrypted family policy, including when the doctor is repairing a foreign config.
+
         route.put("default_domain_resolver", JSONObject()
             .put("server", chosen).put("strategy", desiredStrategy))
         notes += "set encrypted `route.default_domain_resolver` to `$chosen` ($desiredStrategy)"
     }
 
-    /** True for a JSON value that actually asks for the feature, rather than a written-out zero. */
     private fun isRequesting(value: Any?): Boolean = when (value) {
         null, JSONObject.NULL -> false
         is Boolean -> value
@@ -543,18 +387,6 @@ object SingBoxConfigDoctor {
         else -> true
     }
 
-    /**
-     * MARBLE_SINGBOX_PROTOCOLS_V153 — the two translation bugs that made every non-parser
-     * profile fail at `sing-box check`.
-     *
-     * The builder used to write `"network": ["tcp","udp"]`. sing-box's common `network` field is
-     * a scalar (`tcp` or `udp`), so the core printed `cannot unmarshal array into Go struct
-     * field ... of type string` and rejected the whole config. The doctor migrates that in place
-     * to the scalar the core expects; for Xray's habitual `["tcp","udp"]` the correct fix is to
-     * omit the field entirely (both networks are already the default).
-     *
-     * TLS fragmentation is valid in the pinned 1.14 schema and is never stripped.
-     */
     private fun migrateNetworkAndTlsFields(root: JSONObject, notes: MutableList<String>) {
         val outbounds = root.optJSONArray("outbounds") ?: return
         var networkMigrated = 0
@@ -570,32 +402,13 @@ object SingBoxConfigDoctor {
                     networkMigrated++
                 }
             }
-
-            // tls.fragment is a supported boolean in 1.14 option/tls.go. Keep it.
-
         }
         if (networkMigrated > 0) {
             notes += "migrated $networkMigrated outbound(s) from the array `network` field to the " +
                 "sing-box scalar form (both networks are the default)"
         }
-
     }
 
-    /**
-     * True when [reason] describes the *engine* refusing to run, as opposed to a node or network
-     * failure. The VPN service and the manager use it to stop walking failover candidates and
-     * reader candidates, because every one of them would fail identically, and to attribute the
-     * fault to the core in the state, the notification and Bug Finder. Choosing the other engine
-     * stays the user's explicit act (see the class documentation).
-     *
-     * Two kinds of reason land here. A rejected configuration — the markers above — which is what
-     * this predicate was written for; and MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157, a core that
-     * *crashed* while starting, which no configuration and no node could have changed either. The
-     * crash and package-manager markers live in [SingBoxAndroidRuntime] instead of being copied
-     * into [CONFIG_FAULT_MARKERS], because that object is also what decides whether a measurement
-     * batch keeps walking — two lists of panic strings would eventually become two different
-     * opinions about the same log line, and a panic is not a config rejection in any case.
-     */
     fun isEngineLevelFault(reason: String): Boolean {
         val text = reason.lowercase()
         return CONFIG_FAULT_MARKERS.any { marker -> text.contains(marker) } ||

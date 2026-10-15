@@ -7,21 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.InetAddress
 
-/**
- * MARBLE_IP_FAMILY_SCAN_V198 — equipped scanner tests.
- *
- * Keeps V196/V197 contract (five verdicts, probe ordering, TTL, etc.) and adds
- * coverage for the new equipped features:
- *  - confidence scoring
- *  - bogon filtering
- *  - NAT64 detection
- *  - adaptive TTL
- *  - jitter / median
- *  - scan modes
- *  - Happy Eyeballs race
- */
 class IpFamilyScannerTest {
-
     private val v4 = InetAddress.getByName("192.0.2.10")
     private val v4b = InetAddress.getByName("192.0.2.11")
     private val v4c = InetAddress.getByName("192.0.2.12")
@@ -49,8 +35,6 @@ class IpFamilyScannerTest {
         connector = { address, _, _ -> connects(address) },
         mode = mode
     )
-
-    // ─────────────────────────────────────────────────────────── the five verdicts
 
     @Test fun bothFamiliesAnsweringIsDualStack() {
         val result = scan(listOf(v6, v4)) { if (it == v6) 41 else 58 }
@@ -120,8 +104,6 @@ class IpFamilyScannerTest {
         assertEquals(IpFamilyVerdict.UNKNOWN, result.verdict)
     }
 
-    // ─────────────────────────────────────────────────────────── probing behaviour
-
     @Test fun ipv6IsProbedFirstAndEveryFamilyIsAlwaysMeasured() {
         val order = mutableListOf<String>()
         scan(listOf(v4, v6)) { address ->
@@ -146,7 +128,7 @@ class IpFamilyScannerTest {
 
     @Test fun theProbeCountPerFamilyIsBounded() {
         var attempts = 0
-        // V198: BALANCED keeps 2 for backward compat, so 5 addrs (3 v6 truncated to 2) => 8 attempts
+
         scan(listOf(v6, v6b, v6c, v4, v4b)) {
             attempts += 1
             -1
@@ -258,11 +240,9 @@ class IpFamilyScannerTest {
         val seven = IpFamilyScanner.budgetMsFor(count = 7, concurrency = 6)
         assertEquals(one, six)
         assertTrue(seven > six)
-        // V198: BALANCED keeps 2, so 40 nodes still under 2 minutes
+
         assertTrue(IpFamilyScanner.budgetMsFor(count = 40, concurrency = 6) < 120_000L)
     }
-
-    // ─────────────────────────────────────────────────────────── scope of a result
 
     @Test fun aVerdictBelongsToTheNetworkItWasMeasuredOn() {
         val result = scan(listOf(v4)) { 20 }
@@ -272,8 +252,7 @@ class IpFamilyScannerTest {
 
     @Test fun aVerdictExpires() {
         val result = scan(listOf(v4)) { 20 }
-        // V198 adaptive TTL: IPV4_ONLY high conf = 24h, but our confidence is medium, so TTL_MS=6h still applies as base
-        // We test with explicit TTL to keep deterministic
+
         assertTrue(result.usableOn("wifi:home", 10_000L + IpFamilyScan.TTL_MS - 1, IpFamilyScan.TTL_MS))
         assertFalse(result.usableOn("wifi:home", 10_000L + IpFamilyScan.TTL_MS + 1, IpFamilyScan.TTL_MS))
     }
@@ -287,8 +266,6 @@ class IpFamilyScannerTest {
         val restored = IpFamilyScan.fromJson(JSONObject(original.toJson().toString()))
         assertEquals(original, restored)
     }
-
-    // ─────────────────────────────────────────────────────────── group
 
     @Test fun summarizeCountsTheLibraryTheWayTheDialogReportsIt() {
         fun node(v4Ok: Boolean, hasV6: Boolean, v6Ok: Boolean, conf: Int = 75) = IpFamilyScan(
@@ -328,10 +305,7 @@ class IpFamilyScannerTest {
         )
     }
 
-    // ─────────────────────────────────────────────────────────── V198 equipped features
-
     @Test fun bogonFilteringDropsPrivateAddresses() {
-        // Resolver returns both public and private; private should be filtered
         val result = scan(listOf(v4, bogonV4, v6, bogonV6)) { 30 }
         assertTrue(result.hasIpv4)
         assertTrue(result.hasIpv6)
@@ -353,8 +327,6 @@ class IpFamilyScannerTest {
     }
 
     @Test fun confidenceIsLowWhenOnlyOneWitnessAndHighJitter() {
-        // Simulate high jitter via varying latencies would need multiple samples;
-        // here we at least check that unknown has 0 confidence
         val result = scan(emptyList()) { 10 }
         assertEquals(0, result.confidence)
         assertEquals(ConfidenceTier.NONE, result.confidenceTier)
@@ -427,7 +399,7 @@ class IpFamilyScannerTest {
         val result = scan(listOf(nat64)) { 60 }
         assertTrue(result.hasIpv6)
         assertTrue(result.nat64Detected)
-        // NAT64 reduces confidence
+
         assertTrue(result.confidence < 80)
     }
 

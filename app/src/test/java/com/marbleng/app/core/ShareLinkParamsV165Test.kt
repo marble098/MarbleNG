@@ -6,18 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_CORE_CONFIG_SUPERSET_V165 — the parameters of a share link, read the way the ecosystem
- * writes them.
- *
- * Every case here is a link that used to import as something other than what it says. A capitalised
- * `SNI=`, a `net=ws`, a name placed before the parameters instead of after them, a `+` inside base64
- * key material: none of them is an "unsupported config", and all of them were silently becoming
- * plaintext (or nothing at all), which the pinned core then refused. This object is the whole reading
- * rule, so it is testable without `android.net.Uri` and without a device.
- */
 class ShareLinkParamsV165Test {
-
     @Test
     fun keyLookupIsCaseInsensitiveBecausePanelsAreNotConsistent() {
         val params = ShareLinkParams.of("type=tcp&security=reality&SNI=www.microsoft.com&PublicKey=abc")
@@ -44,15 +33,12 @@ class ShareLinkParamsV165Test {
 
     @Test
     fun parametersWrittenAfterTheFragmentAreStillFound() {
-        // `vless://uuid@host:443#Germany 1?type=tcp&security=none` is a legal URI, and `Uri` reports
-        // no query for it at all — the whole link used to import with every parameter invisible.
         val link = "vless://11111111-1111-1111-1111-111111111111@1.2.3.4:443#Germany 1?type=tcp&security=none&seed=7"
         val params = ShareLinkParams.ofRawLink(link)
         assertEquals("tcp", params.get("type"))
         assertEquals("none", params.get("security"))
         assertEquals("7", params.get("seed"))
 
-        // …and the ordinary ordering keeps working, with the fragment left out of every value.
         val normal = ShareLinkParams.ofRawLink("vless://id@1.2.3.4:443?type=xhttp&security=tls#Name")
         assertEquals("xhttp", normal.get("type"))
         assertEquals("tls", normal.get("security"))
@@ -65,7 +51,7 @@ class ShareLinkParamsV165Test {
         )
         assertEquals("www.example.com", params.get("sni"))
         assertEquals("نام", params.get("name"))
-        // `+` is data inside base64 material (`pbk`, `mldsa65Verify`), never a space.
+
         assertEquals("example.com/a+b", params.get("host"))
 
         val key = ShareLinkParams.of("pbk=abc+def/ghi=")
@@ -120,5 +106,4 @@ class ShareLinkParamsV165Test {
         assertEquals("none", params.get("ed"))
         assertEquals("ws", params.get("type"))
     }
-
 }

@@ -4,17 +4,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_DNS_DOMAIN_FAULT_V196 — the storm guard's recovery half.
- *
- * The detector could only ever be armed by failures and disarmed by the clock, so a network that
- * came back still paid the full ten-minute stand-down window with every lookup racing three
- * resolvers through the tunnel. `recordProvenAnswer` closes that loop: a real answer is evidence
- * too. It deliberately *halves* the window rather than clearing it, so one lucky lookup during a
- * genuine filtering burst cannot disarm the remedy.
- */
 class DnsStormGuardV196Test {
-
     private fun armed(): DnsStormGuard = DnsStormGuard().apply {
         recordDeadlineFailures(DnsStormGuard.STORM_ARM_EVENTS, 0L)
     }

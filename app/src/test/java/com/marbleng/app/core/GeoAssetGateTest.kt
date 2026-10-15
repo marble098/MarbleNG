@@ -11,17 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-/**
- * MARBLE_GEO_READY_GATE_V145 — geo routing is disabled until its databases are really present.
- *
- * The connect path used to hard-fail when the selected policy needed geoip.dat/geosite.dat and
- * neither a downloaded nor a bundled copy existed, which is a fresh install on a censored link:
- * the product could not connect at all, over an optimisation. These tests pin the replacement
- * contract — the policy degrades, the user's stored settings are never rewritten, and a complete
- * pair of databases changes nothing at all.
- */
 class GeoAssetGateTest {
-
     @Before
     fun resetGeoIndex() {
         GeoAssetIndex.resetForTests()
@@ -54,7 +44,7 @@ class GeoAssetGateTest {
         assertEquals(RoutingMode.BYPASS_PRIVATE, gated.routingMode)
         assertTrue(gated.routeBypassPrivate)
         assertEquals("", gated.routeGeoIpTags)
-        // Literal CIDRs and the database-free "private" token survive; country tags do not.
+
         assertTrue(gated.routeDirectIps.contains("10.8.0.0/24"))
         assertTrue(gated.routeDirectIps.contains("geoip:private"))
         assertFalse(gated.routeDirectIps.contains("geoip:ir"))
@@ -113,7 +103,7 @@ class GeoAssetGateTest {
         assertEquals(2, gatedRules.size)
         assertFalse("the geosite rule cannot run yet", gatedRules.first { it.id == "r1" }.enabled)
         assertTrue("a plain domain rule is unaffected", gatedRules.first { it.id == "r2" }.enabled)
-        // The user's own stored settings are untouched: the gate is applied to a copy only.
+
         assertTrue(RoutingEngine.parseRules(settings.routingRulesJson).all { it.enabled })
     }
 
@@ -124,7 +114,7 @@ class GeoAssetGateTest {
         assertTrue(RoutingEngine.geoDowngradeReason(settings, true, false).contains("geosite.dat"))
         val both = RoutingEngine.geoDowngradeReason(settings, false, false)
         assertTrue(both.contains("geoip.dat") && both.contains("geosite.dat"))
-        // A policy that needs no database never claims to be waiting for one.
+
         val plain = AppSettings(routingMode = RoutingMode.PROXY_ALL, routeBlockAds = false)
         assertEquals("", RoutingEngine.geoDowngradeReason(plain, false, false))
     }

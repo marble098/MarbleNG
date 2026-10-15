@@ -1,28 +1,6 @@
 package com.marbleng.app.ui
 
-// MARBLE_KINETIC_GLASS_THEME_V34
-// MARBLE_SOLID_WHITE_THEME_V35
-// MARBLE_REFINED_PRODUCT_UI_V52
-// MARBLE_M3_EXPRESSIVE_THEME_V53
 // MARBLE_PRISM_THEME_V54
-// MARBLE_NAVY_BRAND_THEME_V77
-// MARBLE_MATERIAL_YOU_REFRESH_V185
-// MARBLE_EXPRESSIVE_MOTION_V186
-// The whole identity is re-anchored on the Marble navy/ice/electric blue ramp:
-//   #000033 deep navy  •  #001144 dark navy  •  #0066CC electric  •  #3399FF bright
-//   #ADD8E6 ice        •  #E0FFFF ice white   •  #F0F8FF alice     •  #FFFFFF white
-// Light and Dark are the same formal color system; only the surface/ink roles swap.
-//
-// MARBLE_MATERIAL_YOU_REFRESH_V185 — the Material You / Android 16-17 visual refresh. The ramp
-// above stays the brand; what changed is the *finish* of every role that holds content:
-//   • cards and containers move from tinted glass steps to calm, cool, opaque
-//     "surface container" tones (light) and navy-lifted steps over AMOLED black (dark);
-//   • hairlines drop to quieter, cooler neutral strokes;
-//   • the type ramp follows the Material 3 scale with clearer steps between display,
-//     headline, title and body roles, so hierarchy reads at a glance;
-//   • shapes round one step up everywhere, matching the newest Material corner language.
-// minSdk 26 is untouched: every role still resolves through the same AetherPalette, and the
-// Material You dynamic branch keeps its API 31 guard.
 
 import android.app.Activity
 import android.os.Build
@@ -58,15 +36,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
-/**
- * Marble White — calm solid surfaces with vivid, state-driven accents.
- *
- * MARBLE_PHONE_DYNAMIC_THEME_V113 — besides following the system, MarbleNG can now borrow the
- * phone's own Material You palette (wallpaper colors) through [AppTheme.PHONE_DYNAMIC]. When the
- * device generates dynamic colors the whole Aether token set — surfaces, hairlines, the brand
- * accent ramp, ink — is rebuilt from the phone palette so every colored element of the product
- * moves with the wallpaper instead of a fixed brand hue.
- */
 enum class AppTheme { SYSTEM, DARK, LIGHT, PHONE_DYNAMIC }
 
 fun parseAppTheme(id: String): AppTheme = when {
@@ -83,27 +52,15 @@ private data class AetherPalette(
     val glassStrong: Color,
     val glassBorder: Color,
     val glassBorderSoft: Color,
-    // MARBLE_PRODUCT_FLOATING_GLASS_V117 — tokens for the truly floating bars (bottom dock,
-    // Library source strip, Settings tabs). They are translucent so whatever scrolls
-    // beneath them shows through, and both themes keep their own readable ink pair.
+
     val barGlass: Color,
     val barGlassBorder: Color,
     val barGlassHighlight: Color,
-    // MARBLE_FLOATING_CHROME_V201 — tokens for a floating element as an *object*, not as a
-    // translucent film. Until V201 the only chrome tokens were the glass trio above, and every
-    // floating surface (the dock, the FAB, the source strip) was built by copying an accent at
-    // a hand-tuned alpha and hoping the pair read. Three things were simply missing: a body
-    // colour that is its own step of the surface ladder, a border that belongs to that body,
-    // and a *shadow colour* — the shadow was hard-coded `Color.Black`, which is the wrong hue
-    // for a navy/ice system and is why the light bar looked dirty rather than lifted.
+
     val floatSurface: Color,
     val floatBorder: Color,
     val floatShadow: Color,
-    // MARBLE_FLOATING_ACTIONS_V210 — the four verbs of a floating control, and the ink pair
-    // every one of them is scored against. A theme that owns the chrome of a floating button but
-    // not its face is a theme that half answers the question, so every palette below answers all
-    // four — including the dynamic one, whose buttons used to keep the brand's hard-coded red
-    // while its surfaces moved with the wallpaper.
+
     val floatActions: MarbleFloatActionTones,
     val floatInkLight: Color,
     val floatInkDark: Color,
@@ -120,44 +77,21 @@ private data class AetherPalette(
     val ink: Color,
     val inkMuted: Color,
     val inkFaint: Color,
-    // MARBLE_THEME_COHERENCE_V190 — true when the set was rebuilt from the phone's wallpaper
-    // palette. Surfaces that used to hard-code the brand ice/sky values (the Home cloud cards,
-    // the page gradient, the selection accent) read this and follow the palette instead, so a
-    // dynamic theme can no longer paint a lavender dock over an ice-blue page with sky-blue
-    // selections beside a violet connect button.
+
     val dynamic: Boolean = false
 )
 
-/**
- * The eight Marble brand colors. Every tint below is one of these exact hues composited with
- * alpha over a surface — never a foreign hue — so Light and Dark both stay inside the same
- * identity even where a role needs a softer or deeper step.
- */
 private object Brand {
-    val NavyDeep = Color(0xFF000033)   // deep navy
-    val NavyDark = Color(0xFF001144)   // dark navy
-    val Electric = Color(0xFF0066CC)   // electric blue
-    val Bright = Color(0xFF3399FF)     // bright blue
-    val Ice = Color(0xFFADD8E6)        // ice blue
-    val IceWhite = Color(0xFFE0FFFF)   // ice white
-    val Alice = Color(0xFFF0F8FF)      // alice blue
-    val White = Color(0xFFFFFFFF)      // white
+    val NavyDeep = Color(0xFF000033)
+    val NavyDark = Color(0xFF001144)
+    val Electric = Color(0xFF0066CC)
+    val Bright = Color(0xFF3399FF)
+    val Ice = Color(0xFFADD8E6)
+    val IceWhite = Color(0xFFE0FFFF)
+    val Alice = Color(0xFFF0F8FF)
+    val White = Color(0xFFFFFFFF)
 }
 
-/*
- * Light surfaces are deliberately opaque. The previous translucent stack produced visible
- * rectangular compositing bands on several Android GPUs and weakened the information hierarchy.
- * Depth now comes from spacing, a single soft outline and state colour—not nested glass layers.
- *
- * MARBLE_NAVY_BRAND_THEME_V77
- * Background, surfaces, borders and ink are the Marble navy/ice ramp. The two accents are the
- * electric blue (primary) and deep navy (secondary), so the product reads as one continuous
- * blue system in both themes. Emerald/Amber/Danger stay as *functional* state colours only:
- * a VPN must never dress "blocked" or "connected" in the brand hue.
- */
-// MARBLE_MATERIAL_YOU_REFRESH_V185 — light surfaces adopt Material You's calm container language:
-// a cool near-white page, opaque white cards, soft blue-gray container steps and quiet neutral
-// hairlines. Tint intensity now lives in the accents only, so content owns the contrast.
 private val LightPalette = AetherPalette(
     void = Color(0xFFF4F8FD),
     voidElevated = Brand.White,
@@ -165,22 +99,15 @@ private val LightPalette = AetherPalette(
     glassStrong = Color(0xFFE2ECF6),
     glassBorder = Brand.Electric.copy(alpha = .22f).compositeOver(Brand.White),
     glassBorderSoft = Brand.NavyDeep.copy(alpha = .10f).compositeOver(Brand.White),
-    // MARBLE_DOCK_GLASS_VISIBILITY_V191 — the light glass values were tuned for the old flat
-    // white page, where a 61% white bar still had its border to carry it. On the aurora backdrop
-    // the bar reads as a hole while scrolling. The glass keeps more of its body (.94) and its
-    // hairline doubles (.16), so the page shows *through* the bar instead of the bar vanishing
-    // *into* the page.
+
     barGlass = Brand.White.copy(alpha = .94f),
     barGlassBorder = Brand.NavyDeep.copy(alpha = .16f).compositeOver(Brand.White),
     barGlassHighlight = Color.White.copy(alpha = .60f),
-    // MARBLE_FLOATING_CHROME_V201 — the light bar is a cool, near-white object one step above
-    // the page (#F4F8FD) and one step below the pure-white cards, so it separates from both
-    // instead of vanishing into whichever is behind it. Its shadow is deep navy, not black:
-    // a black shadow on an ice-blue surface reads as dirt.
+
     floatSurface = Color(0xFFEDF3FB),
     floatBorder = Brand.NavyDeep.copy(alpha = .14f).compositeOver(Color(0xFFEDF3FB)),
     floatShadow = Color(0xFF0A1A33),
-    // MARBLE_FLOATING_ACTIONS_V210 — see [MarbleFloatActions.Light].
+
     floatActions = MarbleFloatActions.Light.tones(),
     floatInkLight = Color(MarbleFloatActions.Light.inkLight),
     floatInkDark = Color(MarbleFloatActions.Light.inkDark),
@@ -199,31 +126,23 @@ private val LightPalette = AetherPalette(
     inkFaint = Brand.NavyDeep.copy(alpha = .40f).compositeOver(Brand.White)
 )
 
-/* Dark remains an explicit accessibility/user choice with a true AMOLED black foundation.
- * MARBLE_MATERIAL_YOU_REFRESH_V185 — the elevated steps above the black floor gain a navy cast
- * (#0B111C / #0E141F / #121A28) so cards, sheets and wells separate from the void the way the
- * newest Material dark themes do, and hairlines cool down to slate-blue strokes. */
 private val DarkPalette = AetherPalette(
-    // MARBLE_AMOLED_V202 — black is the page and system-surface floor, not a near-black
-    // approximation. The three elevated tokens are deliberately very close together so cards
-    // remain legible without turning the entire theme into a navy rectangle.
+
     void = Color.Black,
     voidElevated = Color(0xFF090D14),
     glass = Color(0xFF0C121B),
     glassStrong = Color(0xFF101824),
     glassBorder = Brand.Bright.copy(alpha = .28f).compositeOver(Color(0xFF090D14)),
     glassBorderSoft = Color(0xFF202C3E),
-    // The dock is an opaque object in V202; this value remains for components that request a
-    // glass token, but is still flattened onto true black.
+
     barGlass = Color(0xFF090D14),
     barGlassBorder = Brand.Ice.copy(alpha = .18f).compositeOver(Color(0xFF090D14)),
     barGlassHighlight = Color.Transparent,
-    // A floating object lifts one small step from the OLED floor. Its body is still near-black;
-    // only the object itself spends pixels, never the page behind it.
+
     floatSurface = Color(0xFF090D14),
     floatBorder = Brand.Ice.copy(alpha = .18f).compositeOver(Color(0xFF090D14)),
     floatShadow = Color.Black,
-    // MARBLE_FLOATING_ACTIONS_V210 — see [MarbleFloatActions.Dark].
+
     floatActions = MarbleFloatActions.Dark.tones(),
     floatInkLight = Color(MarbleFloatActions.Dark.inkLight),
     floatInkDark = Color(MarbleFloatActions.Dark.inkDark),
@@ -237,32 +156,16 @@ private val DarkPalette = AetherPalette(
     dangerBright = Color(0xFFFF99AA),
     emerald = Color(0xFF55D7B4),
     amber = Color(0xFFF2B45F),
-    ink = Color(0xFFF0F8FF),           // bright ice white for max AMOLED contrast
+    ink = Color(0xFFF0F8FF),
     inkMuted = Brand.Ice.copy(alpha = .78f).compositeOver(Color(0xFF000000)),
     inkFaint = Brand.Ice.copy(alpha = .42f).compositeOver(Color(0xFF000000))
 )
 
-/**
- * MARBLE_PHONE_DYNAMIC_THEME_V113 — rebuild the whole Aether token set from the phone's Material
- * You palette. Every token keeps its semantic job: surfaces/ink/hairlines come from the dynamic
- * scheme's tonal roles and the two accent ramps follow the wallpaper's primary/secondary/tertiary
- * hues, while functional state colors (emerald/amber/danger) stay semantic so "connected" and
- * "blocked" are never confused with the brand accent.
- */
 private fun dynamicPhonePalette(scheme: androidx.compose.material3.ColorScheme, dark: Boolean): AetherPalette {
-    // MARBLE_THEME_COHERENCE_V190 — the surface ladder was flattened: `background` and `surface`
-    // are the same tone in Material You, so cards sat invisibly on the page and every edge had
-    // to be carried by a hairline. The page now takes a container step and the cards the
-    // brightest (light) / a lifted (dark) step, exactly as the brand palette separates them.
-    // Hairlines were also far too heavy: the dock and the page controls were framed with the
-    // scheme's full `outline` (a mid grey), which read as a thick grey border on every control.
-    // They now take the quiet `outlineVariant` family, like the brand palette's soft strokes.
     val card = if (dark) scheme.surfaceContainer else scheme.surfaceContainerLowest
     val surface = card
     fun over(fg: Color, alpha: Float): Color = fg.copy(alpha = alpha).compositeOver(surface)
-    // MARBLE_FLOATING_ACTIONS_V210 — the wallpaper answers the same four questions the brand
-    // ramp answers, in its own semantic roles. [MarbleFloatActions.dynamic] also orders the two
-    // ink candidates by luminance, so the light one really is the light one in either mode.
+
     val floatActions = MarbleFloatActions.dynamic(
         primary = scheme.primary.toArgb(),
         secondary = scheme.secondary.toArgb(),
@@ -285,10 +188,7 @@ private fun dynamicPhonePalette(scheme: androidx.compose.material3.ColorScheme, 
         } else {
             Color.White.copy(alpha = .55f).compositeOver(surface)
         },
-        // MARBLE_FLOATING_CHROME_V201 — a dynamic palette must answer the same three questions
-        // the brand ramp answers, or a wallpaper-derived theme paints a lavender bar with a
-        // shadow from a different colour family. The body is a container step of the *phone's*
-        // own ladder and the shadow is the scheme's ink, so the lift follows the wallpaper too.
+
         floatSurface = if (dark) scheme.surfaceContainerHigh else scheme.surfaceContainer,
         floatBorder = over(scheme.outlineVariant, if (dark) .70f else .60f),
         floatShadow = scheme.onSurface,
@@ -324,22 +224,11 @@ object Aether {
     val BarGlass: Color @Composable get() = LocalAetherPalette.current.barGlass
     val BarGlassBorder: Color @Composable get() = LocalAetherPalette.current.barGlassBorder
     val BarGlassHighlight: Color @Composable get() = LocalAetherPalette.current.barGlassHighlight
-    /** MARBLE_FLOATING_CHROME_V201 — the body of a floating element. */
     val FloatSurface: Color @Composable get() = LocalAetherPalette.current.floatSurface
-    /** MARBLE_FLOATING_CHROME_V201 — the hairline that belongs to [FloatSurface]. */
     val FloatBorder: Color @Composable get() = LocalAetherPalette.current.floatBorder
-    /** MARBLE_FLOATING_CHROME_V201 — the hue a floating element casts. */
     val FloatShadow: Color @Composable get() = LocalAetherPalette.current.floatShadow
-    /**
-     * MARBLE_FLOATING_ACTIONS_V210 — the four verbs of a floating control, in this theme.
-     *
-     * Read through [rememberMarbleFloatChrome], never directly: the chrome is what pairs the
-     * tone with the ink that survives it.
-     */
     val FloatActions: MarbleFloatActionTones @Composable get() = LocalAetherPalette.current.floatActions
-    /** MARBLE_FLOATING_ACTIONS_V210 — the light ink candidate of a floating action glyph. */
     val FloatInkLight: Color @Composable get() = LocalAetherPalette.current.floatInkLight
-    /** MARBLE_FLOATING_ACTIONS_V210 — the dark ink candidate of a floating action glyph. */
     val FloatInkDark: Color @Composable get() = LocalAetherPalette.current.floatInkDark
     val Amethyst: Color @Composable get() = LocalAetherPalette.current.amethyst
     val AmethystBright: Color @Composable get() = LocalAetherPalette.current.amethystBright
@@ -354,20 +243,9 @@ object Aether {
     val Ink: Color @Composable get() = LocalAetherPalette.current.ink
     val InkMuted: Color @Composable get() = LocalAetherPalette.current.inkMuted
     val InkFaint: Color @Composable get() = LocalAetherPalette.current.inkFaint
-    /** True while the palette follows the phone's wallpaper instead of the Marble brand ramp. */
     val IsDynamic: Boolean @Composable get() = LocalAetherPalette.current.dynamic
 }
 
-// MARBLE_VAZIR_REAL_FONT_V111
-// Vazirmatn is bundled as real TTF resources (OFL-licensed, res/font/vazirmatn_*.ttf) so
-// Persian text genuinely shapes with Vazir instead of silently falling back to the platform
-// sans face. When Persian is the active product language the whole typography ramp switches
-// to Vazirmatn regardless of the selected Latin font, so no Persian glyph ever renders in a
-// mismatched face.
-// MARBLE_VAZIR_LANGUAGE_KEY_V114 — internal, not private: the Persian language choice in Settings
-// must render in Vazir in *every* state (idle, selected, pressed, English UI, Persian UI), and that
-// button lives in another file. Nothing else may reach for the face directly; the typography ramp
-// below stays the only place a whole screen switches fonts.
 internal val VazirFamily = FontFamily(
     Font(R.font.vazirmatn_regular, FontWeight.Normal),
     Font(R.font.vazirmatn_medium, FontWeight.Medium),
@@ -375,43 +253,28 @@ internal val VazirFamily = FontFamily(
     Font(R.font.vazirmatn_bold, FontWeight.Bold)
 )
 
-// MARBLE_SETTINGS_HUB_V114 — the Typeface page shows each candidate in its own face, which needs
-// the resolver outside this file. It returns a family only; nothing here changes the active theme.
 internal fun previewFontFamily(id: String): FontFamily = selectedFontFamily(id)
 
 private fun selectedFontFamily(id: String): FontFamily = when (parseAppFont(id)) {
-    // The real bundled Vazirmatn face — Persian and Latin both ship inside the TTF.
     AppFont.VAZIR -> VazirFamily
-    // MARBLE_SYSTEM_FONT_V112 — the device's own default typeface, exactly as the OS renders it.
+
     AppFont.SYSTEM -> FontFamily.Default
-    // Google Sans is the platform product sans fallback on Android; keeping it platform-backed
-    // avoids a network font download during a VPN connection or first launch.
+
     AppFont.GOOGLE_SANS -> FontFamily.Default
-    // Android's serif face is the closest bundled, offline-compatible Times New Roman treatment.
+
     AppFont.TIMES_NEW_ROMAN -> FontFamily.Serif
 }
 
 private fun aetherTypography(fontId: String, persian: Boolean): Typography {
-    // Persian always shapes with the bundled Vazirmatn: that is the whole point of shipping it.
     val family = if (persian) VazirFamily else selectedFontFamily(fontId)
-    // The tight negative tracking tuned for Latin ruins Perso-Arabic joining; Persian runs at
-    // neutral tracking so Vazir's own metrics decide the rhythm.
+
     fun track(latin: Double): TextUnit = if (persian) 0.sp else latin.sp
-    // MARBLE_PERSIAN_TYPE_FLOOR_V184 — the smallest label size must stay legible for Vazirmatn's
-    // hairline joins on mid-range panels. MARBLE_MATERIAL_YOU_REFRESH_V185 lifts the whole label
-    // floor half a step with the rest of the Material 3 ramp: Latin labels render at 11.5 sp and
-    // Persian labels one half-step above, at 12 sp, keeping the same +0.5 sp guard.
+
     fun labelSmallSize(): TextUnit = if (persian) 12.sp else 11.5.sp
     fun labelSmallLine(): TextUnit = if (persian) 17.sp else 16.sp
-    // Vazirmatn Regular is a display cut; at body sizes its strokes read faint on AMOLED
-    // and on washed-out light surfaces. UI body copy takes the Medium weight in Persian only —
-    // the Latin faces keep the spec weight.
+
     val bodyWeight = if (persian) FontWeight.Medium else FontWeight.Normal
-    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the ramp follows the Material 3 scale with the compact
-    // product calibration MarbleNG ships: display grows to 40 sp, headlines step 28/24/20 sp,
-    // titles step 18/16/14 sp, bodyLarge joins the spec at 16/24, and the label ramp gains the
-    // 14 sp labelLarge. Every step between roles is now at least 1.5 sp, so hierarchy reads at a
-    // glance, and line heights gain ~1 dp of air for long-setting copy.
+
     return Typography(
     displayLarge = TextStyle(
         fontFamily = family,
@@ -520,19 +383,8 @@ private fun aetherTypography(fontId: String, persian: Boolean): Typography {
 )
 }
 
-// MARBLE_MATERIAL_YOU_REFRESH_V185 — the shape ramp rounds one step up to match the newest
-// Material corner language: 12 / 16 / 20 / 28 / 32 dp. Material components (sheets, menus,
-// chips, text fields) pick these up through MaterialTheme.shapes across the whole app.
 // MARBLE_NATIVE_ANDROID_V213 — the corner ramp moves onto the newest Android shape scale.
-//
-// V185 rounded the ramp one step, which on a 2026 phone still read as a *compact* product: the
-// large step (28 dp) is the pre-Expressive card corner, and the newest Android draws its sheets,
-// dialogs and cards a full step rounder than that with controls that morph to a pill. The ramp
-// below is that step: a 14/18/24/30/36 ladder, where every role that holds content (cards, sheets,
-// dialogs) sits on 24-30 dp and the two rows the platform keeps tighter (menus, chips) sit on
-// 14-18 dp. Nothing else about the shape language changes: the corners are still plain circles,
-// and every custom Prism surface keeps its own radius, so this is where *stock Material* surfaces
-// — sheets, menus, dialogs, text fields, the date picker — join the same roundness as the product.
+
 val AetherShapes = Shapes(
     extraSmall = RoundedCornerShape(14.dp),
     small = RoundedCornerShape(18.dp),
@@ -541,59 +393,31 @@ val AetherShapes = Shapes(
     extraLarge = RoundedCornerShape(36.dp)
 )
 
-/**
- * MARBLE_EXPRESSIVE_MOTION_V186 — the shape-morph endpoints of the expressive control language.
- *
- * Material 3 Expressive controls do not hold one shape: a button softens toward a pill under the
- * finger and springs back on release (see [rememberExpressiveMorphShape]). These tokens are the
- * two ends of that morph for each control family, so every pressable surface in the product
- * bends by the same amount instead of each call site inventing its own pressed radius:
- *
- *  • [ButtonPressRadius] — the pressed end of every standard control: a full pill. Compose
- *    clamps corner radii at half the box when drawing, so one large value reads as "fully round"
- *    on a 46 dp button and on a 54 dp detail button alike.
- *  • [CompactButtonPressRadius] — the pressed end of compact controls, one step short of the
- *    pill so dense rows morph without their buttons turning into circles.
- *  • [TilePressRadius] — selection tiles soften by two steps, never all the way: a tile is a
- *    surface you choose, not an action you fire, and the smaller bend keeps the two grammar.
- *
- * Resting radii stay wherever V185 put them ([PrismSurface], [AetherShapes], HomeCloud); this
- * object only names where a press takes them.
- */
 internal object MarbleExpressiveShapes {
     val ButtonPressRadius = 999.dp
     val CompactButtonPressRadius = 24.dp
     val TilePressRadius = 22.dp
 }
 
-/**
- * MARBLE_NIGHT_OUTLINES_V112 — the user's dark-theme hairline personality.
- *
- * Every frame/card rim in the product flows through the palette border tokens below, so applying
- * the choice here restyles the whole app without touching a single call site. Light themes keep
- * their designed hairlines: this is explicitly the night-mode control the users asked for.
- */
 @Composable
 private fun applyNightOutline(
     palette: AetherPalette,
     styleId: String
 ): AetherPalette = when (parseDarkOutlineStyle(styleId)) {
-    // The designed AMOLED rim: one quiet hairline that separates surfaces without lines.
     DarkOutlineStyle.SUBTLE -> palette
-    // Doubled presence: the same hue, clearly visible, for users who want framed cards.
-    // MARBLE_MATERIAL_YOU_REFRESH_V185 — the bold frame cools to the new slate hairline family.
+
     DarkOutlineStyle.BOLD -> palette.copy(
         glassBorder = palette.glassBorder.copy(alpha = (palette.glassBorder.alpha * 2.1f).coerceAtMost(.85f)),
         glassBorderSoft = Color(0xFF31405A),
         barGlassBorder = palette.barGlassBorder.copy(alpha = (palette.barGlassBorder.alpha * 2.4f).coerceAtMost(.75f))
     )
-    // Brand-tinted frames: electric-blue rims that glow against the AMOLED black.
+
     DarkOutlineStyle.COLORED -> palette.copy(
         glassBorder = Brand.Electric.copy(alpha = .52f),
         glassBorderSoft = Brand.Electric.copy(alpha = .30f),
         barGlassBorder = Brand.Bright.copy(alpha = .40f)
     )
-    // Dissolved: no frame lines anywhere in the dark theme — depth comes from surfaces only.
+
     DarkOutlineStyle.HIDDEN -> palette.copy(
         glassBorder = Color.Transparent,
         glassBorderSoft = Color.Transparent,
@@ -604,8 +428,7 @@ private fun applyNightOutline(
 @Composable
 fun AetherFlowTheme(
     themeId: String = "light",
-    // MARBLE_GOOGLE_SANS_DEFAULT_V160 — previews and any caller that does not name a face render
-    // with the typeface a fresh install opens with, so a preview never lies about the default.
+
     fontId: String = AppFont.DEFAULT.id,
     outlineStyleId: String = DarkOutlineStyle.SUBTLE.id,
     content: @Composable () -> Unit
@@ -619,10 +442,7 @@ fun AetherFlowTheme(
     }
 
     val context=LocalContext.current
-    // MARBLE_PHONE_DYNAMIC_THEME_V113 — an explicit "dynamic phone" theme (Settings → Theme)
-    // rebuilds Aether tokens from the phone's Material You palette on Android 12+ in both light
-    // and dark mode. Below Android 12 the phone cannot generate a palette, so it gracefully
-    // falls back to the standard Light/Dark identity of the same brightness.
+
     val phoneDynamic =
         requested == AppTheme.PHONE_DYNAMIC && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val dynamicPalette: AetherPalette?
@@ -632,8 +452,7 @@ fun AetherFlowTheme(
             if (light) dynamicLightColorScheme(context) else dynamicDarkColorScheme(context)
         val rebuilt = dynamicPhonePalette(generated, !light)
         dynamicPalette = rebuilt
-        // Stock Material surfaces (menus, sheets, text fields) sit on the same page/card steps
-        // as the rebuilt Aether palette instead of the scheme's flat background.
+
         dynamicScheme = generated.copy(
             background = rebuilt.void,
             surface = rebuilt.voidElevated,
@@ -644,12 +463,6 @@ fun AetherFlowTheme(
         dynamicScheme = null
     }
 
-    // MARBLE_THEME_COHERENCE_V190 — "System" means *follow the system's light/dark switch* with
-    // the Marble identity. It used to hand the stock Material components (search field, menus,
-    // dialogs, sheets, the status-bar colour) the wallpaper scheme while every custom surface
-    // kept the brand palette, so one screen mixed lavender, pink and electric blue. Wallpaper
-    // colours now belong to the explicit "Phone colours" theme only, where the palette AND the
-    // Material scheme are rebuilt from the same source.
     val systemDynamicColor = false
 
     val palette=dynamicPalette ?: if(light) LightPalette else applyNightOutline(DarkPalette, outlineStyleId)
@@ -661,8 +474,7 @@ fun AetherFlowTheme(
             primaryContainer=palette.cyan.copy(alpha=.10f),
             onPrimaryContainer=palette.ink,
             secondary=palette.emerald,
-            // #009A74 is intentionally bright enough for a dark on-colour, not white (3.57:1).
-            // Use Marble navy so every M3 semantic component meets the normal-text 4.5:1 target.
+
             onSecondary=Brand.NavyDeep,
             secondaryContainer=palette.emerald.copy(alpha=.10f),
             onSecondaryContainer=palette.ink,
@@ -679,14 +491,9 @@ fun AetherFlowTheme(
             onError=Brand.NavyDeep,
             outline=palette.glassBorderSoft,
             outlineVariant=palette.glassBorderSoft.copy(alpha=.55f),
-            // MARBLE_MATERIAL_YOU_REFRESH_V185 — the tonal container ladder Material components
-            // actually read (bottom sheets, menus, chips, filled cards) now resolves to the cool
-            // Marble surface ramp instead of the stock gray baseline, so every stock M3 surface
-            // sits inside the same identity as the custom Prism surfaces.
+
             // MARBLE_NATIVE_ANDROID_V213 — the ladder opens up. On the cool page (#F4F8FD) the
-            // old steps were 2-4 units apart, so a card, the well inside it and the sheet above
-            // both read as the same tone and every edge had to be carried by a hairline. The
-            // platform's ladder separates by a visible step at each level.
+
             surfaceContainerLowest=Brand.White,
             surfaceContainerLow=Color(0xFFF5F8FC),
             surfaceContainer=Color(0xFFEEF3F9),
@@ -718,15 +525,13 @@ fun AetherFlowTheme(
             onSurfaceVariant=palette.inkMuted,
             surfaceTint=Color.Transparent,
             error=palette.danger,
-            // Dark danger is a light rose; navy ink is the readable on-colour (7.6:1).
+
             onError=Brand.NavyDeep,
             outline=palette.glassBorder,
             outlineVariant=palette.glassBorderSoft,
-            // MARBLE_MATERIAL_YOU_REFRESH_V185 — the dark container ladder lifts from AMOLED black
-            // through navy-tinted steps, matching the refreshed Aether dark surfaces.
+
             // MARBLE_NATIVE_ANDROID_V213 — the dark ladder lifts off the black floor by one
-            // step: a card at #0B111C is a surface on the OLED void, where the old #070C13 was
-            // black-with-a-hint-of-blue and needed the accent rim to be seen at all.
+
             surfaceContainerLowest=Color.Black,
             surfaceContainerLow=Color(0xFF0B111C),
             surfaceContainer=Color(0xFF131B28),
@@ -753,11 +558,9 @@ fun AetherFlowTheme(
             val controller=WindowCompat.getInsetsController(window,view)
             controller.isAppearanceLightStatusBars=light
             controller.isAppearanceLightNavigationBars=light
-            // The page under the status bar is the Aether page tone, not the stock scheme's.
+
             window.statusBarColor=palette.void.toArgb()
-            // The gesture/navigation surface must not paint a second horizontal strip below the app.
-            // Android still owns the gesture handle itself, but the app-controlled bar and divider
-            // are fully transparent on every navigation mode.
+
             window.navigationBarColor=Color.Transparent.toArgb()
             if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 window.setNavigationBarDividerColor(Color.Transparent.toArgb())
@@ -770,8 +573,6 @@ fun AetherFlowTheme(
     }
 
     CompositionLocalProvider(LocalAetherPalette provides palette) {
-        // MARBLE_VAZIR_REAL_FONT_V111 — the resolved product language decides whether the
-        // Vazirmatn ramp is forced; MarbleApp installs the language provider above the theme.
         val persianActive = LocalMarbleStrings.current.language == MarbleLanguage.FA
         MaterialTheme(
             colorScheme=scheme,

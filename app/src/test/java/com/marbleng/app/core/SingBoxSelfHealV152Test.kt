@@ -8,20 +8,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_ENGINE_SELF_HEAL_V152 — the sing-box config doctor, pinned by unit test.
- *
- * The shipped 8.0.6 log ends BLOCKED seventeen profiles deep because every start was refused
- * with `outbounds[3]: dns outbound is deprecated in sing-box 1.11.0 and removed in sing-box
- * 1.13.0, use rule actions instead`. The doctor is Marble Intelligence's automatic repair: the
- * known removals are migrated in place and the core re-checks the healed config. These tests
- * replay the fault from the log and the 1.12 DNS key rename in a config with a safe encrypted
- * bootstrap. A legacy config without one is refused, never "repaired" with plaintext DNS. The
- * fault classifier stops futile 17-node failover and identifies the broken engine.
- */
 class SingBoxSelfHealV152Test {
-
-    /** Legacy outbound/schema faults, with a secure direct DoH bootstrap already available. */
     private fun legacyConfig(): String = JSONObject()
         .put(
             "log",
@@ -100,13 +87,13 @@ class SingBoxSelfHealV152Test {
                 outbounds.getJSONObject(i).optString("type").equals("dns", ignoreCase = true)
             )
         }
-        // The replacement the error message itself names: a hijack-dns rule action.
+
         val rules = healed.getJSONObject("route").getJSONArray("rules")
         val hijack = (0 until rules.length()).any {
             rules.getJSONObject(it).optString("action") == "hijack-dns"
         }
         assertTrue("the dns route rule must become a hijack-dns action", hijack)
-        // The non-DNS rule that pointed at the removed outbound loses only its dead target.
+
         val irRule = (0 until rules.length()).first {
             rules.getJSONObject(it).optJSONArray("rule_set") != null
         }.let { rules.getJSONObject(it) }
@@ -174,9 +161,6 @@ class SingBoxSelfHealV152Test {
         assertTrue(repair.notes.isEmpty())
     }
 
-    // MARBLE_SINGBOX_PROTOCOLS_V153 — the two schema errors that made translation fail on every
-    // non-parser profile. They are repaired in place and the config is re-checked, so the user
-    // is not bounced between engines by a known decoder rejection.
     @Test
     fun anArrayNetworkFieldAndTlsFragmentAreRepaired() {
         val config = JSONObject(
@@ -241,8 +225,7 @@ class SingBoxSelfHealV152Test {
                 "WARN `independent_cache` DNS option is deprecated in sing-box 1.14"
             )
         )
-        // Node and network failures are NOT engine faults: those are exactly what failover exists
-        // for, and misclassifying them would strand the user on one engine.
+
         assertFalse(SingBoxConfigDoctor.isEngineLevelFault("sing-box listener did not open: refused"))
         assertFalse(SingBoxConfigDoctor.isEngineLevelFault("spawn failed: no space left on device"))
         assertFalse(SingBoxConfigDoctor.isEngineLevelFault(""))

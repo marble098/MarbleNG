@@ -5,8 +5,6 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// MARBLE_TOOLCHAIN_AUTOPILOT_V211 — the library versions, from the same file the plugins come
-// from. `resolve-toolchain.py --write` is the only thing that changes a number here.
 val toolchain =
     Properties().apply {
         val file = rootProject.file("gradle/toolchain.properties")
@@ -46,9 +44,6 @@ val signingProps =
 val signingConfigured =
     signingPropertiesFile.exists()
 
-// MARBLE_INFORMATION_PAGE_V114 — Settings › Information reports the exact cores this build ships.
-// They are read from core-lock.json, the same file CI verifies and the same file the native build
-// downloads from, so the numbers on screen cannot drift from the binaries inside the APK.
 val coreLockFile = rootProject.file("core-lock.json")
 
 val coreLockText =
@@ -59,8 +54,6 @@ val coreLockText =
     }
 
 fun coreLockField(component: String, field: String): String {
-    // Deliberately no JSON parser and no regex escaping in the build script: core-lock.json is a
-    // flat two-level file, and plain string scoping reads exactly like the file itself.
     val block = coreLockText
         .substringAfter("\"$component\"", "")
         .substringBefore("}", "")
@@ -75,8 +68,7 @@ val xrayCoreTag = coreLockField("xray", "tag")
 val xrayCoreRepo = coreLockField("xray", "repo")
 val hevCoreTag = coreLockField("hev", "tag")
 val hevCoreRepo = coreLockField("hev", "repo")
-// MARBLE_SINGBOX_CORE_V151 — the second engine. sing-box extended is pinned exactly like the other
-// two cores, so the version shown in Settings › Information is the binary inside this APK.
+
 val singBoxCoreTag = coreLockField("singbox", "tag")
 val singBoxCoreRepo = coreLockField("singbox", "repo")
 val marbleSourceUrl = "https://github.com/marble098/MarbleNG"
@@ -120,8 +112,6 @@ android {
             useSupportLibrary = true
         }
 
-        // MARBLE_INFORMATION_PAGE_V114 — Settings › Information reports the real cores and links
-        // straight to the repository, so both are compiled in rather than hardcoded in the UI.
         buildConfigField("String", "XRAY_CORE_TAG", "\"$xrayCoreTag\"")
         buildConfigField("String", "XRAY_CORE_REPO", "\"$xrayCoreRepo\"")
         buildConfigField("String", "HEV_CORE_TAG", "\"$hevCoreTag\"")
@@ -133,9 +123,7 @@ android {
 
     signingConfigs {
         create("release") {
-
             if (signingConfigured) {
-
                 val configuredStore =
                     rootProject.file(
                         signingValue("storeFile")
@@ -166,14 +154,12 @@ android {
     }
 
     buildTypes {
-
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
 
         release {
-
             isMinifyEnabled = true
             isShrinkResources = true
 
@@ -214,29 +200,16 @@ android {
     }
 
     packaging {
-
         jniLibs {
             // MARBLE_APK_INSTALL_CONTRACT_V195 -- this flag is the installer
-            // extraction contract, not a style choice.  The Xray and sing-box
-            // cores are executables launched from applicationInfo.nativeLibraryDir,
-            // so the installer must extract lib/**/*.so at install time.  This
-            // flag keeps the native entries DEFLATED and instructs AGP to inject
-            // android:extractNativeLibs="true" into the merged manifest.  AGP
-            // 8.3+/9.x defaults extractNativeLibs to "false" for minSdk >= 23,
-            // and with compressed native entries that combination is rejected by
-            // the package installer before the progress UI even appears
-            // ("App not installed"; INSTALL_FAILED_INVALID_APK: Failed to extract
-            // native libraries, res=-2).  The merged manifest is normalized below
-            // as a second line of defense because AGP 9 forbids pinning the
-            // attribute in the source AndroidManifest.xml.
+
             useLegacyPackaging = true
 
             keepDebugSymbols += setOf(
                 "**/libmarbleng.so",
                 "**/libhev-socks5-tunnel.so",
                 "**/libsingbox.so",
-                // libxray.so is a Go executable executed via ProcessBuilder;
-                // AGP stripping must never touch the cores.
+
                 "**/libxray.so"
             )
         }
@@ -258,9 +231,6 @@ android {
     }
 }
 
-// Never let a developer accidentally install an unsigned release APK. Play Protect warnings on
-// sideloaded builds are commonly caused by a missing/rotated certificate; the CI workflow restores
-// the stable MarbleNG signer before assembleRelease. Debug/compile tasks remain usable locally.
 tasks.configureEach {
     if (!signingConfigured && (name == "assembleRelease" || name == "bundleRelease")) {
         doFirst {
@@ -272,19 +242,7 @@ tasks.configureEach {
     }
 }
 
-// -----------------------------------------------------------------------------
 // MARBLE_APK_INSTALL_CONTRACT_V195 -- installer extraction contract
-//
-// libxray.so / libsingbox.so are Go executables that the app launches from
-// applicationInfo.nativeLibraryDir, so every release APK must ship with
-// extractNativeLibs="true" (or the attribute absent, which is the same thing).
-// The source manifest cannot carry the attribute (AGP 9 rejects it) and AGP
-// defaults it to "false" for minSdk >= 23, so the merged manifest under
-// build/intermediates is normalized after every manifest-processing task and
-// again before packaging: a silent "false" flip turns an otherwise healthy
-// release into an uninstallable APK ("App not installed";
-// INSTALL_FAILED_INVALID_APK: Failed to extract native libraries, res=-2).
-// -----------------------------------------------------------------------------
 
 tasks.configureEach {
     val marbleIntermediatesDir = file("build/intermediates")
@@ -321,9 +279,6 @@ tasks.configureEach {
     }
 }
 
-// MARBLE_TEST_EVIDENCE_V120 — CI reads the console log and nothing else, so a failing test has to
-// say *what* it saw. Gradle's default logging names the test and the line number, which is not
-// enough to tell a wrong expectation from a wrong implementation without another full run.
 tasks.withType<Test>().configureEach {
     testLogging {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
@@ -340,7 +295,6 @@ val prepareSingBoxRules by tasks.registering(Exec::class) {
 tasks.named("preBuild") { dependsOn(prepareSingBoxRules) }
 
 dependencies {
-
     implementation(
         platform(
             "androidx.compose:compose-bom:${toolchainVersion("composeBom", "2026.08.00")}"
@@ -381,9 +335,6 @@ dependencies {
 
     implementation("com.github.mwiede:jsch:${toolchainVersion("jsch", "2.28.6")}")
 
-    // MARBLE_QR_IMPORT_V121 — QR import decodes a picture the user already has (screenshot,
-    // photo, saved image) with ZXing's pure-Java core. No camera dependency, no CAMERA
-    // permission and no extra runtime: the image arrives through the system picker.
     implementation("com.google.zxing:core:${toolchainVersion("zxing", "3.5.3")}")
 
     testImplementation("junit:junit:${toolchainVersion("junit", "4.13.2")}")

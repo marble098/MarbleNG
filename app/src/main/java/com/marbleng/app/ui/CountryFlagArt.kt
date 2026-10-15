@@ -1,20 +1,5 @@
 package com.marbleng.app.ui
 
-// =================================================================================================
-// MARBLE_SERVER_LOCATION_V192 — one full-circle national flag per server, drawn offline.
-// =================================================================================================
-//
-// The server rows used to carry a country as a two-code-point emoji on the rim of the protocol
-// tile: a font glyph the platform may render as "DE" in a rectangle on some devices, nothing on
-// a custom typeface, and never the flag the user meant to see. This library replaces the emoji
-// with the flag itself — every location the product knows is drawn with the same Canvas
-// primitives the rest of the app uses, clipped to a full circle so the flag IS the tile.
-//
-// Everything is offline by design (a geolocation image CDN is exactly the network the user is
-// trying to fix), resolution-independent, and free of assets: the table below is the single
-// source of truth for what a location looks like at 38 dp. Unrecognised codes fall back to the
-// neutral code tile, so a brand-new location can never render as the wrong flag.
-
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,10 +35,6 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.cos
 import kotlin.math.sin
 
-// -------------------------------------------------------------------------------------------------
-// Flag palette.
-// -------------------------------------------------------------------------------------------------
-
 private object F {
     const val White = 0xFFFFFFFF
     const val Black = 0xFF000000
@@ -87,24 +68,15 @@ private object F {
     const val Steel = 0xFF4A6DA7
 }
 
-// -------------------------------------------------------------------------------------------------
-// Primitives. All fractions are of the FLAG canvas, which is 3:2 (width : height). The
-// composition below hands the table a DrawScope whose size is exactly that flag rectangle, so
-// a "circle" drawn here is a true circle in flag space and a band is a true fraction of the
-// flag's height.
-// -------------------------------------------------------------------------------------------------
-
 private fun DrawScope.base(c: Color) {
     drawRect(c, Offset.Zero, Size(size.width, size.height))
 }
 
-/** Equal horizontal bands, top to bottom. */
 private fun DrawScope.bandsH(cs: List<Color>) {
     val h = size.height / cs.size
     cs.forEachIndexed { i, c -> drawRect(c, Offset(0f, i * h), Size(size.width, h + 0.5f)) }
 }
 
-/** Horizontal bands with custom fractions of the height. */
 private fun DrawScope.bandsH(fracs: List<Float>, cs: List<Color>) {
     require(fracs.size == cs.size)
     var y = 0f
@@ -114,7 +86,6 @@ private fun DrawScope.bandsH(fracs: List<Float>, cs: List<Color>) {
     }
 }
 
-/** Equal vertical bands, left to right. */
 private fun DrawScope.bandsV(cs: List<Color>) {
     val w = size.width / cs.size
     cs.forEachIndexed { i, c -> drawRect(c, Offset(i * w, 0f), Size(w + 0.5f, size.height)) }
@@ -175,7 +146,6 @@ private fun DrawScope.star(
     drawPath(starPath(center.x, center.y, outer, outer * inner, points, rotation), c)
 }
 
-/** A crescent opening toward the fly (right). [cutColor] erases the offset disc. */
 private fun DrawScope.crescent(
     cx: Float,
     cy: Float,
@@ -191,7 +161,6 @@ private fun DrawScope.crescent(
     drawCircle(cutColor, radius = rr * cutScale, center = Offset(center.x + rr * cutShift, center.y))
 }
 
-/** A centred plus cross; [thickness] is a fraction of the flag height. */
 private fun DrawScope.plusCross(c: Color, thickness: Float) {
     val t = thickness * size.height
     val half = t / 2f
@@ -199,7 +168,6 @@ private fun DrawScope.plusCross(c: Color, thickness: Float) {
     drawRect(c, Offset(size.width / 2f - half, 0f), Size(t, size.height))
 }
 
-/** The Nordic cross: vertical bar shifted to the hoist. */
 private fun DrawScope.nordicCross(c: Color, thickness: Float, xCenter: Float = .4f) {
     val t = thickness * size.height
     val half = t / 2f
@@ -207,7 +175,6 @@ private fun DrawScope.nordicCross(c: Color, thickness: Float, xCenter: Float = .
     drawRect(c, Offset(xCenter * size.width - half, 0f), Size(t, size.height))
 }
 
-/** A solid triangle from the hoist edge, base on the hoist, apex at [width] of the fly. */
 private fun DrawScope.hoistTriangle(c: Color, width: Float) {
     drawPath(
         Path().apply {
@@ -220,7 +187,6 @@ private fun DrawScope.hoistTriangle(c: Color, width: Float) {
     )
 }
 
-/** Nine saw-teeth of [color] eating into the hoist side (Bahrain / Qatar style). */
 private fun DrawScope.serration(c: Color, depth: Float) {
     val n = 9
     val step = size.height / n
@@ -234,7 +200,6 @@ private fun DrawScope.serration(c: Color, depth: Float) {
     drawPath(path, c)
 }
 
-/** The union-jack diagonals and cross on a [field], covering the whole canvas. */
 private fun DrawScope.unionJack(field: Color) {
     base(field)
     val w = size.width
@@ -253,12 +218,10 @@ private fun DrawScope.unionJack(field: Color) {
     drawRect(Color(F.DeepRed), Offset(w / 2f - redBar / 2f, 0f), Size(redBar, h))
 }
 
-/** The union jack shrunk to the top-left canton (Commonwealth flags). */
 private fun DrawScope.cantonJack() {
     scale(.5f, .5f) { unionJack(Color(F.Cobalt)) }
 }
 
-/** The Korean taegeuk: an S of two half-discs, centred at (cx, cy). */
 private fun DrawScope.taegeuk(cx: Float, cy: Float, r: Float) {
     val c = Offset(cx * size.width, cy * size.height)
     val rr = r * size.width
@@ -275,8 +238,6 @@ private fun DrawScope.taegeuk(cx: Float, cy: Float, r: Float) {
 }
 
 private fun DrawScope.trigram(cx: Float, cy: Float, color: Color, angle: Float) {
-    // Three short bars (the four trigrams differ only in which bar is broken — at badge size
-    // the three-bar silhouette reads correctly for all four).
     val len = size.width * .1f
     val barH = size.height * .045f
     rotate(degrees = angle, pivot = Offset(cx * size.width, cy * size.height)) {
@@ -286,14 +247,6 @@ private fun DrawScope.trigram(cx: Float, cy: Float, color: Color, angle: Float) 
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// The table.
-// -------------------------------------------------------------------------------------------------
-
-/**
- * Draws the flag for an ISO 3166-1 alpha-2 code into the current canvas. The canvas must be the
- * 3:2 flag rectangle (see [CountryFlagCircle]); the flag fills it exactly.
- */
 fun DrawScope.drawCountryFlag(code: String) {
     val w = Color(F.White)
     val k = Color(F.Black)
@@ -302,7 +255,6 @@ fun DrawScope.drawCountryFlag(code: String) {
     val y = Color(F.Saffron)
     val b = Color(F.Cobalt)
     when (code.trim().uppercase()) {
-        // — Africa —
         "DZ" -> { bandsV(listOf(Color(F.Forest), w)); crescent(.48f, .5f, .2f, Color(F.DeepRed), w, .3f); star(.6f, .5f, .065f, 5, .45f, Color(F.DeepRed)) }
         "BD" -> { base(Color(F.Green)); disc(.44f, .5f, .23f, Color(F.Crimson)) }
         "BJ" -> { bandsV(listOf(Color(F.Olive), w, Color(F.Olive))); vBand(0f, .44f, Color(F.Olive)); star(.22f, .5f, .11f, 5, .45f, Color(F.Red)) }
@@ -327,7 +279,7 @@ fun DrawScope.drawCountryFlag(code: String) {
         "LY" -> { bandsH(listOf(Color(F.Crimson), k, g)); crescent(.42f, .5f, .13f, w, k, .3f); star(.54f, .5f, .065f, 5, .45f, w) }
         "MA" -> {
             base(Color(F.Crimson))
-            // The green pentagram is an interlaced outline star.
+
             drawPath(starPath(size.width / 2f, size.height / 2f, .3f * size.width, .382f * .3f * size.width, 5, -90f), Color(F.Teal), style = Stroke(size.width * .05f))
         }
         "MG" -> { base(w); vBand(.5f, 1f, Color(F.Crimson)); hBand(.5f, 1f, g) }
@@ -338,8 +290,7 @@ fun DrawScope.drawCountryFlag(code: String) {
         "RW" -> { bandsH(listOf(Color(F.Cyan2), Color(F.Saffron), w)); disc(.72f, .27f, .11f, Color(F.Saffron)); star(.72f, .27f, .08f, 5, .45f, Color(F.Cyan2)) }
         "SN" -> { bandsV(listOf(g, Color(F.Saffron), Color(F.Crimson))); star(.5f, .5f, .12f, 5, .45f, g) }
         "SD" -> { bandsH(listOf(Color(F.Crimson), w, k)); hoistTriangle(g, .5f) }
-        // MARBLE_SERVER_LOCATION_V192 — red field, white disc, red crescent opening to the
-        // fly and the red five-point star in its middle.
+
         "TN" -> {
             base(Color(F.Crimson))
             disc(.5f, .5f, .13f, w)
@@ -369,7 +320,6 @@ fun DrawScope.drawCountryFlag(code: String) {
         "ZM" -> { base(g); hBand(.64f, .73f, Color(F.Crimson)); hBand(.75f, .84f, w); hBand(.86f, .95f, k) }
         "ZW" -> { bandsH(listOf(g, Color(F.Saffron), w, Color(F.Crimson), w, Color(F.Saffron), g)); hoistTriangle(Color(F.Crimson), .5f); star(.17f, .5f, .08f, 5, .45f, w) }
 
-        // — Americas —
         "AR" -> {
             bandsH(listOf(Color(F.Powder), w, Color(F.Powder)))
             disc(.5f, .5f, .09f, Color(F.Saffron))
@@ -388,7 +338,7 @@ fun DrawScope.drawCountryFlag(code: String) {
             bandsV(listOf(Color(F.Crimson), w, Color(F.Crimson)))
             vBand(0f, .333f, Color(F.Crimson))
             vBand(.667f, 1f, Color(F.Crimson))
-            // A nine-point maple leaf, simplified.
+
             val leaf = Path().apply {
                 val cx = size.width * .5f
                 val top = size.height * .18f
@@ -474,7 +424,6 @@ fun DrawScope.drawCountryFlag(code: String) {
             }
         }
 
-        // — Asia —
         "AE" -> { bandsH(listOf(g, w, k)); vBand(0f, .25f, Color(F.Crimson)) }
         "AF" -> { bandsV(listOf(k, Color(F.Crimson), g)) }
         "AZ" -> { bandsH(listOf(Color(F.Cyan2), Color(F.Crimson), g)); crescent(.42f, .5f, .11f, w, Color(F.Crimson), .3f); star(.56f, .5f, .07f, 8, .45f, w) }
@@ -492,7 +441,7 @@ fun DrawScope.drawCountryFlag(code: String) {
         "CN" -> {
             base(Color(F.Crimson))
             star(.18f, .2f, .14f, 5, .45f, Color(F.Saffron))
-            // Four small stars, each pointed at the big one.
+
             for (pair in listOf(.36f to .1f, .42f to .22f, .42f to .34f, .36f to .46f)) {
                 val (cx, cy) = pair
                 val angle = (Math.toDegrees(Math.atan2((.2 - cy).toDouble(), (.18 - cx).toDouble()).toDouble()).toFloat())
@@ -556,7 +505,7 @@ fun DrawScope.drawCountryFlag(code: String) {
         }
         "KH" -> {
             bandsH(fracs = listOf(.25f, .5f, .25f), listOf(Color(F.Cyan2), Color(F.Crimson), Color(F.Cyan2)))
-            // Angkor Wat: a row of five towers.
+
             val baseY = size.height * .62f
             val cx = size.width / 2f
             drawRect(w, Offset(cx - .26f * size.width, baseY), Size(.52f * size.width, size.height * .08f))
@@ -657,7 +606,6 @@ fun DrawScope.drawCountryFlag(code: String) {
         "YE" -> { bandsH(listOf(Color(F.Crimson), w, k)) }
         "SY" -> { bandsH(listOf(Color(F.Crimson), w, k)); star(.44f, .5f, .09f, 5, .45f, g); star(.56f, .5f, .09f, 5, .45f, g) }
 
-        // — Europe —
         "AD" -> { bandsV(listOf(Color(F.Cobalt), w, Color(F.Crimson))); disc(.5f, .5f, .13f, Color(F.Saffron)) }
         "AL" -> { base(Color(F.Crimson)); star(.5f, .5f, .3f, 5, .45f, k) }
         "AM" -> {
@@ -693,8 +641,7 @@ fun DrawScope.drawCountryFlag(code: String) {
         "ES" -> { bandsH(fracs = listOf(.25f, .5f, .25f), listOf(Color(F.Crimson), Color(F.Saffron), Color(F.Crimson))) }
         "FI" -> { base(w); nordicCross(Color(F.Cobalt), .16f) }
         "FR" -> { bandsV(listOf(Color(F.Cobalt), w, Color(F.Crimson))) }
-        // MARBLE_SERVER_LOCATION_V192 — the Union Jack: the cobalt field carries the white and
-        // red saltires plus St George's cross; the same primitive serves the canton of AU/NZ.
+
         "GB" -> unionJack(Color(F.Cobalt))
         "GE" -> {
             base(w)
@@ -756,7 +703,6 @@ fun DrawScope.drawCountryFlag(code: String) {
         "SM" -> { bandsH(listOf(w, Color(F.Saffron))) }
         "UA" -> { bandsH(listOf(Color(F.Cobalt), Color(F.Saffron))) }
 
-        // — Oceania —
         "AU" -> {
             base(Color(F.Cobalt))
             cantonJack()
@@ -784,7 +730,6 @@ fun DrawScope.drawCountryFlag(code: String) {
             }
         }
 
-        // — Middle East / Central Asia / other —
         "KW" -> { bandsH(listOf(k, w, g)); hoistTriangle(Color(F.Crimson), .45f) }
         "LB" -> {
             bandsH(fracs = listOf(.25f, .5f, .25f), listOf(Color(F.Crimson), w, Color(F.Crimson)))
@@ -809,41 +754,31 @@ fun DrawScope.drawCountryFlag(code: String) {
     }
 }
 
-/** True when the art library can draw [code] as a real flag. */
 fun CountryFlagSupported(code: String?): Boolean =
     (code ?: "").trim().uppercase().let { c -> c.length == 2 && c.all { it in 'A'..'Z' } && KNOWN_CODES.contains(c) }
 
 private val KNOWN_CODES: Set<String> = setOf(
-    // Africa
+
     "DZ", "BD", "BJ", "BF", "BI", "BW", "CM", "CI", "CV", "EG", "ET", "GH", "GN", "KE",
     "LY", "MA", "MG", "MU", "MW", "NE", "NG", "RW", "SN", "SD", "TN", "TZ", "UG", "ZA", "ZM",
-    // Americas
+
     "AR", "BO", "BR", "CA", "CL", "CO", "CR", "CU", "DO", "EC", "GT", "HN", "MX", "NI",
     "PA", "PE", "PY", "UY", "US", "VE",
-    // Asia
+
     "AE", "AF", "AZ", "BH", "BN", "BT", "CN", "HK", "ID", "IL", "IN", "IQ", "IR", "JO",
     "JP", "KG", "KZ", "KH", "KR", "LA", "LK", "MM", "MN", "MY", "NP", "OM", "PH", "PK",
     "QA", "SA", "SG", "SY", "TH", "TR", "TW", "UZ", "VN", "YE",
-    // Europe
+
     "AD", "AL", "AM", "AT", "BA", "BE", "BG", "BY", "CH", "CY", "CZ", "DE", "DK", "EE",
     "ES", "FI", "FR", "GB", "GE", "GR", "HR", "HU", "IE", "IS", "IT", "LI", "LT", "LU", "LV",
     "MC", "MD", "ME", "MK", "MT", "NL", "NO", "PL", "PT", "RO", "RS", "RU", "SE", "SI",
     "SK", "SM", "UA",
-    // Oceania
+
     "AU", "FJ", "MV", "NZ",
-    // Middle East / Central Asia
+
     "KW", "LB", "PS", "TJ", "TM"
 )
 
-/**
- * One full-circle flag tile: the national flag clipped edge-to-edge to the circle, or the
- * neutral code tile when the code is unknown. This is what fills a server row's circle — the
- * flag IS the tile, not a sticker on it.
- *
- * @param code ISO 3166-1 alpha-2, or null/unknown for the neutral tile.
- * @param size the tile's diameter.
- * @param fallbackText what the neutral tile prints (usually the two-letter code or a glyph).
- */
 @Composable
 fun CountryFlagCircle(
     code: String?,
@@ -854,17 +789,7 @@ fun CountryFlagCircle(
     fallbackFill: Color = Color(0x26334455),
     description: String = "",
     styleOverride: TextStyle? = null,
-    // MARBLE_NATIVE_ANDROID_V213 — the chip's rim, and the frame it makes around a flag.
-    //
-    // A flag painted edge-to-edge in a clipped circle is a *sticker*: it has no edge of its own,
-    // and on a light card the pale bands of a flag (Japan, Poland, Greece) simply dissolve into
-    // the surface. Every Android surface that shows a country — a contact chip, a settings row, a
-    // Maps place — draws it as a small object with a hairline around it. [ring] is that hairline;
-    // when it is given, the flag is inset by the same 1 dp so the rim reads as a frame instead of
-    // as a stroke laid over the flag's own edge.
-    //
-    // The default is deliberately null: the flag that fills a protocol tile already has the tile's
-    // own rim around it, and two strokes 1 dp apart is a double border.
+
     ring: Color? = null
 ) {
     val supported = code != null && CountryFlagSupported(code)
@@ -878,10 +803,6 @@ fun CountryFlagCircle(
         contentAlignment = Alignment.Center
     ) {
         if (supported) {
-            // Keep the table's real 3:2 geometry, but make the rectangle wider than the
-            // viewport.  A centred 3:2 rectangle at 2:3 height would leave transparent caps at
-            // the top and bottom of the circle (the old "contain" bug).  This is a true cover:
-            // the circle is painted edge-to-edge and only the flag's left/right edges are cropped.
             Canvas(Modifier.requiredWidth(size * 1.5f).height(size - frame - frame)) {
                 drawCountryFlag(code!!)
             }

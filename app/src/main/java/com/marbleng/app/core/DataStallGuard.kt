@@ -1,11 +1,5 @@
 package com.marbleng.app.core
 
-/**
- * Turns noisy Android data-stall callbacks into bounded validation requests.
- *
- * It never tears a tunnel down. CONFIRM means that the service may run its existing independent
- * route confirmation immediately. Recent real traffic always wins over a synthetic OS signal.
- */
 class DataStallGuard(
     private val confirmationWindowMs: Long = 15_000L,
     private val confirmationSignals: Int = 2,

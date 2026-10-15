@@ -1,45 +1,14 @@
 package com.marbleng.app.core
 
-// MARBLE_RESERVED_TAG_COLLISION_V183
-//
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-// A config-load refusal from Xray is a fact about the document, never about the server
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-//
-// The report that motivated this showed two profiles (`Serverless-v50-fragA` / `-fragB`) failing
-// identically within nine seconds:
-//
-// ```
-// XRAY | start-result | ok=false | phase=failed | reason=Xray exited with code 23:
-//   … [Info] app/dns: DNS: created DOH client for https://1.1.1.1/dns-query …
-//   Failed to start: main: failed to create server > app/proxyman/outbound: existing tag found: block
-// APP | state | from=CONNECTING | to=BLOCKED | detail=Kill switch active • Xray exited with code 23 …
-// ```
-//
-// The hardener appended its own `block` outbound to a document that already carried one (the
-// upstream XTLS serverless shape ships `block-out`, `dns-out`, `tcp-direct-out`; many hand-edited
-// derivatives rename them to the bare `block`/`direct`). The core's outbound manager refuses a
-// duplicate tag at load, so the start died before a single packet was sent — and the UI said
-// "Kill switch active", the Bug Finder said nothing, and the same user would retry every profile.
-//
-// This object turns the core's stderr into three things the rest of the app can act on: a stable
-// *kind*, a one-line headline, and a remediation. `XrayConfigHardener` prevents the collision
-// itself (`renameReservedImportedTags`); this exists so a future load refusal of any kind is
-// reported for what it is.
 object XrayStartFailure {
-
     enum class Kind(val label: String) {
-        /** `app/proxyman/outbound: existing tag found: <tag>` — two outbounds share a tag. */
         DUPLICATE_OUTBOUND_TAG("Duplicate outbound tag"),
-        /** Any other `Failed to start:` / config-load error. */
         CONFIG_REJECTED("Configuration rejected by the core"),
-        /** The local SOCKS/HTTP listener could not bind. */
         PORT_IN_USE("Local port in use")
     }
 
     data class Fault(
         val kind: Kind,
-        /** The single line the core printed that names the cause, trimmed of `[Info]` noise. */
         val cause: String,
         val headline: String,
         val remediation: String
@@ -49,7 +18,6 @@ object XrayStartFailure {
     private val EXIT_CODE = Regex("exited with code\\s*(\\d+)", RegexOption.IGNORE_CASE)
     private val ADDRESS_IN_USE = Regex("address already in use|bind: .*in use", RegexOption.IGNORE_CASE)
 
-    /** True when [reason] is a load-time refusal rather than a runtime death or a stop. */
     fun isConfigLoadFailure(reason: String): Boolean {
         val text = reason.lowercase()
         return "failed to start" in text ||
@@ -62,7 +30,6 @@ object XrayStartFailure {
             "unknown field" in text
     }
 
-    /** The core line that names the cause, or "" when [reason] carries none. */
     fun causeLine(reason: String): String {
         val segments = reason.split('|', '\n').map { it.trim() }.filter { it.isNotBlank() }
         return segments.lastOrNull { segment ->
@@ -73,11 +40,6 @@ object XrayStartFailure {
         }.orEmpty()
     }
 
-    /**
-     * Classify the manager's `lastStartError` (or the last `XRAY | start-result` line in
-     * [runtimeLog] when the in-memory reason is empty because the app process restarted).
-     * Returns `null` when neither describes a load failure.
-     */
     fun classify(lastStartError: String, runtimeLog: String = ""): Fault? {
         val reason = lastStartError.ifBlank { lastStartResultReason(runtimeLog) }
         if (reason.isBlank()) return null
@@ -120,11 +82,6 @@ object XrayStartFailure {
         return null
     }
 
-    /**
-     * The `reason=` field of the most recent `XRAY | start-result` runtime line — but only when
-     * that latest start *failed*. A failure followed by a successful start is history, not a
-     * current fault, and must not keep a repaired profile in FAIL.
-     */
     internal fun lastStartResultReason(runtimeLog: String): String {
         if (runtimeLog.isBlank()) return ""
         val line = runtimeLog.lineSequence()
@@ -134,7 +91,6 @@ object XrayStartFailure {
         return line.substringAfter("reason=", "").trim()
     }
 
-    /** The BLOCKED-state label for [reason]; falls back to the caller's default wording. */
     fun faultClass(reason: String, default: String): String =
         classify(reason)?.let { fault ->
             when (fault.kind) {

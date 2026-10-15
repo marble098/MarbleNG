@@ -4,15 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * Tests for [ManualConfigBuilder.missingRequirement] (MARBLE_SERVERS_QUERY_V120).
- *
- * The Add-node form keeps its Save button disabled until this returns `null` and shows the returned
- * sentence as the reason, so the form and the builder can never disagree about what a complete
- * config is. These tests pin that shared contract down.
- */
 class ManualConfigRequirementTest {
-
     @Test
     fun addressIsTheFirstRequirement() {
         assertEquals(
@@ -47,7 +39,7 @@ class ManualConfigRequirementTest {
                 ManualConfigDraft(host = "1.2.3.4", uuid = "550e8400-e29b-41d4-a716-446655440000")
             )
         )
-        // Plain-text VLESS with no encryption and no TLS cannot be built.
+
         assertEquals(
             "VLESS needs TLS/REALITY or a non-none encryption",
             ManualConfigBuilder.missingRequirement(

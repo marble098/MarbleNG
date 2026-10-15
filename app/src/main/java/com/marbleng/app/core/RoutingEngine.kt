@@ -15,38 +15,7 @@ import java.net.InetAddress
 import java.util.UUID
 import java.util.regex.Pattern
 
-/**
- * MARBLE_ROUTING_ENGINE_V136 — the single source of truth for user routing.
- *
- * What was wrong (and is now fixed, structurally):
- *
- *  1. **Deleted rules resurrected themselves.** `parseRules("")` and even a literal `[]` fell
- *     back to [DEFAULT_RULES], so a user who removed the ads-block or geo rules got them back on
- *     the next launch — and could never actually turn the geo-specific defaults off. Now the
- *     stored list is the truth: empty means empty. First-run defaults are seeded explicitly by
- *     the store migration instead of being re-injected forever.
- *  2. **The routing mode was a lie.** PROXY_ALL still blocked ads and sent geo tags direct,
- *     BYPASS_PRIVATE differed from PROXY_ALL by nothing, and no screen could even change the
- *     mode. [implicitRules] now derives the mode's real behaviour in exactly one place, and every
- *     consumer (config writer, asset preloader, Bug Finder, simulator, UI) reads the same answer.
- *  3. **One bad token killed the whole core.** A port like `443 udp`, a malformed regexp or a
- *     `geosite:tag` that does not exist in the current geosite.dat made Xray reject the entire
- *     config at load time — the tunnel icon stayed "connected" while every site failed with the
- *     browser's "check your connection". [validateRule] catches this before save, and emission
- *     skips a rule that would be rejected, so a stale rule can cost one route, never the tunnel.
- *  4. **Nothing could answer "why is this site failing?"** [simulate] walks the exact ordered
- *     rule sequence the config writer emits — including the implicit mode rules — and names the
- *     winning rule and outbound, offline, using [GeoAssetIndex] for real geosite membership.
- *
- * Order is priority. Enabled rules only. Fail-closed: unmatched traffic stays on the proxy.
- */
 object RoutingEngine {
-
-    /**
-     * The recommended balanced preset: block ad/tracker domains, keep Iranian destinations on the
-     * direct underlay. Seeded on first run and restored by the Recommended preset; never silently
-     * re-injected afterwards.
-     */
     val DEFAULT_RULES: List<RoutingRule> = listOf(
         RoutingRule(
             id = "ads-block",
@@ -74,10 +43,6 @@ object RoutingEngine {
         )
     )
 
-    // ---------------------------------------------------------------------------------------
-    // Persistence — the stored list is the truth
-    // ---------------------------------------------------------------------------------------
-
     fun parseRules(raw: String): List<RoutingRule> {
         val trimmed = raw.trim()
         if (trimmed.isBlank()) return emptyList()
@@ -98,7 +63,6 @@ object RoutingEngine {
         return arr.toString()
     }
 
-    /** The user's own ordered rules. No implicit fallback lives here any more. */
     fun effectiveRules(settings: AppSettings): List<RoutingRule> = parseRules(settings.routingRulesJson)
 
     fun newRule(): RoutingRule = RoutingRule(
@@ -123,24 +87,6 @@ object RoutingEngine {
         remark = if (rule.remark.isBlank()) rule.remark else "${rule.remark} copy"
     )
 
-    // ---------------------------------------------------------------------------------------
-    // Mode semantics — the one definition every consumer shares
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * What the routing mode contributes by itself, independent of the user's own rules.
-     *
-     *  - [RoutingMode.PROXY_ALL]  — everything proxied; ads switch and private bypass remain
-     *    independent expert toggles.
-     *  - [RoutingMode.BYPASS_PRIVATE] — private/LAN ranges always direct (the toggle is pinned on
-     *    for this mode).
-     *  - [RoutingMode.GEO_DIRECT] — the classic anti-censorship split: the configured geo tags
-     *    (`routeGeoIpTags` / `routeGeoSiteTags`) go direct and private stays direct. Identity
-     *    Guard keeps choosing this mode for Iranian users; everyone else simply leaves it.
-     *  - [RoutingMode.CUSTOM] — only the user's own rules; no implicit geo behaviour at all.
-     *
-     * Ad blocking (`routeBlockAds`) is an explicit switch the user owns in every mode.
-     */
     data class ImplicitRules(
         val adsTag: String?,
         val directIpTags: List<String>,
@@ -173,10 +119,6 @@ object RoutingEngine {
             .filter { it.isNotBlank() && !it.equals("private", true) }
             .distinct()
 
-    // ---------------------------------------------------------------------------------------
-    // Validation — a rule that would be rejected by Xray never reaches it
-    // ---------------------------------------------------------------------------------------
-
     enum class IssueSeverity { ERROR, WARNING }
 
     data class RuleIssue(val severity: IssueSeverity, val message: String)
@@ -188,11 +130,6 @@ object RoutingEngine {
         "^(?=.{1,253}$)([a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)(\\.[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)*\\.?"
     )
 
-    /**
-     * Everything wrong with one rule, worst first. ERROR means the engine would reject the
-     * config or the rule cannot work; the editor refuses to save those. WARNING means the rule
-     * will load but part of it cannot be verified offline.
-     */
     fun validateRule(rule: RoutingRule): List<RuleIssue> {
         val issues = mutableListOf<RuleIssue>()
         fun error(message: String) = issues.add(RuleIssue(IssueSeverity.ERROR, message))
@@ -245,11 +182,9 @@ object RoutingEngine {
         return issues.sortedBy { it.severity }
     }
 
-    /** True when the rule may be emitted into the Xray config at all. */
     fun isEmittable(rule: RoutingRule): Boolean =
         rule.enabled && validateRule(rule).none { it.severity == IssueSeverity.ERROR }
 
-    /** The user rules that actually reach the engine, in priority order. */
     fun emittableUserRules(settings: AppSettings): List<RoutingRule> =
         effectiveRules(settings).filter { isEmittable(it) }
 
@@ -326,10 +261,6 @@ object RoutingEngine {
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Asset needs — one answer for the preloader, Bug Finder and the UI
-    // ---------------------------------------------------------------------------------------
-
     fun needsGeoIp(settings: AppSettings): Boolean {
         if (implicitRules(settings).directIpTags.isNotEmpty()) return true
         if (settings.customRoutingEnabled && emittableUserRules(settings).any { rule ->
@@ -372,41 +303,6 @@ object RoutingEngine {
         }
     }
 
-    /**
-     * MARBLE_GEO_READY_GATE_V145 — geo routing is disabled until its databases are really here.
-     *
-     * ## What used to happen
-     *
-     * `XrayManager.start` compared the selected policy against the files on disk and, when
-     * geoip.dat/geosite.dat were missing, it *failed the connection*:
-     *
-     * ```
-     * error("geoip.dat is required by the selected routing policy but no local/bundled copy …")
-     * ```
-     *
-     * The default policy (GEO_DIRECT + ad blocking) needs both files, so on any build/install
-     * where the download had not finished — a fresh install on a censored link, a cleared cache,
-     * an interrupted refresh — the product simply could not connect, and the message named a
-     * file the user has no way to produce. The geo split is an *optimisation* (keep domestic
-     * traffic off the tunnel, drop ad domains). Losing it must cost that optimisation, never the
-     * connection.
-     *
-     * ## What happens now
-     *
-     * This function returns the same settings with every rule that would require a missing
-     * database removed, so the config writer emits a policy the engine can actually load:
-     *
-     *  - `GEO_DIRECT` degrades to `BYPASS_PRIVATE` while geoip.dat is missing — private/LAN
-     *    ranges stay direct (those are literal CIDRs, no database involved) and everything else
-     *    is proxied, which is always safe;
-     *  - geo tag lists and geo tokens inside the direct/proxy/block lists are dropped;
-     *  - ad blocking (a geosite category) is switched off while geosite.dat is missing;
-     *  - user rules that match on a missing database are disabled — the rule survives in
-     *    Settings and starts working by itself the moment the asset lands.
-     *
-     * Pure function: the caller keeps the user's real settings, and the UI reads
-     * [geoDowngradeReason] to explain the temporary state.
-     */
     fun withGeoAssetGate(
         settings: AppSettings,
         geoIpReady: Boolean,
@@ -450,7 +346,6 @@ object RoutingEngine {
         return next
     }
 
-    /** True when [rule] can only work once a database that is not on disk arrives. */
     private fun ruleNeedsMissingAsset(
         rule: RoutingRule,
         geoIpReady: Boolean,
@@ -468,7 +363,6 @@ object RoutingEngine {
         RoutingRuleKind.PORT -> false
     }
 
-    /** Drops `geoip:`/`geosite:` tokens from a comma/newline separated list, keeping literals. */
     private fun stripGeoTokens(raw: String, prefix: String): String {
         if (raw.isBlank()) return raw
         return raw.split(',', '\n', '\r', ';')
@@ -481,10 +375,6 @@ object RoutingEngine {
             .joinToString(",")
     }
 
-    /**
-     * One line for the UI/diagnostics explaining what the gate switched off, or "" when the
-     * databases are complete and the user's policy is running exactly as written.
-     */
     fun geoDowngradeReason(
         settings: AppSettings,
         geoIpReady: Boolean,
@@ -505,15 +395,6 @@ object RoutingEngine {
         return settings.customRoutingEnabled && emittableUserRules(settings).any { it.outbound == RoutingOutbound.DIRECT }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Emission — implicit mode rules first, then the user's ordered rules
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Emits the implicit mode rules and the user's ordered rules. Rules whose validation found
-     * an ERROR are skipped rather than emitted: a stale rule must cost one route, never the
-     * whole core. [seen] deduplicates identical tokens between the implicit and the user layer.
-     */
     fun applyUserRules(rulesOut: JSONArray, settings: AppSettings, proxyTag: String) {
         val implicit = implicitRules(settings)
         if (settings.routeBypassPrivate || implicit.forceBypassPrivate) {
@@ -525,8 +406,7 @@ object RoutingEngine {
 
         implicit.adsTag?.let { ads ->
             normalizeGeoSite(ads)?.let { token ->
-                // MARBLE_MULTI_SOURCE_ROUTING_V212 — the ad category is asked of every enabled
-                // database, so "block ads" is as complete as the union of the sources.
+
                 geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
                     .filter { mark("geosite", it) }
                     .takeIf { it.isNotEmpty() }
@@ -553,8 +433,6 @@ object RoutingEngine {
             }
         }
 
-        // MARBLE_ROUTING_SEPARATE_V143 — user-authored custom rules are opt-in. The built-in
-        // mode/ads/bypass rules above always stay active; only the custom layer is gated.
         if (settings.customRoutingEnabled) for (rule in emittableUserRules(settings)) {
             val tag = outboundTag(rule.outbound, proxyTag)
             val ports = (if (rule.kind == RoutingRuleKind.PORT) rule.matcher.trim() else rule.port)
@@ -610,12 +488,6 @@ object RoutingEngine {
             }
         }
 
-        // MARBLE_MULTI_SOURCE_ROUTING_V212 — the curated domestic knowledge, last. Order is the
-        // whole contract here: the core takes the FIRST rule that matches, so a domain the user
-        // blocked or proxied by hand has already been emitted (and marked) by the time this runs,
-        // and the product's own "keep domestic traffic here" answer can neither override it nor
-        // duplicate it. Emitting it earlier would have made an invisible product rule win over a
-        // rule the user wrote in Settings.
         applyPrecisionRules(rulesOut, settings, seen)
     }
 
@@ -625,24 +497,9 @@ object RoutingEngine {
         RoutingOutbound.BLOCK -> "block"
     }
 
-    // ---------------------------------------------------------------------------------------
-    // MARBLE_MULTI_SOURCE_ROUTING_V212 — several databases, fail-closed emission
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * The asset files that are actually on disk right now.
-     *
-     * The connect path writes them into a transient settings field (the same pattern as
-     * `measuredIpv6Unhealthy` and `measuredDnsDemotedEndpoints`): readiness is a fact about this
-     * session's filesystem, not a preference, so it travels with the settings the writer reads
-     * and is never persisted. An empty value means "assume only the canonical pair", which is the
-     * safe reading — a source that has not reported itself is a source whose rules are not
-     * emitted, and a missing `ext:` file is a config the core refuses to load.
-     */
     fun readyGeoFiles(settings: AppSettings): Set<String> {
         val raw = settings.measuredGeoReadyFiles.trim()
-        // Empty means a legacy/offline caller has not measured the files; `none` is an explicit
-        // connection-time observation that no complete database was available.
+
         if (raw.equals("none", ignoreCase = true)) return emptySet()
         val parsed = raw
             .split(',', '\n', ';')
@@ -658,14 +515,6 @@ object RoutingEngine {
         }
     }
 
-    /**
-     * Every token one geo tag expands to, one per source that can answer it and whose database is
-     * on disk. The primary is the canonical `geoip:tag` / `geosite:tag` form; every other source
-     * names its own file with `ext:`, which is exactly what the core's geo loader reads.
-     *
-     * An empty result means the tag cannot be emitted at all right now — the caller skips the rule
-     * rather than writing a reference to a file that does not exist.
-     */
     fun geoTokens(settings: AppSettings, kind: GeoAssetRegistry.Kind, tag: String): List<String> {
         val ready = readyGeoFiles(settings)
         val cleanTag = GeoAssetRegistry.tagOf(tag).trim().lowercase()
@@ -682,20 +531,7 @@ object RoutingEngine {
         }
     }
 
-    /**
-     * The curated domestic rules: the TLD as a suffix, every named domestic service as a root
-     * domain, and — at the strongest precision level — the brand keywords.
-     *
-     * These are literal domains, so they need no geo database at all: the one class of routing that
-     * keeps working when every download is blocked. They are emitted as a small number of rules
-     * (not one rule per domain) because a rule is matched as a unit, and forty rules of one domain
-     * each is forty times the matcher work for the same answer.
-     */
     fun applyPrecisionRules(rulesOut: JSONArray, settings: AppSettings, seen: MutableSet<String>) {
-        // Every entry here is a DIRECT rule, so it only belongs in a mode whose whole job is
-        // keeping domestic traffic here. In CUSTOM the user's own list is the policy and a
-        // product-authored direct rule would silently outrank it; in PROXY_ALL nothing is direct
-        // by design. [precisionActive] is the one answer both engines and the UI read.
         if (!precisionActive(settings)) return
         val precision = parseGeoPrecision(settings.geoPrecision)
         val suffixes = IranPrecisionPack.suffixes(precision)
@@ -717,20 +553,13 @@ object RoutingEngine {
         }
         if (tokens.isEmpty()) return
 
-        // Chunked so one enormous `domain` array cannot exceed what the core will parse in a
-        // single rule, and so a rule that is ever rejected by a future core costs one chunk.
         tokens.chunked(PRECISION_RULE_CHUNK).forEach { chunk ->
             addDomainRule(rulesOut, chunk, "direct")
         }
     }
 
-    /** Domains per emitted precision rule: large enough to be few rules, small enough to parse. */
     const val PRECISION_RULE_CHUNK: Int = 120
 
-    /**
-     * True when the routing layer separates domestic traffic with the curated knowledge rather
-     * than with geo tags alone. Bug Finder and the routing page both read this one answer.
-     */
     fun precisionActive(settings: AppSettings): Boolean =
         settings.routingMode == RoutingMode.GEO_DIRECT &&
             settings.iranDomesticDirect &&
@@ -785,16 +614,10 @@ object RoutingEngine {
         }
     }.distinct()
 
-    // ---------------------------------------------------------------------------------------
-    // Simulator — "why is this site failing?", answered offline
-    // ---------------------------------------------------------------------------------------
-
-    /** What one evaluated layer decided about the tested host. */
     data class RouteStep(
         val title: String,
         val detail: String,
         val outbound: RoutingOutbound?,
-        /** null = this layer cannot be verified offline (a geo database tag, a port input). */
         val matched: Boolean?,
         val skipped: Boolean = false
     )
@@ -803,22 +626,13 @@ object RoutingEngine {
         val host: String,
         val isIpLiteral: Boolean,
         val steps: List<RouteStep>,
-        /** Outbound the connection would take; always resolvable (fallback is the proxy). */
         val verdict: RoutingOutbound,
         val verdictReason: String
     )
 
-    /**
-     * Walks the layers in exactly the order [com.marbleng.app.core.XrayConfigHardener] emits
-     * them, so the answer on screen is the answer the engine takes. geosite membership is
-     * verified against the real indexed domain lists; a geoip tag cannot be verified offline and
-     * is reported as unverifiable instead of being folded into a fake no.
-     */
     fun simulate(settings: AppSettings, host: String): RouteSimulation {
         val clean = host.trim().trimEnd('.').lowercase()
-        // Literal detection is textual on purpose: InetAddress.getByName would otherwise perform
-        // a real DNS lookup for every domain input — a simulator that leaks queries is itself a
-        // defect. Only genuinely literal shapes are parsed, and parsing a literal never resolves.
+
         val isIp = looksLikeLiteral(clean)
         val literalIp: InetAddress? = if (isIp) {
             runCatching { InetAddress.getByName(clean) }.getOrNull()
@@ -829,12 +643,8 @@ object RoutingEngine {
         var verdict: RoutingOutbound? = null
         var reason = ""
 
-        // MARBLE_MULTI_SOURCE_ROUTING_V212 — the precision level of this simulation, and the one
-        // place that turns "a geo tag matched" into "this database matched", which is the answer a
-        // user needs when a domestic destination went through the tunnel.
         val precision = parseGeoPrecision(settings.geoPrecision)
 
-        /** " • from Chocolate4U Iran, Loyalsoldier", or "" when nothing indexed can say. */
         fun provenanceNote(kind: GeoAssetIndex.Kind, tag: String): String {
             val sources = GeoAssetIndex.sourcesFor(kind, tag)
             return if (sources.isEmpty()) "" else " • from " + sources.joinToString(", ")
@@ -847,7 +657,6 @@ object RoutingEngine {
             }
         }
 
-        // 1. Fail-closed IPv6 block when the family is switched off.
         val literalV6 = literalIp is Inet6Address
         if (literalV6 && !settings.ipv6Enabled) {
             steps += RouteStep("IPv6", "::/0 blocked (IPv6 off)", RoutingOutbound.BLOCK, true)
@@ -858,11 +667,6 @@ object RoutingEngine {
 
         val domainForMatch = clean.takeIf { !isIp }
 
-        /**
-         * Domain-list matching shared by every domain layer. `null` means "this layer exists and
-         * could still match, but the verdict lives inside the geo database" — reported honestly
-         * instead of being folded into a fake no.
-         */
         fun matchDomainTokens(tokens: List<String>): Boolean? {
             if (tokens.isEmpty()) return false
             var unverifiable = false
@@ -900,7 +704,6 @@ object RoutingEngine {
             return if (unverifiable) null else false
         }
 
-        /** IP/CIDR list matching. A geoip tag can never be verified offline: it reports null. */
         fun matchIpTokens(tokens: List<String>): Boolean? {
             if (tokens.isEmpty()) return false
             var unverifiable = false
@@ -914,15 +717,11 @@ object RoutingEngine {
                     if (cidrContains(cidr, literalIp)) return true
                 }
             } else {
-                // A domain destination still carries an address when the engine matches IP
-                // rules (the hijacked resolver answered it), so a geoip tag may claim it at
-                // runtime — the simulator cannot see that address and says so.
                 if (tokens.any { it.startsWith("geoip:", true) }) unverifiable = true
             }
             return if (unverifiable) null else false
         }
 
-        // 2. Expert block lists.
         if (settings.routeBlockDomains.isNotBlank()) {
             val hit = matchDomainTokens(splitDomains(settings.routeBlockDomains))
             steps += RouteStep(
@@ -940,7 +739,6 @@ object RoutingEngine {
             if (hit == true) decide(RoutingOutbound.BLOCK, "Matched the expert block-IP list")
         }
 
-        // 3. Expert proxy list.
         if (settings.routeProxyDomains.isNotBlank()) {
             val hit = matchDomainTokens(splitDomains(settings.routeProxyDomains))
             steps += RouteStep(
@@ -950,7 +748,6 @@ object RoutingEngine {
             if (hit == true) decide(RoutingOutbound.PROXY, "Matched the expert proxy-domain list")
         }
 
-        // 4. Implicit mode behaviour (ads + geo tags) — the layers applyUserRules emits first.
         val implicit = implicitRules(settings)
         implicit.adsTag?.let { ads ->
             val tag = normalizeGeoSite(ads) ?: return@let
@@ -974,8 +771,7 @@ object RoutingEngine {
         }
         implicit.directSiteTags.forEach { tag ->
             val token = normalizeGeoSite(tag) ?: return@forEach
-            // MARBLE_MULTI_SOURCE_ROUTING_V212 — one step per source, named: "which database
-            // answered?" is the first question a user asks about a domestic site that got proxied.
+
             val tokens = geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
                 .ifEmpty { listOfNotNull(normalizeGeoSite(token)) }
             val hit = matchDomainTokens(tokens)
@@ -991,10 +787,6 @@ object RoutingEngine {
             if (hit == true) decide(RoutingOutbound.DIRECT, "Matched $token (geo direct policy)")
         }
 
-        // MARBLE_MULTI_SOURCE_ROUTING_V212 — the curated domestic layer, reported where it runs:
-        // after the geo tags and before the user's own rules. It is the layer that answers for the
-        // domestic service no database has listed yet, so a simulator that skipped it would keep
-        // printing "proxy" for exactly the destinations this feature exists for.
         if (precisionActive(settings) && domainForMatch != null) {
             val category = IranPrecisionPack.categoryOf(domainForMatch, precision)
             val byTld = domainForMatch == IranPrecisionPack.TLD_SUFFIX ||
@@ -1014,7 +806,6 @@ object RoutingEngine {
             }
         }
 
-        // 5. The user's own rules, in priority order.
         effectiveRules(settings).forEachIndexed { index, rule ->
             val title = "Rule ${index + 1} • ${rule.remark.ifBlank { rule.kind.name }}"
             if (!rule.enabled) {
@@ -1045,7 +836,7 @@ object RoutingEngine {
                 RoutingRuleKind.GEOIP ->
                     matchIpTokens(listOf(normalizeGeoIp(rule.matcher).orEmpty()))
                 RoutingRuleKind.IP -> matchIpTokens(splitIps(rule.matcher))
-                // Ports are not part of a host; the layer is reported without a fake verdict.
+
                 RoutingRuleKind.PORT -> null
             }
             val extra = when {
@@ -1070,7 +861,6 @@ object RoutingEngine {
             }
         }
 
-        // 6. Expert direct lists (below user rules, exactly like the emitted config).
         if (settings.routeDirectDomains.isNotBlank()) {
             val hit = matchDomainTokens(splitDomains(settings.routeDirectDomains))
             steps += RouteStep(
@@ -1088,7 +878,6 @@ object RoutingEngine {
             if (hit == true) decide(RoutingOutbound.DIRECT, "Matched the expert direct-IP list")
         }
 
-        // 7. Fail-closed fallback.
         if (verdict == null) {
             steps += RouteStep(
                 "Fallback",
@@ -1120,14 +909,6 @@ object RoutingEngine {
         return parts.joinToString(" + ").ifBlank { rule.kind.name }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // IP/CIDR helpers shared with the simulator and its tests
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Parses `1.2.3.4`, `1.2.3.0/24`, `::1` or `fe80::/10`. The textual shape is checked before
-     * any parsing so a word like "ir" can never trigger a DNS lookup inside a validator.
-     */
     fun parseCidr(raw: String): Pair<InetAddress, Int>? {
         val token = raw.trim()
         if (token.isEmpty()) return null
@@ -1145,7 +926,6 @@ object RoutingEngine {
         return address to prefix
     }
 
-    /** True when [address] falls inside the parsed CIDR. Mixed-family comparisons are false. */
     fun cidrContains(cidr: Pair<InetAddress, Int>, address: InetAddress): Boolean {
         val (network, prefix) = cidr
         val networkBytes = network.address
