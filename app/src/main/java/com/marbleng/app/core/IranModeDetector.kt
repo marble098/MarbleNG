@@ -16,7 +16,6 @@ import javax.net.ssl.SNIServerName
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
-/** Filtering mechanisms MarbleNG can observe from the client side. */
 enum class CensorTechnique {
     DNS_POISONING,
     SNI_FILTERING,
@@ -38,7 +37,6 @@ enum class CensorTechnique {
         }
 }
 
-/** One observation that contributed to the Iran Mode decision. */
 data class IranSignal(
     val id: String,
     val label: String,
@@ -67,7 +65,6 @@ data class IranModeState(
     val ispPersianName: String get() = isp?.persianName.orEmpty()
     val severity: FilterSeverity get() = isp?.severity ?: FilterSeverity.HEAVY
 
-    /** Short one-line ISP identity for banners and notifications. */
     val ispLine: String
         get() = when {
             isp == null -> "Unidentified network"
@@ -76,15 +73,8 @@ data class IranModeState(
         }
 }
 
-/**
- * Live detection of "am I on an Iranian ISP, and how is this link being filtered right now".
- *
- * Every probe is bound to the physical underlay when one is known, so a running tunnel can never
- * make the detector observe the exit country instead of the user's real ISP. Detection is scored:
- * soft evidence (timezone, IP-prefix table) can support a decision but never make one alone.
- */
 class IranModeDetector(
-    // MARBLE_IRAN_DETECTOR_HARDENING_V22
+
     private val context: Context,
     private val intelligence: MarbleIntelligence
 ) {
@@ -101,13 +91,6 @@ class IranModeDetector(
 
     private enum class TlsOutcome { OK, RESET, TIMEOUT, BLOCKPAGE, ERROR }
 
-    /**
-     * Runs a detection sweep.
-     *
-     * @param tunnelActive when true and no physical underlay handle is available, remote lookups are
-     *        skipped instead of being answered by the tunnel exit.
-     * @param deepProbe runs the censorship-technique fingerprinting pass as well.
-     */
     fun detect(
         policy: IranModePolicy,
         tunnelActive: Boolean,
@@ -126,7 +109,6 @@ class IranModeDetector(
             )
         }
 
-        // Force on is authoritative: skip geolocation, DNS, resolver and DPI probes completely.
         if (policy == IranModePolicy.ALWAYS_ON) {
             val forced = IranModeState(
                 active = true,
@@ -151,7 +133,6 @@ class IranModeDetector(
         var organisation = ""
         var publicIp = ""
 
-        // ---- Signal 1: the mobile network the device is actually registered on ----
         val networkOperator = runCatching { telephony?.networkOperator.orEmpty() }.getOrDefault("")
         val simOperator = runCatching { telephony?.simOperator.orEmpty() }.getOrDefault("")
         val carrierName = runCatching { telephony?.networkOperatorName.orEmpty() }.getOrDefault("")
@@ -160,8 +141,6 @@ class IranModeDetector(
         val cellularUnderlay = physicalTransport.contains("cell") || physicalTransport.contains("mobile")
         val carrierIsp = IranNetworkRegistry.byOrganisation(carrierName)
 
-        // MarbleNG v6.1.0: active-underlay carrier evidence. A SIM must never make Wi-Fi
-        // look Iranian by itself; registered-network evidence is hard only on a cellular underlay.
         if (cellularUnderlay && IranNetworkRegistry.isIranianOperatorCode(networkOperator)) {
             score += 60
             hardEvidence = true
@@ -205,7 +184,6 @@ class IranModeDetector(
             )
         }
 
-        // ---- Signal 2: authoritative country/ASN of the physical uplink ----
         if (remoteAllowed) {
             val lookup = lookupPublicNetwork(underlay)
             if (lookup.ok && lookup.country.isNotBlank()) {
@@ -240,16 +218,11 @@ class IranModeDetector(
             }
         }
 
-        // ---- Signal 3: offline IPv4 allocation table ----
         if (publicIp.isNotBlank() && IranNetworkRegistry.isKnownIranianIpv4(publicIp)) {
             score += 25
             signals += IranSignal("prefix", "Address inside a known Iranian allocation", 25, publicIp)
         }
 
-        // ---- Signal 4: national block-page DNS injection ----
-        // Never send fixed test domains through netd's plaintext DNS on the underlay. A
-        // censored resolver may refuse encrypted DoH; that is inconclusive, not consent to
-        // perform a cleartext system-DNS probe while a VPN is active.
         val poisoned = if (remoteAllowed) probeDnsPoisoning() else emptyList()
         if (poisoned.isNotEmpty()) {
             score += 75
@@ -262,9 +235,6 @@ class IranModeDetector(
             )
         }
 
-        // ---- Signal 5: domestic-only resolvers ----
-        // Supporting evidence only: a foreign client can sometimes complete a TCP handshake with
-        // these resolvers even though they refuse to answer, so this must never activate alone.
         val domestic = if (remoteAllowed) {
             probeDomesticResolvers(underlay)
         } else {
@@ -290,7 +260,6 @@ class IranModeDetector(
             )
         }
 
-        // ---- Signal 6: soft locale evidence ----
         if (runCatching { TimeZone.getDefault().id }.getOrDefault("") == "Asia/Tehran") {
             score += 12
             signals += IranSignal("timezone", "Device timezone is Asia/Tehran", 12)
@@ -301,7 +270,6 @@ class IranModeDetector(
             signals += IranSignal("sim-country", "SIM country is Iran", 10)
         }
 
-        // A confident non-Iranian geolocation always wins over soft evidence.
         if (foreignCountry.isNotBlank()) {
             score -= 120
             signals += IranSignal(
@@ -370,10 +338,6 @@ class IranModeDetector(
             "No Iranian ISP detected • Iran Mode idle"
     }
 
-    // ------------------------------------------------------------------
-    // Probes
-    // ------------------------------------------------------------------
-
     private val lookupEndpoints = listOf(
         "https://speed.cloudflare.com/meta",
         "https://ipinfo.io/json",
@@ -383,9 +347,6 @@ class IranModeDetector(
     )
 
     private fun lookupPublicNetwork(network: Network?): Lookup {
-        // MarbleNG v6.1.0: do not trust the first geolocation service that answers.
-        // Collect independent observations, return early on two-country consensus, and reject
-        // contradictory multi-provider results instead of letting one endpoint disable Iran Mode.
         val samples = mutableListOf<Lookup>()
         for (endpoint in lookupEndpoints) {
             val result = runCatching { fetchLookup(network, endpoint) }.getOrNull()
@@ -459,7 +420,6 @@ class IranModeDetector(
             return Lookup(country.isNotBlank(), country, asn, organisation, ip)
         }
 
-        // Cloudflare trace: key=value lines.
         val values = trimmed.lines()
             .mapNotNull { line ->
                 val key = line.substringBefore('=', "")
@@ -481,8 +441,6 @@ class IranModeDetector(
         return 0
     }
 
-    /** Returns test domains whose IP-literal encrypted DoH answers were block-page addresses.
-     * The previous OS-DNS poisoning probe emitted plaintext A questions outside the VPN. */
     private fun probeDnsPoisoning(): List<String> {
         val hits = mutableListOf<String>()
         for (domain in IranNetworkRegistry.FILTERED_PROBE_DOMAINS) {
@@ -542,13 +500,10 @@ class IranModeDetector(
                 if (CensorTechnique.SNI_FILTERING in found) break
             }
 
-            // Port allowlist: 443 works while well-known non-allowlisted ports are dropped.
             val altPortsBlocked = !tcpReachable(network, "1.1.1.1", 853, 2_500) &&
                 !tcpReachable(network, "8.8.8.8", 853, 2_500)
             if (altPortsBlocked) found += CensorTechnique.PROTOCOL_ALLOWLIST
 
-            // An active UDP/53 DNS probe would send a plaintext domain outside the VPN.
-            // No probe means no UDP verdict; never label UDP blocked from absent evidence.
         } else {
             val foreignTcp = tcpReachable(network, "1.1.1.1", 443, 2_500) ||
                 tcpReachable(network, "8.8.8.8", 443, 2_500)
@@ -563,8 +518,7 @@ class IranModeDetector(
         return try {
             val addresses = EncryptedEndpointResolver.resolve(host)
             if (addresses.isEmpty()) return TlsOutcome.ERROR
-            // A resolver poisoned in one family only is invisible to a single-answer probe, so every
-            // record is inspected before the first usable one is dialled.
+
             if (addresses.any { IranNetworkRegistry.isBlockPageAddress(it.hostAddress.orEmpty()) }) {
                 return TlsOutcome.BLOCKPAGE
             }
@@ -603,9 +557,7 @@ class IranModeDetector(
         return try {
             val addresses = EncryptedEndpointResolver.resolve(host).toList()
             if (addresses.isEmpty()) return false
-            // Dial every record instead of trusting the first answer: a network that black-holes only
-            // IPv4 (or only IPv6) does not have an unreachable host, and an IPv6-only check is exactly
-            // what proves whether the underlay can carry the family Marble prefers.
+
             addresses.any { address ->
                 runCatching { socket?.close() }
                 val candidate = network?.socketFactory?.createSocket() ?: Socket()
@@ -618,5 +570,4 @@ class IranModeDetector(
             runCatching { socket?.close() }
         }
     }
-
 }

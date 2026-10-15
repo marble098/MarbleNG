@@ -4,12 +4,6 @@ import com.marbleng.app.model.ProxyProfile
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * Compare a share link's current wire configuration with its saved JSON cache. Comparing only the
- * endpoint (as the old startup reconciliation did) missed a dropped REALITY key, bad SNI, XHTTP
- * extra or transport mode on the *same* host:port. Ignore log/routing/inbound metadata and extra
- * user-supplied outbound fields, but require every field the current link reader actually writes.
- */
 object LinkWireParity {
     fun matches(stored: ProxyProfile, fromLink: ProxyProfile): Boolean {
         if (!stored.scheme.equals(fromLink.scheme, true) || stored.host != fromLink.host ||
@@ -43,7 +37,6 @@ object LinkWireParity {
         else -> stream.optString("method").ifBlank { stream.optString("network", "raw") }.lowercase()
     }
 
-    /** Expected fields are mandatory; unknown fields in a stored config are left undisturbed. */
     private fun includes(actual: Any?, expected: Any?): Boolean = when (expected) {
         is JSONObject -> actual is JSONObject && expected.keys().asSequence().all { key ->
             actual.has(key) && includes(actual.opt(key), expected.opt(key))

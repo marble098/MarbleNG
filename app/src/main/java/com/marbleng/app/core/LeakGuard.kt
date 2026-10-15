@@ -6,45 +6,25 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
-/**
- * Continuous Leak Guard — real-time IP and DNS leak detection and prevention for MarbleNG.
- *
- * Problem addressed: The old PrivacyAuditor was a manual point-in-time check. Under severe
- * censorship, leaks can happen silently during reconnections, network changes, or DNS
- * resolver failures. This engine provides continuous monitoring.
- *
- * Features:
- * 1. Periodic background IP verification through the tunnel
- * 2. DNS leak detection by checking resolver identity
- * 3. Underlay bypass detection (traffic going around the VPN)
- * 4. Automatic alerting when leaks are detected
- * 5. DNS encryption verification
- * 6. WebRTC/IP leak surface assessment
- * 7. Network-change triggered re-verification
- */
 class LeakGuard {
-
-    /** Severity of a detected leak. */
     enum class LeakSeverity {
-        NONE,       // No leak detected
-        INFO,       // Informational observation
-        WARNING,    // Potential leak risk
-        CRITICAL    // Active leak confirmed
+        NONE,
+        INFO,
+        WARNING,
+        CRITICAL
     }
 
-    /** Types of leaks monitored. */
     enum class LeakType {
-        IP_UNDERLAY_MATCH,    // Tunnel exit IP matches physical IP
-        DNS_UNENCRYPTED,      // DNS queries going to plaintext resolvers
-        DNS_IRANIAN_RESOLVER, // DNS resolved through Iranian ISP resolver
-        DNS_LEAK_VIA_TUNNEL,  // DNS leaking outside tunnel
-        IPV6_LEAK,            // IPv6 traffic bypassing tunnel
-        WEBRTC_LEAK,          // WebRTC revealing real IP
-        SPLIT_TUNNEL_BYPASS,  // App traffic bypassing tunnel
-        DNS_CACHE_POISONED    // DNS cache contains poisoned entries
+        IP_UNDERLAY_MATCH,
+        DNS_UNENCRYPTED,
+        DNS_IRANIAN_RESOLVER,
+        DNS_LEAK_VIA_TUNNEL,
+        IPV6_LEAK,
+        WEBRTC_LEAK,
+        SPLIT_TUNNEL_BYPASS,
+        DNS_CACHE_POISONED
     }
 
-    /** Single leak finding. */
     data class LeakFinding(
         val type: LeakType,
         val severity: LeakSeverity,
@@ -55,7 +35,6 @@ class LeakGuard {
         val underlayIp: String = ""
     )
 
-    /** Overall leak assessment. */
     data class LeakAssessment(
         val overallSeverity: LeakSeverity,
         val findings: List<LeakFinding>,
@@ -63,10 +42,9 @@ class LeakGuard {
         val ipVerified: Boolean,
         val dnsVerified: Boolean,
         val encryptionVerified: Boolean,
-        val score: Int  // 0-100, higher = safer
+        val score: Int
     )
 
-    // State
     private val findings = CopyOnWriteArrayList<LeakFinding>()
     private val lastIpVerification = AtomicLong(0)
     private val lastDnsVerification = AtomicLong(0)
@@ -77,35 +55,26 @@ class LeakGuard {
     private val verificationCount = AtomicInteger(0)
     private val leakDetectedCount = AtomicInteger(0)
 
-    // Known Iranian DNS resolver ranges
     private val IRANIAN_DNS_PREFIXES = setOf(
-        "172.29.0.",     // TCRI internal
-        "10.211.196.",   // IR-ISP range
-        "5.202.10.",     // Pars Online
-        "79.175.132.",   // Afranet
-        "213.202.248.",  // IR-ASN
-        "194.225.151.",  // MTN Irancell DNS
-        "194.150.76."    // Rightel DNS
+        "172.29.0.",
+        "10.211.196.",
+        "5.202.10.",
+        "79.175.132.",
+        "213.202.248.",
+        "194.225.151.",
+        "194.150.76."
     )
 
-    // Known encrypted resolver providers.
-    // MARBLE_RESOLVER_SINKHOLE_V163 — "shecan" is deliberately NOT on this list any more: it is
-    // an Iranian anti-sanction resolver, and a session whose lookups reach it is a DNS leak to
-    // a domestic operator, not a verified-encrypted session.
     private val ENCRYPTED_PROVIDERS = setOf(
         "cloudflare", "google", "quad9", "adguard",
         "nextdns", "opendns", "mullvad", "control d",
         "yandex", "cleanbrowsing"
     )
 
-    // Configuration
-    private val verificationIntervalMs = 60_000L      // Verify every 60 seconds
-    private val networkChangeGraceMs = 10_000L         // 10s grace after network change
+    private val verificationIntervalMs = 60_000L
+    private val networkChangeGraceMs = 10_000L
     private val maxFindings = 50
 
-    /**
-     * Record the current proxy exit IP (for comparison against future checks).
-     */
     fun setKnownProxyIp(ip: String) {
         if (ip.isNotBlank() && !knownProxyIps.contains(ip)) {
             knownProxyIps.add(ip)
@@ -113,9 +82,6 @@ class LeakGuard {
         }
     }
 
-    /**
-     * Record the current underlay/physical IP.
-     */
     fun setKnownUnderlayIp(ip: String) {
         if (ip.isNotBlank() && !knownUnderlayIps.contains(ip)) {
             knownUnderlayIps.add(ip)
@@ -123,21 +89,14 @@ class LeakGuard {
         }
     }
 
-    /**
-     * Update tunnel status.
-     */
     fun setTunnelActive(active: Boolean) {
         tunnelActive.set(active)
         if (!active) {
-            // Reset verification timestamps on disconnect
             lastIpVerification.set(0)
             lastDnsVerification.set(0)
         }
     }
 
-    /**
-     * Check if a verification is due (called by the main loop).
-     */
     fun isVerificationDue(nowMs: Long = System.currentTimeMillis()): Boolean {
         if (!tunnelActive.get()) return false
         val lastIp = lastIpVerification.get()
@@ -145,9 +104,6 @@ class LeakGuard {
         return (nowMs - lastIp > verificationIntervalMs) || (nowMs - lastDns > verificationIntervalMs)
     }
 
-    /**
-     * Record a privacy report result and check for leaks.
-     */
     fun processReport(report: PrivacyReport, nowMs: Long = System.currentTimeMillis()): LeakAssessment {
         verificationCount.incrementAndGet()
 
@@ -161,7 +117,6 @@ class LeakGuard {
 
         val newFindings = mutableListOf<LeakFinding>()
 
-        // Check 1: IP leak - proxy IP matches underlay IP
         if (report.proxyIp.isNotBlank() && report.underlayIp.isNotBlank() &&
             report.proxyIp == report.underlayIp) {
             newFindings += LeakFinding(
@@ -175,9 +130,6 @@ class LeakGuard {
             leakDetectedCount.incrementAndGet()
         }
 
-        // A single dual-stack trace can choose IPv4 on both sides and miss an IPv6 bypass.
-        // Compare the independent IPv6-only observations; a missing exit response is
-        // INCONCLUSIVE (the proxy may simply lack IPv6), never a clean bill of health.
         if (report.proxyIpv6.isNotBlank() && report.underlayIpv6.isNotBlank() &&
             report.proxyIpv6 == report.underlayIpv6) {
             newFindings += LeakFinding(
@@ -190,7 +142,6 @@ class LeakGuard {
             leakDetectedCount.incrementAndGet()
         }
 
-        // Check 2: DNS leak - DNS servers are Iranian
         val dnsRows = report.dnsServers
         if (dnsRows.isNotBlank() && dnsRows != "inconclusive") {
             val isIranianDns = IRANIAN_DNS_PREFIXES.any { prefix ->
@@ -208,7 +159,6 @@ class LeakGuard {
             }
         }
 
-        // Check 3: DNS encryption verification
         val dnsEncrypted = report.dnsServers.isNotBlank() &&
             ENCRYPTED_PROVIDERS.any { provider ->
                 report.dnsServers.contains(provider, ignoreCase = true)
@@ -229,7 +179,6 @@ class LeakGuard {
             lastDnsVerification.set(nowMs)
         }
 
-        // Check 4: Proxy IP is blank (tunnel may not be routing)
         if (report.proxyIp.isBlank() && report.proxyIpv6.isBlank() && tunnelActive.get()) {
             newFindings += LeakFinding(
                 type = LeakType.IP_UNDERLAY_MATCH,
@@ -239,21 +188,14 @@ class LeakGuard {
             )
         }
 
-        // Add new findings
         findings.addAll(newFindings)
         while (findings.size > maxFindings) findings.removeAt(0)
 
         return computeAssessment(nowMs)
     }
 
-    /**
-     * Verify that no traffic is bypassing the tunnel on a network change.
-     */
     fun onNetworkChanged(previousProxyIp: String, newUnderlayIp: String): List<LeakFinding> {
         val newFindings = mutableListOf<LeakFinding>()
-
-        // If underlay IP changed but proxy IP stayed the same, the tunnel is likely working
-        // If underlay IP changed and proxy IP also changes to match, we have a leak
 
         if (previousProxyIp.isNotBlank() && newUnderlayIp == previousProxyIp) {
             newFindings += LeakFinding(
@@ -267,18 +209,15 @@ class LeakGuard {
         }
 
         findings.addAll(newFindings)
-        // Force re-verification after network change
+
         lastIpVerification.set(0)
         lastDnsVerification.set(0)
 
         return newFindings
     }
 
-    /**
-     * Compute the current leak assessment from all findings.
-     */
     fun computeAssessment(nowMs: Long = System.currentTimeMillis()): LeakAssessment {
-        val recentFindings = findings.filter { nowMs - it.detectedAt < 300_000 } // Last 5 minutes
+        val recentFindings = findings.filter { nowMs - it.detectedAt < 300_000 }
 
         val hasCritical = recentFindings.any { it.severity == LeakSeverity.CRITICAL }
         val hasWarning = recentFindings.any { it.severity == LeakSeverity.WARNING }
@@ -294,7 +233,6 @@ class LeakGuard {
         val dnsVerified = lastDnsVerification.get() > 0 && nowMs - lastDnsVerification.get() < verificationIntervalMs * 2
         val encryptionVerified = recentFindings.none { it.type == LeakType.DNS_UNENCRYPTED || it.type == LeakType.DNS_IRANIAN_RESOLVER }
 
-        // Compute score
         var score = 100
         recentFindings.forEach { finding ->
             score -= when (finding.severity) {
@@ -320,9 +258,6 @@ class LeakGuard {
         )
     }
 
-    /**
-     * Get diagnostic snapshot.
-     */
     fun snapshot(): Map<String, Any> = mapOf(
         "tunnelActive" to tunnelActive.get(),
         "findingsCount" to findings.size,
@@ -334,9 +269,6 @@ class LeakGuard {
         "knownUnderlayIps" to knownUnderlayIps.toList()
     )
 
-    /**
-     * Clear all findings (e.g., after reconnect).
-     */
     fun clearFindings() {
         findings.clear()
     }

@@ -1,23 +1,5 @@
 package com.marbleng.app.ui
 
-// =================================================================================================
-// MARBLE_PROTOCOL_IDENTITY — one unique colour identity per wire scheme.
-// MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the flag is the circle; the type is text.
-// =================================================================================================
-//
-// The hand-drawn glyph set (the VLESS "V", the VMESS envelope, the sock, the shields) is gone:
-// at tile size it read as the ugly, unexplainable shapes inside the server circles. A server's
-// circle now carries its country — the real national flag filling the disc edge to edge, or the
-// name's own flag glyph while the tested location is still unknown — and the wire scheme speaks
-// as TEXT: [ProtocolBadge] renders each protocol's label bold in a hue that belongs to it alone
-// (see [protocolTone]: ten families, ten distinct, hand-picked colours). The same hue tints the
-// resting rim of the circle, so type and place still read from the same glance.
-//
-// The layout vocabulary follows the modern VPN clients on the Play Store: circular flag avatars,
-// quiet tinted fills, hairline borders that light up with state, and a latency readout that sits
-// in its own right-aligned stat column — number first, quality meter under it — instead of a lone
-// number floating in the middle of a row.
-
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -57,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.core.ServerCountry
 import androidx.compose.ui.unit.sp
 
-/** The wire schemes Marble knows how to draw an identity for. */
 enum class ProtocolFamily(val label: String) {
     VLESS("VLESS"),
     VMESS("VMESS"),
@@ -71,7 +52,6 @@ enum class ProtocolFamily(val label: String) {
     OTHER("PROXY")
 }
 
-/** Normalises any stored scheme string onto the family that owns its identity. */
 fun protocolFamilyOf(scheme: String): ProtocolFamily =
     when (scheme.trim().uppercase()) {
         "VLESS" -> ProtocolFamily.VLESS
@@ -86,39 +66,23 @@ fun protocolFamilyOf(scheme: String): ProtocolFamily =
         else -> ProtocolFamily.OTHER
     }
 
-/**
- * MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the single tone table for every protocol. Both lists read
- * it, so the Servers page and the Home page can never paint the same scheme in two different
- * colours again.
- *
- * Every family owns its own hue now — one hand-picked colour per wire scheme, chosen to stay
- * legible on both the light and the dark surface (mid-tone 500-class hues on their own faint
- * tint) and to be unmistakable from its neighbours: violet, sky, emerald, amber, rose, teal,
- * indigo, magenta, orange and cool grey. Ten schemes, ten hues, zero collisions.
- */
 @Composable
 fun protocolTone(family: ProtocolFamily): Color = when (family) {
-    ProtocolFamily.VLESS -> Color(0xFF7C5CFF)          // electric violet
-    ProtocolFamily.VMESS -> Color(0xFF0EA5E9)          // sky blue
-    ProtocolFamily.TROJAN -> Color(0xFF10B981)         // emerald
-    ProtocolFamily.SHADOWSOCKS -> Color(0xFFF59E0B)    // amber
-    ProtocolFamily.HYSTERIA2 -> Color(0xFFF43F5E)      // rose — the fast, loud one
-    ProtocolFamily.WIREGUARD -> Color(0xFF14B8A6)      // teal
-    ProtocolFamily.SSH -> Color(0xFF6366F1)            // indigo
-    ProtocolFamily.SOCKS -> Color(0xFFEC4899)          // magenta
-    ProtocolFamily.HTTP -> Color(0xFFF97316)           // orange
-    ProtocolFamily.OTHER -> Color(0xFF94A3B8)          // cool slate grey
+    ProtocolFamily.VLESS -> Color(0xFF7C5CFF)
+    ProtocolFamily.VMESS -> Color(0xFF0EA5E9)
+    ProtocolFamily.TROJAN -> Color(0xFF10B981)
+    ProtocolFamily.SHADOWSOCKS -> Color(0xFFF59E0B)
+    ProtocolFamily.HYSTERIA2 -> Color(0xFFF43F5E)
+    ProtocolFamily.WIREGUARD -> Color(0xFF14B8A6)
+    ProtocolFamily.SSH -> Color(0xFF6366F1)
+    ProtocolFamily.SOCKS -> Color(0xFFEC4899)
+    ProtocolFamily.HTTP -> Color(0xFFF97316)
+    ProtocolFamily.OTHER -> Color(0xFF94A3B8)
 }
 
 @Composable
 fun protocolToneOf(scheme: String): Color = protocolTone(protocolFamilyOf(scheme))
 
-/**
- * MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the protocol as pure text: a solid, pill-shaped chip in
- * the family's own hue, its label bold and slightly tracked. No glyph, no icon well — the colour
- * IS the second identifier, and each of the ten families owns one. This is the "what kind of
- * server is this" answer, sized to sit under a server name.
- */
 @Composable
 fun ProtocolBadge(
     scheme: String,
@@ -145,30 +109,6 @@ fun ProtocolBadge(
     )
 }
 
-/**
- * The circular server avatar of a row.
- *
- * MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the flag IS the circle, always. The hand-drawn protocol
- * glyphs that used to sit inside these circles are gone; when the endpoint's country is known the
- * real national flag fills the circle edge to edge, and when it is not, the country the server's
- * own name leads with (its emoji glyph) stands in at full size on the protocol's tinted well —
- * never a wire-scheme doodle. The protocol's hue survives as the resting rim, and the type itself
- * is spoken by [ProtocolBadge]'s coloured text chip on the line below.
- *
- * [stateTone] — when the row is connected or selected — overrides the rim and casts the soft
- * shadow, so the connection state and the protocol identity never fight over the same pixel.
- *
- * MARBLE_ROUTE_ATELIER_V207 — the picture may only claim what was measured.
- *
- * A 32 dp national flag is not decoration: it is a sentence about the world ("this server is in
- * Germany"), and the app can only say it when the resolver actually located the endpoint. The label
- * an operator wrote in a node name — 🇩🇪 in front of "Frankfurt-03" — is a name, not a measurement,
- * so [MarbleLocationTrust] now decides three things at once: whether flag art is drawn at all,
- * whether the rim is solid (confirmed) or dashed (nothing but a label, or nothing at all), and what
- * the control says out loud to TalkBack. An answer one lone provider produced is drawn and named
- * as exactly that. The emoji never disappears from the row; it simply stays inside the name, where
- * it was written.
- */
 @Composable
 fun ProtocolTile(
     scheme: String,
@@ -198,11 +138,9 @@ fun ProtocolTile(
         ?.takeIf { it.isNotBlank() }
         ?.takeIf { CountryFlagSupported(it) }
         ?.takeIf { mayPaintFlag }
-    // An unconfirmed location is a globe, and the dashed rim is what says so without a sentence.
+
     val unconfirmed = flagArt == null
-    // `flag` (the emoji inside the node's own name) is deliberately NOT painted any more: a label
-    // is a claim by whoever sold the server, and drawing it as an official-looking flag upgraded it
-    // to a measurement the engine never made. It stays visible in the row's name text instead.
+
     Box(
         modifier = modifier
             .size(size)
@@ -220,8 +158,6 @@ fun ProtocolTile(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                // MARBLE_SLIDE_SHEEN_THEMED_V205 — both shadow channels in the rim's own hue;
-                // the default black ambient smeared a grey ring under the tile on light cards.
                 .shadow(
                     elevation = if (lifted || stateTone != null) 6.dp else 0.dp,
                     shape = CircleShape,
@@ -234,14 +170,6 @@ fun ProtocolTile(
                 .border(1.dp, rim.copy(alpha = rimAlpha), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            // One content rule for every state: the measured flag fills the circle; everything
-            // else is the world glyph, so the tile never states more than the evidence does. The
-            // wire scheme never draws inside this circle again.
-            // MARBLE_NATIVE_ANDROID_V213 — the flag sits *inside* the tile's frame rather than
-            // touching it. At a 2 dp inset the flag's own edge and the tile's rim composited into
-            // one thick stroke; at 3 dp the tile's tone shows as a ring around the country, which
-            // is what makes the tile read as a framed chip — and it is the same 3 dp the world
-            // glyph keeps when the location is not confirmed, so both states are one object.
             CountryFlagCircle(
                 code = flagArt,
                 size = size - 3.dp,
@@ -251,12 +179,7 @@ fun ProtocolTile(
             )
         }
         if (unconfirmed) {
-            // The "not verified" mark: the same rim, broken into dashes. A picture that admits it
-            // is a guess is still a picture, and it costs the row no extra text to say so.
             Canvas(Modifier.matchParentSize()) {
-                // `size` in here is the tile's own Dp parameter: a parameter of the enclosing function
-                // wins over the draw scope's metric of the same name, exactly as [StatusDot] documents.
-                // The ring wants the canvas, so it names it.
                 val box = this.size
                 val strokeW = 1.dp.toPx()
                 drawCircle(
@@ -275,10 +198,6 @@ fun ProtocolTile(
     }
 }
 
-/**
- * The one-line state word of a server row — "Connected", "Securing", "Selected" — at its quietest
- * possible size: a 9.5 sp word on a tint pill.
- */
 @Composable
 fun ServerStateChip(
     text: String,
@@ -299,26 +218,6 @@ fun ServerStateChip(
     )
 }
 
-/**
- * The right-hand stat column of a server row: the measured number and its unit on top, a three-bar
- * quality meter under it. Fixed minimum width, content end-aligned, so every row in a list lines
- * its numbers up into one quiet column at the trailing edge — the readout owns the space next to
- * the row's actions instead of floating free in the middle of the row.
- *
- * Same measurement vocabulary as the legacy capsule: a probe that ran and failed is a red fact,
- * one that never ran is a quiet dash, and a running probe is the tiny wavy spinner.
- *
- * MARBLE_SERVERS_HIERARCHY_V189 — two switches, both off by default so the Home list is untouched:
- *
- * - [compact] drops every size one step (13.5 → [ServersHierarchy.ROW_PING_SP] sp, a narrower
- *   column, a smaller meter) for a server row that lives *inside* a subscription card, where the
- *   latency is level-2 information and must not out-shout the subscription's own name;
- * - [quietFailure] takes the red off a probe that ran and got no answer. A server that did not
- *   reply is a fact about that server, not an emergency on the page: the row it sits in fades and
- *   carries the cross, and the readout stays in a muted tone. Red stays for the things a user has
- *   to act on — and "slow" (measured, over 250 ms) still reads red, because that one is a real
- *   measurement.
- */
 @Composable
 fun ServerPingStat(
     latencyMs: Int,
@@ -351,7 +250,7 @@ fun ServerPingStat(
         attempted -> trx("No response")
         else -> trx("Not measured")
     }
-    // MARBLE_SERVERS_HIERARCHY_V189 — one step down in every dimension for a nested row.
+
     val numberSize = if (compact) ServersHierarchy.ROW_PING_SP.sp else 13.5.sp
     val unitSize = if (compact) 8.sp else 8.5.sp
     val glyphSize = if (compact) 12.sp else 13.sp
@@ -421,13 +320,6 @@ fun ServerPingStat(
     }
 }
 
-/**
- * The three-bar quality meter under a measured latency: more bars means a faster route. Filled
- * bars take the measurement tone, the remainder stays a quiet hairline, so the meter reads as an
- * instrument rather than a decoration.
- *
- * [compact] shrinks the meter to the size a nested subscription row has room for.
- */
 @Composable
 fun PingQualityBars(
     quality: Int,
@@ -435,8 +327,6 @@ fun PingQualityBars(
     modifier: Modifier = Modifier,
     compact: Boolean = false
 ) {
-    // The Aether palette is a @Composable getter, so the resting-bar colour is resolved here,
-    // outside the DrawScope, where the Canvas lambda cannot reach it.
     val unlit = Aether.InkFaint.copy(alpha = .30f)
     Canvas(
         modifier = modifier.size(
@@ -447,7 +337,7 @@ fun PingQualityBars(
         val barW = size.width / 4.6f
         val gap = size.width / 8f
         val heights = listOf(size.height * .42f, size.height * .72f, size.height)
-        // Three bars and two gaps: the meter is centred on its own width, not on the bars' heights.
+
         val total = barW * 3f + gap * 2f
         var x = (size.width - total) / 2f
         heights.forEachIndexed { index, h ->

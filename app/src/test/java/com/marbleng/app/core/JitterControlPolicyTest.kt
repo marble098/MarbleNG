@@ -5,17 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_JITTER_HYSTERESIS_V133 regressions.
- *
- * The attached runtime log alternated `ROUTE jitter-control-enter` and `jitter-control-exit` for the
- * whole session. The cause was one line: an ambiguous tick wiped the release counter to zero, so a
- * link whose jitter swings between 50 and 150 ms could never accumulate four consecutive clean ticks.
- * These tests pin the hysteresis, the dwell windows and the "ambiguous means hold" rule.
- */
 class JitterControlPolicyTest {
-
-    /** Realistic wall-clock base; the dwell/hold windows are measured against epoch millis. */
     private val t0 = 1_700_000_000_000L
 
     private fun sample(
@@ -54,13 +44,12 @@ class JitterControlPolicyTest {
     @Test
     fun `an ambiguous tick holds both counters instead of wiping the release streak`() {
         var state = JitterControlPolicy.State()
-        // Enter first.
+
         repeat(JitterControlPolicy.HIGH_CONFIRMATIONS) {
             state = JitterControlPolicy.evaluate(sample(90.0), state, t0).state
         }
         assertTrue(state.active)
 
-        // Two clean ticks, then an ambiguous one, then two more clean ticks.
         state = JitterControlPolicy.evaluate(sample(5.0), state, t0 + 1_000L).state
         state = JitterControlPolicy.evaluate(sample(5.0), state, t0 + 2_000L).state
         val ambiguous = JitterControlPolicy.evaluate(sample(18.0), state, t0 + 3_000L)
@@ -71,7 +60,6 @@ class JitterControlPolicyTest {
             ambiguous.lowStreak > 0
         )
 
-        // Insufficient evidence is a hold too, and changes nothing at all.
         val insufficient = JitterControlPolicy.evaluate(
             sample(5.0, samples = 1, jitterReady = false), ambiguous.state, t0 + 4_000L
         )
@@ -93,7 +81,7 @@ class JitterControlPolicyTest {
             state = decision.state
             assertEquals(JitterControlPolicy.Verdict.HOLD, decision.verdict)
         }
-        // Past the minimum hold, the next clean tick releases.
+
         decision = JitterControlPolicy.evaluate(
             sample(5.0), state, t0 + JitterControlPolicy.MIN_HOLD_MS + 1_000L
         )
@@ -128,7 +116,6 @@ class JitterControlPolicyTest {
         assertEquals(JitterControlPolicy.Verdict.HOLD, decision.verdict)
         assertFalse(decision.state.active)
 
-        // After the dwell the same evidence enters.
         decision = JitterControlPolicy.evaluate(
             sample(90.0), decision.state, exitedAt + JitterControlPolicy.MIN_DWELL_MS + 1L
         )

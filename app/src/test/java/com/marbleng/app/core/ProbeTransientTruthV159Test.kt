@@ -6,28 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
-/**
- * MARBLE_PING_FALSE_FAILED_V159 — the transient-failure truth of the two core-measured pings.
- *
- * The report: URL test and Real delay both work, but *occasionally* a server that is perfectly
- * healthy comes back FAILED. The three promises here are the ones that were broken:
- *
- *  1. **A fallback target owns its full budget.** The URL test used to share one deadline across
- *     the candidate targets, so the first (coldest) target's timeout left the fallbacks with
- *     nothing — the fallback was dead code for the exact failure mode it exists for.
- *  2. **A filtered origin is not a verdict about the route.** Real delay walks every
- *     [com.marbleng.app.model.DelayTest] candidate before it reports failure, exactly like the
- *     Rank sweep always did.
- *  3. **A cancelled sweep stops between targets**, so the longer honest walk never outlives the
- *     user's cancel.
- *
- * Everything here is a pure policy check on [ProbeTargetWalk]: the walk owns the budget and the
- * order, the callers own the sockets and the cores.
- */
 class ProbeTransientTruthV159Test {
-
-    // ───────────────────────────────────────────── URL test: every target owns its budget
-
     @Test
     fun aFallbackTargetReceivesTheFullBudgetAfterTheFirstTargetSpentItsOwn() {
         val budgets = mutableListOf<Int>()
@@ -102,8 +81,6 @@ class ProbeTransientTruthV159Test {
         assertEquals("urltest-no-target", result.detail)
     }
 
-    // ───────────────────────────────────────────── Real delay: origin fallback
-
     @Test
     fun realDelayHandsTheNextOriginTheSameBudgetWhenTheFirstIsSilent() {
         val measured = mutableListOf<String>()
@@ -114,7 +91,6 @@ class ProbeTransientTruthV159Test {
             if (url.startsWith("https://b.")) {
                 RouteProbe.ProbeResult("TUNNEL", 240.0, 100, 3)
             } else {
-                // The exact shape a momentarily filtered origin produces today.
                 RouteProbe.ProbeResult(
                     "TUNNEL", RouteProbe.UNREACHABLE, 0, 3,
                     lossPercent = 100.0, failureReason = "delay-url-failed"
@@ -158,8 +134,6 @@ class ProbeTransientTruthV159Test {
         assertEquals(RouteProbe.UNREACHABLE, result.latencyMs, 0.001)
     }
 
-    // ───────────────────────────────────────────── cancellation
-
     @Test
     fun aCancelledSweepStopsBeforeTheNextTarget() {
         val measured = mutableListOf<String>()
@@ -169,7 +143,7 @@ class ProbeTransientTruthV159Test {
                 timeoutMs = 1_000
             ) { url, _ ->
                 measured += url
-                // The sweep was cancelled while target one was still in flight.
+
                 Thread.currentThread().interrupt()
                 CoreUrlTestResult(0, false, "timeout")
             }
@@ -177,7 +151,6 @@ class ProbeTransientTruthV159Test {
         } catch (expected: InterruptedException) {
             assertEquals(listOf("https://a.example/204"), measured)
         } finally {
-            // Leave the thread's flag clear for whichever test runs next on it.
             Thread.interrupted()
         }
     }

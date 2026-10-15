@@ -6,26 +6,9 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
-/**
- * MARBLE_REALITY_MLKEM_HANDSHAKE_V194 — the VLESS/REALITY node that connected in v2rayNG and
- * failed 55/55 with `reality verification failed` here.
- *
- * The report blamed the public-key parsing (a standard-base64 decode of a URL-safe key), but the
- * keys travel verbatim from the link to both cores — no base64 decode of `pbk` exists anywhere on
- * that path, and these tests pin that down with a key cut from the exact alphabet of the report
- * (`-` and `_`, no padding). The actual fault is the handshake shape: Xray >= v26.9.8 REALITY
- * servers require the X25519MLKEM768 key share, which the pinned sing-box core strips unless its
- * reality block sets `support_x25519mlkem768` — and neither its link parser nor MarbleNG's
- * translator used to set it.
- *
- * Synthetic fixtures only: no production endpoint, account, short ID or public key. Every byte
- * below is invented for the fixture; the *shape* (IPv6 literal, `&amp;` separators from rendered
- * text, XHTTP extra, spiderX) mirrors the reported link.
- */
 class RealityMlkemHandshakeTest {
     private val uuid = "123e4567-e89b-12d3-a456-426614174000"
 
-    /** 43-char raw-URL-base64 X25519 key *shape* (`-`/`_`, unpadded), fully synthetic. */
     private val key = "zK9-xQ2_mT7-bN4_pL8-dR3_fH6-jW1-cY5-aS0-eV9"
     private val sid = "0123456789abcdef"
     private val spx = "/9f8e7d6c5b4a"
@@ -60,8 +43,6 @@ class RealityMlkemHandshakeTest {
         }
     }
 
-    // ── the keys are innocent: verbatim from the link to both cores ──────────────────────────
-
     @Test fun urlSafeKeyAlphabetSurvivesImportByteIdentical() {
         assertEquals("fixture must be a 43-char unpadded key", 43, key.length)
         assertTrue(key.contains('-') && key.contains('_'))
@@ -93,8 +74,6 @@ class RealityMlkemHandshakeTest {
             reality.getBoolean("support_x25519mlkem768")
         )
     }
-
-    // ── the core's link parser can never emit the flag, so REALITY skips it ──────────────────
 
     @Test fun realityLinksSkipTheCoreParserOnBothTransports() {
         listOf(xhttpProfile() to "xhttp", tcpProfile() to "tcp").forEach { (profile, label) ->
@@ -136,15 +115,12 @@ class RealityMlkemHandshakeTest {
         assertFalse(SingBoxConfigBuilder.linkCarriesReality(tlsLink))
         assertFalse(SingBoxConfigBuilder.linkCarriesReality("vless://id@h:443?security=none&type=tcp#n"))
         assertFalse(SingBoxConfigBuilder.linkCarriesReality("trojan://p@h:443?security=tls#n"))
-        // The importer and the candidate set must agree: a `pbk` turns the stored security into
-        // reality, and the stored security is what preflight and rank read.
+
         assertEquals(
             "reality",
             ProxyParser.vlessFromParts(impliedLink, "198.51.100.7", 443, uuid, null).security
         )
     }
-
-    // ── residual rejections are named, not retried blindly ───────────────────────────────────
 
     private val singboxLine =
         "ERROR connection: open connection to 203.0.113.9:443 using outbound/vless[proxy]: reality verification failed"

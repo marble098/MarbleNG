@@ -1,41 +1,15 @@
 package com.marbleng.app.core
 
-// MARBLE_SERVERS_QR_EXPORT_V120
-//
-// MarbleNG is an offline-first product: it ships no imaging library and refuses to upload a
-// user's config link to a third-party "QR image" web service. Exporting a server as a QR code
-// therefore happens fully on-device through this encoder, which implements ISO/IEC 18004:2015
-// Model 2 in byte mode:
-//
-//   • automatic version selection (1..20) for the requested error-correction level,
-//   • Reed-Solomon error correction over GF(256) with the standard primitive polynomial,
-//   • block splitting + interleaving exactly as the specification prescribes,
-//   • all eight data masks scored with the four penalty rules so the printed symbol stays
-//     readable for a phone camera,
-//   • BCH(15,5) format information and BCH(18,6) version information.
-//
-// The class is deliberately pure Kotlin with no Android imports, so it is covered by ordinary
-// JVM unit tests and can never touch the network, the filesystem or the clipboard.
-
-/** Error-correction level of a QR symbol; higher levels survive more damage but hold less data. */
 enum class QrEcc(val bits: Int, val label: String) {
-    /** ~7% recovery. Largest payload — the right default for a config link. */
     L(0b01, "L"),
 
-    /** ~15% recovery. */
     M(0b00, "M"),
 
-    /** ~25% recovery. */
     Q(0b11, "Q"),
 
-    /** ~30% recovery. Smallest payload. */
     H(0b10, "H")
 }
 
-/**
- * An encoded QR symbol: [size] is the module count of one edge (quiet zone excluded) and
- * [modules] is a row-major grid where `true` is a dark module.
- */
 class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
     val size: Int get() = modules.size / modulesPerRow()
 
@@ -43,7 +17,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
 
     fun isDark(row: Int, column: Int): Boolean = modules[row * modulesPerRow() + column]
 
-    /** Compact ASCII rendering used by tests and by the plain-text share fallback. */
     fun toAscii(dark: String = "██", light: String = "  "): String = buildString {
         val edge = modulesPerRow()
         for (row in 0 until edge) {
@@ -53,17 +26,10 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
     }
 
     companion object {
-
-        /** Versions 1..20 cover every realistic proxy link; larger symbols are unusable on a phone. */
         const val MAX_VERSION = 20
 
         private const val MODE_BYTE = 0b0100
 
-        /**
-         * Reed-Solomon block table, indexed `[version - 1][eccIndex]` where the ECC order is
-         * L, M, Q, H. Each row is a flat list of `(blockCount, totalCodewords, dataCodewords)`
-         * triples, exactly as published in ISO/IEC 18004 Table 13.
-         */
         private val RS_BLOCKS: Array<Array<IntArray>> = arrayOf(
             arrayOf(intArrayOf(1, 26, 19), intArrayOf(1, 26, 16), intArrayOf(1, 26, 13), intArrayOf(1, 26, 9)),
             arrayOf(intArrayOf(1, 44, 34), intArrayOf(1, 44, 28), intArrayOf(1, 44, 22), intArrayOf(1, 44, 16)),
@@ -87,7 +53,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             arrayOf(intArrayOf(3, 135, 107, 5, 136, 108), intArrayOf(3, 67, 41, 13, 68, 42), intArrayOf(15, 54, 24, 5, 55, 25), intArrayOf(15, 43, 15, 10, 44, 16))
         )
 
-        /** Centre coordinates of the alignment patterns, indexed by version (ISO/IEC 18004 Annex E). */
         private val ALIGNMENT_POSITIONS: Array<IntArray> = arrayOf(
             intArrayOf(),
             intArrayOf(6, 18), intArrayOf(6, 22), intArrayOf(6, 26), intArrayOf(6, 30), intArrayOf(6, 34),
@@ -98,7 +63,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             intArrayOf(6, 34, 62, 90)
         )
 
-        /** Total remainder bits appended after interleaving, indexed by version. */
         private val REMAINDER_BITS: IntArray = intArrayOf(
             0, 7, 7, 7, 7, 7, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 3, 3, 3
         )
@@ -110,7 +74,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             QrEcc.H -> 3
         }
 
-        /** Flat list of `(blockCount, totalCodewords, dataCodewords)` triples for one version/ECC pair. */
         private fun blocks(version: Int, ecc: QrEcc): IntArray =
             RS_BLOCKS[version - 1][eccIndex(ecc)]
 
@@ -121,13 +84,8 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             return total
         }
 
-        /** Byte mode carries an 8-bit character count up to version 9 and a 16-bit one after that. */
         private fun countBits(version: Int): Int = if (version <= 9) 8 else 16
 
-        /**
-         * Smallest version that holds [length] bytes at [ecc], or `null` when even version
-         * [MAX_VERSION] is too small.
-         */
         fun versionFor(length: Int, ecc: QrEcc): Int? {
             if (length <= 0) return null
             for (version in 1..MAX_VERSION) {
@@ -137,11 +95,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             return null
         }
 
-        /**
-         * Encode [text] as a byte-mode QR symbol.
-         *
-         * @throws QrCapacityException when the payload needs more than version [MAX_VERSION].
-         */
         fun encode(text: String, ecc: QrEcc = QrEcc.L): QrCode {
             val data = text.toByteArray(Charsets.UTF_8)
             val version = versionFor(data.size, ecc)
@@ -159,10 +112,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             return QrCode(version, ecc, matrix.grid)
         }
 
-        // ---------------------------------------------------------------------------------------
-        // Data codewords
-        // ---------------------------------------------------------------------------------------
-
         private fun buildCodewords(data: ByteArray, version: Int, ecc: QrEcc): IntArray {
             val totalData = dataCodewordCount(version, ecc)
             val bits = BitBuffer()
@@ -170,7 +119,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             bits.append(data.size, countBits(version))
             data.forEach { byte -> bits.append(byte.toInt() and 0xFF, 8) }
 
-            // Terminator: up to four zero bits, shortened when the payload already fills the symbol.
             val capacityBits = totalData * 8
             bits.append(0, minOf(4, capacityBits - bits.size))
             bits.padToByteBoundary()
@@ -178,7 +126,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             val padded = bits.codewords()
             require(padded.size <= totalData) { "Encoded payload overflowed the data region" }
 
-            // Pad codewords alternate 0xEC / 0x11 to the end of the data region.
             val dataCodewords = IntArray(totalData)
             padded.forEachIndexed { index, value -> dataCodewords[index] = value }
             var padToggle = 0
@@ -189,7 +136,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             return interleave(dataCodewords, version, ecc)
         }
 
-        /** Split into Reed-Solomon blocks, then interleave data and error-correction codewords. */
         private fun interleave(dataCodewords: IntArray, version: Int, ecc: QrEcc): IntArray {
             val table = blocks(version, ecc)
             val dataBlocks = mutableListOf<IntArray>()
@@ -227,10 +173,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             return out
         }
 
-        // ---------------------------------------------------------------------------------------
-        // GF(256) arithmetic with the QR primitive polynomial 0x11D
-        // ---------------------------------------------------------------------------------------
-
         private val EXP_TABLE = IntArray(512)
         private val LOG_TABLE = IntArray(256)
 
@@ -248,7 +190,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
         private fun gfMultiply(a: Int, b: Int): Int =
             if (a == 0 || b == 0) 0 else EXP_TABLE[LOG_TABLE[a] + LOG_TABLE[b]]
 
-        /** Generator polynomial coefficients (highest power first) for [degree] error codewords. */
         private fun generatorPolynomial(degree: Int): IntArray {
             var polynomial = intArrayOf(1)
             for (index in 0 until degree) {
@@ -262,7 +203,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             return polynomial
         }
 
-        /** Reed-Solomon error-correction codewords for one data block. */
         private fun reedSolomon(data: IntArray, ecCount: Int): IntArray {
             val generator = generatorPolynomial(ecCount)
             val remainder = IntArray(ecCount)
@@ -276,10 +216,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             }
             return remainder
         }
-
-        // ---------------------------------------------------------------------------------------
-        // Bit helpers
-        // ---------------------------------------------------------------------------------------
 
         private class BitBuffer {
             private val bits = mutableListOf<Boolean>()
@@ -304,14 +240,9 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             }
         }
 
-        // ---------------------------------------------------------------------------------------
-        // Symbol matrix
-        // ---------------------------------------------------------------------------------------
-
         private class SymbolMatrix(val version: Int) {
             val edge: Int = 17 + 4 * version
             val grid = BooleanArray(edge * edge)
-            /** True where a function pattern already owns the module, so data placement skips it. */
             private val reserved = BooleanArray(edge * edge)
 
             private fun index(row: Int, column: Int) = row * edge + column
@@ -328,14 +259,12 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             fun isReserved(row: Int, column: Int) = reserved[index(row, column)]
 
             fun drawFunctionPatterns() {
-                // Timing runs the full span first; the finder patterns are painted over its ends so
-                // the separator stays light and the 1:1:3:1:1 ring stays intact.
                 drawTiming()
                 drawFinder(0, 0)
                 drawFinder(0, edge - 7)
                 drawFinder(edge - 7, 0)
                 drawAlignment()
-                // The single always-dark module beside the bottom-left finder pattern.
+
                 setFunction(edge - 8, 8, true)
                 reserveFormatAreas()
                 reserveVersionAreas()
@@ -354,8 +283,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
             }
 
             private fun drawTiming() {
-                // The full span: the alternating line reaches both edges and the finder patterns are
-                // drawn over its ends afterwards.
                 for (position in 0 until edge) {
                     val dark = position % 2 == 0
                     setFunction(6, position, dark)
@@ -367,7 +294,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
                 val positions = ALIGNMENT_POSITIONS[version - 1]
                 for (row in positions) {
                     for (column in positions) {
-                        // The three corners belong to the finder patterns.
                         val isFinderCorner = (row == 6 && column == 6) ||
                             (row == 6 && column == positions.last()) ||
                             (row == positions.last() && column == 6)
@@ -404,11 +330,10 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
                 }
             }
 
-            /** Zigzag placement of the interleaved codewords, skipping every function module. */
             fun placeData(codewords: IntArray) {
                 val bits = BitBuffer()
                 codewords.forEach { value -> bits.append(value, 8) }
-                // Trailing remainder bits stay light.
+
                 repeat(REMAINDER_BITS[version - 1]) { bits.append(0, 1) }
 
                 val payload = bits.codewords()
@@ -416,14 +341,13 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
                 var upward = true
                 var column = edge - 1
                 while (column > 0) {
-                    // The vertical timing pattern splits the two-column sweep.
                     if (column == 6) column--
                     for (step in 0 until edge) {
                         val row = if (upward) edge - 1 - step else step
                         for (offset in 0..1) {
                             val c = column - offset
                             if (isReserved(row, c)) continue
-                            // `payload` holds codewords while `cursor` counts bits.
+
                             val dark = if (cursor < payload.size * 8) {
                                 ((payload[cursor / 8] ushr (7 - cursor % 8)) and 1) == 1
                             } else {
@@ -438,7 +362,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
                 }
             }
 
-            /** Score all eight masks with the four specification penalty rules and keep the best. */
             fun bestMask(ecc: QrEcc): Int {
                 var best = 0
                 var bestPenalty = Int.MAX_VALUE
@@ -485,9 +408,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
                 }
                 val format = ((data shl 10) or bits) xor 0b101_0100_0001_0010
 
-                // Copy one: the column beside the top-left finder, continuing down beside the
-                // bottom-left one. Rows 6 and 8 stay out — the timing pattern owns row 6 and the
-                // corner module (8,8) belongs to bit 7.
                 for (bit in 0..14) {
                     val row = when {
                         bit < 6 -> bit
@@ -497,7 +417,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
                     setFunction(row, 8, bitSet(format, bit))
                 }
 
-                // Copy two: the row under the top-right finder, wrapping back under the top-left one.
                 for (bit in 0..14) {
                     val column = when {
                         bit < 8 -> edge - 1 - bit
@@ -507,7 +426,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
                     setFunction(8, column, bitSet(format, bit))
                 }
 
-                // The single always-dark module that anchors both strips.
                 setFunction(edge - 8, 8, true)
             }
 
@@ -538,7 +456,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
 
             private fun bitSet(value: Int, bit: Int): Boolean = ((value ushr bit) and 1) == 1
 
-            /** The four ISO/IEC 18004 penalty rules; lower is easier for a camera to decode. */
             fun penalty(): Int {
                 var total = 0
                 total += runPenalty()
@@ -591,10 +508,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
                 return total
             }
 
-            /**
-             * Rule 3: a 1:1:3:1:1 dark-light ratio with four light modules on either side reads like a
-             * finder pattern to a decoder, so each occurrence costs 40 points.
-             */
             private fun finderLikePenalty(): Int {
                 val pattern = booleanArrayOf(true, false, true, true, true, false, true)
                 var total = 0
@@ -623,7 +536,6 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
                 return true
             }
 
-            /** True when four modules starting at [from] exist and are all light. */
             private fun isQuiet(values: BooleanArray, from: Int): Boolean {
                 if (from < 0 || from + 4 > values.size) return false
                 for (offset in 0 until 4) {
@@ -643,6 +555,5 @@ class QrCode(val version: Int, val ecc: QrEcc, val modules: BooleanArray) {
     }
 }
 
-/** Thrown when the payload cannot be represented at the requested error-correction level. */
 class QrCapacityException(message: String) : IllegalArgumentException(message)
 

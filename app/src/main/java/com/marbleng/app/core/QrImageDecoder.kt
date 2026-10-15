@@ -11,21 +11,7 @@ import com.google.zxing.MultiFormatReader
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 
-/**
- * MARBLE_QR_IMPORT_V121 — read a share link out of a QR code the user already has.
- *
- * Marble does not ask for the camera. A QR config almost always reaches a phone as a screenshot,
- * a saved picture or a photo of somebody's screen, and all three arrive through the system image
- * picker without a single runtime permission. This decodes that image.
- *
- * The picture is downsampled to a sane working size first: a 12-megapixel photo of a QR code
- * neither decodes better nor fits comfortably in memory, and ZXing's binarizer works best on a
- * clean, moderately sized grayscale grid. Both the image and its inversion are attempted, because
- * dark-mode screenshots produce light-on-dark codes that a single pass rejects.
- */
 object QrImageDecoder {
-
-    /** Longest edge (px) the decoder works on. Large enough for dense codes, small enough to be cheap. */
     private const val MAX_EDGE = 1_600
 
     fun decode(context: Context, uri: Uri): String? {
@@ -37,15 +23,10 @@ object QrImageDecoder {
         }
     }
 
-    /**
-     * MARBLE_QR_CAMERA_V122 — decode a live camera frame. The preview bitmap belongs to the
-     * caller (it may be reused for the next frame), so it is never recycled here; small working
-     * copies are made internally instead.
-     */
     fun decode(frame: Bitmap): String? {
         if (frame.isRecycled || frame.width <= 0 || frame.height <= 0) return null
         val longestEdge = maxOf(frame.width, frame.height)
-        // A camera preview frame is already small; only downscale when it is not.
+
         val working = if (longestEdge > MAX_EDGE) {
             val scale = MAX_EDGE.toFloat() / longestEdge
             Bitmap.createScaledBitmap(
@@ -74,7 +55,6 @@ object QrImageDecoder {
 
         decodePixels(pixels, width, height)?.let { return it }
 
-        // Inverted pass: light modules on a dark background (dark-mode screenshots).
         for (index in pixels.indices) {
             val argb = pixels[index]
             pixels[index] = (argb and 0xFF000000.toInt()) or (argb.inv() and 0x00FFFFFF)
@@ -88,7 +68,7 @@ object QrImageDecoder {
             setHints(
                 mapOf(
                     DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
-                    // A photograph of a screen is never a clean grid; spend the extra passes.
+
                     DecodeHintType.TRY_HARDER to true
                 )
             )

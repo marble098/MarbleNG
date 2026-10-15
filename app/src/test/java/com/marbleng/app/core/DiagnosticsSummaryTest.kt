@@ -5,16 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Regression tests for the machine-readable diagnostics block (MARBLE_DIAGNOSTICS_BLOCK_V1).
- *
- * The block must consistently surface resolver category counts, ranking decision reason,
- * uncertain-vs-failed distinction, profile preflight validity, session flapping reason and
- * cancellation-safe shutdown counters — and the resolver portion must never disagree with the raw
- * log lines it was derived from.
- */
 class DiagnosticsSummaryTest {
-
     private fun rawWithEofAndDeadline() = listOf(
         "context deadline exceeded while waiting for dns-query",
         "app/dns: failed to read response > unexpected EOF for DNS-over-HTTPS traffic",
@@ -68,7 +59,7 @@ class DiagnosticsSummaryTest {
     fun resolverBlockIsConsistentWithRawEvidence() {
         val raw = rawWithEofAndDeadline()
         val summary = ResolverFailureClassifier.summarize(raw)
-        // EOF appears in the raw lines, so the summary must report it (this was the inconsistency).
+
         assertEquals(1, summary.eofCount)
         assertTrue(DiagnosticsSummary.resolverBlockConsistent(raw, summary))
     }
@@ -76,7 +67,7 @@ class DiagnosticsSummaryTest {
     @Test
     fun inconsistentSummaryIsDetected() {
         val raw = rawWithEofAndDeadline()
-        // A summary that claims zero EOF while raw has EOF is inconsistent.
+
         val wrong = ResolverFailureSummary()
         assertFalse(DiagnosticsSummary.resolverBlockConsistent(raw, wrong))
     }
@@ -89,7 +80,7 @@ class DiagnosticsSummaryTest {
             ranking = DiagnosticsSummary.RankingDecision(decisionReason = "a;b|c"),
             shutdown = DiagnosticsSummary.ShutdownCounters()
         )
-        // Semicolons are separators; injected values must be sanitised.
+
         assertFalse(block.contains("reason=a;b"))
         assertTrue(block.contains("reason=a-b/c"))
     }

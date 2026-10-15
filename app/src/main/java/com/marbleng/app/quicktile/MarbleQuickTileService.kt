@@ -12,7 +12,6 @@ import com.marbleng.app.MainActivity
 import com.marbleng.app.MarbleApplication
 import com.marbleng.app.model.ConnectionMode
 
-/** A state-aware system tile which toggles the exact last successfully connected Library row. */
 class MarbleQuickTileService : TileService() {
     private val app: MarbleApplication get() = application as MarbleApplication
 
@@ -25,8 +24,7 @@ class MarbleQuickTileService : TileService() {
         super.onClick()
         unlockAndRun {
             val repo = app.repo
-            // MARBLE_CONNECT_BUTTON_V121 — a tunnel that is already closing must not be asked to
-            // close again, and must not be treated as an invitation to connect either.
+
             if (repo.state == "DISCONNECTING") {
                 updateTile("Disconnecting…")
                 return@unlockAndRun

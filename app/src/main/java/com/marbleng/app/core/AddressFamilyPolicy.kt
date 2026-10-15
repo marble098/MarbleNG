@@ -10,92 +10,40 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
-/**
- * MARBLE_ADDRESS_FAMILY_POLICY_V65
- *
- * How the app decides between IPv4 and IPv6, in exactly one place.
- *
- * Marble already had IPv6 switches — `ipv6Enabled`, `preferIpv6`, `dnsQueryStrategy`,
- * `adaptiveDualStackEnabled` — and every subsystem read them differently: the Xray `sockopt`
- * writer, the DNS writer, the ranking config, the Kotlin latency probes, the SOCKS prober and the
- * SSH bridge. The visible bug came from the first two. With the default profile the hardener wrote
- * `sockopt.domainStrategy = "ForceIP"` and no `happyEyeballs` block, and Xray reads that as
- * "resolve both families, then pick one **at random**": its Happy Eyeballs race is skipped unless
- * `tryDelayMs` and `maxConcurrentTry` are non-zero, and the engine's own default for `tryDelayMs`
- * is 0. A fragment/UDP/chained outbound sets `dialerProxy` or is not TCP, so it never races either.
- * Enabling IPv6 therefore changed nothing on the wire — which is also why leak checks that only
- * looked at IPv4 kept passing while the IPv6 path was quietly unused.
- *
- * This policy guarantees three things for every path:
- *  - "IPv6 off" is enforced end to end: endpoint resolution, DNS record selection, a `::/0` block
- *    rule, and no v6 literal is ever handed to a SOCKS/UDP prober;
- *  - "IPv6 on" actually uses it: addresses are ordered v6-first whenever the underlay has a global
- *    IPv6 address, and the choice is never left to chance;
- *  - Prefer modes retain a family fallback; Force modes fail closed when the selected family
- *    cannot reach the node or carry a captured destination, never silently cross families.
- *
- * The emitted strings are exactly the ones Xray's `infra/conf` accepts (`forceipv4`, `forceipv6`,
- * `forceipv6v4`, `forceip` for `sockopt.domainStrategy`; `useipv4`, `useipv6`, `useip` for
- * `dns.queryStrategy`), so a value can never be silently dropped by the engine.
- */
 enum class IpFamilyPreference {
-    /** The user turned IPv6 off: no v6 may be resolved, dialled or routed. */
     IPV4_ONLY,
 
-    /** Both families are usable; the smart algorithm chooses from live evidence. */
     DUAL,
 
-    /** IPv4 opens first while IPv6 remains an explicit fallback. */
     IPV4_FIRST,
 
-    /** IPv6 is the intended path, IPv4 stays the safety net. */
     IPV6_FIRST,
 
-    /** IPv6 only: a missing AAAA record must surface as a failure, not a silent v4 fallback. */
     IPV6_ONLY
 }
 
-/**
- * The concrete knobs one connection path must apply. Plain values on purpose: the same plan drives
- * the Xray JSON, the JVM probers and the diagnostics line, and it stays unit-testable without
- * Android's `org.json` stubs.
- */
 data class IpFamilyPlan(
     val preference: IpFamilyPreference,
-    /** Value for `sockopt.domainStrategy` / WireGuard peer `domainStrategy`. */
     val endpointStrategy: String,
-    /** Value for `dns.queryStrategy` (top level and every server entry). */
     val dnsQueryStrategy: String,
-    /** Whether the current underlay can carry IPv6 at all. */
     val underlayHasIpv6: Boolean,
-    /** RFC 8305 destination order, also used by the JVM probers. */
     val prioritizeIpv6: Boolean,
-    /** True when Xray's Happy Eyeballs race is actually armed (both families + non-zero delay). */
     val raceEnabled: Boolean,
     val tryDelayMs: Int,
     val maxConcurrentTry: Int,
-    /** The captured IPv6 family must be rejected at the core when IPv4 was forced. */
     val blockIpv6Traffic: Boolean,
-    /** The captured IPv4 family must be rejected at the core when IPv6 was forced. */
     val blockIpv4Traffic: Boolean,
-    /** Short, stable diagnostic string: `ipv4-only`, `v6-first+race`, ... */
     val reason: String
 )
 
 object AddressFamilyPolicy {
-    /**
-     * Xray skips the Happy Eyeballs race when `tryDelayMs` or `maxConcurrentTry` is zero, so an
-     * armed race always gets a non-zero, bounded delay.
-     */
     const val MIN_TRY_DELAY_MS = 20
     const val MAX_TRY_DELAY_MS = 500
     const val MIN_CONCURRENT_TRY = 2
     const val MAX_CONCURRENT_TRY = 8
 
-    /** Strategies that resolve both families, i.e. the only ones a race can order. */
     private val raceableStrategies = setOf("ForceIP", "ForceIPv4v6", "ForceIPv6v4")
 
-    /** Shared daemon pool behind [resolveWithBudget]: bounded, never keeps the process alive. */
     private const val RESOLVE_POOL_SIZE = 4
     private const val RESOLVE_MIN_BUDGET_MS = 250
     private const val RESOLVE_MAX_BUDGET_MS = 30_000
@@ -105,11 +53,6 @@ object AddressFamilyPolicy {
         }
     }
 
-    /**
-     * Every `sockopt.domainStrategy` value the engine accepts for endpoint resolution. Anything
-     * outside this set is a hard config error in Xray, so Marble never emits it and `verify()` can
-     * reject a regression instead of letting the engine silently ignore the block.
-     */
     val ENDPOINT_STRATEGIES = setOf(
         "AsIs", "UseIP", "UseIPv4", "UseIPv6", "UseIPv4v6", "UseIPv6v4",
         "ForceIP", "ForceIPv4", "ForceIPv6", "ForceIPv4v6", "ForceIPv6v4"
@@ -121,11 +64,6 @@ object AddressFamilyPolicy {
     @Volatile
     private var underlayCacheValue = false
 
-    /**
-     * A global (routable, non-ULA, non-link-local) IPv6 address on a real interface. The tunnel's
-     * own `fc00::/7` address is deliberately excluded: it proves the VPN exists, not that the
-     * network can carry IPv6 towards the node.
-     */
     fun underlayHasIpv6(nowMs: Long = System.currentTimeMillis(), ttlMs: Long = 2_000): Boolean {
         if (underlayCacheMs != 0L && nowMs - underlayCacheMs < ttlMs) return underlayCacheValue
         val value = runCatching {
@@ -154,14 +92,6 @@ object AddressFamilyPolicy {
         return first in 0xFC..0xFD
     }
 
-    /**
-     * V198 — equipped underlay probe: more than boolean, measures interface count, RTT hint,
-     * NAT64 presence. Used by the enhanced family scanner to compute confidence and adaptive TTL.
-     *
-     * This is still pure enough to be called from background threads; it never does network I/O,
-     * only inspects local interfaces. The RTT hint is left -1 here and filled by the scanner's
-     * own TCP probe to a well-known IPv6 literal when needed.
-     */
     data class UnderlayCapabilities(
         val hasIpv6: Boolean,
         val hasIpv4: Boolean = true,
@@ -173,7 +103,6 @@ object AddressFamilyPolicy {
 
     fun probeUnderlay(nowMs: Long = System.currentTimeMillis(), ttlMs: Long = 2_000): UnderlayCapabilities {
         if (underlayCacheMs != 0L && nowMs - underlayCacheMs < ttlMs) {
-            // Fast path: return cached boolean with minimal detail
             return UnderlayCapabilities(hasIpv6 = underlayCacheValue)
         }
         return runCatching {
@@ -193,7 +122,7 @@ object AddressFamilyPolicy {
                         if (!addr.isLoopbackAddress && !addr.isLinkLocalAddress && !addr.isAnyLocalAddress && !isUniqueLocal(addr)) {
                             hasV6 = true
                             v6Count++
-                            // Detect NAT64 prefix in local address? Unlikely, but check for 64:ff9b::/96
+
                             if (addr.address.size >= 4 && addr.address[0] == 0x00.toByte() && addr.address[1] == 0x64.toByte() &&
                                 addr.address[2] == 0xFF.toByte() && addr.address[3] == 0x9B.toByte()) {
                                 hasNat64 = true
@@ -214,25 +143,12 @@ object AddressFamilyPolicy {
         }.getOrDefault(UnderlayCapabilities(hasIpv6 = underlayCacheValue))
     }
 
-    /**
-     * Resolve the user's intent for one outbound.
-     *
-     * @param importedStrategy `sockopt.domainStrategy` the node config already carried. A node that
-     *   pins itself to IPv4 stays pinned: a global "IPv6 on" must never dial an endpoint that has
-     *   no AAAA record and then sit in a connect timeout.
-     * @param measuredV6Healthy the per-node verdict from [SmartIpRacePolicy]; `null` means Marble
-     *   has no measurement yet and keeps the automatic behaviour.
-     */
     fun preference(
         settings: AppSettings,
         underlayHasIpv6: Boolean,
         importedStrategy: String = "",
         measuredV6Healthy: Boolean? = null
     ): IpFamilyPreference {
-        // A forced global mode is a contract: it wins over imported hints and intentionally fails
-        // closed when that family is unavailable. Preferences retain the other family as fallback.
-        // The two legacy projections are still interpreted for source-compatible callers/tests
-        // constructing AppSettings directly; persisted settings are always normalized by AppStore.
         val mode = when {
             settings.addressFamilyMode == AddressFamilyMode.SMART && !settings.ipv6Enabled ->
                 AddressFamilyMode.FORCE_IPV4
@@ -268,29 +184,8 @@ object AddressFamilyPolicy {
             return if (underlayHasIpv6) IpFamilyPreference.IPV6_ONLY else IpFamilyPreference.IPV4_FIRST
         }
 
-        // Turning IPv6 on with a v6-capable underlay means "use it": the explicit Prefer IPv6 switch
-        // then only decides how hard the fallback is. Without this, the default config resolved both
-        // families and let the engine pick one at random — the exact behaviour this file removes.
-        //
-        // MARBLE_SMART_FAMILY_V136 — the switches are ON by default now, so the *app* decides.
-        // A v6-first dial order is only worth anything when the underlay exposes a real global
-        // IPv6 address: preferring v6 on an IPv4-only network used to put the dead family first
-        // and paid a stalled AAAA dial on every single connect. When the underlay cannot carry
-        // IPv6 both families stay usable with IPv4 first — automatically, with nothing to
-        // re-enable when the network later gains v6.
         if (!underlayHasIpv6) return IpFamilyPreference.DUAL
-        // MARBLE_MEASURED_FAMILY_V133 — the measured verdict may arrive either as the explicit
-        // [measuredV6Healthy] argument or inside the settings object. Both are honoured, because the
-        // callers that only have settings (the Xray config writer and Bug Finder) previously
-        // re-derived "IPv6 first" from the underlay alone and discarded the measurement the
-        // intelligence layer had already made.
-        //
-        // MARBLE_SMART_FAMILY_V136 — the app decides. Both family switches ship ON, so a
-        // measured-broken IPv6 path is demoted to a v4-first dual plan AUTOMATICALLY; the strict
-        // v6 demands handled above are the only thing a measurement cannot override. The Prefer
-        // IPv6 switch then decides who opens a connection while both families are usable:
-        // ON = v6 first with the v4 fallback armed by the race, OFF = v4 first with v6 as the
-        // race fallback. A preference is an ordering, never a demand that ignores evidence.
+
         val measuredUnhealthy = measuredV6Healthy == false || settings.measuredIpv6Unhealthy
         if (measuredUnhealthy) return IpFamilyPreference.DUAL
         return IpFamilyPreference.IPV6_FIRST
@@ -302,15 +197,11 @@ object AddressFamilyPolicy {
         measuredV6Healthy: Boolean? = null
     ): Boolean = when (preference) {
         IpFamilyPreference.IPV4_ONLY, IpFamilyPreference.IPV4_FIRST -> false
-        // Ordering v6 first is only meaningful when the underlay can actually carry the family.
+
         IpFamilyPreference.IPV6_ONLY, IpFamilyPreference.IPV6_FIRST -> underlayHasIpv6
         IpFamilyPreference.DUAL -> underlayHasIpv6 && measuredV6Healthy != false
     }
 
-    /**
-     * A race is only possible on a TCP path that is not wrapped inside another dialer, with racing
-     * enabled and a usable delay budget.
-     */
     fun canRace(
         settings: AppSettings,
         preference: IpFamilyPreference,
@@ -318,8 +209,6 @@ object AddressFamilyPolicy {
         chained: Boolean,
         dialerProxy: String
     ): Boolean {
-        // A v4-only or v6-only plan has one family to dial, so there is nothing to race; a UDP or
-        // dialer-wrapped path is decided inside Xray's own dialer and never reaches the race.
         if (
             preference != IpFamilyPreference.DUAL &&
             preference != IpFamilyPreference.IPV4_FIRST &&
@@ -334,11 +223,6 @@ object AddressFamilyPolicy {
             dialerProxy.isBlank()
     }
 
-    /**
-     * The endpoint strategy is chosen together with the race, never separately: `ForceIP` only
-     * makes sense when Xray is armed to order the answers, and a path that cannot race must get a
-     * deterministic order instead of a coin flip.
-     */
     fun endpointStrategy(
         preference: IpFamilyPreference,
         raceEnabled: Boolean,
@@ -355,18 +239,13 @@ object AddressFamilyPolicy {
         }
     }
 
-    /**
-     * DNS record selection. Xray's DNS module only accepts `UseIP` (A + AAAA), `UseIPv4` and
-     * `UseIPv6`; anything else is a hard config error, so an unknown stored value is normalised
-     * instead of forwarded to the engine.
-     */
     fun dnsQueryStrategy(
         settings: AppSettings,
         preference: IpFamilyPreference
     ): String = when (preference) {
         IpFamilyPreference.IPV4_ONLY -> "UseIPv4"
         IpFamilyPreference.IPV6_ONLY -> "UseIPv6"
-        // v6-first still needs A records: the fallback is part of the promise.
+
         IpFamilyPreference.IPV4_FIRST,
         IpFamilyPreference.IPV6_FIRST,
         IpFamilyPreference.DUAL -> "UseIP"
@@ -382,9 +261,6 @@ object AddressFamilyPolicy {
         measuredV6Healthy: Boolean? = null,
         link: LinkEvidence = LinkEvidence.UNKNOWN
     ): IpFamilyPlan {
-        // One verdict for the whole plan. An explicit argument wins; otherwise the transient
-        // measurement carried by the settings object is used, so every consumer of this plan agrees
-        // on whether IPv6 is actually working on this link.
         val measured = measuredV6Healthy ?: if (settings.measuredIpv6Unhealthy) false else null
         val preference = preference(settings, underlayHasIpv6, importedStrategy, measured)
         val prioritize = prioritizeIpv6(preference, underlayHasIpv6, measured)
@@ -392,11 +268,6 @@ object AddressFamilyPolicy {
         val strategy = endpointStrategy(preference, race, underlayHasIpv6 && prioritize)
         val armed = race && strategy in raceableStrategies
         val delay = if (armed) {
-            // MARBLE_LINK_DEADLINE_V133 — the attempt delay is a fraction of the measured RTT. A
-            // fixed 60 ms on a ~1.1 s link starts the second dial long before the first SYN-ACK can
-            // arrive, so both families are dialled on every connection and the preferred family can
-            // never actually win the race. Scaling only ever lengthens a race the policy already
-            // armed; a disarmed race (delay 0 on a measured-bad node) stays disarmed.
             LinkDeadlinePolicy.raceTryDelayMs(
                 link,
                 settings.happyEyeballsTryDelayMs.coerceIn(MIN_TRY_DELAY_MS, MAX_TRY_DELAY_MS)
@@ -414,8 +285,7 @@ object AddressFamilyPolicy {
             tryDelayMs = delay,
             maxConcurrentTry = settings.happyEyeballsMaxConcurrent
                 .coerceIn(MIN_CONCURRENT_TRY, MAX_CONCURRENT_TRY),
-            // Only the user's own switch may drop IPv6 app traffic: a node that pins itself to IPv4,
-            // or a measured plan that prefers A records, must not black-hole the rest of the tunnel.
+
             blockIpv6Traffic = preference == IpFamilyPreference.IPV4_ONLY,
             blockIpv4Traffic = preference == IpFamilyPreference.IPV6_ONLY,
             reason = when (preference) {
@@ -432,22 +302,12 @@ object AddressFamilyPolicy {
         )
     }
 
-    /**
-     * The sing-box dialer's address-family policy for the PHYSICAL node socket. Unlike browsing
-     * DNS, this must respect the physical underlay: IPv6 egress through an IPv4-connected server
-     * is possible, but an IPv6 node address cannot be dialled over an IPv4-only underlay.
-     */
     fun singBoxEndpointStrategy(plan: IpFamilyPlan): String = when (plan.endpointStrategy) {
         "ForceIPv4" -> "ipv4_only"
         "ForceIPv6" -> "ipv6_only"
         else -> if (plan.prioritizeIpv6) "prefer_ipv6" else "prefer_ipv4"
     }
 
-    /**
-     * Browsing resolution happens behind the proxy. Never infer the exit's address family from
-     * the phone's underlay: an IPv4 connection to the node can carry IPv6 traffic at the exit.
-     * Explicit modes, not a stale legacy `preferIpv6` projection, decide the DNS strategy.
-     */
     fun singBoxDestinationStrategy(settings: AppSettings): String = when (
         preference(settings, underlayHasIpv6 = true)
     ) {
@@ -458,11 +318,6 @@ object AddressFamilyPolicy {
         IpFamilyPreference.DUAL -> if (settings.measuredIpv6Unhealthy) "prefer_ipv4" else "prefer_ipv6"
     }
 
-    /**
-     * Order resolved addresses the way RFC 8305 does, for the connection paths Marble measures in
-     * Kotlin itself (latency tests, route probes, SOCKS and SSH handshakes). A single answer is
-     * returned untouched; a family the user excluded is dropped rather than tried and timed out.
-     */
     fun orderAddresses(
         addresses: List<InetAddress>,
         plan: IpFamilyPlan
@@ -484,12 +339,6 @@ object AddressFamilyPolicy {
         }
     }
 
-    /**
-     * True when [host] is a numeric address that the JDK parses locally. Hostnames can never
-     * contain ':', so any colon means an IPv6 literal; a dotted quad is validated octet by
-     * octet so a malformed "999.1.1.1" still falls through to the real resolver instead of
-     * being mistaken for an address.
-     */
     fun isLiteralIp(host: String): Boolean {
         val clean = host.trim().removePrefix("[").removeSuffix("]")
         if (clean.isEmpty()) return false
@@ -501,7 +350,6 @@ object AddressFamilyPolicy {
         }
     }
 
-    /** A literal IPv6 endpoint cannot fall back to IPv4 if the user selected IPv4-only mode. */
     const val IPV6_LITERAL_DISABLED =
         "This server has only an IPv6 address. Enable IPv6 in Settings → DNS and use an IPv6-capable network."
 
@@ -512,43 +360,20 @@ object AddressFamilyPolicy {
         return runCatching { InetAddress.getByName(clean) is Inet6Address }.getOrDefault(false)
     }
 
-    /** An IPv4-only node cannot satisfy strict Force IPv6; never dial it as a fallback. */
     const val IPV4_LITERAL_DISABLED =
         "This server has only an IPv4 address. Force IPv6 cannot dial it; select a server with an IPv6 address or choose Prefer IPv6."
 
     fun excludedIpv4Endpoint(host: String, settings: AppSettings): Boolean {
-        // MARBLE_IPV6_FALLBACK_LADDER_V196 — an exclusion is only an exclusion under strict
-        // enforcement. By default Force IPv6 no longer *refuses* an IPv4-only node: the ladder in
-        // Ipv6FallbackLadder has already rewritten the session's mode to "IPv6 first, IPv4 carries
-        // the socket" before any writer sees these settings, and the callers that still hold the
-        // raw preference (ranking's preflight pass, the JVM probers, the config builders' own
-        // `require` guard) must reach the same conclusion rather than quarantining a node the
-        // connect path is perfectly willing to dial. That disagreement is precisely what produced
-        // `BLOCKED • Kill switch active` on nine working servers in a row.
         if (!settings.strictAddressFamily) return false
         if (preference(settings, underlayHasIpv6 = true) != IpFamilyPreference.IPV6_ONLY) return false
         val clean = host.trim().removeSurrounding("[", "]")
         if (!isLiteralIp(clean)) return false
-        // The JVM normalizes ::ffff:192.0.2.1 and ::ffff:c000:201 to Inet4Address.
-        // Checking only for a ':' would let those IPv4-mapped literals bypass Force IPv6.
-        // getByName on a verified numeric literal cannot ask system DNS.
+
         val address = runCatching { InetAddress.getByName(clean) }.getOrNull()
-        // Loopback is an in-process bridge, not a physical IPv4 node connection (e.g. SSH).
+
         return address is Inet4Address && !address.isLoopbackAddress
     }
 
-    /**
-     * Resolve a node hostname into the addresses a prober should try, in the order the tunnel itself
-     * will use. Literal addresses never touch a resolver, so a ping can never be blamed on DNS, and
-     * The answer order (which is what `Socket.connect(host, port)` would trust) is deliberately
-     * ignored: only encrypted IP-literal DoH can resolve a hostname outside the core.
-     *
-     * @param timeoutMs when positive, the resolver call itself is bounded: domain resolution for
-     *   a dead network used to block the calling probe thread for the whole OS resolver timeout
-     *   (ten seconds or more), which made every "budget" the callers believed they enforced a
-     *   fiction. The default resolver now uses encrypted IP-literal DoH and never retries OS DNS.
-     *   Zero keeps the unbounded call for offline diagnostics without a caller stopwatch.
-     */
     fun resolveCandidates(
         host: String,
         plan: IpFamilyPlan,
@@ -565,29 +390,6 @@ object AddressFamilyPolicy {
         return orderAddresses(resolveWithBudget(clean, timeoutMs, resolver), plan)
     }
 
-    /**
-     * MARBLE_RESOLVE_BUDGET_V144 — the one bounded hostname resolution in the product.
-     *
-     * Critique of what this replaces: every JVM prober (`tcpOnce`, `icmp`, `dnsPing`) called
-     * `InetAddress.getAllByName` inline on its own worker thread with NO timeout. `getAllByName`
-     * is a blocking syscall with no timeout parameter, so on a broken link or a censored DNS
-     * path a single domain-hosted node stalled its probe worker for the full system-resolver
-     * timeout while the UI budget next to it (`benchTimeoutSec`, the gate slices in `smartPing`)
-     * claimed milliseconds. One stalled worker is a slow row; thirty-two of them during
-     * Ping-all is a frozen batch and a dead progress bar.
-     *
-     * The fix, in one place so no future prober can regress it:
-     * - numeric literals bypass the pool entirely (parsed locally, zero syscalls, never queued
-     *   behind a stalled lookup);
-     * - domain names resolve over IP-literal encrypted DoH on a small shared daemon pool; no
-     *   Android/system-DNS fallback exists, and the caller waits at most
-     *   [timeoutMs]: on expiry the wait is abandoned (empty list — the probe reports
-     *   unreachable instead of hanging) and the stray lookup is cancelled.
-     *
-     * The pool is deliberately fixed-size and daemon: a dead network can pin at most
-     * [RESOLVE_POOL_SIZE] lookups, never one thread per probe, and nothing here can keep the
-     * process alive.
-     */
     fun resolveWithBudget(
         host: String,
         timeoutMs: Int,
@@ -616,17 +418,6 @@ object AddressFamilyPolicy {
         }
     }
 
-    /**
-     * MARBLE_IP_FAMILY_TRUTH_V197 — the resolver a *family measurement* must use.
-     *
-     * [resolveWithBudget] asks for "some addresses" and is happy with the first answer that wins
-     * the race. A family scan asks a different question — "which records does this name publish at
-     * all?" — and a first-past-the-post race cannot answer it: the winner is picked before its
-     * answer is parsed, so one resolver's empty answer section silently deletes a family. This is
-     * the seam that asks both families in parallel and keeps every independent witness
-     * ([EncryptedEndpointResolver.resolveAll]), so the scan can tell "no AAAA exists" apart from
-     * "the resolver we happened to ask did not return one".
-     */
     fun resolveFamilyWithBudget(host: String, timeoutMs: Int): List<InetAddress> {
         val clean = host.trim().removePrefix("[").removeSuffix("]")
         if (clean.isBlank()) return emptyList()
@@ -653,18 +444,10 @@ object AddressFamilyPolicy {
         }
     }
 
-    /** Slack over the resolver's own budget so the outer wait is never the thing that truncates it. */
     private const val RESOLVE_GRACE_MS = 400L
 
-    /**
-     * Full TUN must capture BOTH families regardless of the phone's physical connectivity or
-     * selected exit policy. A captured family the core does not support is rejected inside the
-     * VPN, never left for Android to send over the underlay. The service fails establishment if
-     * adding this address/route fails, rather than silently creating an IPv4-only VPN.
-     */
     fun shouldCaptureIpv6(): Boolean = true
 
-    /** Convenience for the JVM probers: the first usable address under the plan. */
     fun selectAddress(
         addresses: List<InetAddress>,
         plan: IpFamilyPlan

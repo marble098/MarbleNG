@@ -5,15 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_RECOVERY_CIRCUIT_V135 regressions.
- *
- * The motivating log showed six automatic connect/disconnect cycles inside two minutes. These
- * tests pin the two properties that prevent that storm: every automatic recovery is paced by an
- * exponential ladder, and the circuit opens once too many recoveries land in one window.
- */
 class RecoveryBackoffPolicyTest {
-
     @Test
     fun `the delay ladder is exponential and capped`() {
         assertEquals(1_500L, RecoveryBackoffPolicy.delayMs(1))
@@ -22,7 +14,7 @@ class RecoveryBackoffPolicyTest {
         assertEquals(12_000L, RecoveryBackoffPolicy.delayMs(4))
         assertEquals(24_000L, RecoveryBackoffPolicy.delayMs(5))
         assertEquals(30_000L, RecoveryBackoffPolicy.delayMs(6))
-        // The ceiling holds forever after; the ladder never grows unbounded.
+
         assertEquals(30_000L, RecoveryBackoffPolicy.delayMs(7))
         assertEquals(30_000L, RecoveryBackoffPolicy.delayMs(1_000))
     }
@@ -37,7 +29,7 @@ class RecoveryBackoffPolicyTest {
     fun `attempts outside the window do not count`() {
         val now = 1_000_000L
         var state = RecoveryBackoffPolicy.State()
-        // Six attempts, but all of them older than the window.
+
         repeat(RecoveryBackoffPolicy.MAX_RECOVERIES_PER_WINDOW) { index ->
             state = RecoveryBackoffPolicy.recordAttempt(
                 state,
@@ -56,12 +48,12 @@ class RecoveryBackoffPolicyTest {
     fun `the circuit opens at the configured count inside the window`() {
         val now = 5_000_000L
         var state = RecoveryBackoffPolicy.State()
-        // One fewer than the limit keeps the circuit closed.
+
         repeat(RecoveryBackoffPolicy.MAX_RECOVERIES_PER_WINDOW - 1) {
             state = RecoveryBackoffPolicy.recordAttempt(state, now - it * 1_000L)
         }
         assertFalse(RecoveryBackoffPolicy.circuitOpen(state, now))
-        // The attempt that reaches the limit opens it.
+
         state = RecoveryBackoffPolicy.recordAttempt(state, now)
         assertTrue(RecoveryBackoffPolicy.circuitOpen(state, now))
         assertEquals(

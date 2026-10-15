@@ -1,22 +1,10 @@
 package com.marbleng.app.core
 
-/**
- * Conservative TCP liveness values shared by both engines (Xray sockopt and sing-box dial
- * fields). TCP_NODELAY is intentionally absent because Go already enables it.
- *
- * MARBLE_SOCKET_FLIGHT_V168: MPTCP used to be deliberately opt-in here for fear of old kernels;
- * Go's multipath dialer (net/mptcpsock_linux.go) probes support at runtime and retries plain TCP
- * on every MPTCP error, so it is now offered by default in [CoreSocketPolicy].
- *
- * MARBLE_IRAN_LIVENESS_V80: Enhanced with Iran-specific settings that account for
- * the longer RTT and higher loss characteristics of filtered international transit.
- */
 object SocketLivenessPolicy {
     data class Values(
         val keepAliveIdleSeconds: Int,
         val keepAliveIntervalSeconds: Int,
         val userTimeoutMs: Int,
-        /** MARBLE_IRAN_LIVENESS_V80: whether these values are Iran-tuned */
         val iranTuned: Boolean = false
     )
 
@@ -30,9 +18,6 @@ object SocketLivenessPolicy {
             else -> Values(60, 15, 60_000)
         }
 
-        // MARBLE_IRAN_LIVENESS_V80: More generous timeouts for Iran's filtered transit
-        // International traffic through Iran experiences higher RTT and more retransmissions,
-        // so keepalive and timeout values need to be higher to avoid premature disconnections.
         val iranAdjusted = if (iranMode) {
             base.copy(
                 keepAliveIdleSeconds = (base.keepAliveIdleSeconds * 1.8).toInt().coerceIn(60, 180),
@@ -54,11 +39,6 @@ object SocketLivenessPolicy {
         }
     }
 
-    /**
-     * MARBLE_IRAN_LIVENESS_V80: Recommended TCP keepalive settings for Iran's
-     * high-latency international transit. These values prevent false disconnections
-     * while still detecting dead peers within a reasonable timeframe.
-     */
     fun iranRecommended(): Values = Values(
         keepAliveIdleSeconds = 90,
         keepAliveIntervalSeconds = 25,

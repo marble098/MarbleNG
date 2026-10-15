@@ -11,16 +11,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_SINGBOX_CORE_V151 — the second engine, pinned by unit test.
- *
- * A config the extended core cannot parse fails at `run`, after the tunnel is already half up, so
- * every promise here is about the JSON Marble writes: the tags the URL test and the routing rules
- * depend on, the DNS schema sing-box 1.12+ actually reads (`server`, not `address`), and the three
- * switches the Engine page exposes. Nothing here spawns a process; the schema is the contract.
- */
 class SingBoxCoreV151Test {
-
     private fun linkProfile(raw: String) = ProxyProfile(
         id = "node-1",
         name = "Node 1",
@@ -178,14 +169,6 @@ class SingBoxCoreV151Test {
         assertEquals(SingBoxConfigBuilder.PROXY_TAG, config.getJSONObject("route").getString("final"))
     }
 
-    /**
-     * MARBLE_SINGBOX_DNS_ACTION_V152 — the `dns` outbound is deprecated since 1.11.0 and
-     * REMOVED in 1.13.0, and the pinned extended core (v1.14.x) rejects the entire config for
-     * carrying one: "outbounds[3]: dns outbound is deprecated in sing-box 1.11.0 and removed in
-     * sing-box 1.13.0, use rule actions instead". That single line refused all 17 profiles of
-     * the shipped log and left every session BLOCKED. The builder must never write it, and the
-     * `hijack-dns` rule action — the replacement the error itself names — must be there instead.
-     */
     @Test
     fun theDnsOutboundRemovedInSingBox113IsNeverWritten() {
         val config = JSONObject(build(linkProfile(VLESS_LINK)).json)
@@ -210,8 +193,6 @@ class SingBoxCoreV151Test {
         assertTrue("the hijack-dns rule action must intercept DNS", hijackPresent)
     }
 
-    /** The node's hostname must not ask Android DNS. IP-literal encrypted DIRECT DoH is
-     * the ONLY bootstrap path, and its outage fails closed; a literal endpoint needs no rule. */
     @Test
     fun theProxyHostnameBootstrapsThroughEncryptedDirectDns() {
         val literalConfig = JSONObject(build(linkProfile(VLESS_LINK)).json)
@@ -314,9 +295,7 @@ class SingBoxCoreV151Test {
         for (i in 0 until servers.length()) {
             val server = servers.getJSONObject(i)
             val type = server.getString("type")
-            // `hosts`, `local`, `fallback`, and `fakeip` are addressless transports. FakeIP owns
-            // an address *range* (`inet4_range`), not an upstream `server`; treating it as a remote
-            // transport is what made PR #157's otherwise-valid unit suite fail here.
+
             if (type in setOf("hosts", "local", "fallback", "fakeip")) {
                 if (type == "fakeip") {
                     assertFalse("a fakeip transport must not carry an upstream server", server.has("server"))
@@ -324,9 +303,7 @@ class SingBoxCoreV151Test {
                 }
                 continue
             }
-            // sing-box 1.12 renamed the DNS server address key. A server written with `address`
-            // parses to nothing and every lookup dies, so this is the single most expensive typo
-            // this builder could make.
+
             assertFalse("a DNS server must not use the pre-1.12 `address` key", server.has("address"))
             assertTrue("a DNS server must carry `server`", server.getString("server").isNotBlank())
         }
@@ -381,13 +358,8 @@ class SingBoxCoreV151Test {
         }
     }
 
-    /**
-     * MARBLE_SINGBOX_PINNED_COMPAT_V164 — pinned configs are now supported via the translated
-     * path with `tls.insecure: true`. The pin verification is lost, but the tunnel works.
-     */
     @Test
     fun certificatePinningIsTranslatedWithInsecureRatherThanRefused() {
-        // 32-byte SHA-256 as 64-char lowercase hex — exactly what Xray parses.
         val validSha256Hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         val profile = jsonProfile("vless").let {
             val root = JSONObject(it.configJson)
@@ -405,7 +377,6 @@ class SingBoxCoreV151Test {
         assertEquals(SingBoxConfigBuilder.STRATEGY_TRANSLATED, support.strategy)
         assertTrue(support.notes.any { it.contains("tls-pinning") })
 
-        // The translated config must carry insecure:true
         val config = JSONObject(
             SingBoxConfigBuilder.build(profile, AppSettings(singBoxPreferParser = false),
                 10808, 39090, "secret", "", "cache.db").json
@@ -419,8 +390,7 @@ class SingBoxCoreV151Test {
     fun shareLinkIgnoresAnythingThatIsNotALink() {
         assertNull(SingBoxConfigBuilder.shareLink(jsonProfile("vless")))
         assertNull(SingBoxConfigBuilder.shareLink(linkProfile("ftp://example.com")))
-        // MARBLE_SINGBOX_PROTOCOLS_V153 — a single line with spaces in its display-name fragment
-        // is a real link, not a blob; the core parser can read it.
+
         assertEquals(
             "vless://two words",
             SingBoxConfigBuilder.shareLink(linkProfile("vless://two words"))
@@ -428,8 +398,6 @@ class SingBoxCoreV151Test {
         assertEquals(VLESS_LINK, SingBoxConfigBuilder.shareLink(linkProfile(VLESS_LINK)))
     }
 
-    // MARBLE_SINGBOX_PROTOCOLS_V153 — the network field regression and the link-parser guard that
-    // together made "none of the other servers work" on the sing-box engine.
     @Test
     fun shareLinksWithSpacesInTheDisplayNameAreHandedToTheCoreParser() {
         val withSpace = "vless://11111111-2222-3333-4444-555555555555@198.51.100.7:443" +
@@ -553,15 +521,6 @@ class SingBoxCoreV151Test {
         )
     }
 
-    /**
-     * MARBLE_CORE_OPTIONS_V211 — a sing-box outbound carries the user's own options and nothing
-     * else.
-     *
-     * Fragmentation is gone with the feature it served, so no TLS-fragment key may appear on an
-     * outbound at all, whatever the settings say. Multiplexing is the other half of the same
-     * rule: it appears only when the user turned it on, and under the field name the pinned core
-     * declares (`multiplex`, never Xray's `mux`).
-     */
     @Test
     fun noTlsFragmentKeysAndMultiplexOnlyFromTheUser() {
         val profile = jsonProfile("vless").let {
@@ -594,12 +553,6 @@ class SingBoxCoreV151Test {
         assertEquals(4, multiplex.getInt("max_connections"))
     }
 
-    /**
-     * MARBLE_SINGBOX_AUTOPARSER_V154 — a vless/vmess node whose endpoint lives on `settings`
-     * directly (no `vnext[]`) is exactly what PattNG exports and Marble imports for scheme `json`.
-     * The old translator threw "no vnext server" for these, so the sing-box URL test painted an
-     * otherwise-healthy server FAILED. The translator must accept the direct form.
-     */
     @Test
     fun aDirectFormVlessWithoutVnextTranslatesInsteadOfThrowing() {
         val profile = directFormProfile(
@@ -607,7 +560,7 @@ class SingBoxCoreV151Test {
             user = mapOf("id" to "11111111-2222-3333-4444-555555555555", "encryption" to "none"),
             extra = mapOf("flow" to "xtls-rprx-vision")
         )
-        val build = build(profile) // must not throw "no vnext server"
+        val build = build(profile)
         assertEquals(SingBoxConfigBuilder.STRATEGY_TRANSLATED, build.strategy)
         val config = JSONObject(build.json)
         val proxy = outbound(config, SingBoxConfigBuilder.PROXY_TAG)
@@ -632,11 +585,6 @@ class SingBoxCoreV151Test {
         assertEquals("xudp", proxy.getString("packet_encoding"))
     }
 
-    /**
-     * A user object that only carries part of the account (for example `users[0]` with an id but
-     * the alter-id on the server block) must not lose the whole node: every field is resolved
-     * independently across `users[0]`, the server and the settings object.
-     */
     @Test
     fun aPartiallyPopulatedUserResolvesEveryFieldInsteadOfDroppingTheNode() {
         val profile = ProxyProfile(

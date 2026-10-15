@@ -9,22 +9,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_IPV6_FALLBACK_LADDER_V196 — the contract that a transport preference may never become an
- * outage.
- *
- * Every case below is taken from the session that motivated the ladder: Force IPv6 selected, a
- * library that is mostly IPv4-only, and a Wi-Fi with no IPv6 route. The old build answered each of
- * them with `BLOCKED • Kill switch active`; the assertions here are the proof that it cannot
- * happen again — and, just as importantly, that the *strict* contract still holds for the user who
- * explicitly asks for it.
- */
 class Ipv6FallbackLadderTest {
-
     private val v6Underlay = FamilyEvidence(underlayHasIpv6 = true)
     private val v4Underlay = FamilyEvidence(underlayHasIpv6 = false)
-
-    // ─────────────────────────────────────────────────────────── the reported failure
 
     @Test fun forceIpv6OnAnIpv4OnlyNodeDialsIpv4InsteadOfRefusing() {
         val evidence = v6Underlay.copy(nodeHasIpv6 = false, nodeHasIpv4 = true)
@@ -45,12 +32,11 @@ class Ipv6FallbackLadderTest {
         assertEquals(FamilyRung.IPV4_FIRST, resolved.rung)
         assertEquals("underlay-v4-only", resolved.code)
         assertNull(resolved.refusal)
-        // The remedy must be self-clearing: nothing for the user to re-enable later.
+
         assertTrue(resolved.advice.contains("returns by itself"))
     }
 
     @Test fun everyIpv4OnlyNodeOfTheReportedLibraryConnects() {
-        // Germany 2/3/4/5, Turkey 1/6/8, mci, Netherlands 3 — all IPv4 literals or A-only names.
         val nodes = listOf(
             "185.99.133.12", "45.147.51.7", "91.107.180.4", "213.183.58.9",
             "de4.example.net", "tr8.example.net", "mci.example.ir", "nl3.example.net"
@@ -70,8 +56,6 @@ class Ipv6FallbackLadderTest {
             assertEquals(host, FamilyRung.IPV4_FIRST, resolved.rung)
         }
     }
-
-    // ─────────────────────────────────────────────────────────── the rungs above it
 
     @Test fun provenIpv6KeepsForceIpv6Exactly() {
         val evidence = v6Underlay.copy(
@@ -106,8 +90,6 @@ class Ipv6FallbackLadderTest {
         assertNull(resolved.refusal)
     }
 
-    // ─────────────────────────────────────────────────────────── the honest refusals
-
     @Test fun strictEnforcementStillRefusesAndNamesTheAlternative() {
         val evidence = v6Underlay.copy(nodeHasIpv6 = false, nodeHasIpv4 = true)
         val resolved = Ipv6FallbackLadder.resolve(
@@ -119,7 +101,7 @@ class Ipv6FallbackLadderTest {
         assertEquals(FamilyRung.REFUSED, resolved.rung)
         assertEquals(Ipv6FallbackLadder.STRICT_NODE_REFUSAL, resolved.refusal)
         assertTrue(resolved.blocked)
-        // A refusal that does not tell the user what to do instead is a dead end.
+
         val refusal = resolved.refusal.orEmpty()
         assertTrue(refusal.contains("strict"))
         assertTrue(refusal.contains("IPv4"))
@@ -162,8 +144,7 @@ class Ipv6FallbackLadderTest {
             assertEquals(FamilyRung.AS_REQUESTED, resolved.rung)
             assertNull(resolved.refusal)
         }
-        // Prefer IPv6 is never refused either, but its rung still names the family that will
-        // actually open the socket, so the diagnostics line cannot lie.
+
         val preferOnV4 = Ipv6FallbackLadder.resolve(
             AddressFamilyMode.PREFER_IPV6,
             v4Underlay.copy(nodeHasIpv6 = false)
@@ -171,8 +152,6 @@ class Ipv6FallbackLadderTest {
         assertEquals(AddressFamilyMode.PREFER_IPV6, preferOnV4.effective)
         assertEquals(FamilyRung.IPV4_FIRST, preferOnV4.rung)
     }
-
-    // ─────────────────────────────────────────────────────────── projection into settings
 
     @Test fun applyRewritesEveryLegacyProjectionTogether() {
         val requested = AppSettings(
@@ -188,14 +167,11 @@ class Ipv6FallbackLadderTest {
         val effective = Ipv6FallbackLadder.apply(requested, resolved)
 
         assertEquals(AddressFamilyMode.PREFER_IPV6, effective.addressFamilyMode)
-        // The whole point: IPv6 stays enabled and preferred for destinations. Only the node
-        // socket gives up the family.
+
         assertTrue(effective.ipv6Enabled)
         assertTrue(effective.preferIpv6)
         assertEquals("UseIP", effective.dnsQueryStrategy)
 
-        // Every reader must now agree with the connect path — including the one that used to
-        // throw and the one that used to quarantine the profile.
         assertFalse(AddressFamilyPolicy.excludedIpv4Endpoint("192.0.2.1", effective))
         assertEquals(
             IpFamilyPreference.IPV6_ONLY,
@@ -219,8 +195,6 @@ class Ipv6FallbackLadderTest {
         val once = Ipv6FallbackLadder.apply(settings, degradeRung)
         assertEquals(once, Ipv6FallbackLadder.apply(once, degradeRung))
     }
-
-    // ─────────────────────────────────────────────────────────── evidence construction
 
     @Test fun literalsAreDecidedLocallyAndNeverNeedAScan() {
         val v4 = Ipv6FallbackLadder.evidenceFor("185.99.133.12", null, underlayHasIpv6 = true)
@@ -253,7 +227,7 @@ class Ipv6FallbackLadderTest {
         val evidence = Ipv6FallbackLadder.evidenceFor("de2.example.net", scan, true)
         assertEquals(false, evidence.nodeHasIpv6)
         assertTrue(evidence.ipv6Impossible)
-        // "No AAAA at all" is not "IPv6 failed": there was nothing to prove or disprove.
+
         assertNull(evidence.nodeIpv6Proven)
     }
 }

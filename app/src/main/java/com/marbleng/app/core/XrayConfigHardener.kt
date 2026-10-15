@@ -7,48 +7,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object XrayConfigHardener {
-    // MARBLE_ENCRYPTED_DNS_ONLY_V38
-    // MARBLE_CLEAN_XRAY_LOG_V13
-    // MARBLE_DNS_RESILIENCE_V16
-    // MARBLE_DNS_DEJITTER_V18
-    // MARBLE_DNS_TRANSPORT_FALLBACK_V23
-    // MARBLE_IP_FAMILY_POLICY_V24
-    // MARBLE_DNS_FAST_FALLBACK_V25
-    // MARBLE_DNS_EOF_QUARANTINE_V26
-    // MARBLE_RUNTIME_POLISH_V29
-    // MARBLE_EXTREME_NETWORK_V30
-    // MARBLE_DNS_PROVIDER_FAILOVER_V35
-    // MARBLE_V2RAYNG_SMART_RANK_V45
-    // MARBLE_DNS_RACE_V47
-    // MARBLE_DNS_SERIAL_FAILOVER_V49
-    // MARBLE_DNS_BURST_TOLERANCE_V59
-    // MARBLE_PATTNG_NATIVE_RANK_V62
-    // MARBLE_REALTIME_ENGINE_V70
-    // MARBLE_UNIFIED_ADDRESS_FAMILY_V65
-    // MARBLE_SOCKET_FLIGHT_V168 — MPTCP, physical fragment-dialer tuning, uTLS gap fill.
-    // MARBLE_RESERVED_TAG_COLLISION_V183 — the core accepts `direct`/`block` as aliases of
-    // `freedom`/`blackhole`; an alias is infrastructure exactly like its canonical name.
     private val infra = setOf("freedom", "direct", "blackhole", "block", "dns", "loopback")
     private val compatibilityDependencyProtocols = setOf(
         "freedom", "http", "shadowsocks", "socks", "trojan", "vless", "vmess", "hysteria", "wireguard"
     )
     private val muxProtocols = setOf("shadowsocks", "trojan", "vless", "vmess")
 
-    /**
-     * MARBLE_ENDPOINT_BOOTSTRAP_V132 — independent literal resolvers for the node hostname.
-     *
-     * The endpoint hostname is resolved by the `https+local://` servers below and by NOTHING
-     * else: Xray builds "list 1" from every server whose `domains` field matches the query and
-     * `disableFallbackIfMatch` then suppresses "list 2" completely, so the proxy-routed DoH
-     * chain is invisible to the endpoint lookup (it has to be — that chain needs the endpoint
-     * IP before it can carry anything).
-     *
-     * Two literals are therefore a single point of failure, and the two defaults (1.1.1.1 and
-     * 8.8.8.8) are the two most-filtered public resolvers on censored networks. When both were
-     * unreachable Xray never dialled the node at all, while the very same server connected and
-     * pinged in another client that lets the OS or the remote resolve the name. The user's own
-     * resolvers keep first place; these independent literals follow them.
-     */
     private val STOCK_BOOTSTRAP_DNS_IPS = listOf(
         "1.1.1.1", "8.8.8.8", "9.9.9.9", "1.0.0.1", "8.8.4.4", "149.112.112.112"
     )
@@ -57,10 +21,6 @@ object XrayConfigHardener {
     )
     private const val MAX_BOOTSTRAP_DNS_IPS = 6
 
-    /**
-     * RFC1918/RFC6598/RFC3927/link-local/loopback/multicast ranges. Kept as literal CIDRs so
-     * "private bypass" never depends on geoip.dat: Xray matches these without any geo database.
-     */
     private val PRIVATE_CIDRS = listOf(
         "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
         "127.0.0.0/8", "169.254.0.0/16", "192.0.0.0/24", "192.88.99.0/24",
@@ -68,15 +28,6 @@ object XrayConfigHardener {
         "::1/128", "fc00::/7", "fe80::/10"
     )
 
-
-    /**
-     * Compose an unbounded persisted Manual chain: client -> hop 1 -> ... -> exit -> Internet.
-     *
-     * Every source is namespaced before merging, including helper outbounds and internal
-     * proxySettings/dialerProxy references. The tail of each later hop is attached to the primary
-     * outbound of the preceding hop, so already-composite/custom configs remain intact. There is no
-     * arbitrary hop-count cap; practical device memory and Xray validation are the natural bounds.
-     */
     fun composeChain(sources: List<String>): String {
         require(sources.size >= 2) { "A chain needs at least two hops" }
 
@@ -86,9 +37,7 @@ object XrayConfigHardener {
         )
 
         val segments = sources.mapIndexed { segmentIndex, source ->
-            // MARBLE_CORE_CONFIG_SUPERSET_V165 — repair the hop before composing it: an imported
-            // hop that carried `proxySettings` used to survive into the composed document, and the
-            // pinned core answers that field with a fatal load error.
+
             val hopRepairs = XrayConfigRepairs.apply(source)
             if (hopRepairs.changed) XrayConfigRepairs.record(hopRepairs.repairs)
             val root = XrayConfigAdapter.document(if (hopRepairs.changed) hopRepairs.document else source)
@@ -113,8 +62,7 @@ object XrayConfigHardener {
             clones.forEach { (oldTag, outbound) ->
                 val newTag = originalTags.getValue(oldTag)
                 outbound.put("tag", newTag)
-                // The repair pass has already moved any imported `proxySettings` onto
-                // `sockopt.dialerProxy`, so the chain has exactly one reference form to remap here.
+
                 outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")?.let { sockopt ->
                     originalTags[sockopt.optString("dialerProxy")]?.let { sockopt.put("dialerProxy", it) }
                 }
@@ -139,9 +87,6 @@ object XrayConfigHardener {
         }
 
         for (index in 1 until segments.size) {
-            // `streamSettings.sockopt.dialerProxy` is what the pinned core reads now: Xray removed
-            // `proxySettings` (and with it `transportLayer`, which this core never modelled), and its
-            // own error message names this field as the migration.
             val hop = tail(segments[index])
             val stream = hop.optJSONObject("streamSettings")
                 ?: JSONObject().also { hop.put("streamSettings", it) }
@@ -173,11 +118,6 @@ object XrayConfigHardener {
             .toString()
     }
 
-    /**
-     * Real-delay MUST use production DNS and routing. A stripped config lets the core install
-     * its system resolver for node hostnames and gives a misleading green ping while leaking
-     * the node name. Keep the same encrypted bootstrap and family plan as the live tunnel.
-     */
     fun hardenForDelayTest(
         source: String,
         socksPort: Int,
@@ -186,38 +126,19 @@ object XrayConfigHardener {
         link: LinkEvidence = LinkEvidence.UNKNOWN
     ): String = harden(source, socksPort, settings, link, underlayHasIpv6)
 
-    /**
-     * Build Rank from the SAME production-compatible outbound graph as a real Marble connection,
-     * then remove only runtime sections that are irrelevant to an outbound delay test.
-     *
-     * This follows PattNG's getV2rayConfig4Speedtest() architecture: unified config first,
-     * post-process second.
-     */
     fun hardenForNativeRank(
         source: String,
         settings: AppSettings = AppSettings(),
         underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
     ): String {
-        // The local port is discarded with the inbounds below; it exists only so production
-        // hardening executes through exactly the same code path.
-        // MARBLE_IPV6_DNS_PURGE_V135 — the rank instance must build on the SAME underlay verdict
-        // as the real tunnel: before this, the parameter existed but never reached `harden()`, so
-        // ranking could resolve node hostnames over a family the production session had purged.
         val root = JSONObject(harden(source, 19091, settings, underlayHasIpv6 = underlayHasIpv6))
         root.put("inbounds", JSONArray())
-        // Xray installs its *system* resolver whenever a config has no dns app, so removing the
-        // section did not just simplify the rank instance — it made ranking resolve node hostnames in
-        // plaintext over the underlay and pick a family by luck, while the real tunnel used encrypted
-        // DoH with an explicit order. The rank config therefore keeps a dns app, rewritten to the
-        // underlay-local DoH form so ranking does not depend on the tunnel it is measuring.
+
         listOf(
             "fakedns", "routing", "stats", "policy", "api", "reverse", "metrics",
             "observatory", "burstObservatory"
         ).forEach(root::remove)
 
-        // Keep the production encrypted bootstrap and remote DoH graph. The old rank path
-        // rebuilt it from only two user IPs; an empty/filtered list removed the entire DNS app
-        // and Xray silently installed the system resolver. Do not measure a leaking config.
         val dns = root.optJSONObject("dns") ?: error("Rank requires encrypted DNS")
         val servers = dns.optJSONArray("servers") ?: error("Rank requires encrypted DNS servers")
         val encrypted = JSONArray()
@@ -237,18 +158,6 @@ object XrayConfigHardener {
         return root.toString()
     }
 
-    /**
-     * MARBLE_LINK_DEADLINE_V133 — [link] is the measured round-trip evidence for the path this
-     * config is about to carry. It defaults to [LinkEvidence.UNKNOWN], which reproduces the legacy
-     * fixed budgets exactly, so callers that have not measured yet (delay tests, ranking configs,
-     * a first-ever connect) get the same config they always got.
-     *
-     * MARBLE_IPV6_DNS_PURGE_V135 — [underlayHasIpv6] is the one verdict about whether the physical
-     * network under the tunnel can carry IPv6 at all. It defaults to the live probe so production
-     * callers are unchanged, but it is a PARAMETER so every DNS endpoint below can be purged of the
-     * family the underlay cannot dial, and so the rule is unit-testable instead of depending on the
-     * network interfaces of whatever machine runs the test.
-     */
     fun harden(
         source: String,
         socksPort: Int,
@@ -256,31 +165,15 @@ object XrayConfigHardener {
         link: LinkEvidence = LinkEvidence.UNKNOWN,
         underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
     ): String {
-        // MARBLE_CORE_CONFIG_SUPERSET_V165 — rewrite the shapes the pinned core cannot *load*
-        // (`proxySettings`, a VLESS user with no `encryption`, a quoted port, a TLS block whose
-        // `security` was never named) before anything else reads the document. Every consumer of a
-        // hardened config — connect, delay test, native rank, Turbo — goes through here, so one pass
-        // covers all of them and the three can never disagree about which config was measured.
         val repairs = XrayConfigRepairs.apply(source)
         if (repairs.changed) XrayConfigRepairs.record(repairs.repairs)
         val src = XrayConfigAdapter.document(if (repairs.changed) repairs.document else source)
         val old = src.optJSONArray("outbounds") ?: JSONArray()
         val byTag = linkedMapOf<String, JSONObject>()
         var firstTag = ""
-        // MARBLE_CORE_CONFIG_SUPERSET_V165 — which hops arrived as a chain hop, recorded from the
-        // document as imported. Both the V146 liveness profile and the freedom resolution plan below
-        // ask "is this hop's socket owned by another hop", and the answer has to be the imported
-        // document's own shape rather than the live field: a `sockopt.dialerProxy` an imported hop
-        // already carries must not be mistaken for one this app wrote.
+
         val importedChainHops = mutableSetOf<String>()
 
-        // MARBLE_RESERVED_TAG_COLLISION_V183 — the hardener appends its own `block`, `direct`,
-        // `dns-out` outbounds below, and the core's outbound
-        // manager refuses a document that names one tag twice (`app/proxyman/outbound: existing tag
-        // found: block`, exit code 23). An imported serverless-style document routinely ships its
-        // own `block`/`direct`/`dns-out`, so an imported hop that would collide is renamed here and
-        // every reference to it (dialerProxy, the removed proxySettings) follows the rename. The
-        // user's routing section is replaced wholesale further down, so no rule can dangle.
         renameReservedImportedTags(old)
 
         for (i in 0 until old.length()) {
@@ -292,8 +185,6 @@ object XrayConfigHardener {
             }
             clone.put("tag", tag)
             if (tag in byTag) {
-                // A document that already repeats a tag cannot start on the core either; keep the
-                // first definition and skip the shadowed duplicate instead of emitting both.
                 continue
             }
             byTag[tag] = clone
@@ -305,10 +196,7 @@ object XrayConfigHardener {
                 importedChainHops += tag
             }
         }
-        // A hand-imported serverless-style config can intentionally emit a plain freedom/direct
-        // outbound as its only exit. Xray accepts that as a valid exit; the generic
-        // "freedom is infrastructure" rule must only apply when a real proxy outbound also exists.
-        // Otherwise the whole config is rejected as "No proxy outbound".
+
         if (firstTag.isBlank()) {
             firstTag = byTag.values.firstOrNull { outbound ->
                 val protocol = outbound.optString("protocol").lowercase()
@@ -316,8 +204,7 @@ object XrayConfigHardener {
             }?.optString("tag").orEmpty()
         }
         require(firstTag.isNotBlank()) { "No proxy outbound" }
-        // A literal cannot be re-resolved into the requested family. Check the entire imported
-        // chain, not only the profile's display host, before the core can open any real socket.
+
         if (AddressFamilyPolicy.preference(settings, true) == IpFamilyPreference.IPV6_ONLY) {
             byTag.values.forEach { outbound ->
                 require(!hasIpv4LiteralEndpoint(outbound, settings)) { AddressFamilyPolicy.IPV4_LITERAL_DISABLED }
@@ -344,14 +231,11 @@ object XrayConfigHardener {
                 ?.optString("dialerProxy")?.takeIf { it.isNotBlank() }?.let { add(it, viaDialer = true) }
         }
         add(firstTag)
-        // An imported config may ship a dedicated udp-noises outbound that is not on the dialer
-        // chain. Keep it whenever present so the routing rules below can send QUIC/UDP-443 there.
+
         byTag.keys.filter { tag ->
             byTag[tag]?.let { hasNoises(it) && !hasFragment(it) } == true
         }.forEach { add(it) }
 
-        // Mux is opt-in. The official Xray docs describe it as connection reuse / latency
-        // reduction, not as a bulk-throughput accelerator.
         byTag[firstTag]?.let { selected ->
             if (selected.optString("protocol").lowercase() in muxProtocols) {
                 selected.put(
@@ -367,59 +251,24 @@ object XrayConfigHardener {
             }
         }
 
-        // MARBLE_CORE_OPTIONS_V211 — Marble no longer writes a fragment shape of its own, and it
-        // no longer rewrites one an imported document arrived with. What a config says about its
-        // own fragment dialer is the operator's business: the pass that used to overlay the
-        // settings' recipe onto every imported `freedom`-with-`fragment` hop is gone, and the only
-        // thing this file still does with a fragment hop is *keep* it (see `keep` above), because
-        // dropping a hop the document's `dialerProxy` points at is a fatal load error.
-
-        // Iran Mode is armed whenever the mode is on with countermeasures enabled. It is decided
-        // ONCE, before the per-outbound liveness pass, so every proxy hop and every imported
-        // fragment dialer receive the same liveness profile.
         val iranActive = settings.iranModePolicy != IranModePolicy.OFF &&
             settings.iranModeCountermeasures
-
-        // MARBLE_CORE_OPTIONS_V211 — Marble no longer generates dialers of its own; the fragment
-        // ones went with the feature they existed for. `CoreSocketPolicy` still tunes the socket of
-        // every hop that opens one, including an imported dialer, because that hop is where the
-        // real TCP connection is made.
 
         val needsDirect = RoutingEngine.needsDirectOutbound(settings) ||
             settings.routeDirectDomains.isNotBlank() ||
             settings.routeDirectIps.isNotBlank()
 
-        /*
-         * Prevent proxy-server hostname resolution from falling back to Android/system DNS.
-         * Xray's Force* sockopt strategies use the built-in DNS module and fail closed instead
-         * of falling back to Go's system resolver. Endpoint domains receive two direct encrypted
-         * bootstrap DoH resolvers; all ordinary DNS stays on remote DoH routed through the proxy.
-         */
         val bootstrapDomains = linkedSetOf<String>()
         keep.forEach { tag ->
             byTag[tag]?.let { bootstrapDomains += endpointDomains(it) }
         }
 
-        // MARBLE_IPV6_DNS_PURGE_V135 — the underlay verdict is now a `harden()` parameter (one
-        // probe per config build at the call site, deterministic in tests). Both the endpoint
-        // strategies and the DNS record selection are derived from it, so "IPv6 enabled" can never
-        // mean different things in two parts of the same config.
-        // The config-level plan: DNS record selection and the IPv6 block rule are decided once here
-        // so they can never disagree with the per-outbound endpoint plans below.
         val dnsPlan = AddressFamilyPolicy.plan(
             settings = settings,
             underlayHasIpv6 = underlayHasIpv6,
             link = link
         )
-        // MARBLE_IPV6_DNS_PURGE_V135 — a DNS endpoint the underlay cannot dial is not a fallback,
-        // it is a deadline. Runtime evidence: a Wi-Fi network with no global IPv6 still received a
-        // resolver graph containing `https+local://[2606:4700:4700::1111]/dns-query`-style entries;
-        // every one of them burned its whole `timeoutMs` (up to 8 s on the fragment chain) with
-        // `context deadline exceeded` before serial failover reached a resolver that could answer,
-        // and apps saw `unexpected EOF` because no IP ever came back. The rule is one-directional on
-        // purpose: an IPv4 literal stays on every network (Android without IPv4 is not a product
-        // case), but an IPv6 literal only survives when the underlay can actually carry it AND the
-        // user has not demanded IPv4-only.
+
         val ipv6ResolverAllowed = underlayHasIpv6 &&
             dnsPlan.preference != IpFamilyPreference.IPV4_ONLY
         fun resolverFamilyAllowed(candidate: String): Boolean {
@@ -432,14 +281,11 @@ object XrayConfigHardener {
         val out = JSONArray()
         keep.forEach { tag ->
             byTag[tag]?.let { outbound ->
-                // targetStrategy defaults to AsIs. Remove imported overrides so endpoint
-                // resolution can be controlled by sockopt and Happy Eyeballs.
+
                 outbound.remove("targetStrategy")
                 outbound.remove("sendThrough")
                 // MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — an imported freedom hop that still
-                // carries the deprecated `settings.domainStrategy`/`targetStrategy` alias is
-                // migrated here exactly as the core would (alias → sockopt, sockopt wins when
-                // both exist), so the emitted document never trips the deprecation warning.
+
                 if (outbound.optString("protocol").lowercase() in setOf("freedom", "direct")) {
                     val legacy = outbound.optJSONObject("settings")
                     val imported = outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")
@@ -459,8 +305,6 @@ object XrayConfigHardener {
                         chainedFromImport = tag in importedChainHops
                     )
 
-                    // Liveness tuning belongs to the long-lived tunnel only: a throwaway delay test
-                    // never keeps a socket open long enough for keep-alives to matter.
                     val streamObject = outbound.optJSONObject("streamSettings")
                     val sockoptObject = streamObject?.optJSONObject("sockopt")
                     if (
@@ -469,22 +313,9 @@ object XrayConfigHardener {
                     ) {
                         val method = streamObject.optString("method").lowercase()
                         val tcpTransport = method !in setOf("hysteria", "mkcp")
-                        // MARBLE_CORE_CONFIG_SUPERSET_V165 — `dialerProxy` is the field the pinned
-                        // core reads (it removed `proxySettings`), so a chain hop is only visible
-                        // under that name now: asking the live field alone meant every repaired
-                        // `proxySettings` document lost its V146 keep-alive profile, and asking it
-                        // *after* the fragment pass would hand that profile to nodes nobody chained.
-                        // The snapshot taken on import is the one question with one right answer.
+
                         val chained = outbound.optString("tag") in importedChainHops
                         if (tcpTransport) {
-                            // MARBLE_IRAN_LIVENESS_V146 — the Iran-tuned liveness profile was
-                            // designed (longer keep-alive and user-timeout for Iran's high-RTT,
-                            // high-loss filtered transit) but never actually applied: the
-                            // `iranMode` flag existed on the policy yet every caller passed the
-                            // default `false`, so a connected tunnel on MCI/Irancell still used
-                            // the short non-filtered-network timeouts and dropped live
-                            // connections that merely paused. The flag is now the same `iranActive`
-                            // signal that arms the poison-block rules, so the two cannot disagree.
                             val liveness = SocketLivenessPolicy.forTransport(
                                 method,
                                 chained,
@@ -495,11 +326,7 @@ object XrayConfigHardener {
                             sockoptObject.put("tcpUserTimeout", liveness.userTimeoutMs)
                             if (settings.tcpFastOpenEnabled) sockoptObject.put("tcpFastOpen", true) else sockoptObject.remove("tcpFastOpen")
                             if (settings.tcpMaxSeg in 536..9000) sockoptObject.put("tcpMaxSeg", settings.tcpMaxSeg) else sockoptObject.remove("tcpMaxSeg")
-                            // MARBLE_SOCKET_FLIGHT_V168 — offer BBR and Multipath TCP on the
-                            // physical socket. Both fail soft at runtime (a kernel without the
-                            // congestion module keeps cubic; Go's multipath dialer retries plain
-                            // TCP), so neither can cost a working connection and both help the
-                            // lossy, radio-handover-heavy paths Marble targets.
+
                             if (!sockoptObject.has("tcpCongestion")) sockoptObject.put("tcpCongestion", "bbr")
                             if (!sockoptObject.has("tcpMptcp")) sockoptObject.put("tcpMptcp", true)
                         } else {
@@ -510,10 +337,6 @@ object XrayConfigHardener {
                     }
                 }
 
-                // MARBLE_CORE_OPTIONS_V211 — the last writer is the user. The liveness profile and
-                // the address-family plan above fill what the settings left empty; anything the
-                // user actually set is written here, after them, so no automatic pass can replace a
-                // chosen socket option with its own.
                 outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")?.let { sockopt ->
                     CoreOptions.applyXrayUserSockopt(sockopt, settings)
                 }
@@ -522,17 +345,6 @@ object XrayConfigHardener {
             }
         }
 
-        /*
-         * Freedom/direct fragment hops that dial the Internet directly must resolve the USER's
-         * destination hostname, not a proxy endpoint. Without an explicit domain strategy Xray
-         * hands the domain to the OS resolver, which on filtered networks is poisoned or silently
-         * drops — so every domain-ATYP connection through such a hop fails, including the app's
-         * own SOCKS probes while connected.
-         * Only the innermost hop gets the plan: it is the one that opens the real socket, and the
-         * resolution happens at its Dial()/PacketWriter before any dialerProxy redirect.
-         * A dedicated udp-noises outbound also dials real sockets for QUIC/UDP-443 and needs
-         * the same resolution plan.
-         */
         keep.forEach { tag ->
             val outbound = byTag[tag] ?: return@forEach
             val protocol = outbound.optString("protocol").lowercase()
@@ -544,9 +356,7 @@ object XrayConfigHardener {
                 protocol in setOf("freedom", "direct")
             if (!hasFragment(outbound) && !isNoiseOnly && !isPlainServerlessExit) return@forEach
             if (tag in importedChainHops) return@forEach
-            // A UDP PacketWriter cannot race, so a noise-only hop gets a deterministic order
-            // while a TCP hop may arm Happy Eyeballs; both are expressed through the same
-            // sockopt.domainStrategy field (see writeFreedomResolveStrategy).
+
             val hopPlan = if (isNoiseOnly) {
                 AddressFamilyPolicy.plan(
                     settings = settings,
@@ -557,19 +367,9 @@ object XrayConfigHardener {
                 applyAddressFamily(outbound, settings, underlayHasIpv6)
             }
             // MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the pinned core reads ONE field for both the
-            // TCP dial and the UDP PacketWriter: `streamSettings.sockopt.domainStrategy`
-            // (proxy/freedom/freedom.go: `h.resolveStrategy = streamSettings.SocketSettings
-            // .DomainStrategy`, consulted by both `Process` and `PacketWriter`). The old
-            // `settings.domainStrategy` / `settings.targetStrategy` pair is migrated by the core
-            // with a WARNING on every start ("freedom.domainStrategy is deprecated and will be
-            // removed") and will stop working when the shim is dropped — so the plan is written
-            // once, where the engine reads it.
+
             writeFreedomResolveStrategy(outbound, hopPlan.endpointStrategy)
 
-            // MARBLE_SOCKET_FLIGHT_V168 — a TERMINAL freedom hop (the one with no dialerProxy of
-            // its own) opens the real TCP socket to the server. Keep-alive/user-timeout written on
-            // the proxy hop never reach this socket, so omissions are filled here; an imported hop
-            // that chains onward is left exactly as its author wrote it.
             if (hasFragment(outbound)) {
                 val freedomSockopt = outbound.optJSONObject("streamSettings")
                     ?.optJSONObject("sockopt")
@@ -585,20 +385,11 @@ object XrayConfigHardener {
             }
         }
 
-        // MARBLE_SOCKET_FLIGHT_V168 — close the uTLS gap for pasted JSON: a TLS/REALITY hop that
-        // carries no ClientHello fingerprint uses the bare Go ClientHello, which DPI classifies
-        // immediately. Share links and the Manual builder already default to Chrome; QUIC/KCP have
-        // no uTLS layer and any explicit value (including "unsafe") is preserved.
         keep.forEach { tag ->
             byTag[tag]?.let { CoreSocketPolicy.applyDefaultUtlsFingerprint(it) }
         }
 
-
         if (needsDirect) {
-            // Direct routes must honour the same family plan as the tunnel: a freedom outbound left
-            // on AsIs hands the hostname to the OS resolver and dials whichever answer arrives first,
-            // which is how "IPv6 enabled" could still never use IPv6 — and how an IPv4-only user could
-            // still leak AAAA lookups.
             out.put(
                 JSONObject()
                     .put("tag", "direct")
@@ -608,9 +399,6 @@ object XrayConfigHardener {
             )
         }
 
-        // Traditional Android DNS packets are intercepted before they can emerge as plaintext
-        // port-53 traffic from the proxy exit. A/AAAA are imported into Xray's built-in DNS module;
-        // other record types receive an empty NOERROR response so they cannot bypass encrypted DNS.
         if (settings.dnsHijackEnabled) {
             out.put(
                 JSONObject()
@@ -630,17 +418,9 @@ object XrayConfigHardener {
         out.put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
 
         val listen = if (settings.xrayAllowLan) "0.0.0.0" else "127.0.0.1"
-        // MARBLE_FAKE_IP_V184 — fake IP is armed only while DNS interception and the SOCKS
-        // inbound sniffer are both active. The restore that turns a 198.19.x answer back into the
-        // real host happens in the inbound `fakedns` override; without it the proxy would
-        // dial the fake address itself. Validated against the pinned XTLS/Xray-core v26.9.9
-        // source: `app/dispatcher/default.go` replaces `ob.Target` with the restored domain for
-        // a `fakedns` result even under `routeOnly`, and `FakeDNSPostProcessingStage` requires
-        // the `fakedns` destOverride entry whenever a `fakedns` nameserver is in use.
+
         val fakeIpArmed = FakeIpPolicy.isDnsPathArmed(settings) && settings.xraySniffingEnabled
-        // MARBLE_CORE_OPTIONS_V211 — the protocol set, `metadataOnly` and `routeOnly` are the
-        // user's: [CoreOptions.xraySniffing] writes exactly what Settings holds and adds the
-        // `fakedns` entry only when the pool the app itself armed requires it.
+
         fun sniffing(): JSONObject = CoreOptions.xraySniffing(settings, fakeIpArmed)
         val inbound = JSONObject()
             .put("tag", "socks-in")
@@ -649,8 +429,7 @@ object XrayConfigHardener {
             .put("protocol", "socks")
             .put("settings", CoreOptions.xraySocksSettings(settings))
             .put("sniffing", sniffing())
-        // MARBLE_SOCKET_FLIGHT_V168 — offer Fast Open on the loopback listener too, matching the
-        // sing-box inbound, so the HEV→core leg never becomes the only connection without it.
+
         CoreSocketPolicy.xrayLocalInboundStream(settings)?.let { inbound.put("streamSettings", it) }
         val inbounds = JSONArray().put(inbound)
         val httpPort = settings.xrayHttpInboundPort
@@ -672,33 +451,13 @@ object XrayConfigHardener {
         src.put("inbounds", inbounds)
         src.put("outbounds", out)
 
-        // The engine only accepts UseIP / UseIPv4 / UseIPv6 for dns.queryStrategy; anything else is
-        // a hard config error, and the value must agree with the endpoint strategies written above or
-        // an IPv6-preferred node is starved of AAAA records.
         val queryStrategy = dnsPlan.dnsQueryStrategy
 
-        // Iran Mode: the poison-block rules below and the anti-injector hardening are armed
-        // whenever the mode is on with countermeasures enabled. `iranActive` is computed once,
-        // above the per-outbound liveness pass, so this block and the TCP liveness tuning share
-        // the exact same verdict.
         val configuredBootstrapIps = listOf(settings.dnsPrimaryIp, settings.dnsSecondaryIp)
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
-        // MARBLE_ENDPOINT_BOOTSTRAP_V132 — user intent first, then independent literals in both
-        // families so a single filtered address can never orphan the node hostname. IPv6
-        // literals only join when the underlay can actually carry IPv6; handing a v4-only
-        // network a v6 resolver would just add entries that can never dial.
-        // MARBLE_IPV6_DNS_PURGE_V135 — two structural defects fixed together:
-        //  1. the family gate now also covers the USER's own configured resolvers — they were the
-        //     source of the unreachable v6 entries in the runtime log, because only the stock
-        //     literals were gated before. `https+local://` resolvers dial the underlay DIRECTLY,
-        //     so an IPv6 literal there on an IPv4-only network is a guaranteed deadline, not a
-        //     resolver;
-        //  2. on a dual-stack underlay one stock v6 literal is placed INSIDE the six-entry budget
-        //     instead of appended after it — the old `take(6)` truncated every v6 entry, so the
-        //     "both families" promise of V132 never actually shipped whenever the user had
-        //     configured any resolver at all.
+
         val bootstrapIps = run {
             val configured = configuredBootstrapIps.filter { resolverFamilyAllowed(it) }.distinct()
             val stockV4 = STOCK_BOOTSTRAP_DNS_IPS.filter { resolverFamilyAllowed(it) }
@@ -717,16 +476,7 @@ object XrayConfigHardener {
         val stockDoh = DnsResolverCatalog.STOCK_DOH
         val stockCloudflareDoh = stockDoh[0]
         val stockGoogleDoh = stockDoh[1]
-        // MARBLE_RESOLVER_SINKHOLE_V163 — two classes of endpoint never enter the tunnel's
-        // resolver graph, whatever rank they would have held:
-        //  - a domestic anti-sanction resolver (dns.shecan.ir & co.) — asking it through the exit
-        //    hands every browsing target to an Iranian operator and gets that operator's proxies
-        //    back: a DNS leak by construction;
-        //  - an endpoint whose certificate is measured expired on this network — it fails after a
-        //    full handshake on every lookup until somebody renews it.
-        // The runtime log had both on the same primary slot: `Post "https://dns.shecan.ir/
-        // dns-query": x509: certificate has expired`. Demoting it to last still cost a handshake
-        // per query under parallel racing; it is excluded here instead.
+
         val excludedResolvers = ResolverEvidencePolicy.normalize(settings.measuredDnsExcludedEndpoints)
             .split(',')
             .map { it.trim() }
@@ -748,17 +498,6 @@ object XrayConfigHardener {
             )
         }
 
-        // Runtime evidence has now shown transient deadlines from both stock Cloudflare and Google
-        // endpoints on different networks. Adaptive DNS must therefore never collapse to a single
-        // provider. Preserve the user's order, then add independent encrypted fallbacks.
-        //
-        // MARBLE_RESOLVER_EVIDENCE_V134 — the pool is assembled first and *then* ordered by evidence.
-        // Before this, the list was a fixed `[user pair] + [Cloudflare, Google, Quad9]` truncated to
-        // three in that order forever, so an endpoint the operator was actively disrupting kept its
-        // rank for the life of the installation and every cold lookup paid its whole (RTT-derived,
-        // therefore generous) deadline before failover reached a resolver that could answer. The
-        // demotion set is measured per physical network, decays on a half-life, and is cleared by a
-        // single proven answer — see ResolverEvidencePolicy.
         val demotedResolvers = ResolverEvidencePolicy.normalize(
             settings.measuredDnsDemotedEndpoints
         ).split(',')
@@ -802,9 +541,7 @@ object XrayConfigHardener {
                 "No encrypted, family-compatible direct DNS bootstrap for this node on the physical network"
             }
             bootstrapIps.forEachIndexed { index, ip ->
-                // A single blocked literal must not burn the whole endpoint budget: the first
-                // (user-chosen) resolver keeps its tight budget and every later candidate gets a
-                // little more room before the next one is tried.
+
                 dnsServers.put(
                     JSONObject()
                         .put("address", "https+local://${dnsHostLiteral(ip)}/dns-query")
@@ -816,16 +553,6 @@ object XrayConfigHardener {
             }
         }
 
-        // MARBLE_FAKE_IP_V184 — the first *global* server. Domain-matched clients (the
-        // `https+local://` bootstrap ladder above) still take precedence, so the node hostname
-        // keeps resolving exactly as before; every other A/AAAA question is answered in-process
-        // from the `fakedns` pool (v26.9.9 `app/dns/nameserver.go`: the client only exists when
-        // `dns.servers` contains `{"address":"fakedns"}`), and the encrypted DoH servers below
-        // stay in the graph for the proxy's own dial-time resolution, which skips the FakeDNS
-        // client (`transport/internet/dialer.go` LookupForIP, FakeEnable=false). The shared
-        // 198.19.0.0/16 pool is the non-overlapping half of IANA's reserved benchmarking /15;
-        // the other half contains this TUN's 198.18.0.1/32 interface. `queryStrategy` is written
-        // on the entry because verify() demands it on every server of the list.
         if (fakeIpArmed) {
             dnsServers.put(
                 JSONObject()
@@ -834,45 +561,6 @@ object XrayConfigHardener {
             )
         }
 
-        // Adaptive DNS remains encrypted-only and bounded. Marble Intelligence measures the
-        // configured resolvers and can reorder primary/secondary for the current network; Xray then
-        // uses serial failover. This prevents a blocked resolver from creating parallel background
-        // fan-out while still allowing the learned healthy provider to become primary next time.
-        //
-        // MARBLE_RESOLVER_EVIDENCE_V134 — "reorder for the current network" used to mean only the
-        // pre-connect latency audit, and only ever a swap of the two user-configured endpoints. The
-        // failures the core actually logged at runtime were classified, counted, reported by Bug
-        // Finder and then thrown away, so the same disrupted endpoint kept its rank forever. The
-        // order above is now also driven by that attributed runtime evidence, and the serial-failover
-        // rule below is now a default rather than an absolute: see `dnsParallelQuery`.
-        // Endpoint bootstrap keeps its dedicated https+local rules and is still leak-contained.
-        // v59 real-device evidence: a healthy ~120 ms cellular tunnel produced deadline bursts
-        // at the previous 850/1050 ms budgets during concurrent Android DNS fan-out. Keep serial,
-        // encrypted provider failover, but give TLS/HTTP response bursts enough room before rotating.
-        //
-        // A fragmenting chain fragments the FIRST write of every TCP stream into 1-byte packets
-        // with 4 ms pacing (up to maxSplit 517), so a DoH TLS handshake alone can need a couple
-        // of seconds before the first response byte. The stock 1.35 s budget makes
-        // Cloudflare/Google/Quad9 look dead even when they are reachable. The official XTLS
-        // Xray-examples serverless_for_Iran.jsonc gives its single DoH server 10 s (timeoutMs
-        // 10000) for exactly this reason, and first-write fragmentation can take 1–2 s alone.
-        // 8 s primary + 1 s per fallback is enough for cold multi-CDN lookups (YouTube/X/Reddit)
-        // without waiting the full 10 s on a genuinely dead resolver.
-        // MARBLE_LINK_DEADLINE_V133 — these budgets used to be four hardcoded constants. They are
-        // the direct cause of the `DoH deadline` storms with zero TLS/cert errors: ordinary DNS is
-        // routed *through the tunnel* (see the `xgc-dns` routing rule below), so on the ~1.1 s link
-        // in the attached runtime log a single encrypted query needed ~3.4 s and the 1350/1650 ms
-        // budgets expired first. Every lookup then failed with a deadline, Xray could not resolve
-        // any destination domain, and a perfectly healthy tunnel delivered no internet.
-        //
-        // The budget is now `3 × tail-RTT + jitter/loss headroom`, clamped to the old constants as a
-        // floor (so an unmeasured link behaves exactly as before) and to the 10 s ceiling the
-        // official XTLS reference configuration uses. A fragmenting selected outbound keeps the
-        // upstream schedule because there the 1-byte first-write pacing, not the link, dominates.
-        // MARBLE_INTELLIGENCE_V141 — a hand-imported fragment chain keeps the upstream XTLS
-        // schedule because there the 1-byte first-write pacing, not the link, dominates the DoH
-        // budget. MARBLE_CORE_OPTIONS_V211 — this now asks the *document*, not the settings: the
-        // product writes no fragment shape of its own any more.
         val selectedFragmented = byTag[firstTag]
             ?.optJSONObject("settings")
             ?.optJSONObject("fragment")
@@ -898,10 +586,6 @@ object XrayConfigHardener {
         val customSecondaryDoh = remoteDoh
             .drop(1)
 
-        // Ordinary app DNS is encrypted-only. Endpoint bootstrap still uses the dedicated
-        // https+local resolvers above, but normal queries never race plaintext TCP/53 upstreams.
-        // This aligns Privacy Sentinel with the actual resolver graph and removes TCP-DNS EOF noise.
-
         customSecondaryDoh.forEachIndexed { index, address ->
             dnsServers.put(
                 JSONObject()
@@ -912,17 +596,6 @@ object XrayConfigHardener {
             )
         }
 
-        // MARBLE_RESOLVER_EVIDENCE_V134 — serial failover stays the default (one query, one answer,
-        // no fan-out) and is abandoned only on evidence. When an endpoint that is about to be emitted
-        // is failing decisively, serial failover pays that endpoint's whole RTT-derived deadline on
-        // every cold lookup before failover reaches a resolver that can answer; Xray's own DNS
-        // documentation names `enableParallelQuery` as the remedy for exactly that symptom. Racing
-        // costs three tiny queries per lookup, so it is armed by attributed failure evidence for this
-        // physical network and disarmed as soon as that evidence decays or a proven answer arrives.
-        //
-        // A fragmenting selected outbound keeps serial failover: there the first write of every
-        // stream is fragmented into 1-byte packets with 4 ms pacing, so racing six resolvers
-        // multiplies the pacing cost instead of the odds of getting an answer.
         val dnsParallelQuery = settings.adaptiveDnsEnabled &&
             !selectedFragmented &&
             settings.measuredDnsParallel
@@ -931,9 +604,6 @@ object XrayConfigHardener {
             .put("servers", dnsServers)
             .put("queryStrategy", queryStrategy)
             .put("disableCache", false)
-            // Xray optimistic cache: if both encrypted upstreams briefly time out, return a
-            // previously validated answer immediately while the cache refreshes in background.
-            // No plaintext/system-DNS fallback is introduced.
             .put("serveStale", true)
             .put("serveExpiredTTL", 1_800)
             .put("enableParallelQuery", dnsParallelQuery)
@@ -945,8 +615,6 @@ object XrayConfigHardener {
 
         val rules = JSONArray()
 
-        // DNS interception has highest priority: any app attempting classic UDP/TCP :53 is handed
-        // to dns-out, which hijacks A/AAAA into the encrypted built-in DNS path above.
         val dnsHijackActive = settings.dnsHijackEnabled
         if (dnsHijackActive) {
             rules.put(
@@ -958,7 +626,6 @@ object XrayConfigHardener {
             )
         }
 
-        // Xray's ordinary built-in DNS requests always stay inside the selected proxy path.
         rules.put(
             JSONObject()
                 .put("type", "field")
@@ -966,16 +633,9 @@ object XrayConfigHardener {
                 .put("outboundTag", firstTag)
         )
 
-        // Android VPN always captures ::/0. When the user turned IPv6 off, blocking here prevents
-        // an OS-level IPv6 bypass; when it is on, the same prefix must stay routable or the tunnel
-        // would black-hole its own preferred family.
         if (dnsPlan.blockIpv6Traffic) addIpRule(rules, listOf("::/0"), "block")
         if (dnsPlan.blockIpv4Traffic) addIpRule(rules, listOf("0.0.0.0/0"), "block")
 
-        // Fake addresses are local *tokens*, never LAN targets. Protect both pools ahead of
-        // geoip:private / bypass-private / user-direct routes; otherwise the entire IPv6 ULA
-        // pool and IPv4 benchmarking pool match `private` and go out of the physical interface.
-        // An explicitly excluded family is rejected by the block rules above before this rule.
         if (fakeIpArmed) {
             addIpRule(rules, listOf(FakeIpPolicy.IPV4_POOL, FakeIpPolicy.IPV6_POOL), firstTag)
         }
@@ -995,18 +655,10 @@ object XrayConfigHardener {
         // Ads geosite tag: normalizeGeoSiteTag(settings.routeAdsTag) — now RoutingEngine + RoutingDefaults.ADS_TAG
         RoutingEngine.applyUserRules(rules, settings, firstTag)
 
-        // Iran Mode: block the state DNS injector ranges and null answers before anything else
-        // can dial them. Without this, half-resolved multi-CDN hosts (YouTube googlevideo shards,
-        // X twimg, Reddit media) stick on 10.10.34.x block pages and the page loads half-broken.
         if (iranActive) {
             addIpRule(rules, IRAN_POISON_BLOCK_IPS, "block")
         }
 
-        // YouTube and several media stacks prefer QUIC. On Iranian links UDP/443 often blackholes
-        // even when TCP/443 works, so a fast TCP fallback matters: reject the QUIC path before
-        // the app spends a long time retransmitting. The existing muxUdp443=reject policy also
-        // has a real routing effect instead of being only a mux hint. An imported config that
-        // ships a dedicated udp-noises outbound can instead send QUIC there.
         val rejectUdp443 = settings.muxUdp443 == "reject"
         if (rejectUdp443) {
             addQuicUdp443Rule(rules, "block")
@@ -1026,7 +678,6 @@ object XrayConfigHardener {
             addIpRule(rules, splitIps(settings.routeDirectIps), "direct")
         }
 
-        // Fail-closed fallback: anything not matched above stays on the proxy outbound.
         rules.put(
             JSONObject()
                 .put("type", "field")
@@ -1046,28 +697,14 @@ object XrayConfigHardener {
             .put("domainStrategy", domainStrategy)
             .put("domainMatcher", domainMatcher)
             .put("rules", rules)
-        // MARBLE_CORE_OPTIONS_V211 — exactly one writer for `routing.domainStrategy` and
-        // `routing.domainMatcher`: the Routing page's own fields read just above. The core options
-        // page points at that pair instead of carrying a second one, because a duplicate control
-        // for the same key is not an option the user owns — it is one of the two silently losing.
+
         src.put("routing", routingObj)
-        // Runtime logs are for actionable failures. Xray prints compatibility/deprecation
-        // advisories for transports such as HTTPUpgrade/WebSocket even when those transports are
-        // still required by the remote server. Marble must not rewrite a client transport without
-        // matching server-side support, so keep compatibility and surface only errors here.
+
         src.put("log", CoreOptions.xrayLog(settings))
 
-        /*
-         * Remove unrelated runtime subsystems from imported full JSON configs. They are not needed
-         * by MarbleNG's single selected outbound and can open listeners, start active probes or
-         * retain stale API/statistics dependencies that make mobile startup less deterministic.
-         */
         listOf("api", "reverse", "metrics", "stats", "observatory", "burstObservatory", "fakedns")
             .forEach(src::remove)
 
-        // v26.9.9 accepts an array of pools; a single IPv4 pool suppresses ALL AAAA fake
-        // answers. The separate ULA pool makes AAAA reversible by the same FakeDNS sniff stage.
-        // Routing uses ordinary IP CIDR rules (there is no `fakedns` rule field in this core).
         if (fakeIpArmed) {
             src.put("fakedns", JSONArray()
                 .put(JSONObject().put("ipPool", FakeIpPolicy.IPV4_POOL)
@@ -1076,22 +713,9 @@ object XrayConfigHardener {
                     .put("poolSize", FakeIpPolicy.XRAY_LRU_SIZE)))
         }
 
-        // MARBLE_TLS_PINNING_V149 — the last gate before Xray parses the document.
-        //
-        // The share-link parser and the manual builder both emit correct `tlsSettings` now, but
-        // profiles imported before this fix are already persisted with the old shape: a base64 or
-        // OpenSSL-formatted pin the core cannot decode, or the removed `allowInsecure` flag that
-        // makes `TLSConfig.Build()` reject the WHOLE configuration at load. Running the same
-        // single policy here means a stored profile is repaired on its next connect instead of
-        // requiring the user to re-import it, and it makes the invariant structural: no config
-        // can reach the core with a TLS block Xray refuses.
-        // MARBLE_CORE_OPTIONS_V211 — the session timeouts and buffer size the core applies to its
-        // own flows, and then the user's own JSON on top of everything this file computed.
         CoreOptions.xrayPolicy(settings)?.let { policy -> src.put("policy", policy) }
         val extra = CoreOptions.merge(src, settings.xrayExtraJson)
         if (extra.error.isNotBlank()) {
-            // Refused, and the document is untouched: the reason travels with the config so Bug
-            // Finder can print it instead of a dead session with no explanation.
             RuntimeDiagnostics.coreOption("xray", "extra-json-refused", extra.error)
         } else if (extra.changed) {
             RuntimeDiagnostics.coreOption("xray", "extra-json-merged", extra.applied.joinToString(","))
@@ -1118,7 +742,7 @@ object XrayConfigHardener {
                                 raw.count { it == ':' } == 1 &&
                                     raw.substringAfterLast(':').toIntOrNull() != null ->
                                     raw.substringBeforeLast(':')
-                                else -> raw // keep IPv4-mapped IPv6 literals intact
+                                else -> raw
                             }
                             AddressFamilyPolicy.excludedIpv4Endpoint(host, settings)
                         }
@@ -1180,13 +804,6 @@ object XrayConfigHardener {
     }
 
     /**
-     * Write the address-family plan onto one outbound's endpoint resolution.
-     *
-     * The live tunnel, the CLI delay test and the in-process native rank instance call this, so a
-     * node is always measured over the same family it will be used over — and so that "IPv6 enabled"
-     * cannot mean one thing in the tunnel and another in the probes.
-     */
-    /**
      * MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the single supported home of a freedom/direct hop's
      * resolve strategy. `sockopt.domainStrategy` is what the pinned Xray core actually reads for
      * both TCP dials and UDP packets; `settings.domainStrategy` and `settings.targetStrategy` are
@@ -1212,10 +829,6 @@ object XrayConfigHardener {
         }
     }
 
-    /**
-     * Iranian DNS-injector / null-answer ranges that must never be dialled. Matches the official
-     * XTLS serverless_for_Iran.jsonc block list plus the well-known 10.10.34.34–36 injectors.
-     */
     private val IRAN_POISON_BLOCK_IPS = listOf(
         "10.10.34.0/24",
         "2001:4188:2:600::/64",
@@ -1237,10 +850,7 @@ object XrayConfigHardener {
         val protocol = outbound.optString("protocol").lowercase()
         val stream = outbound.optJSONObject("streamSettings")
         val sockopt = stream?.optJSONObject("sockopt")
-        // The chain reference lives in `sockopt.dialerProxy` on this core; `proxySettings` is only
-        // kept readable for documents that never went through XrayConfigRepairs. A caller that knows
-        // what the document arrived with (`harden` does, and must not let its own fragment plumbing
-        // count as a user chain) passes it in.
+
         val chained = chainedFromImport ?: (
             outbound.optJSONObject("proxySettings")
                 ?.optString("tag")
@@ -1248,8 +858,7 @@ object XrayConfigHardener {
                 sockopt?.optString("dialerProxy").orEmpty().isNotBlank()
             )
         val method = stream?.optString("method").orEmpty().lowercase()
-        // WireGuard is UDP-only, and a v6-only plan has a single family to dial, so neither can use
-        // Xray's TCP race; they get a deterministic address order instead.
+
         val tcpTransport = protocol != "wireguard" && method !in setOf("hysteria", "mkcp")
         val plan = AddressFamilyPolicy.plan(
             settings = settings,
@@ -1271,13 +880,9 @@ object XrayConfigHardener {
         val streamObject = stream ?: JSONObject().also { outbound.put("streamSettings", it) }
         val sockoptObject = streamObject.optJSONObject("sockopt")
             ?: JSONObject().also { streamObject.put("sockopt", it) }
-        // Every hostname endpoint is resolved by the engine's own DNS module. Leaving the strategy at
-        // AsIs would hand the node hostname to the OS resolver again, which is both an anti-leak hole
-        // and the reason a v6-only node could never be reached.
+
         sockoptObject.put("domainStrategy", plan.endpointStrategy)
-        // Xray races only when tryDelayMs and maxConcurrentTry are both non-zero, and its own default
-        // disables the race — so an armed plan must always write the block, and a plan that cannot race
-        // must always remove it instead of leaving "ForceIP", which means "pick one address at random".
+
         if (plan.raceEnabled) {
             sockoptObject.put(
                 "happyEyeballs",
@@ -1293,26 +898,15 @@ object XrayConfigHardener {
         return plan
     }
 
-    /** An IPv6 resolver literal only parses inside brackets; an IPv4 one must stay untouched. */
     private fun dnsHostLiteral(value: String): String =
         if (value.contains(':') && !value.startsWith("[")) "[$value]" else value
 
-    /**
-     * MARBLE_RESERVED_TAG_COLLISION_V183 — outbound tags [harden] emits itself. An imported hop that
-     * carries one of these names is renamed to `import-<tag>` before the graph is read, and every
-     * `sockopt.dialerProxy` / `proxySettings.tag` that pointed at it is rewritten to match.
-     */
     internal val RESERVED_OUTBOUND_TAGS: Set<String> = setOf(
         "block", "direct", "dns-out"
     )
 
     internal fun importedAliasFor(tag: String): String = "import-$tag"
 
-    /**
-     * Rename colliding tags in [outbounds] in place. Returns the applied `old → new` map (empty when
-     * nothing collided) so callers can log it. The alias itself is made unique against the rest of
-     * the document, so `import-block` can never collide with an outbound the user already named so.
-     */
     internal fun renameReservedImportedTags(outbounds: JSONArray): Map<String, String> {
         val present = linkedSetOf<String>()
         for (i in 0 until outbounds.length()) {
@@ -1341,7 +935,6 @@ object XrayConfigHardener {
         return renames
     }
 
-    /** Freedom/direct hops that already shred TLS are selectable routes, not infrastructure. */
     private fun isSelectableProxy(outbound: JSONObject): Boolean {
         val protocol = outbound.optString("protocol").lowercase()
         if (protocol !in infra) return true
@@ -1504,9 +1097,6 @@ object XrayConfigHardener {
         return false
     }
 
-    // MARBLE_ROUTING_ENGINE_V136 — the same emittable list applyUserRules walked. A rule the
-    // engine would reject (unknown geo tag, malformed port) is skipped by emission and therefore
-    // must not be demanded here either: the two halves can never disagree about what shipped.
     RoutingEngine.emittableUserRules(settings).forEach { rule ->
         val tag = RoutingEngine.outboundTag(rule.outbound, selectedTag)
         when (rule.kind) {
@@ -1525,12 +1115,6 @@ object XrayConfigHardener {
     }
 
     if (true) {
-
-        // MARBLE_UNIFIED_ADDRESS_FAMILY_V65 — the address family decision has to be visible in the
-        // emitted config, because every failure mode in this area is silent: the engine accepts a
-        // half-written policy and simply keeps dialling IPv4.
-        // Same underlay verdict the config was built with, so a mid-flight network change cannot
-        // make a correct config look like a violated invariant.
         val familyPlan = AddressFamilyPolicy.plan(
             settings = settings,
             underlayHasIpv6 = underlayHasIpv6
@@ -1551,7 +1135,7 @@ object XrayConfigHardener {
         }
         if (familyPlan.blockIpv6Traffic) {
             require(hasIp("::/0", "block")) { "IPv6 is disabled but ::/0 is not blocked" }
-            // No hostname endpoint may keep a v6-capable strategy while the user excluded IPv6.
+
             for (index in 0 until outs.length()) {
                 val outbound = outs.optJSONObject(index) ?: continue
                 if (endpointDomains(outbound).isEmpty()) continue
@@ -1566,8 +1150,7 @@ object XrayConfigHardener {
         for (index in 0 until outs.length()) {
             val outbound = outs.optJSONObject(index) ?: continue
             // MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — a freedom hop that the hardener planned must
-            // carry its strategy only in sockopt; the deprecated alias would make the core log a
-            // migration warning on every start and is the first thing to break on a core bump.
+
             if (outbound.optString("protocol").lowercase() in setOf("freedom", "direct")) {
                 val legacy = outbound.optJSONObject("settings")
                 val hasAlias = legacy?.has("domainStrategy") == true ||
@@ -1579,8 +1162,7 @@ object XrayConfigHardener {
                     "Deprecated freedom.domainStrategy alias written next to sockopt.domainStrategy for ${outbound.optString("tag")}"
                 }
             }
-            // Only hostname endpoints resolve a family at dial time; a config that already carries a
-            // literal address is left exactly as its author wrote it.
+
             if (endpointDomains(outbound).isEmpty()) continue
             val sockopt = outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt") ?: continue
             val strategy = sockopt.optString("domainStrategy")
@@ -1588,8 +1170,7 @@ object XrayConfigHardener {
             require(strategy in AddressFamilyPolicy.ENDPOINT_STRATEGIES) {
                 "Unsupported endpoint domainStrategy: $strategy"
             }
-            // ForceIP without an armed race is Xray's "pick one address at random" path. That is the
-            // exact defect users reported as "IPv6 never activates", so it can never ship.
+
             if (strategy == "ForceIP") {
                 val race = sockopt.optJSONObject("happyEyeballs")
                 require(

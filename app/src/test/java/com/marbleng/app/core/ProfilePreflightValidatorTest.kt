@@ -8,15 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Regression tests for profile preflight quarantine (MARBLE_PROFILE_QUARANTINE_V1).
- *
- * These lock in the fix for the "Turkey 4-All" class of structurally broken profiles: a VLESS/TLS
- * (or REALITY) config that fails Xray's config-load / xray-start validation must be quarantined
- * before Smart Rank so it can never poison ranking or user selection.
- */
 class ProfilePreflightValidatorTest {
-
     private fun profile(configJson: String, id: String = "node-1") = ProxyProfile(
         id = id,
         name = id,
@@ -111,8 +103,6 @@ class ProfilePreflightValidatorTest {
 
     @Test
     fun vlessTlsCanDefaultTheVerificationNameToTheServerAddress() {
-        // This is the "Turkey 4-All" family: VLESS/TLS missing its required serverName -> Xray
-        // rejects at config-load, so the profile must be quarantined before ranking.
         val config = JSONObject()
             .put(
                 "outbounds",
@@ -131,7 +121,7 @@ class ProfilePreflightValidatorTest {
                         )
                         .put(
                             "streamSettings",
-                            JSONObject().put("security", "tls") // no tlsSettings.serverName
+                            JSONObject().put("security", "tls")
                         )
                 )
             )

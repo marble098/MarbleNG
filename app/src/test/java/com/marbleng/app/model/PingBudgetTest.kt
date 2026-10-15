@@ -4,16 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_PING_CONTROL_V145 — the ping budget is the single source of a measurement's shape.
- *
- * These tests pin the contract the engine relies on: a user value is clamped into a legal range
- * exactly once, every offered choice survives that clamp unchanged (a chip the user can tap must
- * never silently become another number), and the per-server wall clock grows with both the
- * timeout and the sample count so the batch deadline can be derived from it.
- */
 class PingBudgetTest {
-
     @Test
     fun everyOfferedChoiceSurvivesItsOwnClamp() {
         PingBudget.TIMEOUT_CHOICES.forEach { assertEquals(it, PingBudget.timeoutSec(it)) }
@@ -34,8 +25,6 @@ class PingBudgetTest {
 
     @Test
     fun tenSecondsPerServerIsAllowed() {
-        // The exact ask of the product owner: "let me choose 5 s or 10 s per server". Before
-        // V145 every path clamped this to 8 s or less, so the choice could not exist.
         assertEquals(10, PingBudget.timeoutSec(10))
         assertEquals(10_000, AppSettings(pingTimeoutSec = 10).pingTimeoutMs())
         assertEquals(5_000, AppSettings(pingTimeoutSec = 5).pingTimeoutMs())
@@ -56,7 +45,7 @@ class PingBudgetTest {
         val longer = PingBudget.perServerBudgetMs(10, 3)
         assertTrue("more samples must cost more time", three > one)
         assertTrue("a longer timeout must cost more time", longer > three)
-        // One sample cannot be charged for spacing that never happens.
+
         assertEquals(5 * 1_000L + 750L, one)
     }
 

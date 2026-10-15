@@ -1,7 +1,5 @@
 package com.marbleng.app.core
 
-// MARBLE_ULTIMATE_DIAGNOSTICS_V15
-
 import android.Manifest
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
@@ -52,39 +50,17 @@ private sealed class DiagnosticItem {
     data object Tick : DiagnosticItem()
 }
 
-/**
- * MarbleNG Ultimate Runtime Diagnostics v15.
- *
- * Fast-path contract:
- * - callers never write files;
- * - callers never wait for the diagnostics writer;
- * - normal events use ArrayBlockingQueue.offer();
- * - if diagnostics cannot keep up, evidence is dropped instead of slowing the tunnel.
- *
- * Debug Mode mirrors runtime + Xray + HEV-native evidence to:
- * Downloads/marbleng/report as rolling .txt files on Android 10+.
- */
 class RuntimeDiagnostics(private val context: Context) {
     companion object {
         private const val MARKER = "MarbleNG Ultimate Runtime Diagnostics v15"
         private const val RUNTIME_MAX_BYTES = 4_000_000L
         private const val EXTERNAL_PART_MAX_BYTES = 12_000_000L
         private const val MAX_VALUE_CHARS = 4_000
+
+        private const val MAX_REDACT_CHARS = 1_000_000
         private const val QUEUE_CAPACITY = 4_096
         private const val RING_CAPACITY = 2_000
 
-        /**
-         * MARBLE_RESIDENT_V134 — the retained event ring is bounded by size as well as by count.
-         *
-         * [RING_CAPACITY] alone bounds how *many* lines survive, never how much they hold: every line
-         * is caller-sized, [safe] caps each field at [MAX_VALUE_CHARS] but nothing caps the number of
-         * fields, and `error()` adds a 24-frame stack on top. Two thousand multi-field lines is tens
-         * of megabytes of retained UTF-16 inside a process whose resident cost is already dominated
-         * by a Go runtime and a native tunnel — and it grows on exactly the session shape this
-         * release fixed: long, stable, and quietly accumulating. The full history is mirrored to the
-         * report file, so the ring is a recent-events window and losing its oldest lines loses
-         * nothing durable. One million chars keeps the window around two megabytes.
-         */
         private const val RING_MAX_CHARS = 1_000_000L
         private const val MIRROR_CHUNK_BYTES = 256 * 1024
         private const val HEARTBEAT_INTERVAL_MS = 30_000L
@@ -97,7 +73,6 @@ class RuntimeDiagnostics(private val context: Context) {
         private val ringLock = Any()
         private val fileLock = Any()
         private val ring = ArrayDeque<String>()
-        /** Chars currently retained by [ring]; guarded by [ringLock] like the ring itself. */
         private var ringChars = 0L
         private val watchedOffsets = HashMap<String, Long>()
 
@@ -140,15 +115,6 @@ class RuntimeDiagnostics(private val context: Context) {
 
         fun reportFolderLabel(): String = publicPath.ifBlank { "Downloads/marbleng/report" }
 
-        /**
-         * MARBLE_CORE_OPTIONS_V211 — the static log line for the two config writers.
-         *
-         * [XrayConfigHardener] and [SingBoxConfigBuilder] are pure functions: they have no
-         * [RuntimeDiagnostics] instance to call through, and the one decision they must make
-         * visible — whether the user's extra JSON was merged or refused — is part of the
-         * connection's contract. This entry point writes to the same ring and the same rolling
-         * report as [event] without needing a context.
-         */
         fun coreOption(core: String, event: String, detail: String = "") {
             val payload = if (detail.isBlank()) "core=$core" else "core=$core | $detail"
             val message = "COREOPTIONS | $event | $payload"
@@ -420,7 +386,6 @@ class RuntimeDiagnostics(private val context: Context) {
                     appendLine(redact(stack).take(120_000))
                 }
 
-                // Process is already dying: synchronously persist the crash across process death.
                 runCatching {
                     pendingCrashFile(context).apply {
                         parentFile?.mkdirs()
@@ -428,7 +393,6 @@ class RuntimeDiagnostics(private val context: Context) {
                     }
                 }
 
-                // Persistent tombstone ring (keep up to 10 files)
                 runCatching {
                     val crashDir = File(context.filesDir, "logs/crashes").apply { mkdirs() }
                     File(crashDir, "crash-$nowMs.txt").writeText(tombstone)
@@ -438,7 +402,6 @@ class RuntimeDiagnostics(private val context: Context) {
                     }
                 }
 
-                // Append to crash history log
                 runCatching {
                     val historyLog = File(context.filesDir, "logs/crash-history.log")
                     historyLog.parentFile?.mkdirs()
@@ -448,7 +411,6 @@ class RuntimeDiagnostics(private val context: Context) {
                     historyLog.appendText(tombstone + "\n")
                 }
 
-                // Synchronously append to runtime-debug.log so the immediate post-mortem has the crash
                 runCatching {
                     val debugLog = File(context.filesDir, "logs/runtime-debug.log")
                     debugLog.parentFile?.mkdirs()
@@ -609,7 +571,7 @@ class RuntimeDiagnostics(private val context: Context) {
             synchronized(ringLock) {
                 ring.addLast(line)
                 ringChars += line.length
-                // Oldest-first: the retained window is always the most recent evidence.
+
                 while (ring.size > RING_CAPACITY || ringChars > RING_MAX_CHARS) {
                     val evicted = ring.pollFirst() ?: break
                     ringChars -= evicted.length
@@ -641,7 +603,12 @@ class RuntimeDiagnostics(private val context: Context) {
                 .replace(
                     Regex("(?i)(access_token|token|key|auth)=([^&\\s]+)")
                 ) { m -> "${m.groupValues[1]}=<redacted>" }
-            if (out.length > 250_000) out = out.take(250_000) + "\n[truncated]"
+
+            if (out.length > MAX_REDACT_CHARS) {
+                val head = out.take(MAX_REDACT_CHARS * 3 / 4)
+                val tail = out.takeLast(MAX_REDACT_CHARS / 4)
+                out = head + "\n[… middle trimmed — head and tail preserved …]\n" + tail
+            }
             return out
         }
     }
@@ -675,7 +642,6 @@ class RuntimeDiagnostics(private val context: Context) {
         }
     }
 
-    /** HEV preparation stays private-storage-only and runs on the serialized connection worker. */
     fun prepareHevSession() {
         runCatching {
             synchronized(fileLock) {

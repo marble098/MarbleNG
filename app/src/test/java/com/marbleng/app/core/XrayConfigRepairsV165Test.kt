@@ -7,18 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_CORE_CONFIG_SUPERSET_V165 — the repairs that turn "Xray rejected the generated
- * configuration" into a connection.
- *
- * Every one of these is a shape a real panel, a real exporter or a real older Marble produced, and
- * every one of them is a *fatal load error* on the pinned core rather than something it can be
- * tolerant about. The pass is deliberately boring: it rewrites only what the document already says
- * (a `proxySettings` tag is a dialer; a `tlsSettings` block is TLS; a quoted `"port": "8443"` is a
- * number), never what the user meant in a way that changes the wire.
- */
 class XrayConfigRepairsV165Test {
-
     @Test
     fun nothingToRepairMeansTheStoredBytesComeBackUntouched() {
         val clean = JSONObject()
@@ -117,8 +106,7 @@ class XrayConfigRepairsV165Test {
             .toString()
         val report = XrayConfigRepairs.apply(classic)
         assertTrue(report.repairs.contains("vless-encryption-defaulted"))
-        // The lift runs right after, so the classic form also gains the simplified fields the core
-        // reads first — with `vnext` preserved for a re-export.
+
         assertTrue(report.repairs.contains("vless-simplified-form"))
         val settings = JSONObject(report.document).getJSONArray("outbounds").getJSONObject(0).getJSONObject("settings")
         assertEquals("none", settings.getString("encryption"))
@@ -144,8 +132,7 @@ class XrayConfigRepairsV165Test {
                     .getJSONObject("settings").getString("encryption")
             )
         }
-        // A value that claims a payload cipher is not rewritten into nothing: it is reported as a
-        // core gap instead, which is the difference between a repair and an edit.
+
         val cipher = vlessWithEncryption("aes-128-gcm")
         assertFalse(XrayConfigRepairs.apply(cipher).repairs.contains("vless-encryption-defaulted"))
         assertEquals("aes-128-gcm", JSONObject(XrayConfigRepairs.apply(cipher).document).getJSONArray("outbounds").getJSONObject(0).getJSONObject("settings").getString("encryption"))
@@ -213,8 +200,6 @@ class XrayConfigRepairsV165Test {
             )
         }
 
-        // A document that states a security, even a wrong one, is never re-labelled here: that would
-        // be a translation, and the conversion contract forbids it.
         val stated = JSONObject()
             .put(
                 "outbounds",
@@ -263,8 +248,6 @@ class XrayConfigRepairsV165Test {
 
     @Test
     fun nonsenseNumbersAreLeftExactlyAsTheyWere() {
-        // A port of "8443abc" is not a number in any reading, and inventing one would be worse than
-        // the error the user will be told about.
         val source = JSONObject()
             .put("outbounds", JSONArray().put(JSONObject().put("protocol", "vless").put("port", "8443abc")))
             .toString()

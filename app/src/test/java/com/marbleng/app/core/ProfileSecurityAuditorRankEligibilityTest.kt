@@ -9,24 +9,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Regression tests for rank-pool security eligibility (MARBLE_SMART_RANK_V90, amended by
- * MARBLE_CORE_CONFIG_SUPERSET_V165).
- *
- * VMess without forward secrecy stays hidden from the active rank pool: it is usually WEAK rather
- * than INSECURE, so the gate matches scheme+security explicitly instead of trusting the score.
- *
- * VLESS without TLS does **not** work that way any more, and this file is where that decision is
- * pinned. The rank gate used to keep its own copy of "cleartext VLESS is deprecated", which — on top
- * of the connect path's own copy of Xray's plaintext rule — removed all 42 nodes of a cleartext
- * subscription from ranking while the log said nothing but `rank-deprecated-hidden`. Rank now asks
- * the same authority the tunnel asks: a node the selected core can dial is rankable (labelled, via
- * [ProfileSecurityAuditor.assess], as unencrypted), and a node it cannot load is hidden with the
- * reason that names the other core. Withdrawing consent — Settings → Engine → Dial unencrypted nodes
- * — is what puts a cleartext node back out of the pool, on both engines.
- */
 class ProfileSecurityAuditorRankEligibilityTest {
-
     private val consented = AppSettings(allowUnencryptedPublicOutbound = true)
     private val refused = AppSettings(allowUnencryptedPublicOutbound = false)
 
@@ -46,7 +29,7 @@ class ProfileSecurityAuditorRankEligibilityTest {
     fun cleartextVlessIsRankableBecauseItIsConnectable() {
         val eligibility = ProfileSecurityAuditor.rankEligibility(profile("a", "vless", "none"), consented)
         assertTrue(eligibility.active)
-        // The reason is not "active": it is the fact the Servers row and Bug Finder report from.
+
         assertEquals("unencrypted-outbound", eligibility.reason)
     }
 
@@ -92,9 +75,6 @@ class ProfileSecurityAuditorRankEligibilityTest {
 
     @Test
     fun aTransportTheSelectedCoreDeletedIsHiddenWithItsEngineNamedReason() {
-        // `h2` is not a preference and not a security judgement: the pinned Xray's
-        // `TransportProtocol.Build` answers it with PrintRemovedFeatureError, so a probe against it
-        // would spend its whole timeout on a config that cannot load.
         val h2 = profile("a", "vless", "tls").copy(
             transport = "h2",
             configJson = JSONObject()
@@ -142,8 +122,6 @@ class ProfileSecurityAuditorRankEligibilityTest {
 
     @Test
     fun theDefaultSettingsKeepTheWholeSubscriptionRankable() {
-        // The shipped default is "usable": refusing an entire cleartext subscription is what this
-        // test exists to make impossible again.
         val (active, deprecated) = ProfileSecurityAuditor.partitionForRank(
             listOf(profile("a", "vless", "none"), profile("b", "vless", "none"))
         )

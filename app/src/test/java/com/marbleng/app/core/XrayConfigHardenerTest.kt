@@ -9,18 +9,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Emitted-config regressions for the hardener's generic handling of fragment chains.
- *
- * These tests mirror the two known-good upstream serverless configs: XTLS
- * Serverless-for-Iran/serverless_for_Iran.jsonc and GFW-knocker
- * ServerLess_TLSFrag_Xray_Config_New.json. Both give the directly-dialing fragment hop
- * an explicit domain strategy + Happy Eyeballs. Marble no longer ships the Freedom engine,
- * but a hand-imported fragment chain must still be hardened exactly the same way.
- */
 class XrayConfigHardenerTest {
-
-    /** A hand-imported 2-hop freedom fragment chain plus a dedicated UDP-noises outbound. */
     private fun handImportedFreedomChain(): String = JSONObject()
         .put(
             "outbounds",
@@ -86,7 +75,6 @@ class XrayConfigHardenerTest {
         )
         .toString()
 
-    /** The same chain with the dedicated noises outbound removed. */
     private fun chainSourceWithoutNoises(): String {
         val root = JSONObject(handImportedFreedomChain())
         val outbounds = root.getJSONArray("outbounds")
@@ -99,11 +87,6 @@ class XrayConfigHardenerTest {
         return root.toString()
     }
 
-    /**
-     * MARBLE_CORE_OPTIONS_V211 — the product no longer writes a fragment shape of its own, so
-     * these regressions run against the *imported* chain only: a hand-imported freedom fragment
-     * hop (the `handImportedFreedomChain()` document) must still be hardened exactly as before.
-     */
     private fun fragmentChainSettings() = AppSettings()
 
     private fun outbound(root: JSONObject, tag: String): JSONObject {
@@ -139,9 +122,7 @@ class XrayConfigHardenerTest {
         val inner = outbound(hardened, "full-fragment")
         assertEquals("freedom", inner.optString("protocol"))
         val innerSettings = inner.optJSONObject("settings")
-        // MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the deprecated freedom.domainStrategy /
-        // targetStrategy alias must never be written: the core migrates it with a warning today
-        // and drops it tomorrow. The plan lives in sockopt only.
+
         assertFalse("settings.domainStrategy is deprecated", innerSettings?.has("domainStrategy") == true)
         assertFalse("settings.targetStrategy is deprecated", innerSettings?.has("targetStrategy") == true)
         val innerSockopt = inner.optJSONObject("streamSettings")?.optJSONObject("sockopt")
@@ -151,20 +132,17 @@ class XrayConfigHardenerTest {
             innerSockopt!!.optString("domainStrategy") in AddressFamilyPolicy.ENDPOINT_STRATEGIES
         )
 
-        // Only the hop that opens the real socket resolves; the dialer hops just bridge.
         val outerSockopt = outbound(hardened, "proxy")
             .optJSONObject("streamSettings")?.optJSONObject("sockopt")
         assertFalse(outerSockopt?.has("domainStrategy") ?: false)
         assertEquals("full-fragment", outerSockopt?.optString("dialerProxy"))
 
-        // Dedicated UDP-noises outbound is kept and also resolves through Xray DNS.
         val noise = outbound(hardened, "udp-noises")
         assertTrue((noise.optJSONObject("settings")?.optJSONArray("noises")?.length() ?: 0) > 0)
         val noiseSettings = noise.optJSONObject("settings")
         assertFalse(noiseSettings?.has("domainStrategy") == true)
         assertFalse(noiseSettings?.has("targetStrategy") == true)
-        // The UDP PacketWriter reads the very same sockopt.domainStrategy as the TCP dial
-        // (proxy/freedom/freedom.go resolveStrategy), so one field covers both paths.
+
         val noiseSockopt = noise.optJSONObject("streamSettings")?.optJSONObject("sockopt")
         assertTrue(noiseSockopt?.has("domainStrategy") == true)
         assertTrue(
@@ -191,8 +169,7 @@ class XrayConfigHardenerTest {
         val settings = AppSettings(
             routingMode = com.marbleng.app.model.RoutingMode.PROXY_ALL
         )
-        // The generic path must still harden a hand-imported fragment chain under PROXY_ALL:
-        // this asserts the shared graph stays valid there too.
+
         val hardened = harden(settings)
         assertEquals("freedom", outbound(hardened, "full-fragment").optString("protocol"))
     }
@@ -200,8 +177,7 @@ class XrayConfigHardenerTest {
     @Test
     fun `iran mode blocks poison injector ranges and media udp is opt in`() {
         val settings = fragmentChainSettings().copy(iranModePolicy = IranModePolicy.ALWAYS_ON)
-        // A chain without a dedicated noises outbound: with muxUdp443 at its default no
-        // QUIC/UDP443 rule is emitted at all, so media keeps trying QUIC through the tunnel.
+
         val hardened = harden(settings, chainSourceWithoutNoises())
 
         val routing = hardened.getJSONObject("routing")
@@ -250,16 +226,6 @@ class XrayConfigHardenerTest {
         assertFalse("poison injector range must not appear", rules.toString().contains("10.10.34.0/24"))
     }
 
-    /**
-     * Minimal serverless-style configs (a hand-imported freedom-only custom JSON) contain no
-     * proxy besides a freedom/direct outbound. The hardener must treat that as the exit
-     * instead of rejecting it with "No proxy outbound".
-     */
-    /**
-     * MARBLE_ENDPOINT_BOOTSTRAP_V132 — the node hostname is resolved by the `https+local://`
-     * bootstrap servers and by nothing else (Xray's list-1 / disableFallbackIfMatch flow), so
-     * the bootstrap set must never collapse to a single filtered resolver.
-     */
     @Test
     fun `domain endpoint gets an independent bootstrap resolver ladder`() {
         val settings = AppSettings(
@@ -332,7 +298,6 @@ class XrayConfigHardenerTest {
         )
     }
 
-    /** A single VLESS node with a domain endpoint, so the liveness pass applies. */
     private fun vlessDomainSource(): String = JSONObject()
         .put(
             "outbounds",
@@ -380,13 +345,10 @@ class XrayConfigHardenerTest {
         val iranSockopt = outbound(iran, "proxy")
             .optJSONObject("streamSettings")?.optJSONObject("sockopt")
 
-        // Baseline (Iran Mode off) uses the plain non-filtered-network profile.
         assertEquals(60, baseSockopt?.optInt("tcpKeepAliveIdle"))
         assertEquals(15, baseSockopt?.optInt("tcpKeepAliveInterval"))
         assertEquals(60_000, baseSockopt?.optInt("tcpUserTimeout"))
 
-        // Iran Mode on (countermeasures default on) applies the MARBLE_IRAN_LIVENESS_V80 profile:
-        // longer keep-alive and user-timeout for Iran's high-RTT, high-loss filtered transit.
         assertEquals(108, iranSockopt?.optInt("tcpKeepAliveIdle"))
         assertEquals(22, iranSockopt?.optInt("tcpKeepAliveInterval"))
         assertEquals(120_000, iranSockopt?.optInt("tcpUserTimeout"))
@@ -415,9 +377,7 @@ class XrayConfigHardenerTest {
         assertEquals("freedom", outbound(hardened, "proxy").optString("protocol"))
         assertEquals("blackhole", outbound(hardened, "block").optString("protocol"))
         val proxySettings = outbound(hardened, "proxy").optJSONObject("settings")
-        // MARBLE_FREEDOM_SOCKOPT_STRATEGY_V163 — the imported deprecated alias is migrated into
-        // sockopt by the hardener, so the core never logs the "freedom.domainStrategy is
-        // deprecated" warning for a hand-imported exit either.
+
         assertFalse(proxySettings?.has("targetStrategy") == true)
         assertFalse(proxySettings?.has("domainStrategy") == true)
         val proxySockopt = outbound(hardened, "proxy").optJSONObject("streamSettings")?.optJSONObject("sockopt")

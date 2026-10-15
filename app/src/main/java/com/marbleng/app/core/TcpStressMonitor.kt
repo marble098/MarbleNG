@@ -3,25 +3,7 @@ package com.marbleng.app.core
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
-/**
- * TCP Stress Monitor & Adaptive MTU/MSS Engine for MarbleNG.
- *
- * The kernel counters are observations, not packet percentages: `lost` is an instantaneous
- * aggregate, `unacked` may be one segment, and the reported minimum MSS can belong to a different
- * socket than the reported PMTU. They are therefore not sufficient on their own to resize the
- * tunnel. This monitor requires bounded, repeated transport pressure before changing MTU; stable
- * PMTU learning remains the responsibility of [PathMtuPolicy].
- *
- * This engine provides:
- * 1. Continuous TCP stress monitoring from live session telemetry
- * 2. Automatic MTU step-down when stress persists
- * 3. MSS auto-tuning based on measured path MTU
- * 4. Recovery detection: when stress clears, gradually step MTU back up
- * 5. Per-profile memory of optimal MTU for the current network
- */
 class TcpStressMonitor {
-
-    /** MTU step levels for progressive tuning. */
     enum class MtuLevel(val mtu: Int, val label: String) {
         FULL(1500, "Full MTU"),
         CELLULAR(1420, "Cellular-safe"),
@@ -42,7 +24,6 @@ class TcpStressMonitor {
         }
     }
 
-    /** Decision from the stress monitor. */
     data class TuningDecision(
         val shouldReduceMtu: Boolean,
         val shouldIncreaseMtu: Boolean,
@@ -53,7 +34,6 @@ class TcpStressMonitor {
         enum class Urgency { NONE, LOW, MEDIUM, HIGH, CRITICAL }
     }
 
-    /** Rolling stress sample. */
     data class StressSample(
         val timestamp: Long,
         val retransmitRate: Double,
@@ -64,7 +44,6 @@ class TcpStressMonitor {
         val rttMs: Int
     )
 
-    // State
     private val samples = mutableListOf<StressSample>()
     private val maxSamples = 20
     private var currentLevel = MtuLevel.FULL
@@ -75,22 +54,17 @@ class TcpStressMonitor {
     private val consecutiveStressed = AtomicInteger(0)
     private val consecutiveHealthy = AtomicInteger(0)
 
-    // In-process per-profile levels; durable PMTU memory is owned by MarbleIntelligence.
     private val learnedLevels = mutableMapOf<String, MtuLevel>()
 
-    // Thresholds
-    private val stressRetransmitThreshold = 0.05   // 5% retransmit = stressed
-    private val stressLossThreshold = 0.05          // 5% loss = stressed
-    private val stressMssRatioThreshold = 0.55      // Below 55% = stressed
-    private val stressConfirmSamples = 3            // 3 stressed samples in a row = confirmed
-    private val recoveryConfirmSamples = 5          // 5 healthy samples = recovery candidate
-    private val stressDurationBeforeAction = 30_000L  // 30s of ordinary stress before reducing MTU
-    private val severeStressDurationBeforeAction = 10_000L // even severe evidence must persist
-    private val recoveryDurationBeforeAction = 120_000L  // 2 min uninterrupted health before increasing MTU
+    private val stressRetransmitThreshold = 0.05
+    private val stressLossThreshold = 0.05
+    private val stressMssRatioThreshold = 0.55
+    private val stressConfirmSamples = 3
+    private val recoveryConfirmSamples = 5
+    private val stressDurationBeforeAction = 30_000L
+    private val severeStressDurationBeforeAction = 10_000L
+    private val recoveryDurationBeforeAction = 120_000L
 
-    /**
-     * Record a new stress observation from the live session.
-     */
     @Synchronized
     fun observe(
         retransmitRate: Double,
@@ -113,14 +87,11 @@ class TcpStressMonitor {
         while (samples.size > maxSamples) samples.removeAt(0)
 
         if (stressed || isStressed(sample)) {
-            // A single healthy sample breaks the timer for recovery; stress must start a fresh
-            // uninterrupted interval rather than inheriting an old timestamp.
             healthyStartedAt.set(0L)
             consecutiveStressed.incrementAndGet()
             consecutiveHealthy.set(0)
             if (stressStartedAt.get() == 0L) stressStartedAt.set(nowMs)
         } else {
-            // Conversely, a new stress sample invalidates the healthy-recovery interval.
             stressStartedAt.set(0L)
             consecutiveHealthy.incrementAndGet()
             consecutiveStressed.set(0)
@@ -128,9 +99,6 @@ class TcpStressMonitor {
         }
     }
 
-    /**
-     * Evaluate current stress level and produce a tuning decision.
-     */
     @Synchronized
     fun evaluate(nowMs: Long = System.currentTimeMillis()): TuningDecision {
         if (samples.isEmpty()) {
@@ -143,7 +111,6 @@ class TcpStressMonitor {
         val avgMssRatio = recentSamples.map { it.mssRatio }.average()
         val anyStressed = recentSamples.any { it.stressed }
 
-        // Check if we should reduce MTU
         val stressDuration = if (stressStartedAt.get() > 0) {
             (nowMs - stressStartedAt.get()).coerceAtLeast(0L)
         } else 0L
@@ -188,13 +155,11 @@ class TcpStressMonitor {
             }
         }
 
-        // Check if we should increase MTU (recovery)
         val recoveryDuration = if (healthyStartedAt.get() > 0) nowMs - healthyStartedAt.get() else 0
         val confirmedRecovery = consecutiveHealthy.get() >= recoveryConfirmSamples &&
             recoveryDuration >= recoveryDurationBeforeAction
 
         if (confirmedRecovery && currentLevel != MtuLevel.FULL) {
-            // Gradual recovery: only step up one level at a time
             val nextLevel = MtuLevel.stepUp(currentLevel)
             if (nextLevel != null) {
                 currentLevel = nextLevel
@@ -211,7 +176,6 @@ class TcpStressMonitor {
             }
         }
 
-        // No action needed
         return TuningDecision(
             shouldReduceMtu = false,
             shouldIncreaseMtu = false,
@@ -235,34 +199,19 @@ class TcpStressMonitor {
         return if (parts.isEmpty()) "healthy" else parts.joinToString("+")
     }
 
-    /**
-     * Get the recommended MSS based on current MTU level and IPv6 status.
-     */
     fun recommendedMss(hasIpv6: Boolean): Int {
-        val overhead = if (hasIpv6) 60 else 40  // TCP/IP header overhead
+        val overhead = if (hasIpv6) 60 else 40
         return (currentLevel.mtu - overhead).coerceIn(1160, 1460)
     }
 
-    /**
-     * Get the recommended MTU value.
-     */
     fun recommendedMtu(): Int = currentLevel.mtu
 
-    /**
-     * Get the current MTU level.
-     */
     fun currentMtuLevel(): MtuLevel = currentLevel
 
-    /**
-     * Get learned MTU level for a profile (from previous sessions).
-     */
     fun learnedLevel(profileId: String, networkKey: String): MtuLevel? {
         return learnedLevels["$profileId@$networkKey"]
     }
 
-    /**
-     * Initialize for a profile/network combination, restoring learned state.
-     */
     @Synchronized
     fun resetForProfile(profileId: String, networkKey: String, currentMtu: Int? = null) {
         this.profileId = profileId
@@ -273,8 +222,6 @@ class TcpStressMonitor {
         consecutiveStressed.set(0)
         consecutiveHealthy.set(0)
 
-        // The live tunnel is the source of truth (it may already include a previously learned PMTU).
-        // Use the monitor's prior level only when there is no valid active MTU to seed it with.
         currentLevel = currentMtu?.takeIf { it in 1280..9000 }?.let { MtuLevel.fromMtu(it) }
             ?: learnedLevels[profileKey()]
             ?: MtuLevel.FULL
@@ -282,9 +229,6 @@ class TcpStressMonitor {
 
     private fun profileKey(): String = "$profileId@$networkKey"
 
-    /**
-     * Get diagnostic snapshot.
-     */
     @Synchronized
     fun snapshot(): Map<String, Any> {
         val recent = samples.takeLast(5)

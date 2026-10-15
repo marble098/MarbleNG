@@ -1,37 +1,6 @@
 package com.marbleng.app.ui
 
 // MARBLE_NATIVE_ANDROID_V213 — the chapter where the product stops dressing itself like its own
-// design system and starts behaving like the platform it lives on.
-//
-// The critique this file answers, in the order a user meets it:
-//
-//  1. **The boxes were films, not objects.** Every card was `background(fill)` + a 1 dp rim in an
-//     accent hue, and the shadow — when there was one — was cast in the brand's blue on a page
-//     that is already blue, which is why surfaces read as painted panels the aurora shows through
-//     rather than as material sitting on a light. Android's own answer is a *tonal container*: an
-//     opaque step of the platform's surface ladder, one hairline from the platform's outline
-//     family, and a shadow in the surface's own hue. That is [MarbleNativeCard].
-//  2. **The rows had no platform anatomy.** A settings row was a 36 dp inset with a coloured rail
-//     on its leading edge — under the platform's own 48 dp touch floor and unrelated to how
-//     Android draws a list item (leading container, title, supporting line, trailing control).
-//     [MarbleNativeListItem] is that anatomy, at [MarbleNativeSpec.RowMinHeightDp] / 72 dp, with
-//     the platform's switch ([MarbleNativeSwitch]) as the trailing control.
-//  3. **The choices were chips that looked like buttons.** A single-choice control on Android is a
-//     radio row or a segmented button, not a stack of bordered boxes with a colour wash for the
-//     selected one. [MarbleNativeChoiceRow] is the radio row, with a real 20 dp indicator.
-//  4. **The headings were uppercase, letter-spaced and tone-coloured.** That is a marketing
-//     heading. The platform's settings heading is a `labelLarge` in the primary tone with normal
-//     letterspacing — [MarbleNativeSectionHeader].
-//
-// What this file is NOT: a new design system. It owns no palette and no brand decision. Every
-// colour it paints is read from the live `MaterialTheme.colorScheme` — the *platform's* roles
-// (surfaceContainerLow/Lowest/High, outlineVariant, onSurfaceVariant, primary, onPrimary) — which
-// `AetherTheme` already rebuilds for the brand palettes, for AMOLED and for a wallpaper palette in
-// one place. So "native" here means "the same tonal ladder the rest of Android is drawn from",
-// not "a second set of Marble colours that happen to look like Android's".
-//
-// The numbers live in [MarbleNativeSpec] as plain integers so a JVM unit test can pin them
-// without a device, exactly the way [ServerTilePolicy] pins the grid.
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -92,89 +61,57 @@ import androidx.compose.ui.unit.sp
  * only read the integers.
  */
 object MarbleNativeSpec {
-    /** A one-line list item, exactly as Android draws it. */
     const val RowMinHeightDp: Int = 56
 
-    /** A list item with a supporting line under its title. */
     const val RowTwoLineHeightDp: Int = 72
 
-    /** A dense item: chips, legend rows and other secondary lists. Never below the floor. */
     const val RowDenseHeightDp: Int = 48
 
-    /** The leading container of a list item: an icon, a glyph or a flag. */
     const val LeadingContainerDp: Int = 40
 
-    /** The glyph a [LeadingContainerDp] container is sized for. */
     const val LeadingGlyphDp: Int = 22
 
-    /** A card's corner. The platform's large step, not Marble's 22 dp. */
     const val CardCornerDp: Int = 24
 
-    /** A tile's corner inside a grid. */
     const val TileCornerDp: Int = 20
 
-    /** A row's corner. */
     const val RowCornerDp: Int = 16
 
-    /** Card content inset. */
     const val CardPaddingDp: Int = 16
 
-    /** Horizontal inset of a list row's content. */
     const val RowPaddingHorizontalDp: Int = 16
 
-    /** Vertical inset of a list row's content. */
     const val RowPaddingVerticalDp: Int = 8
 
-    /** Horizontal inset of a divider, measured from the row's leading edge. */
     const val DividerInsetDp: Int = 16
 
-    /** A divider's painted thickness: one device-independent pixel, the platform's hairline. */
     const val DividerThicknessDp: Int = 1
 
-    /** The resting lift of a card: the platform's own low elevation. */
     const val CardElevationDp: Int = 4
 
-    /** The lift of a card the user chose or that carries traffic. */
     const val CardLiftedElevationDp: Int = 8
 
-    /** The contact shadow: the tight one that puts a surface *on* a page instead of above it. */
     const val ContactElevationDp: Int = 2
 
-    /** Android's minimum touch target. Nothing interactive may be smaller. */
     const val TouchTargetDp: Int = 48
 
-    /** The navigation bar's active indicator, Material 3's own geometry. */
     const val IndicatorWidthDp: Int = 56
     const val IndicatorHeightDp: Int = 32
 
-    /** A selection indicator's outer diameter, and the dot inside it. */
     const val ChoiceIndicatorDp: Int = 20
     const val ChoiceDotDp: Int = 10
 
-    /** A section heading's letterspacing. Normal tracking: the platform does not shout. */
     const val SectionLabelTrackingSp: Float = 0.4f
 
-    /** The height a row must take, from whether it carries a supporting line. */
     fun rowHeightDp(hasSubtitle: Boolean): Int =
         if (hasSubtitle) RowTwoLineHeightDp else RowMinHeightDp
 
-    /** True when a painted height still meets the platform's touch floor. */
     fun meetsTouchFloor(heightDp: Int): Boolean = heightDp >= TouchTargetDp
 
-    /**
-     * The horizontal inset a divider starts at when a leading container occupies the row's head.
-     *
-     * The platform's own rule: a divider between two rows that both have a leading icon starts
-     * where the icon container ends, so the leading column reads as one continuous strip.
-     */
     fun dividerInsetDp(hasLeading: Boolean): Int =
         if (hasLeading) RowPaddingHorizontalDp + LeadingContainerDp + RowPaddingHorizontalDp / 2
         else DividerInsetDp
 }
-
-// ------------------------------------------------------------------------------------------------
-// The platform's colour roles, resolved for the theme that is actually running.
-// ------------------------------------------------------------------------------------------------
 
 /**
  * MARBLE_NATIVE_ANDROID_V213 — the surface a card or a row is filled with.
@@ -190,36 +127,18 @@ internal fun marbleNativeCardFill(): Color = if (homeCloudDark()) {
     MaterialTheme.colorScheme.surfaceContainerLowest
 }
 
-/**
- * The hairline family the platform draws its divisions with.
- *
- * `outlineVariant` is the quiet stroke Material uses for dividers and card edges; the brand
- * palettes resolve it from the navy hairline, AMOLED from the slate stroke. It is deliberately
- * *neutral*: a card edge is not a status and must not borrow the accent.
- */
 @Composable
 internal fun marbleNativeOutline(): Color {
     val scheme = MaterialTheme.colorScheme
     val dark = homeCloudDark()
-    // A hairline that disappears is not a divider: the quiet role is pushed a little toward the
-    // readable one so an edge survives on a bright page, then flattened onto the surface it is
-    // drawn on (a translucent stroke over a gradient is the one thing a hairline may not be).
+
     val stroke = lerp(scheme.outlineVariant, scheme.onSurfaceVariant, if (dark) .16f else .22f)
     return stroke.compositeOver(marbleNativeCardFill())
 }
 
-/** The platform's secondary ink: supporting text, values, headings' detail. */
 @Composable
 internal fun marbleNativeInkVariant(): Color = MaterialTheme.colorScheme.onSurfaceVariant
 
-/**
- * The step *above* a card's fill in the platform's tonal ladder — a pressed state, a floating
- * bar's body, a control's own container.
- *
- * The two brightnesses take the step on opposite sides of the page, which is how Material's
- * ladder is built: on a bright page the container is *deeper* than the white card, on the OLED
- * floor it is *lifted* off the black.
- */
 @Composable
 internal fun marbleNativeContainerHigh(): Color = if (homeCloudDark()) {
     MaterialTheme.colorScheme.surfaceContainerHigh
@@ -227,7 +146,6 @@ internal fun marbleNativeContainerHigh(): Color = if (homeCloudDark()) {
     MaterialTheme.colorScheme.surfaceContainer
 }
 
-/** The tonal wash of a chosen row: the platform's container tone, never the brand's accent. */
 @Composable
 internal fun marbleNativeSelectedFill(tone: Color): Color = if (homeCloudDark()) {
     tone.copy(alpha = .18f).compositeOver(MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -268,14 +186,8 @@ internal fun marbleNativeShadow(tone: Color): MarbleNativeShadow {
     }
 }
 
-// ------------------------------------------------------------------------------------------------
-// The components.
-// ------------------------------------------------------------------------------------------------
-
-/** The platform's corner for a card, a tile, a row or a pill. */
 internal fun marbleNativeShape(radius: Dp): Shape = RoundedCornerShape(radius)
 
-/** The platform's pill: a full-round container whose radius follows the box. */
 internal fun marbleNativePill(): Shape = RoundedCornerShape(percent = 50)
 
 /**
@@ -315,9 +227,7 @@ internal fun MarbleNativeCard(
         animationSpec = MarbleMotionSpecs.Dp,
         label = "native-card-elevation"
     )
-    // Light hitting an edge, not a second border: the top of the rim takes the surface's own
-    // light (white on a bright page, the section tone on the OLED floor) and fades to the quiet
-    // outline by the bottom edge.
+
     val litRim = if (dark) {
         lerp(outline, tone, .34f)
     } else {
@@ -333,8 +243,7 @@ internal fun MarbleNativeCard(
                 ambientColor = shadow.ambient,
                 spotColor = shadow.spot
             )
-            // The contact shadow is what makes a card sit *on* a page: without it a 4 dp lift
-            // still reads as a floating film on a bright theme.
+
             .shadow(
                 elevation = MarbleNativeSpec.ContactElevationDp.dp,
                 shape = shape,
@@ -344,8 +253,6 @@ internal fun MarbleNativeCard(
             )
             .clip(shape)
             .background(fill)
-            // One whisper of the section's tone inside the top edge — the platform's tonal
-            // elevation, paid by paint rather than by a second translucent plane.
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
@@ -432,10 +339,7 @@ internal fun MarbleNativeListItem(
                     )
                 }
             )
-            // The row's own text is the row's own description, and the *state* a row carries is
-            // the caller's to speak: a switch row announces "on", a choice row announces
-            // "selected", and neither is a fact this composable can know. It is therefore silent
-            // here and never overwrites the sentence its owner put on the same node.
+
             .padding(
                 horizontal = MarbleNativeSpec.RowPaddingHorizontalDp.dp,
                 vertical = MarbleNativeSpec.RowPaddingVerticalDp.dp
@@ -449,9 +353,7 @@ internal fun MarbleNativeListItem(
                     .size(MarbleNativeSpec.LeadingContainerDp.dp)
                     .clip(CircleShape)
                     .background(
-                        // The platform's tonal container: the tone at low strength over the
-                        // row's own surface, so the container has a computable colour instead of
-                        // borrowing whatever is behind the row.
+
                         tone.copy(alpha = if (homeCloudDark()) .22f else .12f).compositeOver(fill)
                     ),
                 contentAlignment = Alignment.Center
@@ -616,9 +518,7 @@ internal fun MarbleNativeChoiceRow(
         animationSpec = MarbleMotionSpecs.Color,
         label = "native-choice-ring"
     )
-    // The state a choice speaks is resolved *here*, in the composition: `trx` is itself composable
-    // (it reads the live language), and a `semantics { }` lambda is not a composable scope — the
-    // words have to exist before the node is described.
+
     val selectedState = trx("Selected")
     val notSelectedState = trx("Not selected")
     MarbleNativeListItem(
@@ -718,8 +618,7 @@ internal fun MarbleNativeSegmentedRow(
     ) {
         options.forEachIndexed { index, label ->
             val chosen = index == selectedIndex
-            // Resolved in the composition, not in the semantics lambda below (see
-            // [MarbleNativeChoiceRow]).
+
             val labelText = trx(label)
             val selectedState = trx("Selected")
             val notSelectedState = trx("Not selected")
@@ -774,7 +673,6 @@ internal fun MarbleNativeSegmentedRow(
     }
 }
 
-/** A little air between two platform rows inside one card. */
 @Composable
 internal fun MarbleNativeRowGap() {
     Spacer(Modifier.height(2.dp))

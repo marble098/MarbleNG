@@ -1,24 +1,6 @@
 package com.marbleng.app.ui
 
 // MARBLE_ROUTE_ATELIER_V207 — the fifth Home presentation: "Route".
-//
-// The V207 review's complaint about Home was not that it was ugly; it was that it had no single
-// grammar. Four presentations, two card families, five silhouettes for one command, color borrowed for
-// brand, state and category at the same time, and a control that answered three different questions
-// ("connect", "change server", "cancel"). This file is that grammar written down as a page: one card
-// radius, one depth rule, one border rule, one ink ramp, and one meaning per channel — cyan is the
-// brand, the state hues are state, and a protocol hue lives only inside its small identity tile.
-//
-// It is an *additional* presentation, not a replacement. The four presentations that existed before
-// are untouched, which is both what the review asked for and how a redesign earns its place: the old
-// page stays one switch away while the new one proves itself. Nothing here deletes a server field, an
-// editor or a control — the page consumes the same [HomeEvidence] as every other presentation and
-// reuses the shared feature widgets, so a feature cannot quietly go missing in the transfer.
-//
-// The one thing this page adds that no other presentation has is the [RoutePathSignet]: three nodes
-// between this device and its exit, each painted only for the state there is evidence of. It exists
-// because a VPN client's central promise — "your traffic leaves through somewhere else" — used to be
-// represented by a glowing circle, and a glow is a mood, not a fact.
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.snap
@@ -61,18 +43,10 @@ import com.marbleng.app.AppRepository
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.ProxyProfile
 
-/** The one card radius this presentation uses — 20 dp, every card, every density. */
 private val AtelierCardShape = RoundedCornerShape(20.dp)
 
-/** The one inset radius (the signet sits inside a card, so it steps down one notch). */
 private val AtelierInsetShape = RoundedCornerShape(16.dp)
 
-/**
- * The route presentation of Home: header, national-event banner, one decision card, the server that
- * decision acts on, the measured quality of the path, session totals, shortcuts — in that order,
- * which is the order of the questions a user arrives with: am I protected, through what, how well,
- * and for how long.
- */
 @Composable
 internal fun HomeThemeAtelier(
     repo: AppRepository,
@@ -90,20 +64,14 @@ internal fun HomeThemeAtelier(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         HomeTopActionBar(evidence, actions, repo)
-        // MARBLE_ATELIER_NOTICE_IN_CARD_V215 — a national filtering notice used to be a full-width
-        // banner in the flow under the header, so the top of the page grew whenever it was on. It is
-        // now a line inside the decision card, where the route's own problem already lives.
+
         RouteConnectCard(
             evidence = evidence,
             actions = actions,
             nationalCause = repo.nationalEventCause
         )
         RouteSelectedServerCard(evidence = evidence, actions = actions)
-        // MARBLE_SERVER_TILE_LAYOUT_V208 — the page that names the route also lets you change it.
-        // The route presentation had no server list at all, so choosing a different server meant
-        // leaving Home; the shared library box (rows or tiles, whichever the user picked in
-        // Settings) is composed here exactly as the other presentations compose it, so the
-        // presentation gains a feature without growing a private one.
+
         IosServerListBox(
             repo = repo,
             evidence = evidence,
@@ -119,22 +87,12 @@ internal fun HomeThemeAtelier(
             evidence = evidence,
             actions = actions,
             accent = tone,
-            // MARBLE_HOME_PING_CONTROLS_V212 — the deck's pill is a control; its verb is the
-            // user's, resolved once in the evidence block.
+
             pingAction = evidence.pingChipAction
         )
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// The decision card: one sentence of state, the path, the one verb, and any failure beside its way out
-// -------------------------------------------------------------------------------------------------
-
-/**
- * The card that answers the first question. One sentence of status, the [RoutePathSignet] under it,
- * the verb the same state resolves to, and — when something is wrong — the failure with its corrective
- * action inside the same box, because a problem and its way out must not live two screens apart.
- */
 @Composable
 private fun RouteConnectCard(
     evidence: HomeEvidence,
@@ -142,9 +100,7 @@ private fun RouteConnectCard(
     nationalCause: String = ""
 ) {
     val state = evidence.routeState
-    // The state hue is the meaning of this card, so it is the one thing allowed to move when the
-    // state changes — and it moves for the contracted 200 ms, no longer. With reduced motion the
-    // colour is simply different on the next frame: a state change must be legible, not followed.
+
     val motion = MarbleMotion.current
     val tone by animateColorAsState(
         targetValue = marbleRouteTone(state),
@@ -170,8 +126,7 @@ private fun RouteConnectCard(
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = homeStatusText(evidence),
-                    // The state hue is the whole point of this line. The size ramp tops out at 24 sp:
-                    // the sentence carries the page, not the type.
+
                     color = tone,
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontSize = 24.sp,
@@ -190,8 +145,7 @@ private fun RouteConnectCard(
                 )
             }
             RoutePathSignet(path = path, tone = tone)
-            // The one action. Full width, 56 dp tall, and labelled by the same state that decides
-            // what it does — the two are produced from one value, so they cannot drift apart.
+
             PrismButton(
                 label = homeActionLabel(evidence),
                 onClick = { actions.onToggleConnection() },
@@ -226,12 +180,7 @@ private fun RouteConnectCard(
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
-                    // The corrective action is the measurement again: this line only exists when
-                    // the last answer was a failure, so "retry" means "measure again" — and what
-                    // failed is the ROUTE this page is showing, not the subscription behind it.
-                    // It is therefore the same verb as the header's pulse and the split control's
-                    // second disc (MARBLE_HOME_ROUTE_PING_V210), not a second measurement that
-                    // answers a different question.
+
                     PrismIconButton(
                         onClick = { actions.onPingRoute() },
                         tone = Aether.Danger,
@@ -246,11 +195,6 @@ private fun RouteConnectCard(
     }
 }
 
-/**
- * The one explanatory line under the status, and every clause in it is something the app can prove:
- * the exit address once one has been read, then the path's shape (protocol, transport), then where
- * the endpoint is *if a measurement says so* — never a country guessed from the node's own name.
- */
 @Composable
 private fun atelierRouteLine(evidence: HomeEvidence, profile: ProxyProfile?): String {
     val t = Tr.now
@@ -269,7 +213,6 @@ private fun atelierRouteLine(evidence: HomeEvidence, profile: ProxyProfile?): St
     }
 }
 
-/** The failure line, if there is one — and only what is actually known about it. */
 @Composable
 private fun atelierProblem(evidence: HomeEvidence, nationalCause: String): String? {
     val t = Tr.now
@@ -284,23 +227,6 @@ private fun atelierProblem(evidence: HomeEvidence, nationalCause: String): Strin
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// The route signet: three stages, each painted only for the state there is evidence of
-// -------------------------------------------------------------------------------------------------
-
-/**
- * Device → tunnel → exit.
- *
- * The brief's "a diagram with three states" is what this is for: the page's central claim is that
- * traffic leaves through somewhere else, and most of that claim used to be carried by a glow. Each
- * node now takes its look from a state the app can back up, and an unproven stage is drawn as
- * unproven — hollow and quiet, never "pending with confidence".
- *
- * A connector belongs to the stage it leads into, so the eye reads the path as a sequence and not as
- * three separate badges. Nothing here animates on its own account: a pulse is reserved for a stage
- * that is genuinely in progress, and even that one holds still when the ambient field is off, so the
- * diagram never pretends to be working.
- */
 @Composable
 private fun RoutePathSignet(
     path: MarbleRoutePath,
@@ -312,8 +238,7 @@ private fun RoutePathSignet(
         trx("Tunnel") to path.tunnel,
         trx("Exit") to path.egress
     )
-    // The spoken form is resolved here, not inside the semantics block: a modifier's semantics lambda
-    // is not a composable scope, so the words the page reads aloud have to be produced before it.
+
     val speech = atelierSignetSpeech(path)
     Column(
         modifier = modifier
@@ -337,9 +262,7 @@ private fun RoutePathSignet(
                         state = next,
                         tone = tone,
                         proven = next == MarbleNodeState.PROVEN,
-                        // How much of the row a connector may claim is the Row's business, so it is
-                        // measured at the call site: `weight` is a `RowScope` extension and cannot be
-                        // named from inside [RouteLink]'s own body.
+
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -354,7 +277,6 @@ private fun RoutePathSignet(
     }
 }
 
-/** One stage of the path: a proven disc, a waiting ring, a failed stop, or a hollow unknown. */
 @Composable
 private fun RouteNodeCell(label: String, state: MarbleNodeState, tone: Color) {
     val fill = when (state) {
@@ -397,10 +319,6 @@ private fun RouteNodeCell(label: String, state: MarbleNodeState, tone: Color) {
                     maxLines = 1
                 )
                 MarbleNodeState.PENDING -> {
-                    // The one moving thing on this mark, and it means exactly one thing: a stage is
-                    // waiting on an answer it does not have yet. A proven node never breathes, an
-                    // unproven one never pretends to, and the ambient switch settles the question for
-                    // good — with it off the dot holds its alpha and the diagram stops costing frames.
                     val motion = MarbleMotion.current
                     val ambient = LocalMarbleAmbientField.current
                     val waiting = ambient && motion.acknowledges(MarbleControlKind.Icon)
@@ -430,7 +348,6 @@ private fun RouteNodeCell(label: String, state: MarbleNodeState, tone: Color) {
     }
 }
 
-/** The line between two stages: solid when the stage it leads into is proven, hairline when it is not. */
 @Composable
 private fun RouteLink(
     state: MarbleNodeState,
@@ -461,10 +378,6 @@ private fun atelierSignetCaption(path: MarbleRoutePath): String {
     }
 }
 
-/**
- * The signet read aloud. TalkBack gets each stage as a word, because a check mark, a hollow ring and a
- * dash are precisely the distinctions a screen reader cannot see.
- */
 @Composable
 private fun atelierSignetSpeech(path: MarbleRoutePath): String {
     val t = Tr.now
@@ -479,18 +392,6 @@ private fun atelierSignetSpeech(path: MarbleRoutePath): String {
     }: ${word(path.egress)}"
 }
 
-// -------------------------------------------------------------------------------------------------
-// The server the verb acts on, and how it got here
-// -------------------------------------------------------------------------------------------------
-
-/**
- * The route the connect card would act on: its identity tile, its name, where it came from, and the one
- * control that changes it.
- *
- * This is also where the review's separation of duties lives. Choosing a route and running it are two
- * actions with two homes: the row below opens the Servers page and never connects anything, and the
- * verb above never picks a server by itself.
- */
 @Composable
 private fun RouteSelectedServerCard(evidence: HomeEvidence, actions: HomeActions) {
     val t = Tr.now
@@ -512,8 +413,7 @@ private fun RouteSelectedServerCard(evidence: HomeEvidence, actions: HomeActions
                     size = 32.dp,
                     flag = evidence.flag.takeIf { it.isNotBlank() && evidence.mayPaintLocationFlag },
                     flagCode = evidence.flagCode.takeIf { it.isNotBlank() && evidence.mayPaintLocationFlag },
-                    // The tile inherits the card's honesty: a lone reading and a name-emoji guess are
-                    // drawn as what they are, and an unconfirmed location gets the dashed rim.
+
                     locationTrust = evidence.locationTrust,
                     stateTone = if (evidence.routeState == MarbleRouteState.CONNECTED) {
                         marbleRouteTone(evidence.routeState)
@@ -559,7 +459,6 @@ private fun RouteSelectedServerCard(evidence: HomeEvidence, actions: HomeActions
     }
 }
 
-/** Where this route came from — the subscription it was pulled with, or the fact that it is local. */
 @Composable
 private fun atelierSourceLine(evidence: HomeEvidence, profile: ProxyProfile?): String {
     val t = Tr.now
@@ -569,7 +468,6 @@ private fun atelierSourceLine(evidence: HomeEvidence, profile: ProxyProfile?): S
     return "${t.source}: $source"
 }
 
-/** A text-shaped action that still clears the 48 dp floor. */
 @Composable
 private fun AtelierTextAction(label: String, onClick: () -> Unit) {
     Box(
@@ -590,16 +488,6 @@ private fun AtelierTextAction(label: String, onClick: () -> Unit) {
     }
 }
 
-// -------------------------------------------------------------------------------------------------
-// Quality: measurements, each either backed by a sample or saying that it is not
-// -------------------------------------------------------------------------------------------------
-
-/**
- * The path's measured quality: three numbers a user could act on, never a decorative gauge. A cell
- * with no sample shows a dash and the words "not measured", because a placeholder that looks like a
- * zero is worse than an honest absence — and the dash is the same character every other presentation
- * already uses for the same case.
- */
 @Composable
 private fun RouteQualityCard(repo: AppRepository, evidence: HomeEvidence) {
     val latency = homePingLabel(evidence)

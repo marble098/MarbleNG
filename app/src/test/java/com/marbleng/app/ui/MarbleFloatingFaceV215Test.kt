@@ -4,16 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_FLOATING_FACE_V215 — the floating discs wear a deep face and a white glyph.
- *
- * The black centre was a contrast decision made on the wrong surface: the navy ink was scored
- * against the bright action tone, so on a light disc it read as a hole. The face is now derived
- * from the tone and the glyph is white, so the guarantee is that white always clears the floor on
- * the face, for every tone a theme can produce, and that the face keeps the tone's own hue.
- */
 class MarbleFloatingFaceV215Test {
-
     private val white = 0xFFFFFFFF.toInt()
 
     private val tones = listOf(
@@ -37,8 +28,6 @@ class MarbleFloatingFaceV215Test {
 
     @Test
     fun theFaceKeepsTheHueOfItsTone() {
-        // A blue tone must still read blue, and a red tone must still read red: the face is the
-        // tone deepened, not a fresh navy disc in every theme.
         val blue = marbleDeepFaceArgb(0xFF0066CC.toInt())
         assertTrue("blue face lost its blue", (blue and 0xFF) > ((blue shr 16) and 0xFF))
         val red = marbleDeepFaceArgb(0xFFFF718B.toInt())

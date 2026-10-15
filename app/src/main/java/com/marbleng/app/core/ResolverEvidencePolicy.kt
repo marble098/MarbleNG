@@ -3,62 +3,7 @@ package com.marbleng.app.core
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * MARBLE_RESOLVER_EVIDENCE_V134
- *
- * Why the `DoH deadline` count kept climbing while the tunnel stayed up.
- *
- * V133 sized every DNS deadline from the measured link, which removed the *systematic* expiry (a
- * 1350 ms budget on a 1126 ms route). What the following session proved is that a correctly sized
- * deadline does not make a filtered resolver usable: an operator that disrupts DNS-over-HTTPS on a
- * per-endpoint basis still burns that whole budget, on every cold lookup, for as long as the
- * filtering window lasts. The runtime evidence was `state=CONNECTED`, a stable 2.5 h tunnel, four or
- * five responders per ping race — and 29 accumulated `DoH deadline` events.
- *
- * The defect underneath that number is structural, not a threshold: **the resolver-health loop was
- * open.** Marble already had every piece of the loop except the wire between them —
- *
- *  - [ResolverFailureClassifier] categorises a raw core-log line (deadline / EOF / TLS / cert);
- *  - [ResolverEndpointQuarantine] implements a per-endpoint circuit breaker;
- *  - Bug Finder reads the core log and *reports* the counts;
- *  - [XrayConfigHardener] emits the resolver list.
- *
- * …and nothing connected the observation to the emission. The encrypted server list was a fixed
- * `[user primary, user secondary] + [Cloudflare, Google, Quad9]` truncated to three, in that order,
- * forever. An endpoint that the operator was actively disrupting therefore stayed in the emitted
- * config at the same priority for the whole life of the installation, and every cold lookup paid its
- * full deadline before failover reached a resolver that could answer. Reporting the count is what
- * made `16 → 29` look like a regression; nothing in the stack ever *acted* on it.
- *
- * This policy is that wire. It is pure and side-effect free (persistence lives in
- * [MarbleIntelligence], reporting in [BugFinder]) so every rule below is unit-testable:
- *
- *  1. **attribution** — a resolver failure is attributed to the endpoint the core actually named,
- *     parsed out of the quoted transport URL in the log line. A line that names no endpoint is
- *     counted but attributed to nobody, so an unattributable failure can never demote a resolver.
- *  2. **decay** — counters halve on a fixed half-life, exactly like [TurboBackoffPolicy]'s streak.
- *     A filtering window ends; the evidence about it must end too, or a demotion becomes permanent
- *     and the resolver is lost for the life of the app.
- *  3. **demotion, never deletion** — a decisively failing endpoint moves to the end of the emitted
- *     list. It is never removed: Marble cannot prove a resolver is dead from inside a tunnel, and
- *     an encrypted fallback that is merely last is still a fallback. If *every* candidate is
- *     failing, the configured order is kept — reordering cannot help and only churns the config.
- *  4. **recovery** — a single proven answer (the adaptive DNS audit measures real RFC 8484 wire
- *     responses) clears the pressure on that endpoint immediately.
- *  5. **racing only when it pays** — Xray's `enableParallelQuery` fans every lookup out to all
- *     matching servers. That is the documented remedy for serial failover behind a dead resolver,
- *     and it is also three times the DNS traffic through the tunnel, so it is armed by evidence of a
- *     failing endpoint and never by preference.
- */
 object ResolverEvidencePolicy {
-
-    /**
-     * One encrypted resolver endpoint and the decisive failures observed against it.
-     *
-     * Shutdown-safe kinds (cancellation, closed pipe) are deliberately not represented: they are
-     * teardown artefacts, and counting them is how a clean reconnect used to look like a resolver
-     * outage.
-     */
     data class EndpointEvidence(
         val endpoint: String,
         val deadlines: Int = 0,
@@ -67,30 +12,13 @@ object ResolverEvidencePolicy {
         val certExpired: Int = 0,
         val poisoned: Int = 0,
         val other: Int = 0,
-        /** Wall clock of the most recent decisive failure; drives the demotion TTL. */
         val lastFailureAtMs: Long = 0L,
-        /** Wall clock of the most recent proven answer; a success clears the pressure. */
         val lastSuccessAtMs: Long = 0L,
-        /**
-         * The instant the counters were last decayed from. 0 means "same as [lastFailureAtMs]".
-         *
-         * Decay has to be idempotent in absolute time. Halving repeatedly against the *original*
-         * failure timestamp would compound on every observation pass: with a 15-minute half-life read
-         * every 30 s, a storm of eight would collapse to zero two minutes after the first half-life
-         * and the evidence would vanish while the filtering window was still open. Advancing the
-         * anchor by the half-lives actually consumed makes the counter a pure function of elapsed
-         * time, however often it is evaluated.
-         */
         val decayAnchorAtMs: Long = 0L
     ) {
-        /** Every failure that says something about the endpoint itself. */
         val decisiveFailures: Int
             get() = deadlines + eof + tls + certExpired + poisoned + other
 
-        /**
-         * An expired certificate is decisive on its own: that endpoint cannot answer until it is
-         * renewed, so it must not wait for a streak to accumulate.
-         */
         val certBroken: Boolean
             get() = certExpired > 0
 
@@ -116,17 +44,9 @@ object ResolverEvidencePolicy {
             ResolverFailureKind.CANCELLED, ResolverFailureKind.CLOSED_PIPE -> this
         }
 
-        /** A proven answer resets the pressure; the endpoint re-enters the list at its old rank. */
         fun withSuccess(atMs: Long): EndpointEvidence =
             EndpointEvidence(endpoint = endpoint, lastSuccessAtMs = atMs)
 
-        /**
-         * Halve every counter for each full half-life since the last failure.
-         *
-         * Mirrors [TurboBackoffPolicy.decayedStreak]: a suppression that cannot decay outlives the
-         * condition that caused it, which is precisely how a two-minute filtering window turned
-         * into a resolver that never came back.
-         */
         fun decayed(nowMs: Long, halfLifeMs: Long = DECAY_HALF_LIFE_MS): EndpointEvidence {
             if (decisiveFailures == 0) return this
             val anchor = if (decayAnchorAtMs > 0L) decayAnchorAtMs else lastFailureAtMs
@@ -178,7 +98,6 @@ object ResolverEvidencePolicy {
         }
     }
 
-    /** How a raw resolver-error count reads once it is divided by the window it happened in. */
     enum class Severity { CONTAINED, ELEVATED, SEVERE }
 
     data class Window(
@@ -186,60 +105,32 @@ object ResolverEvidencePolicy {
         val windowMs: Long,
         val perMinute: Double,
         val severity: Severity,
-        /** True when the window was too short/unknown to compute a meaningful rate. */
         val rateUnknown: Boolean
     )
 
-    /** Decisive failures before an endpoint may be demoted (a broken certificate needs only one). */
     const val DEMOTE_FAILURES = 4
 
-    /** A demotion expires after this even without a proven answer: filtering windows end. */
     const val DEMOTE_TTL_MS = 30L * 60_000L
 
-    /** Failure counters halve every half-life. */
     const val DECAY_HALF_LIFE_MS = 15L * 60_000L
 
-    /** Bounded persistence: a resolver list is a handful of endpoints, not a growing ledger. */
     const val MAX_ENDPOINTS = 8
 
-    /** Below this observation window a rate is not meaningful, so the absolute count is used. */
     const val MIN_RATE_WINDOW_MS = 60_000L
 
-    /** Legacy absolute threshold, kept only for windows too short to produce a rate. */
     const val ABSOLUTE_ELEVATED_EVENTS = 8
 
     const val ELEVATED_PER_MINUTE = 0.75
     const val SEVERE_PER_MINUTE = 3.0
 
-    /**
-     * Xray prints the transport URL of a failing resolver inside quotes:
-     *
-     * ```
-     * [Error] app/dns: failed to retrieve response for www.google.com. >
-     *   Post "https://1.1.1.1/dns-query": context deadline exceeded
-     * ```
-     *
-     * Only a quoted, scheme-qualified URL is accepted. The bare-address forms a plaintext resolver
-     * would print (`dial tcp 1.1.1.1:53`) are deliberately not parsed: the neighbouring text
-     * (`failed to lookup ipv4 for www.google.com`) names a *domain*, and guessing an endpoint from
-     * an ambiguous line is how a healthy resolver gets demoted for somebody else's failure.
-     */
     private val QUOTED_ENDPOINT = Regex("""(?:"|'|\b)((?:[A-Za-z][A-Za-z0-9+\-.]*://)[^\s"'<>]{3,200})""")
 
-    /** Schemes that are unambiguously a resolver transport rather than an ordinary HTTP fetch. */
     private val RESOLVER_SCHEMES = setOf(
         "https+local", "dot", "dot+local", "quic", "quic+local", "h2c", "h3"
     )
 
-    /** Comparison key: resolver URLs are matched case-insensitively, as the hardener dedupes them. */
     fun normalize(endpoint: String): String = endpoint.trim().lowercase()
 
-    /**
-     * The resolver endpoint a raw core-log line names, or null when it names none.
-     *
-     * Requires the line to be DNS-related *and* the URL to look like a resolver, so an outbound
-     * HTTPS failure that happens to quote a destination URL is never charged to a resolver.
-     */
     fun endpointOf(line: String): String? {
         if (line.isBlank()) return null
         if (!ResolverFailureClassifier.isDnsRelated(line)) return null
@@ -258,12 +149,6 @@ object ResolverEvidencePolicy {
         return path.contains("dns") || path.contains("query")
     }
 
-    /**
-     * Fold a batch of raw core-log lines into the persisted evidence set.
-     *
-     * Existing records are decayed first, so evidence about a filtering window that has passed
-     * fades instead of accumulating for the life of the installation.
-     */
     fun observe(
         lines: Sequence<String>,
         existing: List<EndpointEvidence>,
@@ -288,7 +173,6 @@ object ResolverEvidencePolicy {
             .take(MAX_ENDPOINTS)
     }
 
-    /** Record one proven answer; the endpoint's pressure is cleared immediately. */
     fun recordSuccess(
         endpoint: String,
         existing: List<EndpointEvidence>,
@@ -317,13 +201,6 @@ object ResolverEvidencePolicy {
         return evidence.firstOrNull { normalize(it.endpoint) == key }
     }
 
-    /**
-     * True when this endpoint should move to the end of the emitted resolver list.
-     *
-     * All four conditions are required: decisive pressure, a recent failure (the demotion TTL), and
-     * no proven answer since. A resolver that answered after its failures is not demoted, however
-     * large the historical count is.
-     */
     fun isDemoted(
         endpoint: String,
         evidence: List<EndpointEvidence>,
@@ -340,13 +217,6 @@ object ResolverEvidencePolicy {
         return true
     }
 
-    /**
-     * Reorder a resolver candidate list so decisively failing endpoints go last.
-     *
-     * Stable within both groups, and a list where *every* candidate is failing is returned
-     * unchanged: there is no better alternative, and churning the emitted config would cost a
-     * reconnect for nothing.
-     */
     @Deprecated("Superseded by the rotating overload; use order(..., seed = )")
     fun orderLegacy(
         candidates: List<String>,
@@ -355,26 +225,6 @@ object ResolverEvidencePolicy {
     ): List<String> =
         order(candidates, evidence = evidence, nowMs = nowMs, seed = "")
 
-    /**
-     * MARBLE_RESOLVER_SINKHOLE_V163 — endpoints that must be *left out* of an emitted resolver
-     * list, not merely moved to its end.
-     *
-     * Demotion (last rank) is the right answer for a deadline burst: the endpoint may come back
-     * mid-session and a serial failover will reach it eventually. It is the wrong answer for two
-     * failure classes the attached runtime log showed side by side:
-     *
-     *  - **an expired certificate** (`x509: certificate has expired or is not yet valid: current
-     *    time … is after 2026-07-10`). The endpoint cannot answer until somebody renews the
-     *    certificate; every query that reaches it fails only after a full TLS handshake, and when
-     *    the core races the pool the broken endpoint still burns a connection on every lookup.
-     *  - **a domestic "anti-sanction" resolver** such as `dns.shecan.ir` (see [isDomesticResolver]).
-     *    Asking it *through the tunnel* sends the user's browsing targets to an Iranian operator
-     *    from the exit IP and receives answers that point at that operator's own proxies — a DNS
-     *    leak by construction, whichever rank it holds.
-     *
-     * The result is always a strict subset of [candidates]; callers keep the original list when
-     * excluding would leave nothing to emit, because an empty resolver list is a hard config error.
-     */
     fun excluded(
         candidates: List<String>,
         evidence: List<EndpointEvidence>,
@@ -393,10 +243,6 @@ object ResolverEvidencePolicy {
             }
         }
 
-    /**
-     * Drop [excluded] endpoints from [candidates] unless that would empty the list. Order is
-     * preserved so a caller can still apply [order] afterwards.
-     */
     fun withoutExcluded(
         candidates: List<String>,
         evidence: List<EndpointEvidence>,
@@ -405,18 +251,11 @@ object ResolverEvidencePolicy {
         val out = excluded(candidates, evidence, nowMs).map { normalize(it) }.toSet()
         if (out.isEmpty()) return candidates
         val kept = candidates.filter { normalize(it) !in out }
-        // A domestic resolver is a leak even when it is the only entry: never keep it. A merely
-        // cert-broken one is kept as the last resort rather than emitting nothing at all.
+
         if (kept.isNotEmpty()) return kept
         return candidates.filter { !isDomesticResolver(it) }
     }
 
-    /**
-     * True when [endpoint] is an Iranian domestic resolver: an IP from
-     * [IranNetworkRegistry.DOMESTIC_RESOLVERS], one of the known anti-sanction DoH hostnames, or
-     * any host under the `.ir` ccTLD. Such resolvers are probe targets for locality detection and
-     * direct-routing exceptions only; they never carry the tunnel's lookups.
-     */
     fun isDomesticResolver(endpoint: String): Boolean {
         val host = endpoint.trim()
             .substringAfter("://", endpoint.trim())
@@ -433,15 +272,12 @@ object ResolverEvidencePolicy {
         return DOMESTIC_RESOLVER_HOSTS.any { host == it || host.endsWith(".$it") }
     }
 
-    /** Anti-sanction DoH/DoT hostnames that do not sit under `.ir`. */
     private val DOMESTIC_RESOLVER_HOSTS = listOf(
         "shecan.ir", "electrotm.org", "begzar.ir", "403.online", "radar.game", "pishgaman.net"
     )
 
-    /** An expired certificate keeps its endpoint out of the emitted list for this long. */
     const val CERT_BROKEN_TTL_MS = 6L * 60L * 60_000L
 
-    /** Endpoints of [candidates] that are currently demoted, for diagnostics and the config writer. */
     fun demoted(
         candidates: List<String>,
         evidence: List<EndpointEvidence>,
@@ -452,24 +288,16 @@ object ResolverEvidencePolicy {
         .distinctBy { normalize(it) }
         .filter { isDemoted(it, evidence, nowMs) }
 
-    // ------------------------------------------------ MARBLE_IRAN_AWARE_PING_RESOLVERS
-
-    /** A resolver pool of fewer than this many *independent operators* is not evidence of diversity. */
     const val MIN_DIVERSE_PROVIDERS = 4
 
-    /** A blacklisted operator's endpoints stay out of the emitted list this long. */
     const val OPERATOR_BLACKLIST_TTL_MS = 30L * 60_000L
 
-    /** After this quiet period a blacklisted operator is re-tested (periodic re-test requirement). */
     const val OPERATOR_RETEST_MS = 20L * 60_000L
 
-    /** Sentinel: not blacklisted. */
     const val NOT_BLACKLISTED = -1L
 
-    /** The rotation epoch, matching the probe-pool discipline so no two subsystems repeat. */
     private const val ROTATION_EPOCH_MS = 10L * 60_000L
 
-    /** Known independent resolver operators, by hostname suffix (host part of the URL). */
     private val OPERATOR_BY_SUFFIX = listOf(
         "cloudflare-dns.com" to "cloudflare",
         "1.1.1.1" to "cloudflare",
@@ -498,23 +326,9 @@ object ResolverEvidencePolicy {
             ?: host
     }
 
-    /**
-     * Diversity audit: how many independent operator families [candidates] cover. A pool of five
-     * endpoints from one operator is one failure domain, not five providers.
-     */
     fun diversity(candidates: List<String>): Int =
         candidates.map { providerFamily(it) }.filter { it.isNotBlank() }.distinct().size
 
-    /**
-     * Rotate the *healthy* part of the pool deterministically every [ROTATION_EPOCH_MS] — but only
-     * when the caller supplies a rotation seed. The no-seed form is the historical deterministic
-     * order (healthy in pool order, demoted last); rotation is opt-in so legacy callers and the
-     * pre-rotation contract are not silently reordered.
-     *
-     * Demoted endpoints always stay last — rotation may never promote a failing resolver — and
-     * the rotation gives an operator that manipulates per-endpoint DNS a moving target instead of
-     * a stable five-endpoint signature to learn.
-     */
     fun order(
         candidates: List<String>,
         evidence: List<EndpointEvidence>,
@@ -535,11 +349,6 @@ object ResolverEvidencePolicy {
         return rotated + failing
     }
 
-    /**
-     * Exact emission order for a bounded config pool. Healthy candidates are rotated first; if the
-     * whole candidate set is demoted, rotate that bounded set by network/epoch instead of silently
-     * pinning the first failed resolver at the primary slot for the full demotion TTL.
-     */
     fun orderForEmission(
         candidates: List<String>,
         evidence: List<EndpointEvidence>,
@@ -558,7 +367,6 @@ object ResolverEvidencePolicy {
         return if (healthy.isEmpty()) rotated else rotated + failing
     }
 
-    /** Select the exact bounded list the writer will emit; failures outside it cannot arm fan-out. */
     fun selectForEmission(
         candidates: List<String>,
         evidence: List<EndpointEvidence>,
@@ -568,11 +376,6 @@ object ResolverEvidencePolicy {
     ): List<String> = orderForEmission(candidates, evidence, nowMs, seed)
         .take(limit.coerceAtLeast(0))
 
-    /**
-     * Dynamic per-operator blacklist: an operator whose *every* observed endpoint is demoted is a
-     * failure domain, not four unrelated failures. The operator is removed from the emitted pool
-     * until [OPERATOR_BLACKLIST_TTL_MS] has passed.
-     */
     fun blacklistedOperators(
         candidates: List<String>,
         evidence: List<EndpointEvidence>,
@@ -596,12 +399,6 @@ object ResolverEvidencePolicy {
         return out.filterValues { nowMs - it <= OPERATOR_BLACKLIST_TTL_MS }
     }
 
-    /**
-     * Periodic re-test gate: a blacklisted operator is eligible for one endpoint again after
-     * [OPERATOR_RETEST_MS], even though the full blacklist TTL may not have passed. A filtering
-     * window ends without warning; without the retest the operator would stay out a full TTL
-     * after recovery.
-     */
     fun retestDue(
         operator: String,
         blacklistedAtMs: Long,
@@ -610,11 +407,6 @@ object ResolverEvidencePolicy {
     ): Boolean = blacklistedAtMs > 0L &&
         nowMs - blacklistedAtMs >= retestMs
 
-    /**
-     * The pool actually emitted after diversity enforcement. When the candidates cover fewer than
-     * [MIN_DIVERSE_PROVIDERS] independent families, the [fallbacks] (always-available independent
-     * DoH operators) are appended so the emitted list cannot be one operator's failure domain.
-     */
     fun diversified(
         candidates: List<String>,
         fallbacks: List<String>,
@@ -631,37 +423,18 @@ object ResolverEvidencePolicy {
         return merged.toList()
     }
 
-    /**
-     * Whether Xray should race its encrypted resolvers instead of failing over serially.
-     *
-     * Serial failover is the right default: one query, one answer, no fan-out. But when an endpoint
-     * that is about to be emitted is decisively failing, serial failover pays that endpoint's whole
-     * (now RTT-derived, therefore generous) deadline on *every* cold lookup before it reaches a
-     * resolver that can answer. Xray's own documentation names this exact remedy for this exact
-     * symptom. Racing is therefore armed by evidence about the emitted list, and disarmed as soon
-     * as the evidence decays or a proven answer arrives.
-     */
     fun parallelQueryJustified(
         candidates: List<String>,
         evidence: List<EndpointEvidence>,
         nowMs: Long
     ): Boolean = demoted(candidates, evidence, nowMs).isNotEmpty()
 
-    /**
-     * Read a raw resolver-error count honestly.
-     *
-     * `16` events in a five-minute disconnected session and `29` events in a two-and-a-half-hour
-     * connected one are not the same observation, and the absolute comparison says the healthy
-     * session is worse. The rate is the measurement; the count is only the numerator.
-     */
     fun window(events: Int, windowMs: Long): Window {
         val count = events.coerceAtLeast(0)
         if (count == 0) {
             return Window(0, windowMs.coerceAtLeast(0L), 0.0, Severity.CONTAINED, rateUnknown = false)
         }
         if (windowMs < MIN_RATE_WINDOW_MS) {
-            // Too short (or unknown) to divide by: fall back to the absolute reading rather than
-            // inventing a rate out of a handful of seconds.
             val severity = if (count >= ABSOLUTE_ELEVATED_EVENTS) Severity.ELEVATED else Severity.CONTAINED
             return Window(count, windowMs.coerceAtLeast(0L), 0.0, severity, rateUnknown = true)
         }
@@ -692,7 +465,6 @@ object ResolverEvidencePolicy {
         }.getOrDefault(emptyList())
     }
 
-    /** One-line, endpoint-attributed description for diagnostics and Bug Finder. */
     fun describe(evidence: List<EndpointEvidence>, nowMs: Long): String {
         if (evidence.isEmpty()) return "no resolver endpoint failures attributed"
         return evidence

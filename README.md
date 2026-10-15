@@ -482,6 +482,21 @@ glyph (no more black centre); the national-filtering notice moved into the decis
 Home header keeps its height; and the settings nobody read (`expertMode` and eight Home and Iran
 flags) are removed.
 
+### The V216 pass — settings harmony and the ping engines
+
+`docs/SETTINGS_HUB_HARMONY_V216.md` is the Settings critique and rebuild: the type ramp is
+one-directional again (section names are `titleMedium` ink, sub-sections the platform's tracked
+label, rows `bodyLarge`), every navigable row is borderless so exactly one outline wraps each
+card instead of three concentric frames around one sentence, content speaks in ink while colour
+is reserved for the section's icon and wash and for the option the user picked, and the last
+translucent glass choosers — ping method, theme, Home style, engine — move to the platform's
+opaque container step. `docs/PING_METHODS_CRITIQUE_V216.md` is the ping critique and rewrite:
+the TCP dialer is a hedged head-start ladder that no silent address family can starve, its retry
+window on a dead node costs 1.5× rather than 2× the timeout, the Real-delay batch rescues the
+samples its own callback already published instead of printing FAILED beside a live number, and
+the core-measured methods deduplicate the sweep by configuration — byte-identical documents
+share one throwaway core while different accounts on one endpoint never share a verdict.
+
 ## Main navigation
 
 MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.

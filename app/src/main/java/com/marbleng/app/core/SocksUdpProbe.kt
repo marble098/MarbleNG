@@ -10,7 +10,6 @@ import java.net.Socket
 import java.security.SecureRandom
 import kotlin.math.min
 
-/** End-to-end UDP capability probe through Xray's SOCKS5 UDP ASSOCIATE path using STUN. */
 object SocksUdpProbe {
     private val random = SecureRandom()
 
@@ -30,7 +29,6 @@ object SocksUdpProbe {
             out.flush()
             require(input.read() == 5 && input.read() == 0) { "SOCKS auth failed" }
 
-            // UDP ASSOCIATE, letting Xray choose the relay endpoint.
             out.write(byteArrayOf(5, 3, 0, 1, 0, 0, 0, 0, 0, 0))
             out.flush()
             val head = ByteArray(4)
@@ -56,7 +54,7 @@ object SocksUdpProbe {
 
             val tx = ByteArray(12).also(random::nextBytes)
             val stun = ByteArray(20)
-            stun[0] = 0x00; stun[1] = 0x01 // Binding request
+            stun[0] = 0x00; stun[1] = 0x01
             stun[2] = 0; stun[3] = 0
             stun[4] = 0x21; stun[5] = 0x12; stun[6] = 0xA4.toByte(); stun[7] = 0x42
             System.arraycopy(tx, 0, stun, 8, tx.size)
@@ -65,7 +63,7 @@ object SocksUdpProbe {
             require(hostBytes.size in 1..255)
             val payload = ByteArray(3 + 1 + 1 + hostBytes.size + 2 + stun.size)
             var pos = 0
-            payload[pos++] = 0; payload[pos++] = 0; payload[pos++] = 0 // RSV + FRAG
+            payload[pos++] = 0; payload[pos++] = 0; payload[pos++] = 0
             payload[pos++] = 3
             payload[pos++] = hostBytes.size.toByte()
             System.arraycopy(hostBytes, 0, payload, pos, hostBytes.size); pos += hostBytes.size

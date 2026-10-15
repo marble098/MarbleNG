@@ -5,17 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_EGRESS_EVIDENCE_V133 regressions.
- *
- * The attached runtime log repeated `EGRESS startup-observation-inconclusive` with
- * `literalIpHttps=true, domainHttps=false` and a `TURBO startup-family-tune-requested` right behind
- * it. The two probes were not comparable — a full 3500 ms HTTPS GET against a 1500 ms TLS first-byte
- * measurement — so the "domains are broken" verdict was an artefact of unequal budgets, and the
- * observation was one-shot for the whole session. These tests pin the corrected interpretation.
- */
 class EgressObservationPolicyTest {
-
     @Test
     fun `a verified domain transaction is healthy and needs no re-arm`() {
         val decision = EgressObservationPolicy.observe(

@@ -14,19 +14,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 
-/**
- * MARBLE_AUTO_SERVER_SELECTOR_V202 — the selector strategies, custom weights and the guards that make them
- * behave.
- *
- * The guards matter more than the strategies. "Pick the lowest ping" is one line; the product
- * already had that line, and it was wrong in three ways this suite pins:
- *
- *  - a node that lost a third of its packets was ranked as "fast" because one probe came back;
- *  - every sweep that reordered the top two by a millisecond moved the user's exit node;
- *  - a node that had failed four times in a row was still in the pool.
- */
 class AutoServerSelectorTest {
-
     private fun profile(id: String, name: String = id) = ProxyProfile(
         id = id,
         name = name,
@@ -87,11 +75,8 @@ class AutoServerSelectorTest {
         current = current
     )
 
-    // ─── The shared scoring model ────────────────────────────────────────────────────
-
     @Test
     fun `latency score is a hyperbola not a line`() {
-        // 1/(1+r): the first 50 ms of a route matters enormously; 300 → 350 ms barely at all.
         val fast = AutoServerSelector.latencyScore(40.0)
         val mid = AutoServerSelector.latencyScore(160.0)
         val slow = AutoServerSelector.latencyScore(320.0)
@@ -119,8 +104,7 @@ class AutoServerSelectorTest {
             "bufferbloat must cost a node even when its idle latency is identical",
             idleFast > idleFastLoaded
         )
-        // Without an under-load measurement the score falls back on throughput and says so by
-        // never reaching the certainty of a real measurement.
+
         val unknown = AutoServerSelector.loadScore(50.0, 0.0, 5_000_000.0)
         assertTrue(unknown <= 1.0 && unknown >= 0.0)
     }
@@ -134,13 +118,9 @@ class AutoServerSelectorTest {
         assertTrue("$fresh / $quarter / $ancient", fresh > quarter && quarter > ancient)
         assertEquals("a memory still counts for something", 0.25, ancient, 0.001)
         assertEquals("an unstamped result is neutral", 0.5, AutoServerSelector.freshnessScore(0L, now), 0.001)
-        // An unstamped result is indistinguishable from a negative one, so the guard is on the
-        // stamp and not on the arithmetic: a clock that has not run yet must not read as
-        // "measured ten evidence windows ago".
+
         assertEquals(0.5, AutoServerSelector.freshnessScore(-5L, now), 0.001)
     }
-
-    // ─── The three guards ────────────────────────────────────────────────────────────
 
     @Test
     fun `a node losing a third of its packets is not the fastest node`() {
@@ -182,8 +162,6 @@ class AutoServerSelectorTest {
 
     @Test
     fun `a quarantined node is the only choice is still served`() {
-        // The filter is a filter, not a trapdoor: if every node is failing, the selector still
-        // answers with one instead of leaving the user with nothing.
         val now = 1_000_000L
         val only = candidate(
             "only",
@@ -241,7 +219,6 @@ class AutoServerSelectorTest {
 
     @Test
     fun `an unhealthy incumbent is replaced without waiting for the margin`() {
-        // The margin prevents flapping between two *good* routes; it must never protect a bad one.
         val now = 1_000_000L
         val dead = candidate("dead", latencyMs = 400.0, success = 0, current = true, nowMs = now)
         val alive = candidate("alive", latencyMs = 200.0, nowMs = now)
@@ -268,12 +245,10 @@ class AutoServerSelectorTest {
         assertEquals("margin 0 is the user asking for exactly this", "hair", choice.profile?.id)
     }
 
-    // ─── Ranking strategies and user weights ─────────────────────────────────────────
-
     @Test
     fun `least load prefers the node that does not collapse under transfer`() {
         val now = 1_000_000L
-        // Both idle at 60 ms. One triples under load, the other barely moves.
+
         val congested = candidate(
             "congested",
             latencyMs = 60.0,
@@ -460,8 +435,6 @@ class AutoServerSelectorTest {
 
     @Test
     fun `the shipped default is off and smart`() {
-        // The requirement is explicit: the user switches this on. Anything that moves a
-        // user's exit node without being asked is a bug however well it chooses.
         val settings = AppSettings()
         assertFalse("the selector must never surprise a user", settings.autoServerSelectorEnabled)
         assertEquals(AutoServerStrategy.SMART, settings.autoServerStrategyEnum)
@@ -475,9 +448,6 @@ class AutoServerSelectorTest {
 
     @Test
     fun `when it is switched on it acts on evidence not on an explicit choice`() {
-        // The two moments that are on are the two where the selector acts for the user: a
-        // sweep just produced fresh evidence for every server, and the live route just failed.
-        // Connect stays off until asked, because tapping a server is an explicit choice.
         val settings = AppSettings()
         assertTrue(settings.autoServerOnScan)
         assertTrue(settings.autoServerOnFailure)

@@ -6,21 +6,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Regression tests for resolver summary consistency (MARBLE_DIAGNOSTICS_CONSISTENCY_V1).
- *
- * These lock in the fix for the finding where a summary reported 0 DNS EOF while the raw log lines
- * in the same run clearly contained EOF for DNS-over-HTTPS traffic. The summary is always derived
- * from the same raw lines through [ResolverFailureClassifier], so a category can never report zero
- * while the raw text contains it, and cancellations/closed-pipe teardown events are never counted
- * as genuine resolver failures.
- */
 class ResolverFailureClassifierTest {
-
     @Test
     fun dohUnexpectedEofLineIsCountedAsEof() {
-        // This exact shape previously fell through the narrow "app/dns: failed to read response
-        // length > EOF" substring match and produced a 0 EOF summary.
         val raw = "app/dns: failed to read response > unexpected EOF for DNS-over-HTTPS traffic"
         assertEquals(ResolverFailureKind.EOF, ResolverFailureClassifier.classify(raw))
         val summary = ResolverFailureClassifier.summarize(listOf(raw))
@@ -42,7 +30,6 @@ class ResolverFailureClassifierTest {
         assertEquals(1, summary.cancelledCount)
         assertEquals(1, summary.closedPipeCount)
 
-        // Cancellations and closed-pipe teardown events are NOT genuine transport failures.
         assertEquals(2, summary.transportFailures)
         assertEquals(4, summary.total)
     }
@@ -93,8 +80,6 @@ class ResolverFailureClassifierTest {
 
     @Test
     fun classifyThrowableHandlesEmptyAnswer() {
-        // An unmatched throwable is not classified as a cancellation (it is neither shutdown-safe
-        // nor a specific failure); the resolver path maps it to OTHER, never to CANCELLED.
         assertNull(ResolverFailureClassifier.classifyThrowable(IllegalStateException("empty-answer")))
         assertNull(ResolverFailureClassifier.classify(""))
     }

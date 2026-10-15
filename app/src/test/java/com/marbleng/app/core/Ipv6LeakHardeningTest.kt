@@ -8,21 +8,7 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
-/** Regression contract for the entire physical endpoint -> DNS -> fake IP -> TUN data path.
- * Config tests cannot simulate Android's VpnService; the dual-route TUN invariant is pinned by
- * NetworkPolicyTest and actual IPv6 egress must also be checked on a device. */
 class Ipv6LeakHardeningTest {
-    /**
-     * MARBLE_IPV6_FALLBACK_LADDER_V196 — this fixture now opts into *strict* enforcement.
-     *
-     * Every assertion below is unchanged and still pinned: with strict IPv6 on, an IPv4-only node
-     * is refused, both config writers throw rather than emit it, and no IPv4 bootstrap peer ever
-     * appears. What changed is that this is no longer the default. Force IPv6 on its own is a
-     * transport *preference*, and a preference that refuses nine of a user's servers in a row
-     * (`BLOCKED • Kill switch active`) is an outage, not a safety property — the default path is
-     * pinned by [Ipv6FallbackLadderTest] and by `forceIpv6WithoutStrictDegradesInsteadOfRefusing`
-     * at the bottom of this file, which proves the leak rules stay intact after a degrade.
-     */
     private val strict = AppSettings(
         addressFamilyMode = AddressFamilyMode.FORCE_IPV6,
         strictAddressFamily = true
@@ -137,14 +123,6 @@ class Ipv6LeakHardeningTest {
             .getJSONObject("default_domain_resolver").getString("strategy"))
     }
 
-    /**
-     * The reported outage, as a test.
-     *
-     * Force IPv6 (the shipped, non-strict form) meets an IPv4-only server. Nothing may refuse it:
-     * not the preflight validator, not either config writer, not the family predicate. And the
-     * leak contract still has to hold on the rung it lands on — an IPv4-dialled session must not
-     * quietly stop blocking the family it is not using.
-     */
     @Test fun forceIpv6WithoutStrictDegradesInsteadOfRefusing() {
         val relaxed = AppSettings(addressFamilyMode = AddressFamilyMode.FORCE_IPV6)
         val host = "192.0.2.1"
@@ -159,8 +137,6 @@ class Ipv6LeakHardeningTest {
         assertEquals(FamilyRung.IPV4_FIRST, resolution.rung)
         assertNull(resolution.refusal)
 
-        // The writers must accept the degraded settings and keep the IPv6 side of the tunnel
-        // alive: IPv6 destinations still resolve and route, they simply travel over an IPv4 dial.
         val degraded = Ipv6FallbackLadder.apply(relaxed, resolution)
         val xr = xray(host, degraded)
         assertEquals("UseIP", xr.getJSONObject("dns").getString("queryStrategy"))

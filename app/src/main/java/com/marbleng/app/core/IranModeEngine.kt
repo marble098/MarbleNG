@@ -3,45 +3,22 @@ package com.marbleng.app.core
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
 
-/**
- * Iran Mode Integration Engine — coordinates all anti-filtering subsystems.
- *
- * MARBLE_IRAN_ENGINE_V80: This is the orchestration layer that ties together:
- * 1. CensorshipAwareDnsResolver — multi-layer censorship-aware DNS
- * 2. SurvivalFirstRanker — survival-first node scoring
- * 3. ProfileFlapGuard — anti-flapping hysteresis
- * 4. TcpStressMonitor — reactive MTU/MSS auto-tuning
- * 5. LeakGuard — continuous IP/DNS leak prevention
- * 6. ProfileSecurityAuditor — security posture assessment
- * 7. HandoverCoordinator (enhanced) — dwell-time aware switching
- * 8. ContinuousRouteOptimizer (enhanced) — Iran-aware cooldowns
- *
- * All subsystems are network-scoped: state is reset when the network key changes.
- */
 class IranModeEngine {
-
-    // Subsystem instances
     val dnsResolver = CensorshipAwareDnsResolver
     val tcpStressMonitor = TcpStressMonitor()
     val leakGuard = LeakGuard()
     val flapGuard = ProfileFlapGuard(iranAware = true)
-    /** MARBLE_SMART_RANK_V90: continuous per-network adaptive scorer. */
     val adaptiveScorer = AdaptiveAegisScorer()
     private var routeOptimizer: ContinuousRouteOptimizer? = null
 
-    // State
     private var iranState: IranModeState = IranModeState()
     private var networkKey: String = ""
     private var activeProfileId: String = ""
     private var connectedSinceMs: Long = 0
     private var initialized: Boolean = false
 
-    // Cached assessments
     private var securityAssessments: Map<String, ProfileSecurityAuditor.SecurityAssessment> = emptyMap()
 
-    /**
-     * Initialize or re-initialize the engine for the current network.
-     */
     fun initialize(
         iranState: IranModeState,
         networkKey: String,
@@ -55,7 +32,6 @@ class IranModeEngine {
         this.routeOptimizer = optimizer
 
         if (networkChanged || !initialized) {
-            // Reset all subsystems for new network
             dnsResolver.initializeForSession(networkKey, settings)
             tcpStressMonitor.resetForProfile("", networkKey)
             leakGuard.clearFindings()
@@ -63,58 +39,39 @@ class IranModeEngine {
             initialized = true
         }
 
-        // Update Iran mode awareness in subsystems
-        flapGuard.let { /* iranAware is set at construction */ }
+        flapGuard.let {  }
         routeOptimizer?.setIranMode(iranState.active)
-        // MARBLE_SMART_RANK_V90: the optimizer feeds the per-network adaptive scorer.
+
         routeOptimizer?.setAdaptiveScorer(adaptiveScorer, adaptiveFingerprint())
 
-        // Pre-compute security assessments
         securityAssessments = ProfileSecurityAuditor.batchAssess(profiles)
     }
 
-    /**
-     * Called when a profile successfully connects.
-     */
     fun onConnected(profileId: String, settings: AppSettings) {
         activeProfileId = profileId
         connectedSinceMs = System.currentTimeMillis()
         flapGuard.onConnected(profileId)
         tcpStressMonitor.resetForProfile(profileId, networkKey)
 
-        // Restore learned MTU if available
         val learnedLevel = tcpStressMonitor.learnedLevel(profileId, networkKey)
         if (learnedLevel != null) {
-            // Already restored in resetForProfile
         }
     }
 
-    /**
-     * Called when a connection fails.
-     */
     fun onConnectionFailed(profileId: String) {
         flapGuard.onConnectionFailure()
     }
 
-    /**
-     * Called when the tunnel disconnects.
-     */
     fun onDisconnected() {
         leakGuard.setTunnelActive(false)
         activeProfileId = ""
         connectedSinceMs = 0
     }
 
-    /**
-     * Called when the tunnel is established.
-     */
     fun onTunnelEstablished() {
         leakGuard.setTunnelActive(true)
     }
 
-    /**
-     * Observe TCP stress metrics from the live session.
-     */
     fun observeTcpStress(
         retransmitRate: Double,
         lossRate: Double,
@@ -136,9 +93,6 @@ class IranModeEngine {
         return tcpStressMonitor.evaluate()
     }
 
-    /**
-     * Evaluate whether a profile switch should happen.
-     */
     fun evaluateProfileSwitch(
         currentProfile: ProxyProfile,
         currentQuality: Double,
@@ -154,18 +108,9 @@ class IranModeEngine {
         )
     }
 
-    /**
-     * MARBLE_SMART_RANK_V90: hashed, non-identifying per-network fingerprint for the adaptive
-     * scorer. SSID / mobile-network-code are optional and are only ever stored as SHA-256 hashes,
-     * matching the privacy boundary documented in MarbleIntelligence.
-     */
     fun adaptiveFingerprint(ssid: String? = null, mobileNetworkCode: String? = null): String =
         NetworkFingerprint.compose(networkKey, ssid, mobileNetworkCode)
 
-    /**
-     * MARBLE_SMART_RANK_V90: feed one live quality re-measurement (RTT, loss, jitter, stress flag)
-     * into the adaptive scorer and return the soft-migration decision for the active route.
-     */
     fun observeLiveQuality(
         profileId: String,
         quality: AdaptiveAegisScorer.Quality,
@@ -180,7 +125,6 @@ class IranModeEngine {
             candidateScores
         )
 
-    /** MARBLE_SMART_RANK_V90: persist a learned score for one profile on the current network. */
     fun recordAdaptiveScore(
         profileId: String,
         score: Double,
@@ -189,14 +133,10 @@ class IranModeEngine {
         adaptiveScorer.recordScore(adaptiveFingerprint(), profileId, score, state)
     }
 
-    /** MARBLE_SMART_RANK_V90: mark an adaptive switch so the 90s dwell hysteresis starts here. */
     fun noteAdaptiveSwitch(profileId: String) {
         adaptiveScorer.noteSwitch(profileId, adaptiveFingerprint())
     }
 
-    /**
-     * Get the recommended MTU/MSS settings based on current stress level.
-     */
     fun recommendedMtuMss(
         settings: AppSettings,
         profile: ProxyProfile,
@@ -214,26 +154,19 @@ class IranModeEngine {
             proxyTransport = profile.transport,
             stressLevel = stressLevel,
             tcpStressed = decision.urgency != TcpStressMonitor.TuningDecision.Urgency.NONE,
-            retransmitRate = 0.0, // Updated by observeTcpStress
+            retransmitRate = 0.0,
             lossRate = 0.0,
-            // MARBLE_XRAY_THROUGHPUT_V151 — this parameter was accepted and then dropped on the
-            // floor, so the MSS recommendation was always sized for IPv6.
+
             hasIpv6 = hasIpv6
         )
 
         return AdaptiveMtuPolicy.recommend(input)
     }
 
-    /**
-     * Get security assessment for a profile.
-     */
     fun securityAssessment(profile: ProxyProfile): ProfileSecurityAuditor.SecurityAssessment? {
         return securityAssessments[profile.id]
     }
 
-    /**
-     * Get comprehensive engine status for diagnostics.
-     */
     fun status(): Map<String, Any> {
         val now = System.currentTimeMillis()
         return mapOf(
@@ -257,9 +190,6 @@ class IranModeEngine {
         )
     }
 
-    /**
-     * Get a summary of all active countermeasures.
-     */
     fun activeCountermeasures(): List<String> {
         val measures = mutableListOf<String>()
 
@@ -267,7 +197,6 @@ class IranModeEngine {
             measures += IranShield.countermeasures(iranState)
         }
 
-        // Add V80-specific measures
         val dnsStats = dnsResolver.stats()
         if (dnsStats["activeResolvers"]!! > 0) {
             measures += "DNS: ${dnsStats["activeResolvers"]} healthy resolvers, ${dnsStats["poisonedDetections"]} poison attempts blocked"

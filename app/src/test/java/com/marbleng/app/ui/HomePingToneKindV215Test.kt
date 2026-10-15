@@ -4,19 +4,9 @@ import com.marbleng.app.model.ConnectionPingState
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * MARBLE_HOME_PING_COLOUR_V215 — the Home ping keeps one colour for the whole of a run.
- *
- * Every sample of a run used to recolour the reading by the band it landed in, so the two ping
- * icons changed colour on each sample. The band is a verdict on a settled run only. These tests pin
- * that: however many provisional samples arrive, while the run is in progress the colour kind is the
- * measuring one, and the band applies only once the run is MEASURED.
- */
 class HomePingToneKindV215Test {
-
     @Test
     fun aProvisionalRunKeepsTheMeasuringToneWhateverTheSample() {
-        // Fast, middling and slow samples all land on the same colour while the run is open.
         listOf(1, 20, 90, 260, 900).forEach { sample ->
             assertEquals(
                 "sample $sample ms",

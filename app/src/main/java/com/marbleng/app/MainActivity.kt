@@ -29,18 +29,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
-    // MARBLE_CONNECT_PERMISSION_V12
-    // MARBLE_CONNECT_CLICK_GUARD_V13
-    // MARBLE_LIBRARY_IMPORT_TARGET_V33
-    // MARBLE_SYSTEM_INTEGRITY_V38
-    // MARBLE_CONTEXTUAL_CONNECTION_ACCESS_V103
     private companion object {
-        /** Survives recreation while Android's VPN consent UI is open. */
         const val KEY_PENDING_PROFILE = "pendingProfileId"
         const val KEY_PENDING_PROFILE_SOURCE = "pendingProfileSourceId"
         const val KEY_PENDING_PERMISSION_STEP = "pendingPermissionStep"
 
-        /** Untrusted SAF documents are bounded before parsing or Compose state mutation. */
         const val MAX_IMPORT_BYTES = 16 * 1024 * 1024
     }
 
@@ -76,8 +69,6 @@ class MainActivity : ComponentActivity() {
     ) { uri ->
         if (uri == null) return@registerForActivityResult
 
-        // SAF providers may be remote/slow and may not expose Content-Length. Never read an
-        // arbitrary document on Android's input thread and never allocate an unbounded String.
         lifecycleScope.launch {
             val text = runCatching { readImportText(uri) }.getOrElse { error ->
                 app.repo.setRuntimeMessage(
@@ -88,7 +79,7 @@ class MainActivity : ComponentActivity() {
             app.repo.importText(
                 text,
                 "Imported file",
-                // MARBLE_MANUAL_BUCKET_V122 — "all" is a view, not a bucket; land in Manual.
+
                 app.repo.intakeTargetOrManual(app.repo.librarySourceFilter)
             )
         }
@@ -109,11 +100,6 @@ class MainActivity : ComponentActivity() {
         return power?.isIgnoringBatteryOptimizations(packageName) == true
     }
 
-    /**
-     * Permission order is deterministic so the explanation always precedes the Android prompt.
-     * The first connection arms the complete protected-connection access set in one contextual
-     * sequence, including Local Proxy mode; subsequent connections skip already-granted access.
-     */
     private fun missingConnectionPermissions(): List<ConnectionPermissionStep> = buildList {
         if (!vpnConsentGranted()) add(ConnectionPermissionStep.VPN)
         if (!notificationsGranted()) add(ConnectionPermissionStep.NOTIFICATIONS)
@@ -128,18 +114,11 @@ class MainActivity : ComponentActivity() {
         permissionStep?.let { outState.putString(KEY_PENDING_PERMISSION_STEP, it.name) }
     }
 
-    // MARBLE_APP_UPDATE_FOREGROUND_V102
     override fun onStart() {
         super.onStart()
         app.repo.checkForAppUpdate()
     }
 
-    /**
-     * MARBLE_SETTINGS_WRITE_COALESCE_V206 — a coalesced settings write lives only in memory
-     * until its debounce fires. Stopping the activity is the moment the process becomes
-     * killable, so the pending write is forced here: a value the user typed and then left the
-     * screen for must be on disk, not in a 400 ms window.
-     */
     override fun onStop() {
         app.repo.flushSettings()
         super.onStop()
@@ -183,17 +162,6 @@ class MainActivity : ComponentActivity() {
         restoreInterruptedTunnel()
     }
 
-    /**
-     * MARBLE_DURABLE_TUNNEL_INTENT_V133 — finish what the user asked for before the process died.
-     *
-     * Android kills this process to install an updated APK (`REASON_PACKAGE_UPDATE`, reason 16 in the
-     * exit history) with no teardown callback, so a tunnel that was carrying traffic simply stopped.
-     * The durable tunnel intent survives that kill and the last-route reference survives with it, so
-     * the exact route can be restored instead of the user having to notice and reconnect by hand.
-     *
-     * It runs only when nothing else is already in flight: a pending connect, a permission prompt or
-     * a live tunnel all take precedence.
-     */
     private fun restoreInterruptedTunnel() {
         if (pending != null || permissionStep != null) return
         val repo = app.repo
@@ -225,10 +193,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Connect is the only entry point for runtime access. If Android has not granted the required
-     * access yet, pause here and show one contextual explanation per permission before continuing.
-     */
     private fun connect(profile: ProxyProfile) {
         if (permissionStep != null) return
 
@@ -321,8 +285,6 @@ class MainActivity : ComponentActivity() {
                     if (prep == null) {
                         app.repo.startVpn(p)
                     } else {
-                        // A permission can be revoked between the preflight and dispatch. Re-open
-                        // the same contextual step instead of silently failing the connection.
                         pending = p
                         permissionQueue = listOf(ConnectionPermissionStep.VPN)
                         permissionIndex = 0

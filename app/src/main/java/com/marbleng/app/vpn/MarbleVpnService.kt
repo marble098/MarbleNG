@@ -66,44 +66,11 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/**
- * Fail-closed Android tunnel controller.
- *
- * The Android VPN is established before Xray. If Xray/HEV fails later, the VPN fd stays open and
- * traffic is blackholed while Marble Intelligence attempts bounded fallback on the same TUN.
- */
 class MarbleVpnService : VpnService() {
-    // MARBLE_STABILITY_V10
-    // MARBLE_ENGINE_RESCUE_V11
-    // MARBLE_DNS_SELF_HEAL_V111
-    // MARBLE_CONNECT_RESCUE_V12
-    // MARBLE_CONNECT_RESCUE_V13
-    // MARBLE_FAST_DECISION_V14
-    // MARBLE_RUNTIME_HARDENING_V16
-    // MARBLE_JITTER_ENGINE_V17
-    // MARBLE_JITTER_CONTROL_V18
-    // MARBLE_VERIFIED_LATENCY_V19
-    // MARBLE_RUNTIME_STARTUP_RESCUE_V21
-    // MARBLE_VERIFIED_JITTER_BURST_V22
-    // MARBLE_RUNTIME_EXTREME_V23
-    // MARBLE_FAST_READY_V25
-    // MARBLE_RUNTIME_POLISH_V29
-    // MARBLE_EXTREME_NETWORK_V30
-    // MARBLE_INSTANT_QUALITY_V31
-    // MARBLE_FAST_READY_V33
-    // MARBLE_EXACT_PROFILE_SOURCE_V38
-    // MARBLE_RTT_RESILIENCE_V47
-    // MARBLE_REAL_RTT_XHTTP_V50
-    // MARBLE_REALTIME_ENGINE_V70
-    // MARBLE_SOCKET_FLIGHT_V168 — physical-socket tuning (MPTCP, UDP fragment, liveness,
-    // fragment dialers, HEV pipeline) is owned by CoreSocketPolicy and HevTunnelPolicy.
-    // Live optimisation may learn while connected, but it must never intentionally tear down
-    // a healthy user tunnel merely to hot-apply a transport experiment.
     companion object {
         const val ACTION_START = "com.marbleng.START"
         const val ACTION_STOP = "com.marbleng.STOP"
 
-        /** User-triggered acceleration pass on the route that is already carrying traffic. */
         const val ACTION_TUNE = "com.marbleng.TUNE"
         const val EXTRA_PROFILE = "profile"
         const val EXTRA_PROFILE_SOURCE = "profileSource"
@@ -117,8 +84,7 @@ class MarbleVpnService : VpnService() {
         private const val ROUTE_HEAVY_PROBE_TICKS = 60
         private const val ROUTE_JITTER_TRIGGER_MS = 25
         private const val ROUTE_JITTER_RELEASE_MS = 12
-        // A bounded outcome window records both verified RTTs and misses. Twelve attempts remain
-        // responsive while providing enough evidence for p90, IPDV and reliability scoring.
+
         private const val ROUTE_WINDOW_SIZE = 12
 
         /**
@@ -140,19 +106,12 @@ class MarbleVpnService : VpnService() {
          */
         private const val PIVOT_QUALITY_MIN_SAMPLES = 4
 
-        /**
-         * Slack over one probe's own timeout, so the race waits for a genuinely slow answer but
-         * never for a socket that has already forgotten it was asked.
-         */
         private const val PROBE_RACE_GRACE_MS = 400L
         private const val JITTER_OPTIMIZER_COOLDOWN_MS = 180_000L
-        /** Consecutive verified good ticks required before a Turbo backoff may be released early. */
         private const val GOOD_ROUTE_TICKS_FOR_RELEASE = 2
         private const val TURBO_INCONCLUSIVE_BASE_BACKOFF_MS = 600_000L
         private const val TURBO_INCONCLUSIVE_MAX_BACKOFF_MS = 1_800_000L
-        // MARBLE_RESOLVER_EVIDENCE_V134 — how often the core's own resolver failures are attributed
-        // to endpoints. 30 s is far slower than a filtering window develops and far cheaper than the
-        // 2 s TCP_INFO pass beside it; the read is incremental, so the cost is the new bytes only.
+
         private const val RESOLVER_EVIDENCE_INTERVAL_TICKS = 30
         private const val RESOLVER_EVIDENCE_CHUNK_BYTES = 256 * 1024
         private const val JITTER_PRIMARY_HOST = "1.1.1.1"
@@ -162,8 +121,7 @@ class MarbleVpnService : VpnService() {
             "9.9.9.9" to "/dns-query",
             "1.0.0.1" to "/cdn-cgi/trace"
         )
-        // Full HTTPS fallback uses SOCKS domain ATYP. Android/system DNS is never involved.
-        // Order spans Google and Cloudflare instead of retrying one provider.
+
         private val LIVE_DOMAIN_RTT_TARGETS = listOf(
             "www.gstatic.com" to "/generate_204",
             "cp.cloudflare.com" to "/generate_204",
@@ -173,26 +131,17 @@ class MarbleVpnService : VpnService() {
         private const val LIVE_RTT_BURST_GAP_MS = 45L
         private const val LIVE_RTT_TIMEOUT_MS = 1_250
         private const val LIVE_DOMAIN_RTT_TIMEOUT_MS = 3_500
-        // Failed XHTTP probes can leave expensive pending work inside the core. Retry slowly
-        // instead of creating a new synthetic dial every telemetry tick.
+
         private const val VERIFIED_RTT_BACKOFF_MS = 60_000L
-        // MARBLE_LIVE_QUALITY_V91: during the route warm-up window a miss is usually just Xray/HEV
-        // still warming TLS state, not a real outage. Backing off for 60s there is what left the
-        // Live Quality panel blank for the first minute; a short retry gets verified numbers on
-        // screen almost immediately.
+
         private const val VERIFIED_RTT_SHORT_BACKOFF_MS = 8_000L
-        // Synthetic endpoints are advisory. Process death is handled immediately; route failure
-        // requires normally-spaced misses plus a second independent confirmation.
+
         private const val PROBE_FAILURES_BEFORE_RECOVERY = 4
         private const val ROUTE_CONFIRM_TIMEOUT_MS = 4_500
         private const val RECENT_TRAFFIC_GRACE_MS = 75_000L
 
-        // A freshly established mobile tunnel often carries real traffic before synthetic HTTPS
-        // probes have warmed TLS/DNS state. Process death is still handled immediately; only
-        // synthetic miss accounting gets this short grace.
         private const val ROUTE_FAILURE_WARMUP_MS = 18_000L
-        // HEV main_from_str() is blocking. If it is still alive after this grace, publish
-        // CONNECTED sooner; native stats keep their own later warm-up and are NOT moved earlier.
+
         private const val HEV_READY_GRACE_MS = 250L
         private const val CONNECT_STARTUP_TIMEOUT_MS = 90_000L
         private const val HEV_STALL_MIN_MS = 35_000L
@@ -200,9 +149,7 @@ class MarbleVpnService : VpnService() {
         private const val HEV_STATS_FAILURE_LIMIT = 5
         private const val EXIT_IDENTITY_PROBE_INTERVAL_TICKS = 180
 
-        /** Let a fresh route settle before spending link capacity on measuring alternatives. */
         private const val FIRST_TUNE_DELAY_MS = 20_000L
-        /** First synthetic egress observation after the tunnel is up. */
         private const val EGRESS_FIRST_OBSERVATION_DELAY_MS = 20_000L
         private const val HEAVY_TRAFFIC_BPS = 3L * 1024L * 1024L
     }
@@ -221,37 +168,21 @@ class MarbleVpnService : VpnService() {
     private val routeGeneration = AtomicInteger(0)
     private val startCommandGeneration = AtomicInteger(0)
 
-    // HEV is process-global; start/stop/recovery is serialized here.
     private val connectionWorker = Executors.newSingleThreadExecutor()
 
-    // Service commands may terminate a child process. XrayManager.stop() deliberately waits for a
-    // bounded process shutdown, so START/STOP must never execute that wait on Android's main thread.
     private val controlWorker = Executors.newSingleThreadExecutor()
 
-    // Delayed gates belong on a scheduler. Sleeping watchdog/readiness jobs inside monitorWorker
-    // could occupy half of the health pool during the exact startup window we are trying to prove.
     private val timerWorker = Executors.newSingleThreadScheduledExecutor()
 
-    // Telemetry, the proxy monitor, DNS probing and a long autopilot cycle can all be in flight at
-    // once, so a long optimizer cycle must not queue the identity/health probes behind it.
     private val monitorWorker = Executors.newFixedThreadPool(4)
 
     private lateinit var xray: XrayManager
     private lateinit var singBox: SingBoxManager
 
-    /**
-     * MARBLE_SINGBOX_CORE_V151 — the engine this session runs.
-     *
-     * Everything downstream of this line speaks to "the core" through [coreAlive], [coreStop]
-     * and friends, because the tunnel does not care whether Xray or sing-box extended owns the
-     * local SOCKS endpoint: hev-socks5-tunnel dials the same 127.0.0.1 port either way.
-     */
     @Volatile private var activeEngine: CoreEngine = CoreEngine.XRAY
 
     private val coreTag: String get() = if (activeEngine == CoreEngine.SINGBOX) "SINGBOX" else "XRAY"
 
-    // The `else` arm always names the Xray manager: these three are the engine-agnostic reads,
-    // and reading themselves here would recurse until the stack gave out.
     private val coreAlive: Boolean
         get() = if (activeEngine == CoreEngine.SINGBOX) singBox.isAlive else xray.isAlive
 
@@ -264,8 +195,6 @@ class MarbleVpnService : VpnService() {
     private val coreLogFile: java.io.File
         get() = if (activeEngine == CoreEngine.SINGBOX) singBox.logFile else xray.logFile
 
-    /** Stops whichever cores are running. Both are stopped: a stale Xray behind a sing-box session
-     *  would hold the local SOCKS port and confuse the next connect. */
     private fun coreStop() {
         runCatching { singBox.stop() }
         runCatching { xray.stop() }
@@ -279,15 +208,6 @@ class MarbleVpnService : VpnService() {
     private var connectivityDiagnostics: Closeable? = null
     private val dataStallGuard = DataStallGuard()
 
-    /**
-     * MARBLE_CORE_CONFIG_SUPERSET_V165 — a config-level refusal is a state, not an event.
-     *
-     * The reported session logged 31 `profile-preflight-rejected` lines for two profiles in ten
-     * seconds: every auto-reconnect handed the same profile back, and every hand-off ran the whole
-     * start sequence again to reach the same sentence. The guard reports the first refusal of a
-     * (profile, reason) pair, folds the repeats into it, and doubles the quiet window per repeat —
-     * while a *different* reason for the same profile still reports at once.
-     */
     private val configBlockGuard = ConfigBlockGuard()
 
     @Volatile private var activeSession = ""
@@ -300,8 +220,7 @@ class MarbleVpnService : VpnService() {
     @Volatile private var connectStartedNs = 0L
     @Volatile private var consecutiveProbeFailures = 0
     @Volatile private var identityRecoveryAttempts = 0
-    // MARBLE_RECOVERY_CIRCUIT_V135 — the automatic-recovery ladder: when each attempt is recorded,
-    // and how many live inside the rolling window. See RecoveryBackoffPolicy.
+
     @Volatile private var recoveryBackoff = RecoveryBackoffPolicy.State()
     @Volatile private var ipv6RouteCaptured = false
     @Volatile private var pinnedExitV4 = ""
@@ -312,11 +231,9 @@ class MarbleVpnService : VpnService() {
     @Volatile private var lastTrafficProgressAt = 0L
     @Volatile private var sessionTuned = false
 
-    /** Acceleration method the live Xray process was actually started with. */
     @Volatile private var activeMethodId = AccelerationPlan.DIRECT
 
     private val recoveryTried = linkedSetOf<String>()
-    /** Positive values are verified HTTPS RTTs; -1 is a failed attempt. */
     private val routeOutcomeWindow = ArrayDeque<Int>()
     @Volatile private var jitterProbeHost = JITTER_PRIMARY_HOST
 
@@ -334,11 +251,6 @@ class MarbleVpnService : VpnService() {
      */
     @Volatile private var routeQualityHoldSamples = 0
 
-    /**
-     * The two-target race that makes a pivot a race instead of a queue. Daemon threads, two of
-     * them, created on first use: a route probe is a measurement, never a reason for this process
-     * to outlive the tunnel.
-     */
     private val routeProbeRacePool by lazy {
         Executors.newFixedThreadPool(PIVOT_RACE_TARGETS) { runnable ->
             Thread(runnable, "marble-route-probe").apply { isDaemon = true }
@@ -349,20 +261,6 @@ class MarbleVpnService : VpnService() {
     @Volatile private var lastJitterOptimizerRequestAt = 0L
     @Volatile private var verifiedRttBackoffUntilMs = 0L
 
-    /**
-     * MARBLE_HIGH_JITTER_SHIELD_V206 — the second jitter instrument, living beside the
-     * hysteresis state machine rather than inside it.
-     *
-     * [JitterControlPolicy] answers "is this link degraded?" with one bit. The shield answers
-     * "how degraded, what does that cost to measure, and what should we do about it?" with a
-     * continuous level: a robust (IQR) jitter estimate graded against the link's own learned
-     * baseline, driving a probe cadence and burst that are bounded by a hard probes-per-minute
-     * budget. Both read the same samples; neither owns the other's state.
-     *
-     * The window is written and read only by the route monitor (the same thread that calls
-     * [sampleRouteLatency] and [shouldSampleRoute]); the plan is volatile because the monitor
-     * is restarted on every reconnect and the new thread must see the last plan immediately.
-     */
     private val highJitterWindow = HighJitterShield.RobustWindow()
     @Volatile private var highJitterShield = HighJitterShield.State()
     @Volatile private var highJitterPlan: HighJitterShield.Plan? = null
@@ -393,24 +291,13 @@ class MarbleVpnService : VpnService() {
         wifiLock = null
     }
 
-    // MARBLE_JITTER_HYSTERESIS_V133 / MARBLE_TURBO_BACKOFF_V133 / MARBLE_EGRESS_EVIDENCE_V133 /
-    // MARBLE_PATH_MTU_STABILITY_V133 — the four runtime state machines now live in pure policy
-    // objects. The service owns only the current state value, so every transition is testable
-    // without Android and no decision is spread across a dozen mutable fields.
-    // Guarded by the single-threaded monitor worker except where noted.
     @Volatile private var jitterControlState = JitterControlPolicy.State()
     @Volatile private var turboBackoffState = TurboBackoffPolicy.State()
 
-    /**
-     * MARBLE_RESOLVER_EVIDENCE_V134 — byte offset into the current Xray log already attributed to
-     * resolver endpoints. Reset per session, because the log rotates on every live start and the
-     * evidence must describe the tunnel that is running now.
-     */
     @Volatile private var resolverLogOffset = 0L
     @Volatile private var egressObservationState = EgressObservationPolicy.State()
     @Volatile private var pathMtuState = PathMtuPolicy.State()
     private val tcpStressMonitor = TcpStressMonitor()
-    /** Consecutive live-route ticks that looked good; feeds the Turbo backoff early release. */
     @Volatile private var goodRouteTicks = 0
 
     override fun onCreate() {
@@ -462,8 +349,7 @@ class MarbleVpnService : VpnService() {
             when (intent?.action) {
                 ACTION_STOP -> {
                     startCommandGeneration.incrementAndGet()
-                    // cleanupRuntime() can wait for the Xray child to terminate; never block
-                    // MainActivity/input dispatch while Android delivers this service command.
+
                     controlWorker.execute {
                         runCatching { shutdown(true) }
                             .onFailure { diag.error("VPN", "async-stop-failed", it) }
@@ -482,9 +368,6 @@ class MarbleVpnService : VpnService() {
                         val requestedMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_TUN
                         val requestGeneration = startCommandGeneration.incrementAndGet()
 
-                        // startForegroundService() has a strict Android deadline. Publish a small
-                        // foreground notification immediately, then do DB/process/runtime cleanup
-                        // on the serialized control worker instead of the app main thread.
                         if (!promoteForeground("Preparing secure route", ongoing = true)) {
                             failBeforeTunnel("Android rejected foreground-service startup")
                         } else {
@@ -543,10 +426,7 @@ class MarbleVpnService : VpnService() {
         }
 
         val app = application as MarbleApplication
-        // The Android DNS sinks are inside the TUN. With hijacking disabled, a classic DNS
-        // packet aimed at a public resolver could leave through a direct route or the proxy exit
-        // as plaintext. Never call that a protected full VPN: keep the previous TUN as a
-        // blackhole during a live setting change and refuse a fresh insecure connection.
+
         if (mode != MODE_PROXY && !app.repo.settings.dnsHijackEnabled) {
             failBeforeTunnel("Full VPN requires DNS hijacking to prevent plaintext DNS; enable DNS hijack in settings")
             return
@@ -558,10 +438,7 @@ class MarbleVpnService : VpnService() {
         }
         val preflightEngine = app.repo.settings.coreEngine()
         profileCompatibilityIssue(profile, preflightEngine)?.let { issue ->
-            // The refusal is final for this (profile, reason) pair until something the user can see
-            // changes: a settings flip, a subscription refresh, or a disconnect. Suppressing the
-            // *repeat* costs nothing — the state line already says exactly this — while the event
-            // storm it replaces buried the one line that explains why the tunnel never opened.
+
             val decision = configBlockGuard.observe(profile.id, issue)
             val rejectionTag = if (preflightEngine == CoreEngine.SINGBOX) "SINGBOX" else "XRAY"
             if (decision.report) {
@@ -579,15 +456,6 @@ class MarbleVpnService : VpnService() {
             return
         }
 
-        // MARBLE_CONNECT_OFF_MAIN_V144 — critique of the old first line: `effectiveSettingsFor`
-        // folds intelligence SQLite reads, DPI-healing and asset checks into one call, and it ran
-        // HERE, on the service main thread, between the tap and the foreground notification —
-        // disk I/O on the input thread on the exact path whose latency the user feels. The
-        // resolved settings are only consumed inside the connection worker (TUN establish, Xray
-        // start), so they are resolved there now, as that worker's first step; the main thread
-        // keeps field init + foreground promotion only. The worker additionally reads fresher
-        // settings than a tap-time snapshot when the user flips a switch mid-dispatch. Same
-        // values, same order of operations — just never on the main thread.
         val normalizedMode = if (mode == MODE_PROXY) MODE_PROXY else MODE_TUN
         val session = System.currentTimeMillis().toString(36) + "-" + Integer.toHexString(profile.id.hashCode())
 
@@ -598,9 +466,7 @@ class MarbleVpnService : VpnService() {
         connectStartedNs = System.nanoTime()
         consecutiveProbeFailures = 0
         identityRecoveryAttempts = 0
-        // MARBLE_RECOVERY_CIRCUIT_V135 — a fresh, user-initiated connect is a new decision: the
-        // automatic-recovery ladder starts empty so a manual retry is never punished for an
-        // earlier automated storm.
+
         recoveryBackoff = RecoveryBackoffPolicy.reset()
         ipv6RouteCaptured = tun != null
         pinnedExitV4 = ""
@@ -608,8 +474,7 @@ class MarbleVpnService : VpnService() {
         routeGeneration.incrementAndGet()
         recoveryScheduled.set(false)
         optimizerScanRequested.set(false)
-        // MARBLE_ENGINE_SELF_HEAL_V152 — a fresh user-initiated connect earns a fresh engine
-        // self-heal budget; the config-fault latch itself survives until a start succeeds.
+
         tuningRequested.set(false)
         lastTuneAt = 0L
         lastTrafficProgressAt = 0L
@@ -627,9 +492,7 @@ class MarbleVpnService : VpnService() {
         routeQualityHoldSamples = 0
         jitterControlState = JitterControlPolicy.State()
         jitterControlActive = false
-        // MARBLE_HIGH_JITTER_SHIELD_V206 — the shield's baseline belongs to the link that was
-        // just left behind. A new session starts unlearned: it earns its own baseline from the
-        // first calm samples of the new route instead of inheriting the old one's verdict.
+
         resetHighJitterShield()
         lastJitterOptimizerRequestAt = 0L
         turboBackoffState = TurboBackoffPolicy.State()
@@ -644,8 +507,7 @@ class MarbleVpnService : VpnService() {
             "profileId" to profile.id.take(12),
             "profileName" to profile.name,
             "mode" to normalizedMode,
-            // MARBLE_CONNECT_OFF_MAIN_V144 — the port is derived from the worker-resolved
-            // settings below; the per-phase Xray events already log it where it is used.
+
             "network" to app.repo.intelligence.currentSnapshot().label
         )
 
@@ -662,9 +524,6 @@ class MarbleVpnService : VpnService() {
         running.set(true)
         updateSentinel(killSwitch = normalizedMode == MODE_TUN)
 
-        // One connection attempt gets a finite wall-clock budget. A scheduled watchdog does not
-        // consume a monitor thread for the full startup window, so HEV readiness/identity/DNS workers cannot be
-        // starved by the watchdog whose job is to protect them.
         timerWorker.schedule({
             if (isCurrent(session) && !tunReadyPublished.get()) {
                 startupTimedOut.set(true)
@@ -691,13 +550,9 @@ class MarbleVpnService : VpnService() {
         connectionWorker.execute {
             runCatching {
                 if (!isCurrent(session)) return@runCatching
-                // MARBLE_CONNECT_OFF_MAIN_V144 — first worker step: resolve the effective
-                // settings (intelligence SQLite reads included) and the SOCKS port off the main
-                // thread. `activeSettings` is published here so every later phase reads the same
-                // object the tunnel was established with.
+
                 val resolved = app.repo.effectiveSettingsFor(profile)
-                // Full TUN has no safe plaintext DNS fallback. A saved proxy-only setting that
-                // disables interception cannot be allowed to reopen Android's system resolver.
+
                 val settings = if (normalizedMode == MODE_TUN) resolved.copy(dnsHijackEnabled = true)
                     else resolved
                 if (!isCurrent(session)) return@runCatching
@@ -708,8 +563,6 @@ class MarbleVpnService : VpnService() {
                     settings.socksPort
                 }
                 if (normalizedMode == MODE_TUN) {
-                    // MARBLE_CONNECT_FAST_START — overlap TUN establishment with core spawn so the
-                    // two independent start-up costs run in parallel instead of serially.
                     connectTunOverlapped(profile, session, port, settings)
                 } else {
                     if (!isCurrent(session)) return@runCatching
@@ -734,25 +587,12 @@ class MarbleVpnService : VpnService() {
         }
     }
 
-    /**
-     * MARBLE_CONNECT_FAST_START — the outcome of bringing a core up, returned without starting HEV.
-     * The TUN bring-up ([establishTun]) is independent of this and is overlapped with it on the
-     * fresh TUN path ([connectTunOverlapped]) so the two start-up costs run in parallel instead of
-     * serially. [generation] is the route generation HEV must use to stay current with this core.
-     */
     private data class CoreLaunch(
         val started: Boolean,
         val generation: Int,
         val settings: AppSettings
     )
 
-    /**
-     * MARBLE_CONNECT_FAST_START — brings the core up (spawn + readiness) and schedules the
-     * post-start diagnostics, but does NOT start HEV. Split out of the old [startXrayAndForward]
-     * so the TUN interface can be established concurrently with it on the fresh TUN path. The
-     * PROXY path still calls [markConnected] here (it has no TUN); the TUN path returns the
-     * result and lets the caller start HEV once both halves are ready.
-     */
     private fun launchCore(
         profile: ProxyProfile,
         session: String,
@@ -765,8 +605,6 @@ class MarbleVpnService : VpnService() {
         activeSettings = requestedSettings
         var generation = 0
 
-        // Marble Turbo runs before the route carries traffic: the TUN is already established and
-        // fail-closed, so measuring transport methods here costs nothing but a few seconds.
         val settings = preTune(profile, session, requestedSettings, recovering)
         if (!isCurrent(session)) return CoreLaunch(false, generation, settings)
         activeSettings = settings
@@ -776,15 +614,10 @@ class MarbleVpnService : VpnService() {
         verifiedRttBackoffUntilMs = 0L
         generation = routeGeneration.incrementAndGet()
 
-        // MARBLE_LINK_DEADLINE_V133 — the config this core is about to run carries deadlines. They
-        // must be sized for the link this route actually has, otherwise a healthy ~1.1 s tunnel gets
-        // 1350 ms DNS budgets and every lookup dies on a deadline before the resolver can answer.
         val linkEvidence = linkEvidenceFor(profile.id)
-        // MARBLE_SINGBOX_CORE_V151 — the engine for this session is decided before the first
-        // diagnostic is written, so every event on the start path carries the tag of the core
-        // that actually ran rather than the one that ran last time.
+
         // Explicit engine selection is a contract. A local startup/config fault must never
-        // switch engines behind the user's back or blacklist otherwise healthy servers.
+
         activeEngine = settings.coreEngine()
         diag.event(
             coreTag, if (recovering) "recovery-start" else "start-begin",
@@ -798,24 +631,18 @@ class MarbleVpnService : VpnService() {
             "linkRttMs" to linkEvidence.rttMs.toInt(),
             "linkJitterMs" to linkEvidence.jitterMs.toInt(),
             "linkSamples" to linkEvidence.samples,
-            // MARBLE_CORE_OPTIONS_V211 — no fragment chain exists to pay its pacing overhead,
-            // so the deadline is the measured link's alone.
+
             "dnsTimeoutMs" to LinkDeadlinePolicy.dnsServerTimeoutMs(linkEvidence, 0, fragmented = false)
         )
 
         val coreStartNs = System.nanoTime()
-        // One switch decides which binary carries this session; [activeEngine] was set above and
-        // every later `coreAlive` check in this session talks to the same process started here.
+
         val coreStarted = when (activeEngine) {
             CoreEngine.SINGBOX -> singBox.start(profile, port, settings)
             CoreEngine.XRAY -> xray.start(profile, port, settings, linkEvidence)
         }
         val coreStartMs = ((System.nanoTime() - coreStartNs) / 1_000_000L).coerceAtLeast(0L)
-        // MARBLE_SINGBOX_STARTUP_GATE_V162 — the two halves of the start-up gate, printed
-        // separately. `core-start-timeout` used to be the only trace either half left, so a report
-        // could not distinguish a core that never opened its inbound from a core whose tunnel was
-        // up and whose controller never answered — the difference between a dead device and a
-        // missing measurement surface.
+
         val readiness = if (activeEngine == CoreEngine.SINGBOX) singBox.lastStartReadiness else null
         diag.event(
             coreTag,
@@ -830,8 +657,6 @@ class MarbleVpnService : VpnService() {
             "reason" to if (coreStarted) "" else coreStartError.take(500)
         )
         if (!coreStarted) {
-            // STOP/watchdog/new START may have invalidated this attempt while core startup was
-            // unwinding. Never record a second failure or re-block a newer user command.
             if (!isCurrent(session)) {
                 diag.event(
                     coreTag,
@@ -841,22 +666,16 @@ class MarbleVpnService : VpnService() {
                 )
                 return CoreLaunch(false, generation, settings)
             }
-            // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — engine selection stays the user's contract:
+
             // see "Explicit engine selection is a contract" above `activeEngine = settings.coreEngine()`.
-            // A core that cannot run on this device is never answered by switching engines behind
-            // the user's back. What changes is the *report*. This is the branch that used to say
-            // "Core/configuration error" for a Go panic in the core's own `direct` outbound, which
-            // sent the user back to the server list to retry 17 healthy nodes; the same fault now
-            // arrives classified, with the remediation the runtime attaches to it, and the state
-            // detail says whose fault it is.
+
             val unusableCore = activeEngine == CoreEngine.SINGBOX &&
                 SingBoxAndroidRuntime.isUnusableCore(coreStartError)
             val xrayFault = if (activeEngine == CoreEngine.XRAY) XrayStartFailure.classify(coreStartError) else null
             diag.event(
                 coreTag,
                 if (unusableCore) "core-unusable-on-device" else "core-start-failure-not-a-server-verdict",
-                // The cause line leads: the previous 300-character cut was spent on the DNS
-                // `[Info]` prologue and truncated the one line that mattered.
+
                 "reason" to (xrayFault?.cause ?: coreStartError).take(300),
                 "faultKind" to (xrayFault?.kind?.name ?: "unclassified"),
                 "selfTest" to (singBox.lastSelfTest?.summary ?: "not run")
@@ -874,13 +693,9 @@ class MarbleVpnService : VpnService() {
                 recordProfileFailure = false,
                 faultClass = when {
                     unusableCore -> "Core cannot run on this device"
-                    // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — the 09:18–09:26 cluster said
-                    // "Core/configuration error" for a port another process held, which reads
-                    // like a verdict about the profile the user just tapped. Name the owner.
+
                     SingBoxAndroidRuntime.isPortBindConflict(coreStartError) -> "Local port in use"
-                    // MARBLE_RESERVED_TAG_COLLISION_V183 — an Xray load refusal (duplicate
-                    // outbound tag, unparsable document, port in use) is named as a document
-                    // fault so the BLOCKED detail does not read like a dead server.
+
                     activeEngine == CoreEngine.XRAY ->
                         XrayStartFailure.faultClass(coreStartError, "Core/configuration error")
                     activeEngine == CoreEngine.SINGBOX ->
@@ -895,17 +710,10 @@ class MarbleVpnService : VpnService() {
             return CoreLaunch(false, generation, settings)
         }
 
-        // Synthetic Internet observations are diagnostics, not startup gates. Defer them until the
-        // tunnel has had time to settle so Marble does not inject TLS/HTTP work into the exact
-        // window where interactive jitter is being established.
         scheduleSyntheticEgressObservation(session, generation, port, profile)
 
         diag.event(coreTag, "socks-ready", "session" to session, "alive" to coreAlive, "port" to port)
 
-        // On a fresh session there is no previous exit identity to compare against, so a blocking
-        // 5-second trace request cannot prove a rotation and only delays HEV startup. Pin the first
-        // observed exit in the live monitor. Recovery/handoff still verifies an existing pin BEFORE
-        // traffic is exposed, preserving the strict same-session anti-rotation guarantee.
         val existingIdentityPin = pinnedExitV4.isNotBlank() || pinnedExitV6.isNotBlank()
         if (
             settings.identityGuardEnabled &&
@@ -940,16 +748,6 @@ class MarbleVpnService : VpnService() {
         return CoreLaunch(true, generation, settings)
     }
 
-    /**
-     * MARBLE_CONNECT_FAST_START — fresh TUN bring-up for both cores.
-     *
-     * The VPN interface ([establishTun]) and the core's spawn + readiness ([launchCore]) are
-     * completely independent, so they are run concurrently: the core is launched on a helper thread
-     * while the TUN is established on the connection worker, and HEV is started only once both
-     * halves are ready. The old path ran these strictly in series, so the TUN-establishment cost
-     * (~150–400 ms on most devices) was added on top of the core's own start-up; overlapping it
-     * removes that cost from the connect critical path for Xray and sing-box alike.
-     */
     private fun connectTunOverlapped(
         profile: ProxyProfile,
         session: String,
@@ -966,7 +764,6 @@ class MarbleVpnService : VpnService() {
             }
         }, "marble-core-start").apply { isDaemon = true; start() }
 
-        // Meanwhile establish the TUN on this (connection worker) thread.
         val tunOk = establishTun(profile, session, settings)
         diag.event(
             "VPN", "connect-phase", "session" to session, "step" to "tun",
@@ -985,8 +782,6 @@ class MarbleVpnService : VpnService() {
             "started" to (launch?.started == true)
         )
         if (launch?.started != true) {
-            // Core failed or a newer session superseded it; launchCore already reported/handled
-            // its own failure. Never record a second failure here.
             return
         }
         if (!tunOk) {
@@ -997,10 +792,6 @@ class MarbleVpnService : VpnService() {
         runTun(profile, session, port, launch.settings, recovering = false, generation = launch.generation)
     }
 
-    /**
-     * MARBLE_CONNECT_FAST_START — non-overlapped bring-up, used by the recovery path (where the
-     * TUN is already established) and as a fallback. Starts HEV once the core is up.
-     */
     private fun startXrayAndForward(
         profile: ProxyProfile,
         session: String,
@@ -1026,20 +817,6 @@ class MarbleVpnService : VpnService() {
             .addAddress("198.18.0.1", 32)
             .addRoute("0.0.0.0", 0)
 
-        // MARBLE_UPSTREAM_PIN_LIVENESS_V132 — never pin the tunnel to a network that is gone.
-        //
-        // `setUnderlyingNetworks()` binds everything the TUN forwards to one concrete Network
-        // object. That object is captured from a ConnectivityManager callback and stays valid
-        // as a handle even after the network behind it has lost INTERNET, stalled behind a
-        // captive portal, or been handed over to another transport. Pinning it then routes the
-        // whole session into a dead end while Xray's own egress socket — the app is excluded
-        // from its own VPN, so it is NOT bound by this call — happily reaches the server over a
-        // different network. The result is the exact asymmetry users reported: the node answers
-        // and pings in another client, but the MarbleNG tunnel carries nothing.
-        //
-        // Re-check INTERNET + NOT_VPN at establish time and drop the pin when the network can
-        // no longer prove it carries traffic; Android then applies its own network selection
-        // and failover again.
         if (Build.VERSION.SDK_INT >= 22) {
             val upstream = usableUpstreamNetworks(app.repo.intelligence.underlyingNetworks())
             if (upstream.isNotEmpty()) {
@@ -1056,19 +833,11 @@ class MarbleVpnService : VpnService() {
             }
         }
 
-        // The VPN is a dual-stack security boundary, not a reflection of the phone's physical
-        // route. An IPv4 node can carry IPv6 web traffic through its exit, and Force IPv4 must
-        // still capture (then reject) IPv6 instead of letting Android send it outside the VPN.
-        // If the device refuses either address/route, NEVER establish a partial VPN.
         val ipv6Ok = AddressFamilyPolicy.shouldCaptureIpv6() && runCatching {
             builder.addAddress("fc00::1", 128).addRoute("::", 0)
         }.onFailure { diag.error("TUN", "ipv6-capture-required", it, "session" to session) }.isSuccess
         if (!ipv6Ok) return false
 
-        // Only local, non-routable DNS sink addresses go into Android's resolver list. Every app
-        // query for either family enters ::/0 or 0/0 and is hijacked by the encrypted core;
-        // when the core is down the held TUN blackholes it. Putting a public resolver here is a
-        // plaintext fallback the OS could select before the core comes up.
         val dnsCount = 2
         if (runCatching {
             builder.addDnsServer("198.18.0.2")
@@ -1127,8 +896,7 @@ class MarbleVpnService : VpnService() {
         val previousTun = tun
         tun = established
         ipv6RouteCaptured = ipv6Ok
-        // The old dual-stack TUN stays open as a blackhole until Android installs the new one.
-        // Closing it at startConnection() used to expose the physical route during reconnect.
+
         runCatching { previousTun?.close() }
         diag.event(
             "TUN", "established",
@@ -1147,14 +915,6 @@ class MarbleVpnService : VpnService() {
         return true
     }
 
-    /**
-     * MARBLE_UPSTREAM_PIN_LIVENESS_V132 — keep only the candidate networks that can still prove
-     * they carry Internet traffic right now, and never pin another VPN.
-     *
-     * An empty result is intentional: it leaves `setUnderlyingNetworks()` unset so Android keeps
-     * its own transport selection and failover instead of committing the session to one dead
-     * underlay.
-     */
     private fun usableUpstreamNetworks(candidates: List<Network>): List<Network> {
         if (candidates.isEmpty()) return emptyList()
         val connectivity = runCatching {
@@ -1192,13 +952,9 @@ class MarbleVpnService : VpnService() {
         }
         hevFd = dupFd
 
-        // Datapath sizing follows measured throughput: a fast link stops being capped by a 64 KiB
-        // socket buffer, and a throttled device stops paying for buffers it cannot fill.
         val datapath = (application as MarbleApplication).repo.intelligence
             .tunnelTuning(profile.id, settings)
-        // MARBLE_SOCKET_FLIGHT_V168 — pipeline the SOCKS5 handshake, widen the UDP splice burst
-        // pool and give a fragmented dial room to complete. The document is assembled in
-        // HevTunnelPolicy, pinned against the accepted keys of the pinned 2.17.1 core.
+
         val cfg = HevTunnelPolicy.buildConfig(
             socksPort = socksPort,
             mtu = activeMtu,
@@ -1231,9 +987,6 @@ class MarbleVpnService : VpnService() {
 
         val app = application as MarbleApplication
 
-        // HEV's public API defines main_from_str() as a blocking run call: it returns only after
-        // quit/error. A run that remains alive through this short grace is therefore a much safer
-        // startup signal than calling the native stats function while HEV is still initializing.
         recoveryScheduled.set(false)
         consecutiveProbeFailures = 0
         lastTrafficProgressAt = 0L
@@ -1245,9 +998,7 @@ class MarbleVpnService : VpnService() {
             if (isRouteCurrent(session, generation) && hevActive && coreAlive) {
                 if (tunReadyPublished.compareAndSet(false, true) && isRouteCurrent(session, generation)) {
                 startupTimedOut.set(false)
-                // MARBLE_RECOVERY_CIRCUIT_V135 — a route that published readiness proved the path:
-                // the recovery ladder is cleared so a LATER, unrelated failure starts a fresh,
-                // fast escalation instead of inheriting an old storm's delay.
+
                 recoveryBackoff = RecoveryBackoffPolicy.reset()
                 app.repo.markConnected(profile)
                 app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
@@ -1270,8 +1021,6 @@ class MarbleVpnService : VpnService() {
                     "proof" to "blocking-run-alive"
                 )
 
-                // Telemetry starts only after readiness is published. Its own warm-up below delays
-                // the first native stats call again, eliminating the early JNI initialization race.
                     startTelemetry(session, socksPort, generation)
                 }
             }
@@ -1299,8 +1048,6 @@ private fun startProxyMonitor(session: String, port: Int, generation: Int) {
         monitorWorker.execute {
             var tick = 0
 
-            // Publish a real active-path score immediately instead of waiting for the periodic
-            // health cadence. A failure requests a quick confirmation through routeProbeRequested.
             sampleRouteLatency(session, port, generation)
 
             while (isRouteCurrent(session, generation) && activeMode == MODE_PROXY) {
@@ -1344,7 +1091,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             var txWithoutRxSince = 0L
 
             // The dashboard should become meaningful as soon as Xray is live. Probe the actual
-            // SOCKS/Xray path now, then keep an adaptive low-noise health cadence.
+
             sampleRouteLatency(session, port, generation)
 
             while (isRouteCurrent(session, generation) && hevActive) {
@@ -1355,8 +1102,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     return@execute
                 }
 
-                // HevTunnel.stats() is advisory telemetry, not a startup primitive. Give the native
-                // tunnel several seconds after its blocking run begins before the first JNI read.
                 if (tick < 2) {
                     tick++
                     continue
@@ -1382,8 +1127,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         val deltaUp = (up - lastUp).coerceAtLeast(0)
                         if (deltaDown > 0L || deltaUp > 0L) {
                             lastTrafficProgressAt = nowMs
-                            // Real HEV byte movement is stronger route-health evidence than a
-                            // blocked synthetic connectivity-check hostname.
+
                             consecutiveProbeFailures = 0
                         }
 
@@ -1401,10 +1145,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                                     "txWithoutRxBytes" to txWithoutRxBytes,
                                     "stallMs" to (nowMs - txWithoutRxSince),
                                     "xrayAlive" to coreAlive)
-                                // Upload-only traffic is legitimate. Confirm the suspected stall
-                                // with independent HTTPS evidence before entering fail-closed
-                                // recovery; the old byte-only rule killed a working route after a
-                                // small one-way transfer in the attached runtime log.
+
                                 if (confirmRouteUnavailable(session, port, generation)) {
                                     diag.event(
                                         "HEV", "datapath-stalled-confirmed",
@@ -1429,9 +1170,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     lastT = nowNs
                 }
 
-                // MARBLE_SINGBOX_CORE_V151 — the transport telemetry file is written by MarbleNG's
-                // Xray patch (MARBLE_REALTIME_ENGINE_V70); sing-box extended has no equivalent, so
-                // the block is skipped instead of reading another engine's stale file.
                 if (tick % 2 == 0 && activeEngine == CoreEngine.XRAY) {
                     TransportTelemetry.latest(xray.transportTelemetryFile)?.takeIf { it.fresh() }?.let { transport ->
                         val liveSettings = activeSettings ?: repo.settings
@@ -1472,22 +1210,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         }
 
                         if (liveSettings.adaptiveMssEnabled && transport.pmtu in 1280..9000) {
-                            // MARBLE_PATH_MTU_STABILITY_V133 — `pmtu` is the MSS of whichever socket
-                            // the telemetry happened to sample, so it legitimately alternates
-                            // between 1400 and 1360 as flows rotate. Committing every sample pinned
-                            // the last one for the whole TTL (which is why MTU differed between
-                            // sessions of the same route), and `activeMtu > pmtu` was true on every
-                            // rotation, so `tuningRequested` fired over and over — each forced pass
-                            // bypassed the sample/thermal/traffic guards and, when inconclusive,
-                            // escalated the Turbo backoff. Both now require corroboration.
                             val mtuDecision = PathMtuPolicy.observe(
                                 state = pathMtuState,
                                 observedMtu = transport.pmtu,
                                 activeMtu = activeMtu,
                                 nowMs = System.currentTimeMillis(),
-                                // MARBLE_IRAN_AWARE_PING_L2/3 — a PMTU drop that appears exactly
-                                // when the transfer shape collapses is a filter shrinking packets,
-                                // not a path property. The verdict is surfaced to Layer 3.
+
                                 sawtoothConfidence = throttleEvidenceForActiveRoute(),
                                 throttleActive = jitterControlState.throttleActive
                             )
@@ -1577,25 +1305,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             link.p95RttMs, link.lossPercent, link.spikePercent)
     }
 
-    /**
-     * MARBLE_LINK_DEADLINE_V133 / V134 — round-trip evidence for the route that is about to carry
-     * traffic, and for every throwaway core that measures beside it.
-     *
-     * Every deadline the hardened config carries is derived from this. V133 read one source: the
-     * per-node health record scoped to this physical network, with the last honest live ping as a
-     * fallback. That is correct but narrow, and the narrowness showed up as a first-connect
-     * regression — the record is written by the measurements the session is about to make, so the
-     * very first config of a session was emitted with the legacy 1350/1650 ms budgets even for a node
-     * that had been measured at 444 ms minutes earlier.
-     *
-     * The derivation therefore moved into [MarbleIntelligence.linkEvidenceFor], which owns the
-     * health store and can merge this node on this network, this node on a previous network, the
-     * round-trip scale of this network, and the last live ping — conservatively, because a generous
-     * budget costs one slow failure detection while a truncated one costs every lookup on the route.
-     * One implementation, two callers: the live tunnel and the acceleration trials that measure it.
-     * With no evidence at all the result is [LinkEvidence.UNKNOWN] and every budget stays exactly as
-     * it was before the policy existed.
-     */
     private fun linkEvidenceFor(profileId: String): LinkEvidence {
         val repo = (application as MarbleApplication).repo
         return runCatching {
@@ -1603,33 +1312,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }.getOrDefault(LinkEvidence.UNKNOWN)
     }
 
-    /**
-     * MARBLE_RESOLVER_EVIDENCE_V134 — close the resolver-health loop at its observing end.
-     *
-     * The core already says which resolver failed and why:
-     *
-     * ```
-     * [Error] app/dns: failed to retrieve response for www.google.com. >
-     *   Post "https://1.1.1.1/dns-query": context deadline exceeded
-     * ```
-     *
-     * That line was classified, counted and *reported* — and then discarded, so the next emitted
-     * config put the same disrupted endpoint back in the same position. This harvests the new bytes
-     * of the core log incrementally, attributes each decisive failure to the endpoint the core
-     * named, and folds it into the network-scoped evidence [MarbleIntelligence] persists. The
-     * ordering half of the loop lives in `preferredDnsOrder` / [XrayConfigHardener]; the recovery
-     * half is a proven answer from the adaptive DNS audit.
-     *
-     * Cheap by construction: at most one bounded read per 30 monitor ticks, only whole lines, and a
-     * prefs write only when the attributed evidence actually changed.
-     */
     private fun harvestResolverEvidence(session: String) {
         val file = coreLogFile
         if (!file.isFile) return
         val length = file.length()
         if (length <= 0L) return
-        // The log rotates on every live start, so a shorter file means the offset belongs to a dead
-        // one and the evidence would otherwise never be read again.
+
         if (length < resolverLogOffset) resolverLogOffset = 0L
         val available = length - resolverLogOffset
         if (available <= 0L) return
@@ -1643,9 +1331,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 if (count <= 0) {
                     0 to ""
                 } else {
-                    // Only whole lines are attributed: a line cut in half by the chunk boundary may
-                    // name no endpoint at all, and charging a fragment to whoever it half-mentions
-                    // is how a healthy resolver gets demoted for somebody else's failure.
                     val lastNewline = buffer.indexOfLast { it.toInt() == 10 }
                     val usable = if (lastNewline >= 0) lastNewline + 1 else count
                     usable to String(buffer, 0, usable, Charsets.UTF_8)
@@ -1679,8 +1364,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "parallelQuery" to ResolverEvidencePolicy.parallelQueryJustified(
                 repo.intelligence.dnsCandidatePool(settings), after, nowMs
             ),
-            // MARBLE_INTELLIGENCE_V141 — the storm verdict is part of the event so a post-mortem
-            // can see whether the pool was already being raced when a deadline was still missed.
+
             "storm" to if (repo.intelligence.dnsStormActive()) {
                 "armed:${"%.2f".format(repo.intelligence.dnsStormRatePerMinute())}/min"
             } else {
@@ -1690,16 +1374,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         )
     }
 
-    /**
-     * MARBLE_TURBO_BACKOFF_V133 — cancel an acceleration backoff that the route has outgrown.
-     *
-     * The old backoff could only end by expiring, so a link that recovered kept the engine
-     * suppressed for the rest of its timer. Release requires real evidence rather than a single good
-     * tick: jitter control must have been released by the state machine *and* the verified latency
-     * must be back under the tuning trigger for [GOOD_ROUTE_TICKS_FOR_RELEASE] consecutive samples.
-     * The policy itself bounds how often this may happen, so a flapping link cannot re-arm the
-     * engine indefinitely.
-     */
     private fun releaseTurboBackoffIfRecovered(session: String, quality: ActiveRouteQuality) {
         val settings = activeSettings ?: return
         val triggerMs = settings.liveTuningPingTriggerMs.coerceIn(80, 1200)
@@ -1841,13 +1515,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }
     }
 
-    /**
-     * Connect-time acceleration must never hold the user's connection hostage.
-     *
-     * Any fresh acceleration plan is already folded into requested settings by effectiveSettingsFor().
-     * If a node/network still needs measurement, queue that work for the healthy live tunnel instead
-     * of running multiple temporary Xray processes before the real connection even starts.
-     */
     private fun preTune(
         profile: ProxyProfile,
         session: String,
@@ -1857,9 +1524,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (!requested.connectTuningEnabled) return requested
         if (!isCurrent(session)) return requested
 
-        // A fresh connect is not a manual/urgent tuning request. The old forced flag bypassed
-        // FIRST_TUNE_DELAY_MS, sample-count, thermal and heavy-traffic guards and spawned several
-        // throwaway Xray processes immediately after every connection.
         diag.event(
             "TURBO", "pre-connect-deferred",
             "session" to session,
@@ -1869,10 +1533,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         return requested
     }
 
-    /**
-     * Live acceleration gate. The active route may be re-measured when degraded or on demand.
-     * A better method is learned for the next reconnect; the live tunnel is never torn down.
-     */
     private fun maybeAccelerate(session: String, generation: Int) {
         if (!isRouteCurrent(session, generation) || recoveryScheduled.get()) return
         if (tuningRunning.get()) return
@@ -1886,10 +1546,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (!forced && !settings.liveTuningEnabled) return
 
         val quality = activeRouteQuality()
-        // MARBLE_HIGH_JITTER_SHIELD_V206 — the tuner's urgency gate used to have one input:
-        // the hysteresis latch, which is a bit and therefore arrives late and leaves late. The
-        // shield's continuous level arrives as soon as the link starts to move, so a route
-        // turning bad between two latch transitions is still measured urgently.
+
         val jitterDegraded = jitterControlActive ||
             (highJitterPlan?.level ?: 0.0) >= HighJitterShield.DEGRADED_LEVEL
         val degraded = quality.samples >= 3 && (
@@ -1928,7 +1585,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val settings = activeSettings ?: repo.settings
         val base = repo.tuningBaseFor(profile)
 
-        // Broad quick-race first; deep confirmation only for the strongest strategy.
         val budgetMs = (settings.connectTuningBudgetSec.coerceIn(2, 12) * 1_000L)
             .coerceIn(4_000L, 12_000L)
         val measureSpeed = urgent && !repo.intelligence.currentSnapshot().metered
@@ -1956,25 +1612,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         if (report == null || !report.healthy) {
             sessionTuned = true
-            // MARBLE_TURBO_BACKOFF_V133 — "the pass produced no verdict" is not one condition, it is
-            // two, and telling them apart needs evidence from outside the report: `TuningReport`
-            // is only unhealthy when *no* trial produced a successful measurement, so the report
-            // alone cannot say whether the transport is bad or the probes simply could not run.
-            //
-            // The discriminator is the live route meter. If the tunnel is answering verified HTTPS
-            // probes right now, a pass that measured nothing is a probe/resolver problem and says
-            // nothing about the transport — escalating on it is exactly what turned a DNS deadline
-            // window into a 30-minute acceleration blackout. If the live route is silent too, the
-            // transport evidence really is inconclusive and escalating is correct.
+
             val liveQuality = activeRouteQuality()
             val liveRouteAnswering = liveQuality.samples > 0
-            // MARBLE_TURBO_BACKOFF_V134 — this was two branches pretending to be three. `report ==
-            // null` means the pass never produced a verdict at all: the tuner vetoed itself on the
-            // thermal budget, found fewer than two methods to compare, lost its baseline trial to the
-            // deadline, or threw. Asking `report != null` to distinguish that from an unhealthy
-            // report answered TRANSPORT_INCONCLUSIVE for every one of those cases by construction, so
-            // a thermal veto bought the same 600 s → 1800 s transport suppression that V133 had
-            // just removed from the probe branch. Absence of a measurement is not a measurement.
+
             val cause = when {
                 report == null -> TurboBackoffPolicy.Cause.NOT_ATTEMPTED
                 liveRouteAnswering -> TurboBackoffPolicy.Cause.PROBE_UNAVAILABLE
@@ -2010,8 +1651,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         turboBackoffState = TurboBackoffPolicy.succeeded(turboBackoffState)
         goodRouteTicks = 0
 
-        // Compare against the method the live process is really running, not against whatever a
-        // previous held pass wrote to the store.
         val appliedMethod = activeMethodId
         repo.intelligence.rememberAcceleration(profile.id, report.winner)
         repo.intelligence.setDecision(report.summary)
@@ -2022,8 +1661,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             return
         }
 
-        // Restarting Xray costs a short interruption, so it has to buy a real improvement over the
-        // method that is running right now — not merely over the untouched baseline.
         val appliedTrial = report.trials.firstOrNull { it.methodId == appliedMethod }
         val winnerTrial = report.trials.firstOrNull { it.methodId == report.winner.methodId }
         val improvement = when {
@@ -2058,19 +1695,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         )
     }
 
-    /*
-     * Remote egress proof is advisory, not a startup gate. XHTTP/VLESS-ENC may reject one public
-     * probe while user traffic still works; local SOCKS readiness is also not remote proof.
-     * Live metrics below therefore accept certificate-verified HTTPS evidence only.
-     */
-
-    /**
-     * MARBLE_EGRESS_EVIDENCE_V133 — startup egress observation, re-armed on a bounded schedule.
-     *
-     * @param attempt 0 is the first observation 20 s after the tunnel is up; later attempts use the
-     *   policy's bounded re-arm schedule so an inconclusive reading is re-checked instead of
-     *   becoming the last word for the whole session.
-     */
     private fun scheduleSyntheticEgressObservation(
         session: String,
         generation: Int,
@@ -2161,8 +1785,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         app.repo.refreshIntelligenceStatus()
                     }
 
-                    // A route that is still ambiguous gets re-checked; a healthy or exhausted one
-                    // does not keep spending link capacity on synthetic probes.
                     if (decision.rearmDelayMs > 0L && !domainHealthy) {
                         scheduleSyntheticEgressObservation(
                             session, generation, port, profile, attempt + 1
@@ -2203,19 +1825,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         "jitterControl" to jitterControlActive,
                         "throughputBps" to throughput
                     )
-                    // A one-shot defer meant resolver learning never ran on long downloads. Retry
-                    // later without interrupting the active flow or restarting Xray.
+
                     scheduleAdaptiveDnsObservation(session, generation, port, settings, 30_000L)
                 }
             }
         }, delayMs.coerceIn(5_000L, 60_000L), TimeUnit.MILLISECONDS)
     }
 
-    /**
-     * The SOCKS CONNECT destination stays literal (DNS-free), while TLS verification/SNI uses the
-     * provider's real certificate hostname. Using the IP as both transport address and TLS name is
-     * rejected by some anycast/CDN edges and was a source of false "RTT unavailable" results.
-     */
     private fun probeTlsHost(host: String): String = when (host) {
         "1.1.1.1", "1.0.0.1" -> "cloudflare-dns.com"
         "8.8.8.8" -> "dns.google"
@@ -2223,16 +1839,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         else -> host
     }
 
-    /**
-     * MARBLE_EGRESS_EVIDENCE_V133 — the deadline both egress legs share.
-     *
-     * The two probes used to be incomparable: the domain leg did a full HTTPS GET with a 3500 ms
-     * budget while the literal leg measured only the TLS first byte with 1500 ms. On the ~1.1 s link
-     * in the attached runtime log the GET needed about three round trips and the first-byte probe
-     * about two, so the domain leg failed and the literal leg passed — an artefact of unequal
-     * budgets that the code then read as "DNS is broken". Both legs now measure the same thing with
-     * the same RTT-derived budget, so a disagreement is real evidence.
-     */
     private fun egressProbeTimeoutMs(): Int =
         LinkDeadlinePolicy.httpsProbeTimeoutMs(
             linkEvidenceFor(activeProfileId),
@@ -2240,7 +1846,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             ceilingMs = 8_000L
         ).toInt().coerceIn(500, 30_000)
 
-    /** One measurement shape for both legs: TLS first byte through the tunnel to [host]. */
     private fun probeEgressTarget(port: Int, host: String, path: String, timeoutMs: Int): Boolean =
         runCatching {
             SocksHttpClient.httpsFirstByteLatency(
@@ -2253,9 +1858,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }.getOrDefault(false)
 
     private fun probeLiteralIpHttps(port: Int): Boolean {
-        // No single provider is authoritative. The attached log shows a healthy tunnel while one
-        // public DoH/HTTPS anycast target was unreachable, so recovery confirmation races a small
-        // provider-diverse literal set without invoking Android/system DNS.
         val timeoutMs = egressProbeTimeoutMs()
         return JITTER_PROBE_TARGETS.take(3).any { (host, path) ->
             probeEgressTarget(port, host, path, timeoutMs)
@@ -2269,10 +1871,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }
     }
 
-    /**
-     * Confirms a synthetic route failure against independent HTTPS endpoints.
-     * A single blocked connectivity-check domain must never tear down a healthy tunnel.
-     */
     private fun confirmRouteUnavailable(
         session: String,
         port: Int,
@@ -2307,15 +1905,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             (activeMode != MODE_TUN || hevActive)
     }
 
-    /**
-     * Live route timing is deliberately different from a health check.
-     *
-     * The meter pins each burst to one literal HTTPS endpoint, so origin/DNS variation never gets
-     * mislabeled as jitter. Provider rotation happens only after a target produces no verified
-     * sample; the new target starts a fresh IPDV baseline.
-     */
     private fun shouldSampleRoute(tick: Int): Boolean {
-        // Fast warm-up samples to establish baseline and show ping/jitter/quality quickly to the user.
         if (tick == 1 || tick == 2 || tick == 3) return true
 
         val repo = (application as MarbleApplication).repo
@@ -2327,24 +1917,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         return tick > 0 && tick % cadence == 0
     }
 
-    /**
-     * MARBLE_HIGH_JITTER_SHIELD_V206 — the probe cadence, as the shield computes it.
-     *
-     * The two instruments ask for the same thing from opposite directions and the answer is
-     * the tighter of the two: [JitterControlPolicy] shortens the interval to
-     * [ROUTE_DEGRADED_PROBE_TICKS] the moment it latches, while the shield shortens it
-     * *gradually* as its level rises — from [HighJitterShield.BASE_TICKS] down to
-     * [HighJitterShield.MIN_TICKS], with the probes-per-minute budget as the floor. Taking the
-     * minimum keeps the latch's instant reaction and adds the shield's proportionality; taking
-     * either one alone would either step or lag.
-     */
     private fun highJitterProbeCadenceTicks(): Int {
         val latched = if (jitterControlActive) ROUTE_DEGRADED_PROBE_TICKS else ROUTE_PROBE_INTERVAL_TICKS
         val shield = highJitterPlan ?: return latched
         return minOf(latched, shield.probeEveryTicks).coerceAtLeast(HighJitterShield.MIN_TICKS)
     }
 
-    /** MARBLE_HIGH_JITTER_SHIELD_V206 — forget the shield's window and level. */
     private fun resetHighJitterShield() {
         highJitterWindow.clear()
         highJitterShield = HighJitterShield.State()
@@ -2352,26 +1930,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         lastRouteProbeMonotonicMs = 0L
     }
 
-    /**
-     * MARBLE_HIGH_JITTER_SHIELD_V206 — fold one verified burst into the shield.
-     *
-     * Every sample of the burst is a sample: the burst exists precisely because one probe is
-     * not an estimate of a jittery path, and the shield's window is where that repetition is
-     * meant to accumulate.
-     *
-     * Two things come out of it. The verdict change is logged, because a mitigation the
-     * operator cannot see in the diagnostics export is a mitigation nobody can debug. And a
-     * sustained EXTREME verdict asks the optimizer for another route — through the same
-     * request flag the Home "rank" action uses, so the optimizer's own guards (cooldown,
-     * thermal budget, Identity Guard) still have the last word.
-     */
     private fun observeHighJitter(session: String, samples: List<Int>) {
         if (samples.isEmpty()) return
-        // One instant for the whole burst: the samples are ~45 ms apart and the shield only
-        // needs their order and spacing to decide whether the window is idle. It is the
-        // *monotonic* clock, because the wall clock jumps (NTP, carrier time, the user) and a
-        // backwards jump would be a negative interval — which is precisely the failure the
-        // shield refuses to take a clock for (see HighJitterShield, defect B).
+
         val nowMs = android.os.SystemClock.elapsedRealtime()
         val isIdleWakeup = lastRouteProbeMonotonicMs > 0L &&
             (nowMs - lastRouteProbeMonotonicMs) >= HighJitterShield.RRC_IDLE_GAP_MS
@@ -2418,19 +1979,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
     private fun resetJitterBaselineForProbeHost(nextHost: String) {
         synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
-        // A new probe target starts a fresh IPDV baseline, so the accumulated streaks no longer
-        // describe the path being measured. Dwell windows are kept: switching targets is not a
-        // recovery, and re-entering jitter control immediately would be the old flapping.
+
         jitterControlState = jitterControlState.copy(highStreak = 0, lowStreak = 0)
         jitterControlActive = jitterControlState.active
         jitterProbeHost = nextHost
         (application as MarbleApplication).repo.invalidateLiveJitter()
     }
 
-    /**
-     * MARBLE_IRAN_AWARE_PING_L2 — the second independent signal folded into the jitter state
-     * machine: the latest tunnel-level sawtooth confidence persisted for the active route.
-     */
     private fun throttleEvidenceForActiveRoute(): Double {
         if (activeProfileId.isBlank()) return 0.0
         return (application as MarbleApplication).repo
@@ -2475,7 +2030,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 continue
             }
             if (outcome.second > 0) {
-                // A winner cancels the losers: the answer is known, so the rest is only traffic.
                 jobs.forEach { other -> if (other !== job) runCatching { other.cancel(true) } }
                 return outcome
             }
@@ -2484,7 +2038,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         return firstFailure ?: (targets.first() to -1)
     }
 
-    /** The literal target a cycle should hedge against when the pinned one is suspected. */
     private fun routeProbePartnerFor(host: String): String {
         val order = JITTER_PROBE_TARGETS.map { it.first }
         val at = order.indexOf(host)
@@ -2501,15 +2054,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val app = application as MarbleApplication
         val repo = app.repo
 
-        /*
-         * v31 keeps one same-target rolling RTT/IPDV window and streams every verified result.
-         * The first valid RTT publishes Ping + Quality immediately; the second valid RTT adds
-         * the first real jitter delta. Later samples refine the same rolling metric.
-         *
-         * Jitter is mean absolute consecutive RTT variation (IPDV) on one literal-IP target.
-         * It includes real spikes instead of deleting the largest delta, while the bounded rolling
-         * window prevents one ancient spike from contaminating the value forever.
-         */
         fun publishRollingOutcome(host: String, sample: Int) {
             if (!isRouteCurrent(session, generation) || host != jitterProbeHost) return
 
@@ -2525,8 +2069,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
             if (snapshot[0] <= 0) return
             // MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — latency and jitter are measurements and are
-            // published the moment they are real. The score is a judgement about a window, and a
-            // window that was cleared by a target change is not worth judging yet.
+
             val holdQuality = routeQualityHoldSamples > 0
             if (holdQuality) {
                 routeQualityHoldSamples = (routeQualityHoldSamples - 1).coerceAtLeast(0)
@@ -2555,8 +2098,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         fun measureOne(host: String): Int =
             runCatching {
-                // MARBLE_HONEST_PING_V119 — the monitor feeds the Home ping directly; the sample
-                // is bounded positive/ceiling here, then published exactly as measured.
                 LinkQualityEstimator.sanitaryRtt(
                     SocksHttpClient.httpsFirstByteLatency(
                         port = port,
@@ -2584,8 +2125,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 }
                 val verified = value.coerceIn(1, 10_000)
                 values += verified
-                // Ping + Quality become visible after this first verified response; Jitter appears
-                // after the next same-target response instead of waiting for the entire burst.
+
                 publishRollingOutcome(host, verified)
                 return true
             }
@@ -2619,10 +2159,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 .orEmpty()
 
         var host = jitterProbeHost
-        // MARBLE_HIGH_JITTER_SHIELD_V206 — the burst is the shield's, once the shield has an
-        // opinion. A calm link spends two probes per cycle instead of three; a jittery one
-        // spends three and gets them sooner. Before the first plan exists nothing is known, so
-        // the cycle measures as it always did rather than guessing small.
+
         val probeBurst = highJitterPlan?.probeBurst ?: LIVE_RTT_BURST_SAMPLES
         var rttSamples = emptyList<Int>()
         val nowMs = System.currentTimeMillis()
@@ -2637,10 +2174,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }
 
         // MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — multi-target from the first sample of a cycle,
-        // not only as a fallback after the cycle has already failed. A cycle that follows a failed
-        // one knows the pinned target is suspect, so it races the pinned target against a partner
-        // from the very first measurement instead of measuring one, failing, and only then asking
-        // somebody else. A healthy cycle is unchanged: one target, one burst, no extra traffic.
+
         val partner = if (lastRouteCycleVerified) "" else routeProbePartnerFor(host)
         if (partner.isBlank()) {
             repo.updateRouteProbeStatus("Measuring verified RTT • ${probeLabel(host)}")
@@ -2655,9 +2189,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             raceFirstSample(listOf(host, partner)) { target -> measureOne(target) }
         }
         if (primarySample > 0 && racedHost != host) {
-            // The partner answered and the pinned target did not: adopt it before any sample is
-            // published, so the route's reliability window is never charged for the target that
-            // went quiet. The score waits for the new window either way (see PIVOT_QUALITY_MIN_SAMPLES).
             resetJitterBaselineForProbeHost(racedHost)
             host = racedHost
             routeQualityHoldSamples = PIVOT_QUALITY_MIN_SAMPLES
@@ -2679,13 +2210,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
         if (rttSamples.isEmpty() && isRouteCurrent(session, generation)) {
             // MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — the pivot is a race, not a queue.
-            //
-            // Filtering here is per-target and intermittent: a literal anycast address answers for
-            // weeks and then stops for an afternoon while its neighbour is perfectly healthy. Trying
-            // alternates one after another meant a pivot could spend the whole cycle's budget
-            // discovering that the first alternate was filtered too, and the user watched a blank
-            // ping for another thirty seconds. Both candidates are measured in parallel and the
-            // first verified answer wins the burst.
+
             val alternates = JITTER_PROBE_TARGETS
                 .map { it.first }
                 .filterNot { it == host }
@@ -2713,9 +2238,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             }
         }
 
-        // If literal HTTPS is unavailable, use the same class of full HTTPS-through-SOCKS
-        // measurement used by Smart Rank. Domain ATYP stays inside Xray and does not leak to
-        // Android/system DNS.
         if (rttSamples.isEmpty() && isRouteCurrent(session, generation)) {
             val domainTargets = LIVE_DOMAIN_RTT_TARGETS.take(2)
             for ((index, target) in domainTargets.withIndex()) {
@@ -2743,8 +2265,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }
 
         // MARBLE_ROUTE_PROBE_MULTI_TARGET_V197 — recorded before any early return: the next cycle
-        // reads this to decide whether to measure one target or race two, so it has to be written
-        // on the failure paths as well, not only on the way to a published sample.
+
         lastRouteCycleVerified = rttSamples.isNotEmpty()
 
         if (rttSamples.isNotEmpty()) {
@@ -2757,8 +2278,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 activeMode == MODE_TUN && hevActive &&
                     lastTrafficProgressAt > 0L &&
                     (System.currentTimeMillis() - lastTrafficProgressAt) <= RECENT_TRAFFIC_GRACE_MS
-            // MARBLE_LIVE_QUALITY_V91: warm-up/moving-traffic misses retry quickly so Live
-            // Quality appears within seconds; a settled silent route keeps the slow 60s cadence.
+
             val backoffMs = if (routeAgeMs >= ROUTE_FAILURE_WARMUP_MS && !trafficMoving) {
                 VERIFIED_RTT_BACKOFF_MS
             } else {
@@ -2776,8 +2296,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     "Tunnel traffic is active • verified HTTPS RTT is currently unavailable"
                 )
             }
-            // Keep the last verified rolling metrics across an advisory miss. A host pivot,
-            // disconnect, generation reset, or real recovery still resets them explicitly.
+
             val trafficRecentlyMoved =
                 activeMode == MODE_TUN &&
                     hevActive &&
@@ -2903,9 +2422,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             "method" to "verified-https-ttfb-robust-ipdv-loss-tail"
         )
 
-        // MARBLE_HIGH_JITTER_SHIELD_V206 — the same verified burst also feeds the shield. It is
-        // deliberately downstream of the publication above: the honest measurement reaches the
-        // UI first, and only then does anything decide what to do about it.
         observeHighJitter(session, rttSamples)
 
         repo.intelligence.recordLiveRoute(
@@ -2916,8 +2432,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             successPercent,
             activeSettings ?: repo.settings
         )
-        // MARBLE_IRAN_AWARE_PING_L2/L3 — every live route sample is also a Layer 2 observation
-        // (temporal stability + time-of-day bucket) and feeds the Layer 3 attribution tick.
+
         if (activeProfileId.isNotBlank()) {
             val profile = repo.profile(activeProfileId)
             repo.intelligence.recordLiveObservation(
@@ -2941,10 +2456,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         )
         val jitterReady = jitterMs >= 0 && jitterSampleCount >= 2
 
-        // MARBLE_JITTER_HYSTERESIS_V133 — the enter/exit decision is a state machine with real
-        // hysteresis, not an inline streak pair. The previous version wiped its release counter on
-        // every ambiguous tick, so a link whose jitter swings between 50 and 150 ms could latch into
-        // jitter control and then alternate enter/exit for the rest of the session.
         val jitterDecision = JitterControlPolicy.evaluate(
             sample = JitterControlPolicy.Sample(
                 samples = quality.samples,
@@ -2952,12 +2463,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 jitterMs = jitterMs.toDouble(),
                 triggerMs = highThreshold.toDouble(),
                 releaseMs = releaseThreshold.toDouble(),
-                // LinkQualityEstimator.Summary reports whole milliseconds/percent as Int.
+
                 p95IpdvMs = link.p95IpdvMs.toDouble(),
                 lossPercent = link.lossPercent.toDouble(),
                 spikePercent = link.spikePercent.toDouble(),
-                // MARBLE_IRAN_AWARE_PING_L2 — the second independent signal for the throttle
-                // verdict: the latest tunnel-level sawtooth confidence observed for this node.
+
                 sawtoothConfidence = throttleEvidenceForActiveRoute()
             ),
             state = jitterControlState,
@@ -2967,9 +2477,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         jitterControlActive = jitterDecision.state.active
 
         when (jitterDecision.verdict) {
-            // MARBLE_IRAN_AWARE_PING_L2 — both independent signals (jitter + sawtooth shape)
-            // together. The stronger state must also make the route monitor heavier so the
-            // pattern can be confirmed rather than inferred from one tick.
             JitterControlPolicy.Verdict.SUSPECTED_THROTTLE -> diag.event(
                 "ROUTE", "jitter-throttle-suspected",
                 "session" to session,
@@ -3007,9 +2514,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     "tick" to jitterDecision.tick,
                     "minDwellMs" to JitterControlPolicy.MIN_DWELL_MS
                 )
-                // A released route is the evidence the Turbo backoff has been waiting for: the same
-                // observation that ends jitter control also cancels a suppression that was entered
-                // because of it.
+
                 releaseTurboBackoffIfRecovered(session, quality)
             }
             JitterControlPolicy.Verdict.HOLD -> Unit
@@ -3037,13 +2542,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         return true
     }
 
-    /**
-     * Pins observed public egress independently for IPv4 and IPv6. A provider can legitimately
-     * expose one stable address per family; only a change inside the SAME family counts as rotation.
-     *
-     * The observation itself travels through Xray SOCKS. No direct physical-network IP lookup is sent.
-     * Failure to observe an address is inconclusive and does not tear down an otherwise healthy route.
-     */
     private fun verifyExitIdentity(
         session: String,
         port: Int,
@@ -3173,9 +2671,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             return
         }
 
-        // Connectivity callbacks briefly publish UNKNOWN/NO IP while Android hands a cellular or
-        // Wi-Fi network over. Treat that snapshot as a transient gap, not as proof the Xray route
-        // failed. HEV/Xray liveness and the datapath-stall detector still fail closed on real loss.
         if (!snapshot.hasIpv4 && !snapshot.hasIpv6) {
             routeProbeRequested.set(false)
             optimizerScanRequested.set(false)
@@ -3201,8 +2696,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             jitterProbeHost = JITTER_PRIMARY_HOST
             lastRouteCycleVerified = true
             routeQualityHoldSamples = 0
-            // A new physical network invalidates every measurement-derived state: the jitter
-            // baseline, the acceleration backoff and the learned PMTU all belonged to the old link.
+
             jitterControlState = JitterControlPolicy.State()
             jitterControlActive = false
             resetHighJitterShield()
@@ -3240,18 +2734,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }
     }
 
-    /**
-     * Stop forwarding but keep TUN captured. If configured, schedule bounded fallback while the fd
-     * remains established. This preserves the kill switch during route changes and core crashes.
-     */
     @Synchronized
-    /**
-     * @param faultClass the label the BLOCKED state and the kill-switch notification carry.
-     *   MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 made this a parameter because "Core/configuration
-     *   error" is a claim about the *profile*, and a core that cannot start on this device is not
-     *   one: it is the same for every profile, every server and every retry. The default keeps
-     *   every other caller's wording exactly as it was.
-     */
     private fun handleFailure(
         session: String,
         reason: String,
@@ -3333,8 +2816,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         closeHevFd()
         repo.resetTelemetry()
 
-        // Exactly one historical failure update for one connection incident.
-        // A damaged/locked history DB must never crash the failure handler itself.
         if (recordProfileFailure) runCatching {
             repo.intelligence.recordConnect(
                 failedId,
@@ -3417,9 +2898,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             return
         }
 
-        // A startup timeout is terminal for this user attempt. Do not turn one hung connect into
-        // an unbounded chain of Identity Guard retries or Smart Fallback candidates. In Full TUN
-        // the TUN fd stays open as a fail-closed blackhole until the user retries or disconnects.
         if (startupTimedOut.get()) {
             recoveryScheduled.set(false)
             tunReadyPublished.set(false)
@@ -3494,8 +2972,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             return
         }
 
-        // Identity Guard keeps the public exit pinned. It may restart the SAME profile
-        // while Full TUN remains fail-closed, but it never silently selects another profile/IP.
         if (
             settings.identityGuardEnabled &&
             settings.identityGuardStrictNoFailover
@@ -3516,10 +2992,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 identityRecoveryAttempts++
                 val attempt =
                     identityRecoveryAttempts
-                // MARBLE_RECOVERY_CIRCUIT_V135 — identity same-route retries share the recovery
-                // ladder with Smart Fallback, so the two paths cannot combine into one storm: the
-                // legacy linear 750 ms ramp becomes a FLOOR and the exponential ladder wins once
-                // the window has seen repeated failures.
+
                 val identityNowMs = System.currentTimeMillis()
                 val identityLadder = RecoveryBackoffPolicy.recordAttempt(recoveryBackoff, identityNowMs)
                 recoveryBackoff = identityLadder
@@ -3642,12 +3115,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     true
                 )
         ) {
-            // MARBLE_RECOVERY_CIRCUIT_V135 — six automatic recoveries inside five minutes mean the
-            // failure cause is structural (dead DNS path, filtered underlay, OS memory pressure)
-            // and identical for every candidate: re-dialling only burns CPU, native buffers and
-            // battery. The circuit opens, recovery holds fail-closed, and the decision goes back
-            // to the user. The runtime log that introduced this guard showed six full HEV/Xray
-            // lifecycles in 113 seconds with nothing surviving any of them.
             val circuitNowMs = System.currentTimeMillis()
             if (RecoveryBackoffPolicy.circuitOpen(recoveryBackoff, circuitNowMs)) {
                 recoveryScheduled.set(false)
@@ -3778,9 +3245,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
                 connectionWorker
                     .execute {
-                        // MARBLE_RECOVERY_CIRCUIT_V135 — exponential pacing before the re-dial.
-                        // A single transient death still recovers quickly; a structural fault gets
-                        // progressively quieter instead of a reconnect storm.
                         if (fallbackDelayMs > 0L) {
                             try {
                                 Thread.sleep(fallbackDelayMs)
@@ -3792,8 +3256,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                             recoveryScheduled.set(false)
                             return@execute
                         }
-                        // Clear before the candidate starts so a failed fallback can advance to
-                        // the next bounded candidate.
+
                         recoveryScheduled
                             .set(false)
 
@@ -3811,7 +3274,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }
 
         if (holdTun) {
-            // No fallback survived. Keep the established TUN open as a fail-closed blackhole.
             running.set(true)
             return
         }
@@ -3907,56 +3369,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         )
     }
 
-    /**
-     * Fail fast only for a configuration the *selected core itself* cannot run — and never for a
-     * reason the app invented.
-     *
-     * MARBLE_CORE_CONFIG_SUPERSET_V165 rewrote this function. It used to hold a private copy of
-     * Xray's plaintext-VLESS rule plus a private copy of what counts as a private address, and it
-     * ran before the settings were even resolved, which is how a `security=none` subscription ended
-     * up 42-of-42 unusable: refused before the TUN, quarantined from Smart Rank by a second copy of
-     * the rule, and hidden from the rank pool by a third. All three copies disagreed with the core
-     * they were mirroring — and the second engine in the same APK had never refused any of it.
-     *
-     * Now there is one authority, [CoreConfigSuperset], and this function only adapts it to the
-     * "return a sentence or nothing" shape the connect path wants:
-     *
-     *  · sing-box extended keeps its own preflight ([SingBoxConfigBuilder.pinnedPeerRefusal]): a
-     *    pinned-certificate node is the one shape that core's parser accepts and then cannot use;
-     *  · Xray is refused only for shapes its own source proves it cannot load
-     *    ([CoreConfigSuperset.coreGapIssue]) and for a cleartext public node when the user has
-     *    switched consent off in Settings → Engine;
-     *  · a cleartext node the user *has* consented to is dialled, and the consent is visible: the
-     *    note goes into the diagnostic bundle instead of into a refusal.
-     *
-     * It still runs before the session's settings are resolved, so it reads
-     * `activeSettings ?: repo.settings` rather than a half-built copy: starting the TUN first used to
-     * arm the kill switch and then retry the same impossible profile, and that ordering is the only
-     * reason this check exists at all.
-     */
     private fun profileCompatibilityIssue(profile: ProxyProfile, engine: CoreEngine): String? {
-        // The consent switch means the same thing on both cores: switched off, Marble hands no
-        // cleartext public node to *any* core — including sing-box extended, whose parser would
-        // otherwise accept it. A user's "no plaintext" cannot be engine-dependent.
         val repo = (application as MarbleApplication).repo
         val requested = activeSettings ?: repo.settings
 
-        /*
-         * MARBLE_IPV6_FALLBACK_LADDER_V196 — the family check is asked of the ladder, not of the
-         * raw preference.
-         *
-         * This block is where the reported outage was manufactured. With Force IPv6 selected and
-         * an IPv4-only node (nine of the user's servers), `excludedIpv4Endpoint` refused the
-         * profile here, `failBeforeTunnel` held the previous TUN, and the screen read
-         * `BLOCKED • Kill switch active` — once per server, for as long as the user kept trying.
-         * No network was broken; the app refused to use the one that worked.
-         *
-         * Now the ladder decides first. It returns the family this session will actually run on
-         * (and the same answer `effectiveSettingsFor` will hand the config writers moments later),
-         * so the exclusion tests below are evaluated against the *effective* mode. A literal that
-         * is genuinely unreachable is still refused — with the alternative named — but a
-         * preference that merely cannot be honoured degrades instead of blocking.
-         */
         val resolution = runCatching { repo.familyResolutionFor(profile) }.getOrNull()
         resolution?.refusal?.let { refusal ->
             diag.event(
@@ -4024,9 +3440,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val concise = conciseFailure(reason)
         val repo = (application as MarbleApplication).repo
         if (tun != null && activeMode == MODE_TUN) {
-            // A reconfigure can fail before establishing its replacement. Stopping this service
-            // would revoke the old VPN and leak onto the physical network. Keep the old TUN with
-            // HEV/core stopped, so all captured IPv4/IPv6/DNS traffic is blackholed.
             updateSentinel(killSwitch = true)
             repo.setRuntimeState("BLOCKED", "Kill switch active • $concise")
             if (loud) repo.setRuntimeMessage(concise)
@@ -4039,7 +3452,6 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             repo.setRuntimeMessage(concise)
             diag.event("VPN", "startup-failed-before-tun", "reason" to concise)
         } else {
-            // Same refusal, already on screen: only the teardown is repeated, never the report.
             diag.event("VPN", "startup-failed-folded", "reason" to concise)
         }
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
@@ -4075,15 +3487,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         ipv6RouteCaptured = preserveTun && tun != null
         if (setDisconnected) {
             repo.setRuntimeState("DISCONNECTED", "User disconnected")
-            // MARBLE_CORE_CONFIG_SUPERSET_V165 — a folded config refusal must never outlive the act
-            // of pressing Stop. Someone who disconnects and taps Connect again is asking a new
-            // question, and the answer belongs in the log even when it is the same sentence: the
-            // quiet window exists to silence an automatic retry loop, not a user.
+
             configBlockGuard.reset()
         }
         if (preserveTun && tun != null) {
-            // Keep the existing interface installed as a dual-stack blackhole until the new
-            // interface is established. Never publish OFFLINE while the kill switch is holding.
             updateSentinel(killSwitch = true)
         } else {
             repo.updateSentinel(

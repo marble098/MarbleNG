@@ -7,20 +7,9 @@ import com.marbleng.app.model.WorkloadProfile
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * Iran Mode's countermeasure engine.
- *
- * [IranModeDetector] answers "which Iranian network am I on and how is it filtering right now".
- * IranShield turns that answer into concrete Xray/tunnel policy: TLS record shredding profiles,
- * resolver selection, domestic-direct routing, transport preference and failover aggressiveness.
- *
- * Every decision here is a documented response to a documented filtering technique — nothing is
- * enabled speculatively, because each countermeasure costs latency, battery or both.
- */
 object IranShield {
     // MARBLE_TRANSPORT_AWARE_FRAGMENT_V50
 
-    /** 1 = light touch, 2 = full DPI evasion, 3 = clampdown/blackout posture. */
     fun tier(state: IranModeState): Int {
         if (!state.active) return 0
         val severity = state.severity
@@ -38,12 +27,6 @@ object IranShield {
         }
     }
 
-    /**
-     * Rewrites the effective settings used for a connection while Iran Mode is active.
-     *
-     * @param geoIpReady whether geoip.dat is present; domestic-direct routing is only enabled when
-     *        Xray can actually resolve the `ir` country set, otherwise the core would fail to start.
-     */
     fun apply(
         base: AppSettings,
         profile: ProxyProfile?,
@@ -56,24 +39,10 @@ object IranShield {
         val cellular = state.isp?.kind == IranIspKind.MOBILE
 
         var next = if (!base.iranModeCountermeasures) base else base.copy(
-            // MARBLE_CORE_OPTIONS_V211 — the transport shaping block that used to sit here
-            // (Iran Mode writing the user's fragment recipe and switching Mux off) is gone. Iran
-            // Mode now changes *timing, routing and resilience* — the things a filtered link
-            // actually needs from the app — and leaves every core option exactly as the user set
-            // it. The one exception that survives is the Mux/XTLS-Vision rule below, and it is a
-            // statement about the wire rather than a preference: Vision already negotiates its own
-            // flow control, so multiplexing on top of it is slower and a louder fingerprint.
 
-            // --- Encrypted resolution ---------------------------------------------------------
-            // Preserve Marble Intelligence's network-scoped measured order. Hard-coding Google
-            // first here overrode a learned healthy resolver on every Iran Mode connection and
-            // caused repeated DoH deadline bursts in the attached runtime log.
             dnsHijackEnabled = true,
             adaptiveDnsEnabled = true,
 
-            // --- Failover posture -------------------------------------------------------------
-            // The Marble Intelligence master switch is intentionally left to the user; only the
-            // per-connection resilience knobs are raised here.
             raceConnectEnabled = true,
             raceWidth = max(base.raceWidth, 4),
             smartFallbackEnabled = true,
@@ -87,8 +56,6 @@ object IranShield {
         )
 
         if (base.iranModeCountermeasures) {
-            // Mobile DPI stacks are far less tolerant of large records; keep the TUN under the
-            // fragmentation ceiling so shredded ClientHellos are never reassembled downstream.
             val mtuCeiling = DpiEvasionPolicy.mtuCeiling(state, cellular)
             next = next.copy(mtuMax = min(next.mtuMax, mtuCeiling).coerceAtLeast(next.mtuMin))
 
@@ -96,19 +63,11 @@ object IranShield {
                 next = next.copy(workloadProfile = WorkloadProfile.STEALTH)
             }
 
-            // XTLS Vision negotiates its own flow control; multiplexing on top of it is both slower
-            // and a stronger fingerprint, so it is not left on for a Vision/REALITY path. The
-            // *stored* setting is untouched — this is the connection's config, not the user's
-            // screen, and `SingBoxTransportPolicy.muxIsUnsafeFor` states the same rule for the
-            // other engine so the two can never disagree.
             if (profile != null && usesVisionOrReality(profile)) {
                 next = next.copy(muxEnabled = false, singBoxMuxEnabled = false)
             }
         }
 
-        // Domestic traffic stays off the tunnel: it is faster, it keeps Iranian banking/government
-        // services working, and it keeps tunnel volume down — endpoint IPs are graylisted by
-        // transferred volume, so not tunnelling domestic traffic directly extends node lifetime.
         if (base.iranDomesticDirect) {
             next = if (geoIpReady) {
                 next.copy(
@@ -133,10 +92,6 @@ object IranShield {
         return next
     }
 
-    /**
-     * Transport preference bias, in predicted-score points, used to order candidates while Iran Mode
-     * is active. Encodes what independent measurement work reports as surviving Iranian DPI.
-     */
     fun profileBias(profile: ProxyProfile, state: IranModeState): Double {
         if (!state.active) return 0.0
         var bias = 0.0
@@ -150,8 +105,6 @@ object IranShield {
                 raw.contains("encryption=") &&
                 !raw.contains("encryption=none")
 
-        // REALITY/TLS keep the strongest transport-camouflage bias. VLESS Encryption protects
-        // payloads and permits public security=none, but it does not look like ordinary HTTPS.
         if (security.contains("reality")) bias += 26.0
         else if (security.contains("tls")) bias += 10.0
         else if (vlessEncrypted) bias -= 4.0
@@ -159,7 +112,6 @@ object IranShield {
 
         if (raw.contains("flow=xtls-rprx-vision")) bias += 12.0
 
-        // CDN-frontable transports keep working when the origin IP is graylisted.
         if (transport.contains("ws") || transport.contains("websocket") ||
             transport.contains("httpupgrade") || transport.contains("xhttp") ||
             transport.contains("splithttp") || transport.contains("grpc")
@@ -167,17 +119,14 @@ object IranShield {
             bias += 12.0
         }
 
-        // The national gateway only allows 53/80/443 during clampdowns.
         when (profile.port) {
             443 -> bias += 12.0
             80, 8080, 2053, 2083, 2087, 2096, 8443 -> bias += 4.0
             else -> if (CensorTechnique.PROTOCOL_ALLOWLIST in state.techniques) bias -= 22.0
         }
 
-        // An IP-literal endpoint cannot be broken by DNS poisoning of the endpoint hostname.
         if (isIpLiteral(profile.host)) bias += 8.0
 
-        // UDP transports are unusable when datagram transit is blocked.
         val udpTransport = scheme.contains("hysteria") || transport.contains("hysteria") ||
             transport.contains("kcp") || transport.contains("quic") || scheme.contains("wireguard")
         if (udpTransport) {
@@ -190,13 +139,11 @@ object IranShield {
         return bias
     }
 
-    /** Human-readable list of what Iran Mode is doing, shown in the UI. */
     fun countermeasures(state: IranModeState): List<String> {
         if (!state.active) return emptyList()
         val tier = tier(state)
         val out = mutableListOf<String>()
 
-        // MARBLE_V80: Updated descriptions reflecting new capabilities
         out += "Multi-layer censorship-aware DNS with parallel resolution, anti-poisoning, and automatic blacklist of degraded providers"
         out += "Plaintext :53 hijacked into the tunnel so the ISP resolver cannot inject block pages"
         out += "Transport preference: REALITY/XTLS-Vision and CDN-frontable transports on port 443"
@@ -210,10 +157,6 @@ object IranShield {
         out += "Profile security audit: VMess without forward secrecy is deprioritized"
         out += "Iran-aware optimizer: 2.5x longer cooldowns and higher switch thresholds"
 
-        // MARBLE_CORE_OPTIONS_V211 — the QUIC/UDP-443 line reported a countermeasure that used to
-        // flip `muxUdp443` behind the user's back. That flip is gone (the Mux fields are the
-        // user's), so the report states the *route* instead, which is still shaped by this policy:
-        // clampdowns are matched by the routing rules, not by a rewritten core option.
         if (CensorTechnique.UDP_BLOCKED in state.techniques || tier >= 3) {
             out += "UDP-heavy routes are deprioritised while datagram transit is filtered"
         }

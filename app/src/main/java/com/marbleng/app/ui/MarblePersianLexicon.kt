@@ -1,20 +1,10 @@
 package com.marbleng.app.ui
 
-// MARBLE_BILINGUAL_V111 — the Persian microcopy lexicon.
-//
-// MarbleStrings carries the strings that were designed bilingual from day one. The rest of the
-// product surface (settings titles, subtitles, buttons, dialogs, badges) renders through the
-// shared Prism components, and those components pass their visible copy through [trx] below.
-// When Persian is active the exact English literal is looked up here; a miss goes through a
-// Persian word fallback so newly introduced UI copy cannot leak English or blank a screen.
-// Dynamic strings (counts, rates, times) are handled by the pattern rules at the bottom.
-
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import com.marbleng.app.core.AddressFamilyPolicy
 import com.marbleng.app.core.CoreConfigSuperset
 
-/** Translate an arbitrary UI literal when Persian is the active product language. */
 @Composable
 @ReadOnlyComposable
 internal fun trx(text: String): String {
@@ -22,7 +12,6 @@ internal fun trx(text: String): String {
     return faTranslate(text)
 }
 
-/** Nullable convenience for optional titles/subtitles. */
 @Composable
 @ReadOnlyComposable
 internal fun trxOrNull(text: String?): String? = text?.let { trx(it) }
@@ -32,14 +21,14 @@ internal fun faTranslate(text: String): String {
     FaLexicon[text]?.let { return it }
     val trimmed = text.trim()
     if (trimmed !== text) FaLexicon[trimmed]?.let { return text.replace(trimmed, it) }
-    // Case-tolerant match: many call sites render UPPERCASE variants of lexicon keys.
+
     FaLexiconLower[trimmed.lowercase()]?.let { return it }
     faPattern(trimmed)?.let { return it }
     return faFallback(text)
 }
 
 private val FaLexicon: Map<String, String> = mapOf(
-    // ------------------------------------------------------------------ iOS 4 Home Themes
+
     "Theme 1 (Slider)" to "تم شماره ۱ (اسلایدر)",
     "Theme 2 (Floating)" to "تم شماره ۲ (شناور)",
     "Theme 3 (Embossed)" to "تم شماره ۳ (برجسته)",
@@ -101,7 +90,6 @@ private val FaLexicon: Map<String, String> = mapOf(
         "مشخص کنید دقیقاً کدام ترافیک از تونل عبور کند",
     "Connect button" to "دکمه اتصال",
 
-    // ------------------------------------------------------------------ navigation & common verbs
     "Home" to "خانه",
     "Servers" to "سرورها",
     "Settings" to "تنظیمات",
@@ -130,8 +118,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Not selected" to "انتخاب‌نشده",
     "Prepare" to "آماده‌سازی",
     "Update" to "به‌روزرسانی",
-    // MARBLE_ROUTING_UI_V136 — the rebuilt Routing workspace.
-    // MARBLE_ROUTING_CHIP_LABELS_V144 — human chip labels replace the raw Xray tokens.
+
     "Domain first (default)" to "اول دامنه (پیش‌فرض)",
     "IP on demand" to "IP هنگام نیاز",
     "As-is (fastest)" to "بدون تغییر (سریع‌ترین)",
@@ -186,12 +173,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Local" to "محلی",
     "System" to "سیستم",
 
-    // ------------------------------------------------------------------ MARBLE_ROUTE_ATELIER_V207
-    //
-    // The route presentation's own vocabulary. Each of these is product copy that the page composes
-    // through trx(), and the Persian UI may not let the word-level fallback invent a reading for a
-    // whole sentence: an exact key is what keeps "the tunnel is up; the reading service did not
-    // answer" from arriving as transliterated Latin.
     "Exit" to "خروج",
     "stages with evidence" to "مرحلهٔ مبتنی بر اندازه‌گیری",
     "location not verified" to "موقعیت تأیید نشده",
@@ -215,14 +196,12 @@ private val FaLexicon: Map<String, String> = mapOf(
     "MarbleNG carries no third-party font files: a face your device does not have renders in the closest system face." to
         "MarbleNG هیچ فایل فونت شخص ثالثی را همراه ندارد؛ فونتی که دستگاه شما نداشته باشد با نزدیک‌ترین فونتِ سیستم نمایش داده می‌شود.",
 
-    // ------------------------------------------------------------------ MARBLE_SIGNATURE_HOME_V112
     "Home only" to "فقط خانه",
     "All pages" to "همه صفحه‌ها",
     "Glass" to "شیشه‌ای",
     "Colored" to "رنگی",
     "Plain" to "ساده",
 
-    // ------------------------------------------------------------------ MARBLE_CONNECT_BUTTON_STYLES_V119
     "Connect button" to "دکمه اتصال",
     "One silhouette for every Home style" to "یک طرح واحد برای همه استایل‌های خانه",
     "Round shutter" to "دکمه‌ٔ گرد",
@@ -231,7 +210,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Large round shutter, centred in the hero (default)" to "دکمهٔ گرد بزرگ، در مرکز بخش اصلی (پیش‌فرض)",
     "Wide slide track, docked at the hero floor" to "نوار کشویی پهن، در کف بخش اصلی",
     "Classic power bar, docked under the instrument" to "نوار قدرت کلاسیک، زیر ابزار اصلی",
-    // ------------------------------------------------------------------ MARBLE_CONNECT_BUTTON_STYLES_V132
+
     "Stream bar" to "نوار جریان",
     "Floating pill" to "دکمهٔ شناور",
     "Full-width bar at the page floor with a light band moving right to left" to
@@ -264,7 +243,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Tunnel" to "تونل",
     "Workload" to "بار کاری",
 
-    // ------------------------------------------------------------------ connection states
     "Protected" to "محافظت‌شده",
     "Securing route" to "در حال برقراری مسیر امن",
     "Fail-closed" to "قطع ایمن",
@@ -313,7 +291,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Device-wide route" to "مسیر سراسری دستگاه",
     "DEVICE-WIDE" to "سراسری دستگاه",
 
-    // ------------------------------------------------------------------ home metric labels
     "Ping" to "پینگ",
     "Jitter" to "لرزش",
     "Quality" to "کیفیت",
@@ -327,7 +304,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Inspect selected route" to "بازبینی مسیر انتخاب‌شده",
     "Waiting for verified HTTPS RTT" to "در انتظار تأخیر HTTPS تأییدشده",
 
-    // ------------------------------------------------------------------ IP details dialog
     "IP details" to "جزئیات آی‌پی",
     "Public route information for the connected server" to "اطلاعات مسیر عمومی سرور متصل",
     "Resolving the public IP…" to "در حال دریافت آی‌پی عمومی…",
@@ -357,7 +333,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Selected route" to "مسیر انتخاب‌شده",
     "ENDPOINT" to "نقطه پایانی",
 
-    // ------------------------------------------------------------------ update dialog
     "A fresh MarbleNG build is ready" to "نسخه تازه MarbleNG آماده است",
     "A newer signed release is available on GitHub." to "نسخه امضاشده جدیدتری در گیت‌هاب موجود است.",
     "WHAT CHANGED" to "تغییرات",
@@ -366,7 +341,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Could not open the MarbleNG Releases page" to "صفحه انتشارهای MarbleNG باز نشد",
     "No data yet" to "هنوز داده‌ای نیست",
 
-    // ------------------------------------------------------------------ library
     "Search servers, host or protocol" to "جستجوی سرور، میزبان یا پروتکل",
     "Search servers" to "جستجوی سرورها",
     "Subscription" to "اشتراک",
@@ -442,7 +416,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Save manual config" to "ذخیره پیکربندی دستی",
     "Xray config / outbound JSON" to "پیکربندی اکس‌ری / JSON خروجی",
 
-    // ------------------------------------------------------------------ manual editor fields
     "Host" to "میزبان",
     "HOST" to "میزبان",
     "Port" to "پورت",
@@ -459,7 +432,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Allow insecure TLS" to "اجازه TLS ناامن",
     "TLS server name" to "نام سرور TLS",
     "Host key SHA256 • optional" to "SHA256 کلید میزبان • اختیاری",
-    // MARBLE_TLS_PINNING_V149
+
     "Verify peer certificate by name" to "بررسی گواهی سرور بر اساس نام",
     "Certificate fingerprint (SHA-256)" to "اثر انگشت گواهی (SHA-256)",
     "hex or base64, comma separated" to "hex یا base64، جدا شده با کاما",
@@ -489,7 +462,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "`unsafe` uses native Go TLS; empty Cipher Suites = automatic." to
         "گزینه unsafe از TLS بومی Go استفاده می‌کند؛ مجموعه رمز خالی یعنی خودکار.",
 
-    // ------------------------------------------------------------------ settings hub
     "Expert workspace" to "میز کار حرفه‌ای",
     "Show advanced options" to "نمایش گزینه‌های پیشرفته",
     "Appearance" to "ظاهر",
@@ -514,7 +486,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Bug Finder" to "اشکال‌یاب",
     "Scan the runtime, then copy or save the report" to "اجرای اسکن، سپس کپی یا ذخیره گزارش",
     "Notifications and live stats" to "اعلان‌ها و آمار زنده",
-    // MARBLE_BACKGROUND_UNRESTRICTED_V166 — the one-tap unrestricted-background-access card.
+
     "Notifications, background access and live stats" to "اعلان‌ها، دسترسی پس‌زمینه و آمار زنده",
     "Background access" to "دسترسی در پس‌زمینه",
     "Fixes interrupted VPN in background" to "رفع قطعی VPN در پس‌زمینه",
@@ -537,7 +509,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Reveal advanced routing, engine and diagnostic controls" to
         "نمایش کنترل‌های پیشرفته مسیریابی، موتور و عیب‌یابی",
 
-    // appearance
     "Theme" to "پوسته",
     "Follow device" to "مطابق دستگاه",
     "Light" to "روشن",
@@ -573,10 +544,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Loading installed apps…" to "در حال بارگیری برنامه‌های نصب‌شده…",
     "Applies on next Full TUN connect." to "در اتصال بعدی تونل کامل اعمال می‌شود.",
 
-    // connection
     "Local SOCKS port" to "پورت SOCKS محلی",
 
-    // intelligence
     "Marble Intelligence Engine" to "موتور هوشمند ماربل",
     "Adaptive per-network policies" to "سیاست‌های تطبیقی برای هر شبکه",
     "Maximum config compatibility" to "بیشترین سازگاری پیکربندی",
@@ -628,7 +597,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Real UDP health via STUN" to "سلامت واقعی UDP با STUN",
     "Privacy sentinel" to "نگهبان حریم خصوصی",
 
-    // notifications
     "Grant notification access" to "دادن دسترسی اعلان",
     "Test alert" to "هشدار آزمایشی",
     "Channels" to "کانال‌ها",
@@ -662,7 +630,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "TCP concurrency" to "هم‌زمانی TCP",
     "XUDP concurrency" to "هم‌زمانی XUDP",
 
-    // IPv6 / DNS
     "IPv6" to "IPv6",
     "Enable IPv6" to "فعال‌سازی IPv6",
     AddressFamilyPolicy.IPV6_LITERAL_DISABLED to
@@ -682,8 +649,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "IPv6 PREFERENCE WAITING" to "اولویت IPv6 در انتظار",
     "IPv4 / AUTO" to "IPv4 / خودکار",
     "Intercept traditional DNS" to "رهگیری DNS سنتی",
-    // MARBLE_IP_FAMILY_SCAN_V196 / MARBLE_IPV6_FALLBACK_LADDER_V196 — the family scan and the
-    // switch that decides whether a forced family may refuse a server.
+
     "Scan IPv4 / IPv6" to "اسکن IPv4 / IPv6",
     "Address family scan" to "اسکن خانواده آی‌پی",
     "Resolve and dial both families on this server" to "هر دو خانواده این سرور بررسی و شماره‌گیری می‌شود",
@@ -707,7 +673,7 @@ private val FaLexicon: Map<String, String> = mapOf(
         "IPv6 stays on for destinations" to
         "سروری که نتواند خانواده اجباری را استفاده کند با خانواده دیگر شماره‌گیری می‌شود؛ IPv6 برای مقصدها روشن می‌ماند",
     "Port 53 → encrypted DNS" to "پورت ۵۳ ← DNS رمزنگاری‌شده",
-    // MARBLE_FAKE_IP_V184
+
     "Fake IP DNS" to "فیک‌آی‌پی DNS",
     "Instant local answers; real IP resolved in-tunnel" to "پاسخ‌های آنی محلی؛ آی‌پی واقعی داخل تونل حل می‌شود",
     "Adaptive DoH ordering" to "چینش تطبیقی DoH",
@@ -726,7 +692,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "DNS OPEN" to "‏DNS باز",
     "NO KILL SWITCH" to "بدون کلید اضطراری",
 
-    // routing
     "Recommended Iran policy" to "سیاست پیشنهادی ایران",
     "Iran direct" to "ایران مستقیم",
     "Iran proxied" to "ایران از پروکسی",
@@ -759,7 +724,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Custom direct domains / geosite tags" to "دامنه‌ها / برچسب‌های مستقیم سفارشی",
     "Custom direct IP / CIDR / geoip tags" to "آی‌پی / CIDR / برچسب‌های مستقیم سفارشی",
 
-    // subscriptions settings
     "Manual source" to "منبع دستی",
     "Show the built-in Manual source" to "نمایش منبع دستی داخلی",
     "Automatic refresh" to "به‌روزرسانی خودکار",
@@ -767,7 +731,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Refresh cadence" to "آهنگ به‌روزرسانی",
     "Refresh all now" to "به‌روزرسانی همه، همین حالا",
 
-    // bug finder / diagnostics
     "Runtime observatory" to "رصدخانه اجرا",
     "Debug TXT log" to "گزارش متنی اشکال‌زدایی",
     "Off by default" to "به‌صورت پیش‌فرض خاموش",
@@ -780,7 +743,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Safe runtime reset" to "بازنشانی ایمن اجرا",
     "DEBUG ON" to "اشکال‌زدایی روشن",
 
-    // probes / testing
     "Real tunnel" to "تونل واقعی",
     "Real test" to "تست واقعی",
     "TCP ping" to "پینگ TCP",
@@ -803,7 +765,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "ICMP bypasses the proxy; only Smart or Real test proves the route." to
         "‏ICMP از پروکسی عبور نمی‌کند؛ فقط هوشمند یا تست واقعی مسیر را ثابت می‌کند.",
 
-    // iran mode
     "Detect ISP" to "تشخیص اپراتور",
     "Force on" to "همیشه روشن",
     "Disable" to "غیرفعال",
@@ -886,14 +847,12 @@ private val FaLexicon: Map<String, String> = mapOf(
     "IPv6 size (B)" to "اندازه IPv6 (بایت)",
     "IPv6 delay (ms)" to "تأخیر IPv6 (میلی‌ثانیه)",
 
-    // home quick settings / misc
     "Link-aware" to "آگاه از پیوند",
     "Auto recovery" to "بازیابی خودکار",
     "Kill-switch reconnect" to "اتصال دوباره پس از کلید اضطراری",
     "Networks" to "شبکه‌ها",
     "Uptime" to "مدت اتصال",
 
-    // ------------------------------------------------------------------ permission onboarding
     "Allow VPN access" to "اجازه دسترسی VPN",
     "MarbleNG needs Android's VPN permission to arm its protected connection service. It only routes traffic through the server you choose; it cannot read your messages or files." to
         "MarbleNG برای فعال‌سازی سرویس اتصال محافظت‌شده به مجوز VPN اندروید نیاز دارد. فقط ترافیک را از سروری که انتخاب می‌کنید عبور می‌دهد؛ نمی‌تواند پیام‌ها یا فایل‌های شما را بخواند.",
@@ -910,8 +869,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Continue" to "ادامه",
     "Not now" to "حالا نه",
 
-    // ------------------------------------------------------- MARBLE_SERVERS_V114 / SETTINGS HUB V114
-    // The Servers screen: one frosted module per source, compact rows, a clipboard magic button.
     "Server" to "سرور",
     "1 server" to "یک سرور",
     "shown" to "نمایان",
@@ -932,7 +889,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "ORBITAL MANIFEST" to "فهرست مداری",
     "Not measured" to "اندازه‌گیری نشده",
 
-    // The settings hub: one page of titles, each opening its own page, plus the live quick rows.
     "All settings" to "همه تنظیمات",
     "Theme, Home style, Typeface and Language live under Appearance on the Settings hub." to
         "تم، استایل خانه، فونت و زبان زیر «ظاهر» در مرکز تنظیمات قرار دارند.",
@@ -972,7 +928,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "The Persian choice is written in Persian and always rendered with Vazirmatn." to
         "گزینه فارسی به خط فارسی نوشته می‌شود و همیشه با وزیرمتن نمایش داده می‌شود.",
 
-    // The Information page: real versions and links that open the browser directly.
     "Versions" to "نسخه‌ها",
     "App version" to "نسخه برنامه",
     "Version code" to "کد نسخه",
@@ -988,20 +943,16 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Copy the version details, or keep a continuous diagnostic export in Downloads/marbleng/report." to
         "جزئیات نسخه را کپی کنید، یا خروجی تشخیص پیوسته را در Downloads/marbleng/report نگه دارید.",
 
-    // suffix / unit fragments used by NumberSetting
     " ms" to " میلی‌ثانیه",
     " sec" to " ثانیه",
     " cycles" to " چرخه",
 
-    // ------------------------------------------------------- MARBLE_SERVERS_REDESIGN_V120
     "Clear search" to "پاک کردن جست‌وجو",
     "Clear" to "پاک کردن",
     "All groups" to "همه گروه‌ها",
     "All protocols" to "همه پروتکل‌ها",
     "Advanced filters" to "فیلترهای پیشرفته",
-    // MARBLE_SERVERS_HIERARCHY_V189 — the counts the header line used to carry now ride inside
-    // the filter controls and beside a subscription's own name, so their singulars need a home
-    // here; the plurals are pattern rules below.
+
     "1 group" to "یک گروه",
     "1 filter" to "یک فیلتر",
     "Group by country" to "گروه‌بندی بر اساس کشور",
@@ -1083,12 +1034,10 @@ private val FaLexicon: Map<String, String> = mapOf(
     "VLESS needs TLS/REALITY or a non-none encryption" to
         "VLESS به TLS/REALITY یا رمزنگاری غیر none نیاز دارد",
 
-    // ------------------------------------------------------------------ V145: Home + menu, group ping
     "Import every link on the clipboard" to "همه لینک‌های داخل کلیپ‌بورد را وارد کن",
     "Scan with the camera or pick an image" to "با دوربین اسکن کن یا یک تصویر انتخاب کن",
     "Open the Servers page to add or edit" to "برای افزودن یا ویرایش، صفحه سرورها را باز کن",
 
-    // ------------------------------------------------------------------ V145: modular customizer
     "Modules" to "ماژول‌ها",
     "Status banner" to "کارت وضعیت",
     "Route, ping and IP" to "مسیر، پینگ و آی‌پی",
@@ -1101,7 +1050,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "The connect button is always shown." to "دکمه اتصال همیشه نمایش داده می‌شود.",
     "Reset layout" to "بازنشانی چیدمان",
 
-    // ------------------------------------------------------------------ V145: navigation bar
     "Navigation bar" to "نوار پایین",
     "The bottom bar of the app: what it shows and how much room it takes." to
         "نوار پایین برنامه: چه چیزی نشان دهد و چقدر جا بگیرد.",
@@ -1110,7 +1058,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Show icons" to "نمایش آیکون‌ها",
     "Tab glyphs; turning both off is not allowed" to "آیکون تب‌ها؛ خاموش کردن هر دو ممکن نیست",
 
-    // ------------------------------------------------------------------ V145: ping budget
     "Measurement budget" to "بودجه اندازه‌گیری",
     "Every ping in the app — Home, a group, Ping all — obeys exactly these values." to
         "همه پینگ‌های برنامه — خانه، یک گروه، پینگ همه — دقیقاً از همین مقادیر پیروی می‌کنند.",
@@ -1126,9 +1073,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Worst case per server" to "بدترین حالت برای هر سرور",
     "at once" to "هم‌زمان",
 
-    // ------------------------------------------------------------------ V199: ping speed dial
-    // MARBLE_PING_SPEED_DIAL_V199 — the speed dial of every ping measurement: off = the shipped
-    // default (about 50 % faster sweeps), on = the user's own pace from gentle to twice as fast.
     "Ping speed" to "سرعت پینگ",
     "Default is about 50% faster sweeps for all three methods. Turn the dial on to choose the speed yourself — from gentler on a weak link to twice as fast." to
         "پیش‌فرض، پویش‌ها را برای هر سه روش حدود ۵۰٪ سریع‌تر می‌کند. نوار را روشن کنید تا سرعت را خودتان انتخاب کنید — از ملایم‌تر روی اینترنت ضعیف تا دو برابر سریع‌تر.",
@@ -1147,21 +1091,17 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Default speed" to "سرعت پیش‌فرض",
     "about 1.5× the classic pace" to "حدود ۱.۵ برابر سرعت کلاسیک",
 
-    // ------------------------------------------------------------------ V145: geo asset gate
     "Geo routing paused until the routing databases finish downloading" to
         "مسیریابی جغرافیایی تا کامل شدن دانلود پایگاه‌های داده موقتاً غیرفعال است",
 
-    // ------------------------------------------------------------------ V146: Persian completion
-    // MARBLE_PERSIAN_COMPLETION_V146 — the user-facing strings that still fell back to English.
-    // Identity Guard section.
     "Identity Guard" to "محافظ هویت",
     "Keep one public exit" to "نگه‌داشتن یک خروجی عمومی",
     "Pin the session to one exit IP" to "قفل کردن نشست روی یک آی‌پی خروجی",
-    // Routing entry card.
+
     "Open the dedicated routing workspace" to "بازکردن فضای اختصاصی مسیریابی",
     "Control traffic routing, domain resolution and rule matching" to
         "کنترل مسیریابی ترافیک، تفکیک دامنه و تطبیق قوانین",
-    // Ping method rows (Settings › Tests › Ping).
+
     "Recommended • fast gate + real HTTPS test" to "پیشنهادی • دروازه سریع + تست واقعی HTTPS",
     "Slowest, proves the route end to end" to "کندترین، ولی مسیر را سرتاسری اثبات می‌کند",
     "Fastest, TCP handshake to server address" to "سریع‌ترین، دست‌دادن TCP با آدرس سرور",
@@ -1198,7 +1138,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "DNS ping measures resolution time only — it does not test the server itself." to
         "پینگ DNS فقط زمان تفکیک را می‌سنجد — خود سرور را تست نمی‌کند.",
     "No response" to "بدون پاسخ",
-    // Routing rule workspace.
+
     "Direct & block text lists" to "فهرست‌های متنی مستقیم و مسدود",
     "Emitted Xray rule" to "قانون تولیدشده Xray",
     "Geo direct sends these straight over the underlay:" to
@@ -1209,7 +1149,7 @@ private val FaLexicon: Map<String, String> = mapOf(
         "اولی برنده است. برای مرتب‌سازی بکشید، برای ویرایش لمس کنید.",
     "Several hops, in order" to "چند گام، به ترتیب",
     "Route through several servers in order" to "عبور از چند سرور به ترتیب",
-    // Import / add-route menu and pickers.
+
     "Imports land in" to "مقصد واردات",
     "Add from QR code" to "افزودن از کد QR",
     "Add manually" to "افزودن دستی",
@@ -1226,7 +1166,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "A .txt / .json / subscription export" to "خروجی .txt / .json یا اشتراک",
     "A provider URL Marble keeps up to date" to "آدرس ساب که ماربل آن را به‌روز نگه می‌دارد",
     "Select one server source first." to "اول یک منبع سرور انتخاب کنید.",
-    // Hub and runtime status copy.
+
     "Routing, tests and servers" to "مسیریابی، تست‌ها و سرورها",
     "Connect first. Privacy audit uses the active Xray path." to
         "اول متصل شوید. ممیزی حریم خصوصی از مسیر فعال Xray استفاده می‌کند.",
@@ -1246,9 +1186,7 @@ private val FaLexicon: Map<String, String> = mapOf(
         "VLESS پشتیبانی‌نشده • سروری با TLS/REALITY انتخاب کنید",
     "DNS resolver timed out • Marble is switching to a fallback path" to
         "حل‌کننده DNS زمان را رد کرد • ماربل به مسیر جایگزین می‌رود",
-    // MARBLE_CORE_CONFIG_SUPERSET_V165 — the two engine-gap sentences [CoreConfigSuperset.coreGapIssue]
-    // returns, plus the consent switch. They are whole literals in the source for exactly this
-    // reason: the lookup is an exact match, so a template could never be translated.
+
     CoreConfigSuperset.CORE_GAP_TRANSPORT_REMOVED to
         "هسته Xray ترنسپورت‌های HTTP/QUIC این سرور را حذف کرده • sing-box extended آن‌ها را اجرا می‌کند (تنظیمات ← هسته تونل)",
     CoreConfigSuperset.CORE_GAP_KCP_CAMOUFLAGE to
@@ -1259,7 +1197,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Unencrypted traffic is readable by your ISP. Marble labels it on the server row and never rewrites your node." to
         "ترافیک بدون رمزنگاری برای ISP قابل خواندن است. ماربل آن را روی ردیف سرور برچسب می‌زند و هرگز کانفیگ شما را بازنویسی نمی‌کند.",
 
-    // MARBLE_DOCK_SLOT_V167 — the fourth tab of the bottom bar and its customization page.
     "Fourth tab" to "تب چهارم",
     "Customize" to "شخصی‌سازی",
     "Customize the fourth tab" to "شخصی‌سازی تب چهارم",
@@ -1276,8 +1213,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Every change below is applied to the bar immediately" to "هر تغییری در همین لحظه روی نوار اعمال می‌شود",
     "Build a shortcut for the route, source or live signal you reach for most" to
         "میان‌بر مسیر، منبع یا وضعیت زنده‌ای را بسازید که بیشتر استفاده می‌کنید",
-    // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — the key follows the shortened copy, so the Persian
-    // reader gets a real sentence instead of the word-level fallback.
+
     "The fourth tab is hidden — turn it back on to put it in the bar." to
         "تب چهارم مخفی است؛ برای برگرداندنش به نوار آن را روشن کنید.",
     "Availability" to "دسترس‌پذیری",
@@ -1339,7 +1275,7 @@ private val FaLexicon: Map<String, String> = mapOf(
         "یک کانفیگ ذخیره‌شده برای این تب انتخاب کنید تا همیشه با یک ضربه از نوار پایین در دسترس باشد.",
     "Choose a config" to "انتخاب کانفیگ",
     "Tools" to "ابزارها",
-    // MARBLE_DOCK_SLOT_PLUS_V193 — the fourth tab's grouped tool captions and new facts.
+
     "Library" to "کتابخانه",
     "Diagnostics" to "عیب‌یابی",
     "Route quality" to "کیفیت مسیر",
@@ -1352,7 +1288,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Reset suspected" to "شک به ریست",
     "The score is the live route's own verdict — throughput, delay and steadiness measured while you use it. Ping the route to refresh it." to
         "این امتیاز، قضاوت زنده‌ی همین مسیر است — توان عبوری، تأخیر و پایداری، در حین استفاده سنجیده می‌شود. برای به‌روزرسانی، مسیر را پینگ کنید.",
-    // MARBLE_SETTINGS_DEDUP_V193 — the merged Core-options card speaks Persian like the rest.
+
     "Core options" to "گزینه‌های هسته",
     "Sniffing" to "اسنیفینگ",
     "Read HTTP/TLS/QUIC so routing sees the real host" to "خواندن HTTP/TLS/QUIC تا مسیریابی میزبان واقعی را ببیند",
@@ -1379,8 +1315,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Down" to "دریافت",
     "Up" to "ارسال",
     "Used" to "مصرف",
-    // MARBLE_SESSION_USAGE_V192 — the per-connection data usage: the Home status card's
-    // live/last-session cells and the connection detail page's usage section.
+
     "Data" to "حجم",
     "Data usage" to "حجم مصرفی",
     "Total" to "مجموع",
@@ -1396,8 +1331,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Selected: the connect button on Home and the dock's own Connect act on this config." to
         "انتخاب‌شده: دکمه اتصال صفحه اصلی و دکمه اتصال همین تب روی این کانفیگ عمل می‌کنند.",
 
-    // MARBLE_PERSIAN_COMPLETE_V202 — Settings and destructive-action copy that was introduced
-    // after the first bilingual pass. These are exact UI literals, not a best-effort fallback.
     "Remove failed Smart" to "حذف موارد ناموفق هوشمند",
     "Remove failed tunnel" to "حذف موارد ناموفق تونل",
     "Remove failed everywhere" to "حذف موارد ناموفق از همه‌جا",
@@ -1421,9 +1354,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Back up" to "تهیه پشتیبان",
     "Restore" to "بازیابی",
     "Theme, fourth tab, typeface and language" to "پوسته، تب چهارم، قلم و زبان",
-    // ------------------------------------------------------------------ V208: one-line settings
-    // MARBLE_SETTINGS_ONE_LINE_COPY_V208 — every new row below is one sentence, because the rule
-    // is enforced in the product and the lexicon is where a Persian reader meets it.
+
     "Fragment profile" to "پروفایل فرگمنت",
     "Mux profile" to "پروفایل ماکس",
     "Custom values" to "مقادیر سفارشی",
@@ -1475,15 +1406,11 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Route details" to "جزئیات مسیر",
     "Unlimited" to "نامحدود",
     "Expired" to "منقضی‌شده",
-    // ------------------------------------------------------------------ MARBLE_HOME_ROUTE_PING_V210
-    // The two ping buttons of the Home page ask about the server on screen, and the accessibility
-    // label of the header pulse names it — so the sentence has to exist in Persian too.
+
     "Measure this server" to "اندازه‌گیری این سرور",
     "Measuring this server" to "در حال اندازه‌گیری این سرور",
     "Ping group" to "پینگ گروه",
-    // ------------------------------------------------------------------ MARBLE_SETTINGS_SECTIONS_V210
-    // The Settings tree: the header's own state line, its expand/collapse action, and every new
-    // main-section and sub-section name the page draws.
+
     "All sections open" to "همهٔ بخش‌ها باز است",
     "sections open" to "بخش باز است",
     "Collapse all" to "بستن همه",
@@ -1521,10 +1448,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "About" to "درباره",
     "Versions, diagnostics and the report an issue asks for" to
         "نسخه‌ها، عیب‌یابی و گزارشی که ثبت مشکل می‌خواهد",
-    // ------------------------------------------------------------------ MARBLE_HOME_PING_CONTROLS_V212
-    // Both ping buttons of the connection page are controls now, and each one's verb is a setting.
-    // The four verbs, their one-line descriptions and the three surfaces that own them all have to
-    // read in Persian, because a chooser that only speaks one language is not a chooser.
+
     "Measuring" to "در حال اندازه‌گیری",
     "Measure this subscription" to "اندازه‌گیری این اشتراک",
     "Measure every server" to "اندازه‌گیری همهٔ سرورها",
@@ -1547,9 +1471,7 @@ private val FaLexicon: Map<String, String> = mapOf(
         "سنجشگر و خانهٔ تأخیر در صفحهٔ اتصال",
     "The ping pill next to add, paste and QR" to "کلید پینگ کنار افزودن، چسباندن و QR",
     "The round pulse control beside the wordmark" to "دکمهٔ گرد کنار نام برنامه",
-    // ------------------------------------------------------------------ MARBLE_MULTI_SOURCE_ROUTING_V212
-    // Routing reads a set of geo databases now, not one, and it can separate domestic traffic more
-    // finely than the geo tags alone allow. Both are decisions the user makes in Routing settings.
+
     "Geo databases" to "پایگاه‌های جغرافیایی",
     "Read several geo databases" to "خواندن چند پایگاه جغرافیایی",
     "Use the geo tags of every source below at once" to
@@ -1567,7 +1489,7 @@ private val FaLexicon: Map<String, String> = mapOf(
         "به‌علاوهٔ سرویس‌های داخلی که ماربل فهرست خودش را دارد",
     "Plus brand keywords, for services on a domain nobody published" to
         "به‌علاوهٔ کلیدواژهٔ نام سرویس‌ها، برای دامنه‌هایی که در هیچ فهرستی نیستند",
-    // MARBLE_SETTINGS_TREE_V215 / MARBLE_TEXT_SCALE_V215 — copy for the regrouped hub and text size.
+
     "Text size" to "اندازه متن",
     "Applies to every screen, and takes effect at once." to "روی همه‌ی صفحه‌ها اعمال می‌شود و بی‌درنگ تغییر می‌کند.",
     "Text & language" to "متن و زبان",
@@ -1581,28 +1503,12 @@ private val FaLexicon: Map<String, String> = mapOf(
     "ranking frozen" to "رتبه‌بندی متوقف شد",
 )
 
-/** Lowercased view of the lexicon so `UPPERCASE` renders of the same keys still match. */
 private val FaLexiconLower: Map<String, String> =
     FaLexicon.entries.associate { it.key.lowercase() to it.value }
 
-/**
- * MARBLE_ROUTE_ATELIER_V207 — is this exact string product copy the lexicon owns?
- *
- * Components that take a caller's label (an icon button's accessibility name, a sheet's close
- * word) want to translate the product's own literals and to leave *composed* copy alone — a server
- * name inside "More actions for Frankfurt-03" is data, and the word-level fallback would
- * transliterate it into gibberish. This answers the difference, so a component can localize safely.
- */
 internal fun isFaLexiconKey(text: String): Boolean =
     FaLexicon.containsKey(text) || FaLexiconLower.containsKey(text.lowercase())
 
-/**
- * A Persian UI must never silently fall back to an English sentence when a new literal is added.
- * Exact product copy belongs in [FaLexicon]; this final word-level layer protects dynamic labels
- * assembled by the engine (for example a fresh diagnostic name) until their complete sentence is
- * promoted to that table. Known technical terms use their Persian reading. Unknown Latin words
- * are transliterated rather than shown as untranslated English.
- */
 private val FaFallbackWords: Map<String, String> = mapOf(
     "add" to "افزودن", "all" to "همه", "and" to "و", "app" to "برنامه", "auto" to "خودکار",
     "best" to "بهترین", "button" to "دکمه", "cancel" to "لغو", "chain" to "زنجیره",
@@ -1630,8 +1536,6 @@ private val FaFallbackWords: Map<String, String> = mapOf(
 private val LatinUiToken = Regex("[A-Za-z][A-Za-z0-9_-]*")
 
 private fun faFallback(text: String): String {
-    // Endpoint URLs, imported names and code samples are data, not product copy. Their surrounding
-    // labels are translated by the exact table; preserving their payload prevents corrupting a link.
     if ("://" in text || text.contains("@") || text.matches(Regex(".*\\d+\\.\\d+\\.\\d+\\.\\d+.*"))) return text
     return LatinUiToken.replace(text) { match ->
         val token = match.value
@@ -1653,26 +1557,23 @@ private fun faTransliterate(token: String): String = buildString {
     }
 }
 
-// Compound runtime strings ("12 nodes", "3 visible • 40 total", "45 sec", …).
 private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     Regex("""^(\d+) servers$""") to { m -> "${m.groupValues[1]} سرور" },
-    // MARBLE_SERVERS_HIERARCHY_V189 — the count badges inside the filter rail's controls and
-    // beside a subscription's name. Latin digits, like every other count in the product.
+
     Regex("""^(\d+) groups$""") to { m -> "${m.groupValues[1]} گروه" },
     Regex("""^(\d+) filters$""") to { m -> "${m.groupValues[1]} فیلتر" },
-    // MARBLE_SERVERS_REDESIGN_V120 — the page header count, a folded group and the per-card menu.
+
     Regex("""^(\d+) groups • (\d+) servers$""") to { m ->
         "${m.groupValues[1]} گروه • ${m.groupValues[2]} سرور"
     },
-    // MARBLE_SERVERS_NO_HIDDEN_LINE_V144 — the "N servers hidden" pattern is gone with the
-    // folded placeholder row; no Persian rendering for it may be reintroduced.
+
     Regex("""^(\d+) servers • (.+)$""") to { m ->
         "${m.groupValues[1]} سرور • ${m.groupValues[2]}"
     },
     Regex("""^(.+) • (\d+) shown$""") to { m -> "${m.groupValues[1]} • ${m.groupValues[2]} نمایان" },
     Regex("""^Refresh (.+)$""") to { m -> "به‌روزرسانی ${m.groupValues[1]}" },
     Regex("""^More actions for (.+)$""") to { m -> "عملیات بیشتر برای ${m.groupValues[1]}" },
-    // count, and the latency readout speaks its measurement to TalkBack.
+
     Regex("""^(\d+) shown$""") to { m -> "${m.groupValues[1]} نمایان" },
     Regex("""^Latency (\d+) milliseconds, (.+)$""") to { m ->
         "تأخیر ${m.groupValues[1]} میلی‌ثانیه، ${m.groupValues[2]}"
@@ -1696,13 +1597,13 @@ private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     Regex("""^SAVE (\d+)-HOP CHAIN$""") to { m -> "ذخیره زنجیره ${m.groupValues[1]} گامه" },
     Regex("""^(\d+) ms$""") to { m -> "${m.groupValues[1]} میلی‌ثانیه" },
     Regex("""^(\d+) sec$""") to { m -> "${m.groupValues[1]} ثانیه" },
-    // MARBLE_SESSION_USAGE_V192 — session durations in the detail page's usage section.
+
     Regex("""^(\d+) min$""") to { m -> "${m.groupValues[1]} دقیقه" },
     Regex("""^(\d+)m ago$""") to { m -> "${m.groupValues[1]} دقیقه پیش" },
     Regex("""^(\d+)h ago$""") to { m -> "${m.groupValues[1]} ساعت پیش" },
     Regex("""^(\d+)d ago$""") to { m -> "${m.groupValues[1]} روز پیش" },
     Regex("""^just now$""") to { _ -> "همین حالا" },
-    // MARBLE_DOCK_SLOT_V167 — the fourth tab's config picker names its own cap.
+
     Regex("""^Showing the first (\d+) configs — search to narrow them down\.$""") to { m ->
         "نمایش ${m.groupValues[1]} کانفیگ اول • برای محدودکردن جست‌وجو کنید."
     }

@@ -11,19 +11,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_RESERVED_TAG_COLLISION_V183 — `Xray exited with code 23: … app/proxyman/outbound:
- * existing tag found: block`.
- *
- * Two serverless profiles (`Serverless-v50-fragA`/`-fragB`) failed identically at load because the
- * imported document already defined a `block` outbound and the hardener appended a second one.
- * These tests pin the whole contract: the emitted document has unique tags, imported hops that
- * collide are renamed with their references, the core's `direct`/`block` protocol aliases are read
- * as infrastructure, and the failure — should it ever return — is classified as a document fault.
- */
 class ReservedTagCollisionV183Test {
-
-    /** The upstream XTLS serverless shape, with the bare names hand-edited derivatives use. */
     private fun serverlessWithReservedTags(): String = JSONObject()
         .put(
             "outbounds",
@@ -98,8 +86,7 @@ class ReservedTagCollisionV183Test {
         assertEquals("every emitted outbound tag must be unique: $emitted", emitted.size, emitted.toSet().size)
         assertEquals("exactly one block outbound", 1, emitted.count { it == "block" })
         assertEquals("blackhole", outbound(config, "block")!!.getString("protocol"))
-        // The hardener's `direct` is the one the routing rules reference; the imported one is
-        // renamed, not silently dropped or merged.
+
         assertEquals(1, emitted.count { it == "direct" })
         assertEquals("freedom", outbound(config, "direct")!!.getString("protocol"))
         assertFalse("the imported dns outbound must not shadow dns-out", emitted.count { it == "dns-out" } > 1)
@@ -109,11 +96,7 @@ class ReservedTagCollisionV183Test {
     fun `the imported fragment chain survives the rename with its dialerProxy intact`() {
         val settings = AppSettings(routingMode = RoutingMode.PROXY_ALL)
         val config = JSONObject(XrayConfigHardener.harden(serverlessWithReservedTags(), 21080, settings))
-        // MARBLE_CORE_OPTIONS_V211 — the app no longer emits a `tls-fragment` outbound of its own,
-        // so an imported hop that carries that tag no longer collides with anything the hardener
-        // appends: it keeps the name the user's document gave it. What the chapter still owes an
-        // imported chain is the whole chain — the hop itself, the dialer link under it, and the
-        // selection that makes it the exit.
+
         val selected = outbound(config, "tls-fragment")
         assertNotNull("the imported fragment hop is the selected exit under its own tag", selected)
         assertEquals(
@@ -121,7 +104,7 @@ class ReservedTagCollisionV183Test {
             selected!!.getJSONObject("streamSettings").getJSONObject("sockopt").getString("dialerProxy")
         )
         assertNotNull(outbound(config, "full-fragment"))
-        // The routing fallback rule sends unmatched traffic to the selected hop.
+
         val rules = config.getJSONObject("routing").getJSONArray("rules")
         val last = rules.getJSONObject(rules.length() - 1)
         assertEquals("tls-fragment", last.getString("outboundTag"))
@@ -140,7 +123,7 @@ class ReservedTagCollisionV183Test {
             .put(JSONObject().put("tag", "import-direct").put("protocol", "freedom"))
         val renames = XrayConfigHardener.renameReservedImportedTags(outbounds)
         assertEquals("import-block", renames["block"])
-        // `import-direct` already exists, so the alias must step aside.
+
         assertEquals("import-direct-2", renames["direct"])
         val proxy = outbounds.getJSONObject(1)
         assertEquals("import-direct-2", proxy.getJSONObject("streamSettings").getJSONObject("sockopt").getString("dialerProxy"))
@@ -199,8 +182,6 @@ class ReservedTagCollisionV183Test {
         assertEquals("1.2.3.4", profile.host)
     }
 
-    // ------------------------------------------------------------------ failure classification
-
     private val exit23 =
         "Xray exited with code 23: 2026/09/15 10:05:27.212311 [Info] app/dns: DNS: created DOH client " +
             "for https://1.1.1.1/dns-query, with h2c false | 2026/09/15 10:05:27.212344 [Info] app/dns: " +
@@ -230,7 +211,7 @@ class ReservedTagCollisionV183Test {
         val fault = XrayStartFailure.classify("", runtime)
         assertNotNull(fault)
         assertEquals(XrayStartFailure.Kind.DUPLICATE_OUTBOUND_TAG, fault!!.kind)
-        // A later successful start makes the failure history, not a current fault.
+
         val recovered = runtime + "\n2026-09-15T10:06:00.000000Z | thread=pool-40-thread-1 | XRAY | start-result | " +
             "session=mu2iaz00-a4ac6e18 | ok=true | elapsedMs=410 | phase=ready | alive=true"
         assertNull(XrayStartFailure.classify("", recovered))

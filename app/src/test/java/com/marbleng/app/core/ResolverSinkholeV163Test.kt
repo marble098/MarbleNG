@@ -28,7 +28,6 @@ import org.junit.Test
  *    no traffic, because the fork's parser drops both keys and verifies the fronted SNI.
  */
 class ResolverSinkholeV163Test {
-
     private val t0 = 1_700_000_000_000L
     private companion object {
         const val PLAIN_LINK =
@@ -45,8 +44,6 @@ class ResolverSinkholeV163Test {
             "www.google.com. > Post \"$endpoint\": tls: failed to verify certificate: x509: " +
             "certificate has expired or is not yet valid: current time 2026-09-08T22:01:10+03:30 " +
             "is after 2026-07-10T04:40:15Z"
-
-    // ------------------------------------------------------------------ domestic resolvers
 
     @Test
     fun `domestic anti-sanction resolvers are recognised by host, ccTLD and literal`() {
@@ -71,11 +68,10 @@ class ResolverSinkholeV163Test {
             listOf(cloudflare, quad9),
             ResolverEvidencePolicy.withoutExcluded(pool, evidence, t0 + 60_000L)
         )
-        // A proven answer after the failure clears the exclusion — a renewed certificate must
-        // not stay banned for the TTL.
+
         val recovered = ResolverEvidencePolicy.recordSuccess(google, evidence, t0 + 120_000L)
         assertTrue(ResolverEvidencePolicy.excluded(pool, recovered, t0 + 180_000L).isEmpty())
-        // And the exclusion expires on its own.
+
         assertTrue(
             ResolverEvidencePolicy.excluded(
                 pool, evidence, t0 + ResolverEvidencePolicy.CERT_BROKEN_TTL_MS + 1L
@@ -88,16 +84,14 @@ class ResolverSinkholeV163Test {
         val evidence = ResolverEvidencePolicy.observe(
             sequenceOf(expiredLine(cloudflare)), emptyList(), t0
         )
-        // Only a cert-broken endpoint: kept as last resort rather than emitting nothing.
+
         assertEquals(listOf(cloudflare), ResolverEvidencePolicy.withoutExcluded(listOf(cloudflare), evidence, t0))
-        // Cert-broken plus domestic: the cert-broken one survives, the domestic one never does.
+
         assertEquals(
             listOf(cloudflare),
             ResolverEvidencePolicy.withoutExcluded(listOf(shecan, cloudflare), evidence, t0)
         )
     }
-
-    // ------------------------------------------------------------------ Xray resolver graph
 
     private fun proxySource(): String = JSONObject()
         .put(
@@ -144,19 +138,15 @@ class ResolverSinkholeV163Test {
         assertFalse("shecan must never be asked through the tunnel: $remote", remote.any { it.contains("shecan") })
         assertFalse("a cert-broken endpoint leaves the graph: $remote", remote.any { it == google })
         assertEquals("a healthy stock resolver leads", cloudflare, remote.first())
-        // The non-adaptive path drops the domestic entry as well.
+
         val plain = JSONObject(
             XrayConfigHardener.harden(proxySource(), 21080, AppSettings(adaptiveDnsEnabled = false, dnsPrimaryDoH = shecan))
         )
         assertFalse(remoteDnsAddresses(plain).any { it.contains("shecan") })
     }
 
-    // ------------------------------------------------------------------ freedom strategy
-
     @Test
     fun `no freedom hop ever carries the deprecated domainStrategy alias`() {
-        // MARBLE_CORE_OPTIONS_V211 — no fragment chain is generated any more, so this asserts
-        // the wider rule: *every* freedom hop the document ends up with is alias-free.
         val settings = AppSettings()
         val root = JSONObject(XrayConfigHardener.harden(proxySource(), 21080, settings))
         val outbounds = root.getJSONArray("outbounds")
@@ -191,12 +181,10 @@ class ResolverSinkholeV163Test {
             "ForceIPv4",
             outbound.getJSONObject("streamSettings").getJSONObject("sockopt").getString("domainStrategy")
         )
-        // AsIs means "write nothing", exactly as the core migrates it.
+
         XrayConfigHardener.writeFreedomResolveStrategy(outbound, "AsIs")
         assertFalse(outbound.getJSONObject("streamSettings").getJSONObject("sockopt").has("domainStrategy"))
     }
-
-    // ------------------------------------------------------------------ sing-box pinned peer
 
     private val pinnedLink =
         "vless://2857d647-4d55-4a13-adc2-3b3063c735df@vps1.example.org:8443" +
@@ -213,13 +201,10 @@ class ResolverSinkholeV163Test {
     fun `a pcs or vcn share link is detected and translated with insecure for sing-box`() {
         assertTrue(SingBoxConfigBuilder.linkCarriesPin(pinnedLink))
         assertFalse(SingBoxConfigBuilder.linkCarriesPin(PLAIN_LINK))
-        // MARBLE_SINGBOX_PINNED_COMPAT_V164 — pinned configs are no longer refused; the
-        // translator handles them with tls.insecure: true. pinnedPeerRefusal() always returns
-        // null, letting the normal candidate-selection flow handle pinning.
+
         assertNull(SingBoxConfigBuilder.pinnedPeerRefusal(linkProfile(pinnedLink)))
         assertNull(SingBoxConfigBuilder.pinnedPeerRefusal(linkProfile(PLAIN_LINK)))
 
-        // A pinned stored JSON is now supported via the translated path with insecure:true.
         val storedJson = JSONObject().put(
             "outbounds",
             JSONArray().put(
@@ -264,15 +249,12 @@ class ResolverSinkholeV163Test {
             )
         ).toString()
         val profile = ProxyProfile(id = "p", name = "p", scheme = "vless", raw = "", configJson = json)
-        // MARBLE_SINGBOX_PINNED_COMPAT_V164 — pinned configs are no longer refused; the
-        // translator handles them with tls.insecure: true.
+
         assertNull(SingBoxConfigBuilder.pinnedPeerRefusal(profile))
         val support = SingBoxConfigBuilder.describe(profile, AppSettings())
         assertTrue("pinned stored json must be supported via translated strategy", support.supported)
         assertTrue("tls-pinning note must be present", support.notes.any { it.contains("tls-pinning") })
     }
-
-    // ------------------------------------------------------------------ sing-box resolver graph
 
     @Test
     fun `the sing-box dns graph drops domestic and excluded endpoints and races on evidence`() {

@@ -14,21 +14,9 @@ import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * One acceleration method, expressed as a delta on top of the user's own configuration.
- *
- * A plan never disables something the user (or Iran Mode) asked for: every method only *adds*
- * transport behaviour, so an accelerated route is still the route the user configured.
- */
 data class AccelerationPlan(
     val methodId: String = DIRECT,
     val label: String = "Direct baseline",
-    /**
-     * MARBLE_CORE_OPTIONS_V211 — the fragment fields that used to live here are gone with the
-     * feature. What is left is a plan over the options a *measurement* can legitimately choose
-     * between: the endpoint address family, TCP Fast Open, an MSS and — only when the user has
-     * multiplexing on — which concurrency to run it at.
-     */
     val mux: Boolean = false,
     val muxConcurrency: Int = 0,
     val muxXudpConcurrency: Int = 0,
@@ -40,7 +28,6 @@ data class AccelerationPlan(
     val gainPercent: Double = 0.0,
     val at: Long = 0L
 ) {
-    /** True when the method changes nothing, i.e. the node was already configured optimally. */
     val neutral: Boolean
         get() = !mux && dnsQueryStrategy.isBlank() && !tcpFastOpen && tcpMaxSeg <= 0
 
@@ -93,7 +80,6 @@ data class AccelerationPlan(
     }
 }
 
-/** Result of executing one method against the selected node through a real Xray instance. */
 data class TuningTrial(
     val methodId: String,
     val label: String,
@@ -117,41 +103,15 @@ data class TuningReport(
     val gainPercent: Double,
     val trials: List<TuningTrial>,
     val summary: String,
-    /** True when the winner differs from the plan already applied to this node. */
     val changed: Boolean
 ) {
     val healthy: Boolean get() = trials.any { it.success > 0 }
 }
 
-/**
- * Marble Turbo — the measured acceleration stage.
- *
- * Where [MarbleIntelligence] predicts from history and [ContinuousRouteOptimizer] compares *other*
- * nodes, this class improves the node the user actually selected. It executes a bounded set of
- * transport methods (Mux concurrency when the user runs Mux, DNS address family, TCP Fast Open,
- * MSS) against
- * that single node through throwaway Xray instances, measures real HTTPS latency and real
- * throughput for each, and keeps the winner only when it beats the untouched baseline by a
- * material margin. Because the exit node never changes, acceleration is safe to run with
- * Identity Guard pinned.
- */
-// MARBLE_FAST_STRATEGY_RACE_V14
-// MARBLE_EXTREME_NETWORK_V30
-// MARBLE_REALTIME_ENGINE_V70
 class ConnectionTuner(
     private val xray: XrayManager,
     private val intelligence: MarbleIntelligence
 ) {
-    /**
-     * Executes acceleration methods for one profile and returns the measured winner.
-     *
-     * @param base settings *without* any previously learned acceleration, so every pass starts
-     *   from the user's own configuration and re-proves its own conclusion.
-     * @param budgetMs hard wall-clock budget. The baseline is always measured first, so an
-     *   exhausted budget degrades to "keep what the user configured", never to a guess.
-     * @param measureSpeed adds a bounded download to each trial. Off for the connect path (ping
-     *   first, connect fast), on for background passes where speed evidence is the point.
-     */
     fun accelerate(
         profile: ProxyProfile,
         base: AppSettings,
@@ -163,26 +123,6 @@ class ConnectionTuner(
         val thermal = intelligence.thermalBudget(base)
         if (thermal < 0.40) return null
 
-        /*
-         * MARBLE_TUNING_MEASUREMENT_PLANE_V134 — a trial is not "one HTTPS GET".
-         *
-         * `runTrial` probes `cp.cloudflare.com`, a *domain*, through a throwaway Xray core whose own
-         * encrypted DNS is routed through the tunnel it is measuring. One trial therefore costs a
-         * core start, a DoH lookup (three tunnel round trips) and the GET (four more). Two constants
-         * ignored that:
-         *
-         *  - the throwaway core was hardened with `LinkEvidence.UNKNOWN`, so it kept the legacy
-         *    1350/1650 ms resolver budgets that V133 proved cannot survive a slow route. On the
-         *    267–444 ms link in the attached runtime log every trial died inside DNS;
-         *  - the pass budget (`connectTuningBudgetSec`, 4–12 s) was set independently of the trial
-         *    budget (`min(benchTimeoutSec,4) × 1000`), so a pass could be too short to contain even
-         *    one trial. That is the Home-ping `responders=1` defect, one layer down.
-         *
-         * A pass that measures nothing reports an unhealthy verdict, and an unhealthy verdict is what
-         * escalated the Turbo backoff to 1800 s. Both budgets now come from the same measured
-         * evidence that sizes the live tunnel, with the legacy constants kept as floors so an
-         * unmeasured link behaves exactly as it did before.
-         */
         val link = intelligence.linkEvidenceFor(profile.id)
         val legacyTrialMs = (min(base.benchTimeoutSec, 4).coerceAtLeast(2)) * 1_000L
         val trialTimeoutMs = LinkDeadlinePolicy.tuningTrialTimeoutMs(link, floorMs = legacyTrialMs)
@@ -193,7 +133,6 @@ class ConnectionTuner(
             requestedMs = budgetMs.coerceIn(3_000L, 15_000L)
         )
 
-        // Stage 1: broad + shallow. Race every compatible strategy with one real HTTPS sample.
         val deadline = System.currentTimeMillis() + passBudgetMs
         val methods = methodsFor(profile, base, thermal)
         if (methods.size < 2) return null
@@ -224,7 +163,6 @@ class ConnectionTuner(
         val fastScored = measured.map { it.copy(score = score(it, false, base.workloadProfile)) }
         val fastBest = fastScored.filter { it.success > 0 }.maxByOrNull { it.score }
 
-        // Stage 2: confirm only baseline + strongest challenger. Speed is optional and tiny.
         if (fastBest != null && System.currentTimeMillis() + MIN_REFINE_MS < deadline) {
             val winnerPlan = methods.firstOrNull { it.methodId == fastBest.methodId }
             val refinePlans = listOfNotNull(
@@ -259,10 +197,6 @@ class ConnectionTuner(
             summarize(profile, winner, chosenTrial, baselineScored, gain, scored.size), changed)
     }
 
-    /**
-     * True when this node deserves a measured pass before it starts carrying traffic: nothing fresh
-     * has been proven for it on this physical network yet, or its last evidence says it struggles.
-     */
     fun shouldPreTune(profile: ProxyProfile, settings: AppSettings): Boolean {
         if (!settings.connectTuningEnabled) return false
         if (settings.connectTuningBudgetSec <= 0) return false
@@ -271,10 +205,6 @@ class ConnectionTuner(
         return true
     }
 
-    /**
-     * The methods that are physically meaningful for this node, most promising first.
-     * The first entry is always the untouched baseline.
-     */
     fun methodsFor(
         profile: ProxyProfile,
         base: AppSettings,
@@ -295,9 +225,6 @@ class ConnectionTuner(
         val highRtt = (health?.latencyEwma ?: 0.0) >= 150.0
         val struggling = (health?.failureStreak ?: 0) > 0 || (health?.successEwma ?: 100.0) < 70.0
 
-        // MARBLE_CORE_OPTIONS_V211 — the tuner competes *concurrency values inside a choice the
-        // user already made*, never the choice itself: multiplexing has to be on in Settings for
-        // any of these to exist, and the two candidates are the numbers around the user's own.
         val muxMethods = if (muxEligible && base.muxEnabled) {
             listOf(
                 AccelerationPlan(
@@ -319,8 +246,6 @@ class ConnectionTuner(
             emptyList()
         }
 
-        // Forcing one address family removes a dead AAAA/A dial from every new connection, which
-        // is pure connect-latency on links that advertise both but only route one.
         val dnsMethods = if (
             snapshot.hasIpv4 &&
             snapshot.hasIpv6 &&
@@ -336,8 +261,7 @@ class ConnectionTuner(
                 label = "IPv6-only endpoint resolution",
                 dnsQueryStrategy = "UseIPv6"
             )
-            // Both candidates are measured through real Xray instances. This is family racing by
-            // evidence, not a hard-coded assumption that every dual-stack network prefers IPv4.
+
             if (base.preferIpv6) listOf(v6, v4) else listOf(v4, v6)
         } else {
             emptyList()
@@ -359,8 +283,7 @@ class ConnectionTuner(
 
         val comboMethods = buildList {
             val mux = muxMethods.lastOrNull()
-            // A combo inherits whichever family the tuner ranked first; hard-coding "-dns-v4" here is
-            // how an IPv6-preferred network silently got tested and tuned back onto IPv4.
+
             val dns = dnsMethods.firstOrNull()
             if (mux != null && dns != null) add(mux.copy(methodId="mux-${dns.methodId}", label="Mux concurrency + ${dns.label.lowercase()}", dnsQueryStrategy=dns.dnsQueryStrategy))
             val tfo = tfoMethods.firstOrNull(); val mss = mssMethods.firstOrNull()
@@ -431,10 +354,6 @@ class ConnectionTuner(
             workload, BenchMode.BALANCED).selected
     }
 
-    /**
-     * Hysteresis. A method has to win clearly on the axis it claims to improve, and it may never
-     * pay for that win with a large regression on the other axis.
-     */
     private fun materialGain(candidate: TuningTrial, baseline: TuningTrial): Boolean {
         if (candidate.success <= 0) return false
         if (baseline.success <= 0) return true

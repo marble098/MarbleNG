@@ -7,7 +7,6 @@ data class TransportTelemetrySnapshot(val atMs:Long,val sockets:Int,val rttMs:In
  val rttVarMs:Int,val retransDelta:Int,val totalRetrans:Int,val lost:Int,val unacked:Int,val pmtu:Int,
  val mss:Int,val cwndPackets:Int,val pacingBps:Long,val deliveryBps:Long,val lostDelta:Int=0){
  fun fresh(now:Long=System.currentTimeMillis(),maxAgeMs:Long=7000)=atMs>0&&now-atMs in 0L..maxAgeMs}
-/** Reads live Xray TCP_INFO JSONL only. MARBLE_REALTIME_ENGINE_V70 */
 object TransportTelemetry{
  fun latest(file:File):TransportTelemetrySnapshot?{
   if(!file.isFile||file.length()<=0)return null

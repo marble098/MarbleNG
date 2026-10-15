@@ -9,18 +9,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_CORE_OPTIONS_V211 — the contract of the two cores' custom options.
- *
- * Everything in [CoreOptions] is pure: settings in, one JSON object out, no policy calls. That is
- * what makes the promise of this release testable — the values below are the user's, they are
- * written verbatim, and the only thing that may refuse them is the escape hatch itself.
- */
 class CoreOptionsV211Test {
-
     private fun JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }
-
-    // ── sniffing ─────────────────────────────────────────────────────────────────────────────
 
     @Test
     fun destOverrideKeepsTheUsersOrderAndDropsWhatTheCoreDoesNotKnow() {
@@ -61,8 +51,6 @@ class CoreOptionsV211Test {
         assertEquals(true, metadata.getBoolean("metadataOnly"))
     }
 
-    // ── inbounds ─────────────────────────────────────────────────────────────────────────────
-
     @Test
     fun socksUdpIsTheUsersBooleanAndNotAnOmission() {
         assertEquals(
@@ -74,8 +62,6 @@ class CoreOptionsV211Test {
             CoreOptions.xraySocksSettings(AppSettings(xraySocksUdpEnabled = false)).getBoolean("udp")
         )
     }
-
-    // ── the socket ───────────────────────────────────────────────────────────────────────────
 
     @Test
     fun sockoptWritesOnlyTheValuesTheUserChanged() {
@@ -110,14 +96,8 @@ class CoreOptionsV211Test {
         assertEquals("a field the user left alone survives", 120_000, sockopt.getInt("tcpUserTimeout"))
     }
 
-    // ── policy, log ──────────────────────────────────────────────────────────────────────────
-
     @Test
     fun theRoutingKeysHaveNoSecondWriterOnThisPage() {
-        // MARBLE_CORE_OPTIONS_V211 — `routing.domainStrategy` and `routing.domainMatcher` are the
-        // Routing page's own fields, written by the hardener. A writer here would be a second
-        // writer for one key, and one of the two would silently lose: the pinned core's options
-        // page names the control instead of duplicating it.
         assertFalse(
             "CoreOptions must not expose a second routing-strategy writer",
             CoreOptions::class.java.declaredMethods.any { it.name.contains("RoutingStrategy") }
@@ -144,8 +124,6 @@ class CoreOptionsV211Test {
         assertEquals(true, CoreOptions.xrayLog(AppSettings(xrayDnsLog = true)).getBoolean("dnsLog"))
         assertEquals("error", CoreOptions.xrayLog(AppSettings(xrayLogLevel = "not-a-level")).getString("loglevel"))
     }
-
-    // ── the escape hatch ─────────────────────────────────────────────────────────────────────
 
     @Test
     fun objectsMergeKeyByKeyAndArraysReplace() {
@@ -217,8 +195,6 @@ class CoreOptionsV211Test {
 
     @Test
     fun singBoxGuardsItsOwnRoutingBlockName() {
-        // sing-box calls the routing block `route`, so the Xray set would leave the rules the
-        // Routing page computed open to replacement. The refusal is whole, and it names the key.
         assertEquals(
             setOf("inbounds", "outbounds", "route", "dns", "log"),
             CoreOptions.SINGBOX_PROTECTED_KEYS
@@ -237,8 +213,6 @@ class CoreOptionsV211Test {
 
     @Test
     fun singBoxLeavesTheUnprotectedSurfaceMergeable() {
-        // An object patch merges key by key, so a user's `cache_file` sits next to the Clash API
-        // entry the builder wrote instead of deleting it.
         val target = JSONObject()
             .put("experimental", JSONObject().put("clash_api", JSONObject().put("secret", "app")))
         val merged = CoreOptions.merge(

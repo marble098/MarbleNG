@@ -10,12 +10,6 @@ import androidx.annotation.RequiresApi
 import java.io.Closeable
 import java.util.concurrent.Executor
 
-/**
- * Android 11+ diagnostics that complement Marble's synthetic HTTPS probes.
- *
- * This callback is advisory: a data-stall signal requests immediate validation, while the
- * existing fail-closed service state machine remains the only component allowed to recover.
- */
 object ConnectivityDiagnosticsObserver {
     enum class Kind {
         DATA_STALL,

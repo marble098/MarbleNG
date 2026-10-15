@@ -16,7 +16,6 @@ data class ProxyProfile(
     val security: String = "",
     val subscriptionId: String = "manual",
     val subscriptionName: String = "Manual",
-    /** True for nodes owned by remote subscription refresh; false for user-added nodes. */
     val sourceManaged: Boolean = true
 ) {
     fun toJson() = JSONObject().apply {
@@ -77,16 +76,9 @@ data class BenchmarkResult(
     val streamingScore: Double = 0.0,
     val stabilityScore: Double = 0.0,
     val resilienceScore: Double = 0.0,
-    /** True when the probe that produced this row ran a Mux concurrency the user had not set. */
     val usedMux: Boolean = false,
-    /**
-     * Evidence tier shown in Library. SMART is the endpoint-gate/Smart verdict; TUNNEL proves the
-     * full Xray route. Address-level methods are internal primitives and never published here.
-     */
     val probeKind: String = "TUNNEL",
-    /** Robust EWMA IPDV; misses break adjacency. MARBLE_REALTIME_ENGINE_V70 */
     val jitterMs: Double = 0.0,
-    /** First verified response timing; never used as the final delay when a warmer try wins. */
     val warmupMs: Double = 0.0,
     val sampleCount: Int = 0,
     val p90LatencyMs: Double = 0.0,
@@ -96,36 +88,12 @@ data class BenchmarkResult(
     val madLatencyMs: Double = 0.0,
     val lossPercent: Double = 0.0,
     val spikePercent: Double = 0.0,
-    /** RTT while a bounded throughput probe was in flight; zero means unknown. */
     val loadedLatencyMs: Double = 0.0,
-    /** Compact stage evidence retained for Bug Finder; never shown as a synthetic ping. */
     val failureReason: String = "",
-    /**
-     * MARBLE_SMART_RANK_V90: successful handshakes / total attempts across the 2-3 backoff
-     * retries the rank probe performs before it settles on a verdict. 0.0 means unknown (legacy
-     * single-shot paths). This is the TCP-handshake-success signal in the weighted multi-signal
-     * score, so one HTTPS timeout can no longer fail an otherwise healthy node.
-     */
     val tcpHandshakeSuccessRatio: Double = 0.0,
-    /** MARBLE_SMART_RANK_V90: total handshake attempts the probe performed before settling. */
     val handshakeAttempts: Int = 0,
-    /**
-     * MARBLE_REMEMBERED_PING_V160 — wall-clock stamp of the measurement itself.
-     *
-     * `0` means "older than this field", which is what every in-memory result of a running
-     * session carries until it is written down: the stamp is set where the result is stored,
-     * because that is the moment it becomes history instead of a live reading.
-     */
     val measuredAtMs: Long = 0L
 ) {
-    /**
-     * MARBLE_REMEMBERED_PING_V160 — the compact disk form of one measurement.
-     *
-     * Only the fields a later launch actually reads are written: every number the Library row,
-     * the Servers sort, the Home ping readout and the Quality page consume, and nothing the
-     * product recomputes anyway. `name` is stored because a result can outlive the profile's own
-     * row by one refresh and a nameless measurement is worse than none.
-     */
     fun toJson() = JSONObject().apply {
         put("profileId", profileId)
         put("name", name)
@@ -193,12 +161,6 @@ data class BenchmarkResult(
 
 data class ConnectionRecord(val profileId: String, val name: String, val at: Long, val reason: String)
 
-/**
- * MARBLE_SESSION_USAGE_V192 — the bytes one connection carried, from its CONNECTED moment to
- * its teardown. The repository keeps a bounded history of these (newest first) so the Home
- * status box can answer "this session" and "last session" and the detail page can answer "this
- * server, all time".
- */
 data class UsageSessionRecord(
     val profileId: String,
     val name: String,
@@ -232,13 +194,6 @@ enum class RoutingMode { PROXY_ALL, BYPASS_PRIVATE, GEO_DIRECT, CUSTOM }
 enum class RoutingRuleKind { GEOSITE, GEOIP, DOMAIN, IP, PORT }
 enum class RoutingOutbound { PROXY, DIRECT, BLOCK }
 
-/**
- * MARBLE_ROUTING_MODEL_V136 — one user rule maps to one Xray `type: field` rule.
- *
- * v2rayNG/RoutingEditActivity parity: a rule may combine a primary matcher ([kind] + [matcher])
- * with optional port, network and protocol refinements, and every rule carries a human remark.
- * Order in the list is priority; the first matching rule wins inside the engine.
- */
 data class RoutingRule(
     val id: String,
     val enabled: Boolean = true,
@@ -246,14 +201,8 @@ data class RoutingRule(
     val matcher: String,
     val outbound: RoutingOutbound,
     val remark: String = "",
-    /** Optional Xray `network` refinement: "", "tcp", "udp" or "tcp,udp". */
     val network: String = "",
-    /** Optional Xray `protocol` list, comma separated (e.g. "quic,bittorrent"). */
     val protocol: String = "",
-    /**
-     * Optional Xray `port` refinement ("443", "80,8443", "1000-2000"). The PORT kind keeps its
-     * ports here too, so one field always means one thing.
-     */
     val port: String = ""
 ) {
     fun toJson() = JSONObject().apply {
@@ -295,33 +244,11 @@ data class GeoAssetSource(
 )
 enum class SplitTunnelMode { ALL_APPS, ONLY_SELECTED, BYPASS_SELECTED }
 enum class WorkloadProfile { AUTO, INTERACTIVE, STREAMING, STABILITY, STEALTH }
-/**
- * MARBLE_SERVERS_QUERY_V120 — how the Servers list is ordered.
- *
- * [DEFAULT] keeps the order the source itself published (a subscription owner numbers their nodes
- * on purpose); [COUNTRY] groups the list by the country resolved from each node's label.
- */
 enum class NodeSortMode { DEFAULT, PING, SCORE, NAME, PROTOCOL, SOURCE, COUNTRY }
 
-/**
- * MARBLE_SERVER_TILE_LAYOUT_V208 — how one server is drawn on a page.
- *
- * The Servers page and the Home server box have always had exactly one silhouette: a full-width
- * row, one server per line. For a subscription with 200 nodes that is a wall of text where the
- * only thing a user actually scans — the flag, the name and the latency — is spread across the
- * full width of the screen, so the useful information is diluted by the empty middle of every row.
- *
- * [GRID] is the compact answer: a small tile per server, several per line, each tile carrying the
- * same three facts and nothing else. It is a *presentation* choice and nothing more — the same
- * filter, the same sort, the same measurement and the same tap-to-select semantics as [ROW], which
- * is why both live behind one preference and one policy object
- * ([com.marbleng.app.ui.ServerTilePolicy]) rather than being two features that can drift apart.
- */
 enum class ServerLayout(val id: String) {
-    /** One server per line: the full-width row. */
     ROW("row"),
 
-    /** Small server tiles, several per line. */
     GRID("grid");
 
     companion object {
@@ -337,35 +264,6 @@ fun parseServerLayout(raw: String): ServerLayout =
             else -> ServerLayout.DEFAULT
         }
 
-/**
- * MARBLE_HOME_PING_CONTROLS_V212 — what one Home ping control does when it is tapped.
- *
- * The report: *"the home page has two ping buttons; one of them is not clickable and the other
- * is. Both must be clickable, and Settings must be able to say what each one does."*
- *
- * The finding behind it is that the product had already decided the question twice, in opposite
- * directions. V208 declared the gauge a *readout* ("a gauge that also happens to be a button is
- * two controls in one silhouette") and made the shortcut-deck pill a display too, leaving the
- * header's pulse as the only verb. But both of those surfaces are the two things a user's thumb
- * actually lands on while looking at a latency number, and an object that looks pressable, sits
- * where a button sits and never answers is not a calm instrument — it is a dead key.
- *
- * So the rule now is the inverse: **every ping surface on Home is a control**, and the difference
- * between them is not "clickable or not" but *which measurement it runs*. That is a preference,
- * so it lives in [AppSettings] — three fields, one per surface — and this enum is the vocabulary
- * of all three:
- *
- *  - [ROUTE]   measure the one server the page is showing (the tunnel while one is up, the
- *              selected route while it is down). The narrowest, most honest question.
- *  - [GROUP]   sweep the subscription the route belongs to, so the page's own number can be
- *              compared against its peers.
- *  - [LIBRARY] sweep the whole library: the bulk verb that used to live only on the Servers page.
- *  - [TESTS]   open the Tests workspace instead of measuring: for a user whose answer is "show me
- *              how measurement is configured", not "measure again".
- *
- * Two controls may be pointed at the same action — that is the user's choice, not a defect — and
- * every action is a real destination, so no control can ever be a no-op again.
- */
 enum class HomePingAction(val id: String) {
     ROUTE("route"),
     GROUP("group"),
@@ -377,7 +275,6 @@ enum class HomePingAction(val id: String) {
     }
 }
 
-/** Lenient parser: an older or mistyped id resolves to a real action, never to a dead button. */
 fun parseHomePingAction(raw: String): HomePingAction =
     HomePingAction.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: when (raw.trim().lowercase()) {
@@ -388,31 +285,6 @@ fun parseHomePingAction(raw: String): HomePingAction =
             else -> HomePingAction.DEFAULT
         }
 
-/**
- * MARBLE_MULTI_SOURCE_ROUTING_V212 — how finely the routing layer separates traffic.
- *
- * The report: *"routing sends Iranian traffic direct, but it is still weak: some Iranian sites and
- * apps still go through the proxy."*
- *
- * The cause is not one bad rule, it is one *database*. Every geo database is a snapshot somebody
- * published, and the `.ir` category in any of them is a list of domains somebody maintained. An
- * Iranian banking portal added last month, a messenger that publishes on a CDN, a ride-hailing app
- * that talks to an unlisted API host — none of them are in a category that a rule can name, so
- * they fall through to the proxy default. No single source can close that gap, and neither can a
- * union of sources, because they all share the same blind spot.
- *
- * Precision is therefore a dial, not a switch:
- *
- *  - [STANDARD]  the geo tags the user configured, and nothing else. This is the old behaviour,
- *                kept for a user who wants exactly the routing they can see.
- *  - [ENHANCED]  the geo tags *plus* the product's own curated Iranian-destination knowledge
- *                ([com.marbleng.app.core.IranPrecisionPack]) — domestic TLDs, banks, government,
- *                messengers, ride-hailing, e-commerce, CDN and ISP ranges. The shipped default,
- *                because it is the level at which "Iranian traffic stays direct" is actually true.
- *  - [MAXIMUM]   [ENHANCED] plus keyword-level matching for the domestic suffixes, so a host
- *                nobody has ever published still reads as domestic. It costs a little matching
- *                time on every new connection, which is why it is a choice and not the default.
- */
 enum class GeoPrecision(val id: String) {
     STANDARD("standard"),
     ENHANCED("enhanced"),
@@ -423,7 +295,6 @@ enum class GeoPrecision(val id: String) {
     }
 }
 
-/** Lenient parser: an unknown precision resolves to the shipped default, never to "no rules". */
 fun parseGeoPrecision(raw: String): GeoPrecision =
     GeoPrecision.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: when (raw.trim().lowercase()) {
@@ -433,15 +304,6 @@ fun parseGeoPrecision(raw: String): GeoPrecision =
             else -> GeoPrecision.DEFAULT
         }
 
-/**
- * MARBLE_CORE_OPTIONS_V211 — every list a per-core option surface draws is a value here.
- *
- * The two pinned cores do not share a vocabulary — Xray spells its log levels
- * `error`/`warning` and sing-box spells them `warn`/`fatal`, Xray calls multiplexing `mux` and
- * sing-box calls it `multiplex` — so the lists live in the model as data and the writers index
- * them by name. A control that offers a value its own core would reject is a control that
- * silently does nothing, which is exactly what this chapter exists to remove.
- */
 object XrayLogLevels {
     val ALL: List<String> = listOf("none", "error", "warning", "info", "debug")
 
@@ -449,7 +311,6 @@ object XrayLogLevels {
         ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "error"
 }
 
-/** sing-box `log.level`, in the order the core's own documentation lists them. */
 object SingBoxLogLevels {
     val ALL: List<String> = listOf("trace", "debug", "info", "warn", "error", "fatal", "panic")
 
@@ -457,12 +318,6 @@ object SingBoxLogLevels {
         ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "warn"
 }
 
-/**
- * Xray `sockopt.domainStrategy` — how a destination name becomes an address for the dial.
- *
- * The list is the core's, verbatim (`common/session` + `infra/conf/transport_internet.go`):
- * `AsIs`, `UseIP`, `UseIPv4`, `UseIPv6`, `ForceIP`, `ForceIPv4`, `ForceIPv6`.
- */
 object XrayDomainStrategies {
     val ALL: List<String> = listOf(
         "AsIs", "UseIP", "UseIPv4", "UseIPv6", "ForceIP", "ForceIPv4", "ForceIPv6"
@@ -472,13 +327,6 @@ object XrayDomainStrategies {
         ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "AsIs"
 }
 
-/**
- * sing-box `multiplex.protocol`.
- *
- * `h2mux` is what the fork's own docs recommend below a dozen streams, `yamux` above it and for
- * anything that must survive a lossy path, `smux` is the protocol Marble's earlier translator
- * wrote and is kept so a restored backup keeps dialling.
- */
 object SingBoxMuxProtocols {
     val ALL: List<String> = listOf("h2mux", "smux", "yamux")
 
@@ -486,7 +334,6 @@ object SingBoxMuxProtocols {
         ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "h2mux"
 }
 
-/** Xray `mux.xudpProxyUDP443`: what a multiplexed UDP flow to port 443 does. */
 object XrayMuxUdp443Modes {
     val ALL: List<String> = listOf("skip", "allow", "reject")
 
@@ -494,54 +341,22 @@ object XrayMuxUdp443Modes {
         ALL.firstOrNull { it.equals(raw.trim(), ignoreCase = true) } ?: "skip"
 }
 
-/**
- * iOS-styled fixed Home Presentations.
- *
- * All 4 themes use iOS glass card styling, fixed screen height (no outer page scroll),
- * and inner scrollable components where needed.
- *
- * MARBLE_HOME_THEME_TWO_DEFAULT_V160 — a fresh install opens on Theme 2: the floating action
- * button is the presentation whose primary control is always under the thumb and whose servers
- * box is the widest of the four, which is what a first-time user needs before they have chosen
- * anything. An install that already picked a presentation keeps it — [AppStore] only falls back
- * to the default when no value was ever persisted, so an update never rearranges a Home the
- * user has already made theirs.
- */
 enum class HomeStyle(val id: String) {
-    /** Theme 1: Bottom Slide-to-connect slider, centered sub name with inner scrollable servers list, wide status card at top. */
     IOS_SLIDER("ios_slider"),
 
-    /** Theme 2: Right floating action button that splits into disconnect and ping on connect, wide status card at top, expanded servers box. */
     IOS_FLOATING("ios_floating"),
 
-    /** Theme 3: Bold embossed center circular connect button, wide status card at top, sub & servers box at bottom. */
     IOS_EMBOSSED("ios_embossed"),
 
-    /** Theme 4: Modular customizable dashboard allowing user to rearrange widgets and toggle components. */
     IOS_MODULAR("ios_modular"),
 
-    /**
-     * MARBLE_ROUTE_ATELIER_V207 — the route presentation: one decision card, one verb resolved from
-     * the connection state, and a signet of the three stages between this device and its exit that
-     * paints a stage only when there is evidence for it. Every earlier presentation is untouched;
-     * this one exists because the four of them turned one grammar into four dialects.
-     */
     ROUTE_ATELIER("route_atelier");
 
     companion object {
-        /**
-         * The presentation a first launch opens with, and the one an unreadable stored value
-         * resolves to. One name, so the model, the store and the parser can never disagree
-         * about which theme the product defaults to.
-         */
-        // MARBLE_ROUTE_ATELIER_V207 — a fresh install opens on the route presentation. Every
-        // presentation before it stays selectable, and a stored choice is never rewritten by this:
-        // the default is what an app with no preference yet shows, nothing more.
         val DEFAULT: HomeStyle get() = ROUTE_ATELIER
     }
 }
 
-/** How tall and airy modular Home cards render in the modular theme. */
 enum class ModularCardSize(val id: String) {
     COMPACT("compact"),
     COMFORTABLE("comfortable"),
@@ -560,16 +375,10 @@ fun parseHomeStyle(raw: String): HomeStyle = when (raw.trim().lowercase()) {
     "ios_embossed", "embossed", "circle", "theme_3", "cosmic_immersion" -> HomeStyle.IOS_EMBOSSED
     "ios_modular", "modular", "custom", "theme_4" -> HomeStyle.IOS_MODULAR
     "route_atelier", "route", "atelier", "theme_5" -> HomeStyle.ROUTE_ATELIER
-    // MARBLE_HOME_THEME_TWO_DEFAULT_V160 — a retired or unreadable id opens on the presentation
-    // a fresh install gets, not on a face the product no longer defaults to.
+
     else -> HomeStyle.DEFAULT
 }
 
-/**
- * MARBLE_TEXT_SCALE_V215 — the text-size ladder for the whole app. The steps are the ones a
- * person can tell apart on a phone; anything stored outside the ladder is clamped into it so a
- * hand-edited or restored preference can never make the screen unreadable.
- */
 object TextScale {
     const val DEFAULT_PERCENT = 100
     const val MIN_PERCENT = 85
@@ -578,16 +387,9 @@ object TextScale {
 
     fun clamp(percent: Int): Int = percent.coerceIn(MIN_PERCENT, MAX_PERCENT)
 
-    /** Multiplier applied on top of the system font scale. */
     fun factor(percent: Int): Float = clamp(percent) / 100f
 }
 
-/**
- * MARBLE_BILINGUAL_V110
- *
- * Product language. SYSTEM follows the Android device locale on every launch; EN/FA are explicit
- * user overrides that persist like any other preference.
- */
 enum class AppLanguage(val id: String) {
     SYSTEM("system"),
     ENGLISH("en"),
@@ -598,17 +400,6 @@ fun parseAppLanguage(raw: String): AppLanguage =
     AppLanguage.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: AppLanguage.SYSTEM
 
-/**
- * User-selectable product typefaces.
- *
- * MARBLE_GOOGLE_SANS_DEFAULT_V160: [GOOGLE_SANS] is the typeface a fresh install opens with —
- * the product's own geometric sans identity, which is what the brand surfaces were drawn
- * against. Persian copy still forces the bundled Vazirmatn ramp inside AetherTheme whatever the
- * Latin choice is, so Persian shaping never degrades: see the `persian` branch of
- * `aetherTypography`, which is the only place a whole screen switches faces.
- *
- * MARBLE_SYSTEM_FONT_V112: SYSTEM renders with the device's own default typeface.
- */
 enum class AppFont(val id: String, val label: String) {
     VAZIR("vazir", "Vazir"),
     SYSTEM("system", "System"),
@@ -616,10 +407,6 @@ enum class AppFont(val id: String, val label: String) {
     TIMES_NEW_ROMAN("times_new_roman", "Times New Roman");
 
     companion object {
-        /**
-         * The typeface a fresh install opens with. One name, so [AppStore], [parseAppFont] and
-         * the theme's own default can never disagree about what "default font" means.
-         */
         val DEFAULT: AppFont get() = GOOGLE_SANS
     }
 }
@@ -628,28 +415,6 @@ fun parseAppFont(raw: String): AppFont =
     AppFont.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: AppFont.DEFAULT
 
-/**
- * MARBLE_CONNECT_BUTTON_V121 — the connection-button silhouettes, selectable from Settings.
- *
- * Every model renders correctly inside every Home presentation: the model controls the button's
- * own drawing while each Home style supplies its own tone and halo, so a choice is never tied to
- * a specific theme. None of them ever drifts or changes position — the primary action of the
- * product stays exactly where the finger expects it, and only colour and copy animate.
- *
- *  - [ROUND]    the large round shutter. The product default.
- *  - [SLIDE]    a slide-to-connect track the user drags from left to right, like a safety switch.
- *  - [CLASSIC]  the classic rectangular power switch of the old desktop clients.
- *
- * MARBLE_CONNECT_BUTTON_STYLES_V132 — two docked additions. Both live at the floor of the Home
- * page instead of inside the hero, so the primary action is always one thumb away without the
- * artwork having to fight it for space:
- *
- *  - [STREAM]   a full-width floor bar carrying a light band that travels right to left across
- *               the track. The motion is the button's own "the route is live" language: it only
- *               runs while the tunnel is up, and it reads identically in LTR and RTL.
- *  - [FLOATING] a compact pill floating above the bottom edge of the page, v2rayNG-style but
- *               docked rather than draggable, so it can never cover the readouts behind it.
- */
 enum class ConnectButtonStyle(val id: String) {
     ROUND("round"),
     SLIDE("slide"),
@@ -666,10 +431,6 @@ fun parseConnectButtonStyle(raw: String): ConnectButtonStyle =
             else -> ConnectButtonStyle.ROUND
         }
 
-/**
- * MARBLE_NIGHT_OUTLINES_V112 — dark-theme frame outline personality. The user can strengthen
- * every card/frame hairline, tint it with the brand accent, or dissolve the borders entirely.
- */
 enum class DarkOutlineStyle(val id: String) {
     SUBTLE("subtle"),
     BOLD("bold"),
@@ -681,98 +442,26 @@ fun parseDarkOutlineStyle(raw: String): DarkOutlineStyle =
     DarkOutlineStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: DarkOutlineStyle.SUBTLE
 
-/**
- * MARBLE_HOME_SESSION_EVIDENCE_V110
- *
- * Lifecycle of the one-shot Home connection ping. FAILED is a first-class outcome: a probe that
- * got no verified response must say so instead of displaying an estimate.
- */
 enum class ConnectionPingState { IDLE, MEASURING, MEASURED, FAILED }
 
-/** Live state of one node inside a running test batch, shown on the node's own card. */
 enum class ProbeState { IDLE, QUEUED, TESTING }
 
-/**
- * MARBLE_PATTNG_PING_V151 — the ping menu is now the PattNG menu, and nothing else.
- *
- * V148 shipped seven methods. Five of them were estimates dressed up as measurements:
- *
- *  - `HYBRID` ("Smart") published an *endpoint gate* latency when the tunnel test could not run,
- *    so the number on Home described a TCP handshake, not the route.
- *  - `TCP_RECOMMENDED` measured a TLS ServerHello, which is a filter probe, not a delay.
- *  - `HTTP_GET` / `HTTP_HEAD` measured a public 204 origin whenever no tunnel was up — identical
- *    for every server in the list.
- *  - `ICMP` never leaves the device, so on a censored mobile link it reported the carrier, not
- *    the node.
- *
- * Two of them were real, and they are the two PattNG (patterniha/PattNG, the v2rayNG fork) uses:
- *
- *  - **Real delay** — `RealPingWorkerService.startRealPing`: a raw TCP connect to `server:port`
- *    as a cheap liveness gate (skipped for protocols where a handshake proves nothing), then the
- *    *core itself* measures an HTTP round trip through the tunnel to the delay-test URL. The
- *    published number is the core's, so it is the number the tunnel really has.
- *  - **TCP ping** — `RealPingWorkerService.startTcping` → `SpeedtestManager.socketConnectTime`:
- *    one `Socket.connect(host, port, timeout)`, and the wall-clock milliseconds it took, or a
- *    failure. Nothing is inferred from it.
- *
- * The third entry is the sing-box extended **URL test**: the core's own Clash API delay endpoint
- * (`GET /proxies/{tag}/delay?url=&timeout=`), which measures through the selected outbound with
- * unified-delay accounting. It exists because sing-box extended can measure a route MarbleNG
- * cannot see from Kotlin.
- *
- * The shared measurement budget ([PingBudget]) still decides the timeout, the sample count and
- * the concurrency of every one of them.
- */
 enum class ProbeMethod {
-    /** PattNG real delay: TCP gate, then a real round trip through the core to [DelayTest.URL]. */
     REAL_DELAY,
 
-    /** PattNG TCP ping: one raw `Socket.connect` to the node's own address, timed. */
     TCP_PING,
 
-    /** sing-box extended URL test: the core's native delay endpoint through the live tunnel. */
     URL_TEST;
 
-    /** True when the verdict is a property of `host:port` and can be shared across duplicates. */
     fun isEndpointLevel(): Boolean = this == TCP_PING
 }
 
-/**
- * MARBLE_PATTNG_PING_V151 — the URL a real-delay / URL-test measurement fetches.
- *
- * The primary stays PattNG's `DELAY_TEST_URL` and a `generate_204` endpoint remains the right
- * shape of target: the answer is empty, so the measurement is a round trip and not a download.
- * The user can override the primary from Settings → Tests.
- *
- * MARBLE_CENSORSHIP_REACH_TARGETS_V166 moved the two fallbacks off PattNG's second Google
- * spelling and onto two different operators (Cloudflare, Firefox), because on a network that
- * filters Google a same-operator fallback is dead code — see [DelayTest.URL_SECONDARY].
- */
 object DelayTest {
     const val URL = "https://www.gstatic.com/generate_204"
 
-    /**
-     * MARBLE_CENSORSHIP_REACH_TARGETS_V166 — the fallback origins are three different network
-     * operators, never two spellings of the same one.
-     *
-     * The old pair was gstatic and then google.com — one operator twice. On a network that
-     * filters Google (the documented national-filter behaviour; see the IRAN_AWARE_PING
-     * target-pool note in RouteProbe) the "fallback" died with the primary, so every config on
-     * BOTH cores measured unreachable even when the tunnel itself was healthy: Xray's real
-     * delay walks exactly these candidates through its SOCKS inbound, and sing-box's URL test
-     * hands the same list to the core's delay endpoint. Restricted internet therefore did not
-     * just hide the number, it declared every server dead.
-     *
-     * The two replacements pick operators a national filter costs more to block: Cloudflare's
-     * own generate_204 (an empty 204 on a globally anycast CDN fleet) and Firefox's captive
-     * portal marker (a tiny 200 that networks deliberately keep open so hotspot detection
-     * works). Both are HTTPS with no user info, so the URL-test contract (UrlTestTarget)
-     * accepts them unchanged.
-     */
     const val URL_SECONDARY = "https://cp.cloudflare.com/generate_204"
     const val URL_TERTIARY = "https://detectportal.firefox.com/success.txt"
 
-    /** The raw TCP liveness gate PattNG runs before it spends a core on a node. */
     const val TCP_GATE_TIMEOUT_MS = 1_000
 
     fun url(configured: String): String =
@@ -780,8 +469,7 @@ object DelayTest {
             it.startsWith("http://", ignoreCase = true) ||
                 it.startsWith("https://", ignoreCase = true)
         }?.let { candidate ->
-            // URL-test is an HTTP client, not a string-prefix check. Reject malformed values here
-            // so a bad preference can never turn every node into a red result.
+
             runCatching {
                 val parsed = java.net.URI(candidate)
                 require(parsed.host.orEmpty().isNotBlank())
@@ -790,16 +478,6 @@ object DelayTest {
             }.getOrNull()
         } ?: URL
 
-    /**
-     * Deterministic fallbacks for networks that filter one public generate_204 origin.
-     *
-     * MARBLE_CENSORSHIP_REACH_TARGETS_V166 — the shared walk contract (ProbeTargetWalk.MAX_TARGETS)
-     * bounds one server at three distinct origins, so the pool stays at exactly three and every
-     * entry belongs to a different operator: the configured primary, then the two censorship-
-     * resilient origins above. Both cores consume this one list — Xray real delay through its
-     * SOCKS inbound and sing-box through its own delay endpoint — which is what makes the pool
-     * the measurement plane the product's ping promises.
-     */
     fun candidates(configured: String): List<String> = buildList {
         add(url(configured))
         add(URL_SECONDARY)
@@ -807,28 +485,6 @@ object DelayTest {
     }.distinct()
 }
 
-/**
- * MARBLE_PING_CONTROL_V145 — the user-owned measurement budget of the whole ping engine.
- *
- * ## Why this exists
- *
- * Every ping entry point in the product used to hard-code its own budget *below* whatever the
- * engine was configured with, so the numbers on screen were the numbers of whichever clamp
- * happened to be narrowest:
- *
- *  - `AppRepository.testSource` rewrote a sweep to `benchSamples = 1, benchTimeoutSec = 2` for
- *    TCP/ICMP/DNS/Smart, i.e. one single SYN with a two-second budget for every server of a
- *    subscription. A route that answers in 2.4 s — perfectly usable — was reported dead.
- *  - `RouteProbe.smartPing` clamped the caller's budget into `1_200..6_000 ms` and always
- *    measured exactly one sample, so "Smart ping" was a single un-averaged handshake.
- *  - The Home ping clamped its budget into `500..8_000 ms`.
- *  - Concurrency was `max(tcpWorkers, 24).coerceAtMost(32)`: it could neither be lowered on a
- *    weak link (where 32 parallel handshakes distort every number) nor raised on a fast one.
- *
- * A measurement whose budget is decided by four competing clamps is not a measurement. These
- * three values are the single budget now: the user picks them once and every probe — Home,
- * group ping, Ping all, per-server ping — obeys exactly them.
- */
 object PingBudget {
     const val TIMEOUT_MIN_SEC = 1
     const val TIMEOUT_MAX_SEC = 30
@@ -837,30 +493,12 @@ object PingBudget {
     const val CONCURRENCY_MIN = 1
     const val CONCURRENCY_MAX = 64
 
-    /** Quiet time between two samples of the same server, so a burst is never measured. */
     const val SAMPLE_SPACING_MS = 60L
 
-    /** Per-server timeouts offered as one-tap choices (seconds). */
     val TIMEOUT_CHOICES = listOf(2, 3, 5, 10, 15)
 
-    /** Samples per server offered as one-tap choices. */
     val SAMPLE_CHOICES = listOf(1, 2, 3, 5, 8)
 
-    /**
-     * Parallel servers offered as one-tap choices.
-     *
-     * MARBLE_PING_PARALLEL_V200 — the old six were 1/2/4/8/16/32 and nothing else, so the only
-     * numbers between "my phone is melting" and "as wide as it gets" were powers of two. A
-     * six-core phone had no honest home in that list, and neither did a flagship: the ladder
-     * this product now computes recommends 10 for a quad-core and 20 for a sixteen-core, and
-     * neither number was selectable.
-     *
-     * The chips therefore contain every width [PingParallel.recommend] can produce on any
-     * device — including 10, 13 and 20, which are not round but are what the arithmetic
-     * actually asks for — plus the wide end for a user who would rather have the speed than
-     * the accuracy. [PingParallelTest] pins the containment in both directions, so widening
-     * the ladder without widening this list is a test failure, not a silent gap.
-     */
     val CONCURRENCY_CHOICES = listOf(1, 2, 3, 4, 6, 8, 10, 12, 13, 16, 20, 24, 32, 48, 64)
 
     fun timeoutSec(value: Int): Int = value.coerceIn(TIMEOUT_MIN_SEC, TIMEOUT_MAX_SEC)
@@ -869,15 +507,6 @@ object PingBudget {
 
     fun concurrency(value: Int): Int = value.coerceIn(CONCURRENCY_MIN, CONCURRENCY_MAX)
 
-    /**
-     * Wall clock one server may consume: every sample gets the full per-sample budget, plus the
-     * inter-sample spacing the prober inserts, plus scheduling grace. Pure, so the batch
-     * deadline derived from it stays unit-testable.
-     *
-     * The V199 overload takes the *effective* spacing (the base [SAMPLE_SPACING_MS] divided by
-     * the speed dial), so a sweep's batch deadline describes the pacing the prober will really
-     * use. The two-argument form stays the shipped-spacing budget.
-     */
     fun perServerBudgetMs(timeoutSec: Int, samples: Int, spacingMs: Long): Long {
         val perSample = timeoutSec(timeoutSec) * 1_000L
         val rounds = samples(samples)
@@ -888,21 +517,6 @@ object PingBudget {
         perServerBudgetMs(timeoutSec, samples, SAMPLE_SPACING_MS)
 }
 
-/**
- * MARBLE_PING_PARALLEL_V200 — who decides how many servers a sweep measures at once.
- *
- * Until V200 the product shipped exactly one answer to a question that is really two: the
- * "Servers at once" chips set a number, the speed dial then multiplied it, and the Real-delay
- * path ignored both and used `min(cpus, 4) × dial` instead. So the knob existed but could not
- * express the one thing the user actually knows — *how much CPU this phone has* — and the
- * default was a guess made for a flagship.
- *
- * [AUTO] reads the device (core count and memory class), picks a width the device can carry,
- * and keeps it current: the recommendation is recomputed, never persisted, so a user who
- * upgrades phones is not stuck on the width their old one earned. [MANUAL] hands the dial
- * back to the chips. Either way the value flows through [PingBudget.concurrency], so the legal
- * 1..64 range still cannot be escaped.
- */
 enum class PingParallelMode(val id: String) {
     AUTO("auto"),
     MANUAL("manual");
@@ -920,7 +534,6 @@ fun parsePingParallelMode(raw: String): PingParallelMode =
             else -> PingParallelMode.DEFAULT
         }
 
-/** How much parallel measurement one device can honestly carry. */
 enum class PingDeviceClass(val id: String) {
     MODEST("modest"),
     STANDARD("standard"),
@@ -932,51 +545,20 @@ enum class PingDeviceClass(val id: String) {
     }
 }
 
-/**
- * MARBLE_PING_PARALLEL_V200 — the width of one sweep, derived from the device that runs it.
- *
- * The whole object is pure and takes the device as arguments, because "how many cores does this
- * phone have" is not a question a data class may answer on its own: a unit test must be able to
- * ask what an eight-core 8 GB device gets without running on one.
- *
- * Three inputs, in descending authority:
- *
- *  - **cores** — the real limit. A measurement is one socket parked in a `connect()` for most
- *    of its life, but each one still owns a thread, a file descriptor and (for Real delay) a
- *    whole native core process, so a quad-core device running 32 of them is not measuring
- *    faster, it is measuring *noisier*: every number in the batch is inflated by the other 31.
- *  - **memory** — the second limit. Each in-flight measurement holds socket buffers, and the
- *    native-child paths hold a process. A 1 GB device is demoted one class even when its core
- *    count looks capable.
- *  - **method** — Real delay spawns a throwaway core per server, so it pays a process per slot
- *    where TCP ping pays a thread. Its width is two thirds of the direct sweep's.
- *
- * The result is always inside [PingBudget.CONCURRENCY_MIN]..[PingBudget.CONCURRENCY_MAX].
- */
 object PingParallel {
     const val MIN = PingBudget.CONCURRENCY_MIN
     const val MAX = PingBudget.CONCURRENCY_MAX
 
-    /** A device reporting fewer cores than this is lying or exotic; one core is the floor. */
     const val CORES_FLOOR = 1
 
-    /** Past this, more cores stop buying width: the sweep is limited by the network, not the CPU. */
     const val CORES_CEILING = 16
 
-    /** Memory classes, in megabytes, as Android reports them. */
     const val MEM_LOW_MB = 1_536L
     const val MEM_MID_MB = 3_072L
     const val MEM_HIGH_MB = 6_144L
 
-    /** The width a user gets who never opens the setting: a four-core phone's honest number. */
     const val FALLBACK = 8
 
-    /**
-     * The device class a core count and a memory figure describe.
-     *
-     * Memory can demote a device by at most one class and never promotes one: a 2 GB
-     * sixteen-core handset is a real configuration, and it cannot carry sixteen measurements.
-     */
     fun deviceClass(cores: Int, memoryMb: Long): PingDeviceClass {
         val byCores = when (cores.coerceIn(CORES_FLOOR, 64)) {
             1 -> PingDeviceClass.MODEST
@@ -996,14 +578,6 @@ object PingParallel {
         }
     }
 
-    /**
-     * The width one device should run, before the speed dial touches it.
-     *
-     * The ladder is deliberately gentle at the bottom and flat at the top. One and two core
-     * devices get 2 and 4 — enough to overlap a slow handshake or two without starving the
-     * frame clock — and everything past eight cores gets the same 16, because past that the
-     * sweep's wall clock is set by the network and by the remote end's patience, not by us.
-     */
     fun recommend(cores: Int, memoryMb: Long, method: ProbeMethod): Int {
         val c = cores.coerceIn(CORES_FLOOR, 64)
         val base = when (deviceClass(c, memoryMb)) {
@@ -1012,15 +586,11 @@ object PingParallel {
             PingDeviceClass.CAPABLE -> if (c <= 5) 10 else 12
             PingDeviceClass.STRONG -> if (c < CORES_CEILING) 16 else 20
         }
-        // Real delay pays a native process per slot; the direct sweep pays a thread.
+
         val byMethod = if (method == ProbeMethod.REAL_DELAY) (base * 2) / 3 else base
         return byMethod.coerceIn(MIN, MAX)
     }
 
-    /**
-     * The width a sweep actually runs: the device's own number in [PingParallelMode.AUTO], the
-     * user's chip in [PingParallelMode.MANUAL].
-     */
     fun resolve(
         settings: AppSettings,
         cores: Int,
@@ -1031,14 +601,9 @@ object PingParallel {
         PingParallelMode.MANUAL -> PingBudget.concurrency(settings.pingConcurrency)
     }
 
-    /** The number the AUTO row of the setting shows, i.e. what the device earned. */
     fun autoFor(settings: AppSettings, cores: Int, memoryMb: Long): Int =
         recommend(cores, memoryMb, settings.probeMethod)
 
-    /**
-     * One sentence for the setting's summary line: what the device is, and what it bought.
-     * Pure, so the UI and the diagnostics log say the same thing.
-     */
     fun describe(cores: Int, memoryMb: Long, method: ProbeMethod): String {
         val coresText = if (cores <= 1) "1 core" else "$cores cores"
         val memText = when {
@@ -1050,65 +615,26 @@ object PingParallel {
     }
 }
 
-/**
- * MARBLE_PING_SPEED_DIAL_V199 — the speed dial of every ping measurement.
- *
- * V160 made each measurement itself cheaper (one session for every Real-delay sample, tight
- * readiness polls, a device-sized measurement pool) without touching a sample count or a
- * timeout. V199 adds the one thing a speed label always implied and the product never had: a
- * single dial over how fast the *sweeps* run, with an honest default.
- *
- * The dial changes exactly two things, and both are time, never truth:
- *
- *  - **width** — how many servers are measured at once (the direct sweep pool, and the throwaway
- *    Xray-child pool a Real-delay sweep runs on);
- *  - **pacing** — the quiet gap between two samples of one server, and the anti-probing stagger
- *    of the multi-sample gate.
- *
- * It never changes a sample count, a per-sample timeout, a delay-test target or the median —
- * so a number measured at one dial position is comparable with the same server measured at
- * another. The shipped default (the dial switched off) is [DEFAULT_FACTOR]: every sweep runs
- * about 1.5× wider/faster-paced than the V160 baseline, which is the "about 50 % faster" the
- * product now promises for all three methods. When the user turns the dial on, the percent IS
- * the multiplier against that same V160 baseline — 100 % is the classic pace, 50 % half of it,
- * 200 % twice it — so the default and the manual scale are one ruler, not two.
- *
- * Pure: every consumer derives its own number from [factor], and the whole policy is pinned by
- * unit tests in both directions.
- */
 object PingSpeed {
-    /** The dial's own scale, in percent of the V160 baseline pace. */
     const val MIN_PERCENT = 50
     const val MAX_PERCENT = 200
     const val DEFAULT_PERCENT = 100
     const val STEP_PERCENT = 5
 
-    /**
-     * The speed a sweep runs at when the dial is switched off: about 1.5× the V160 baseline —
-     * the shipped "about 50 % faster" default for all three ping methods.
-     */
     const val DEFAULT_FACTOR = 1.5
 
-    /** Below this the readout says the sweep is trading speed for gentleness. */
     const val SLOW_PERCENT = 95
 
-    /** Above this the readout says the sweep is running hot. */
     const val FAST_PERCENT = 150
 
     fun percent(value: Int): Int = value.coerceIn(MIN_PERCENT, MAX_PERCENT)
 
-    /** Snap a slider percent to the dial's [STEP_PERCENT] grid, inside the legal range. */
     fun stepped(rawPercent: Double): Int =
         percent(((rawPercent / STEP_PERCENT).roundToInt()) * STEP_PERCENT)
 
-    /**
-     * The effective speed multiplier of one measurement: [DEFAULT_FACTOR] when the dial is off,
-     * otherwise the user's own percent of the V160 baseline.
-     */
     fun factor(custom: Boolean, dialPercent: Int): Double =
         if (!custom) DEFAULT_FACTOR else percent(dialPercent) / 100.0
 
-    /** One-word verdict shown beside the slider; the number itself is always shown too. */
     fun label(custom: Boolean, dialPercent: Int): String =
         if (!custom) {
             "Default"
@@ -1121,60 +647,23 @@ object PingSpeed {
         }
 }
 
-/** Per-server socket budget, in milliseconds, exactly as the user configured it. */
 fun AppSettings.pingTimeoutMs(): Int = PingBudget.timeoutSec(pingTimeoutSec) * 1_000
 
-/** Samples measured per server before a median is published. */
 fun AppSettings.pingSampleCount(): Int = PingBudget.samples(pingSamples)
 
-/**
- * MARBLE_PING_SPEED_DIAL_V199 — the effective speed multiplier of this measurement: the shipped
- * default (dial off) or the user's own percent of the V160 baseline.
- */
 fun AppSettings.pingSpeedFactor(): Double = PingSpeed.factor(pingSpeedCustom, pingSpeedPercent)
 
-/**
- * Servers measured at the same time, at the dial's speed.
- *
- * The dial scales the width of the direct sweep, not the user's chip: "16 servers at once" at
- * the shipped default runs 24-wide, because the default promise is about 50 % more sweep per
- * second. The result is clamped through [PingBudget.concurrency] exactly like a raw value, so
- * the legal range can never be escaped by arithmetic.
- */
 fun AppSettings.pingWorkers(): Int =
     PingBudget.concurrency((pingConcurrency * pingSpeedFactor()).roundToInt())
 
-/**
- * MARBLE_PING_PARALLEL_V200 — servers measured at the same time, resolved for this device and
- * this method, at the dial's speed.
- *
- * This is the one width a sweep asks for. [PingParallelMode.AUTO] substitutes the device's own
- * number for the chip, [PingParallelMode.MANUAL] keeps the chip, and the dial scales whichever
- * won — so "16 at once" still means the same thing on every phone, but the *default* is no
- * longer a flagship's guess on a four-core device. The result goes through
- * [PingBudget.concurrency] exactly like a raw value.
- */
 fun AppSettings.pingWorkers(cores: Int, memoryMb: Long, method: ProbeMethod = probeMethod): Int =
     PingBudget.concurrency(
         (PingParallel.resolve(this, cores, memoryMb, method) * pingSpeedFactor()).roundToInt()
     )
 
-/**
- * MARBLE_PING_SPEED_DIAL_V199 — quiet time between two samples of one server, at the dial's
- * speed. The base gap exists so a multi-sample run is never a burst an adaptive filter can
- * learn; the dial only moves how long the quiet is. Scaled from [PingBudget.SAMPLE_SPACING_MS]
- * and clamped well away from both a burst (20 ms floor) and a stall (300 ms ceiling).
- */
 fun AppSettings.pingSampleSpacingMs(): Long =
     (PingBudget.SAMPLE_SPACING_MS / pingSpeedFactor()).roundToLong().coerceIn(20L, 300L)
 
-/**
- * MARBLE_DOCK_CUSTOM_V145 — how large the bottom navigation bar renders.
- *
- * The dock is the one chrome element present on every page, so its footprint is a user choice
- * rather than a constant: a small bar hands ~20 dp of height back to the content, a large one
- * is easier to hit with a thumb on a big phone.
- */
 enum class DockSize(val id: String) {
     SMALL("small"),
     MEDIUM("medium"),
@@ -1189,23 +678,6 @@ fun parseDockSize(raw: String): DockSize =
             else -> DockSize.MEDIUM
         }
 
-/**
- * MARBLE_DOCK_SLOT_V167 — what the fourth slot of the bottom bar opens.
- *
- * The bar used to be exactly three tabs, and the fourth one is not a fourth *page* the product
- * invents for everyone: it is the slot a user fills with the thing they reach for most. Three
- * shapes cover every request that has come in — a whole subscription, one exact config, and the
- * live pulse of the running route with the tools that act on it:
- *
- *  - [SOURCE] one source (a subscription, or the local Manual bucket), scoped exactly like the
- *    Servers page scopes it, with that source's own verbs: refresh, ping, rank;
- *  - [CONFIG] one saved config, with the product's own connect control and its measurement;
- *  - [PULSE]  the live route — state, uptime, rates, jitter, score — plus the tools that act on
- *    the whole library (rank, ping, refresh, diagnostics).
- *
- * [PULSE] is the default because it is the only one of the three that is meaningful on a fresh
- * install with an empty library, so the fourth slot is never a blank page.
- */
 enum class DockSlotKind(val id: String) {
     PULSE("pulse"),
     SOURCE("source"),
@@ -1224,13 +696,6 @@ fun parseDockSlotKind(raw: String): DockSlotKind =
             else -> DockSlotKind.DEFAULT
         }
 
-/**
- * MARBLE_DOCK_SLOT_V167 — the glyph the fourth slot draws.
- *
- * Four silhouettes, none of them one of the three fixed tabs: a pulse trace, a spark, a stack of
- * layers and a bearing. They are drawn by the same Canvas that draws the other three tabs, so the
- * chosen one keeps the bar's optical weight instead of arriving as a foreign icon.
- */
 enum class DockSlotIcon(val id: String) {
     PULSE("pulse"),
     SPARK("spark"),
@@ -1251,7 +716,6 @@ fun parseDockSlotIcon(raw: String): DockSlotIcon =
             else -> DockSlotIcon.DEFAULT
         }
 
-/** Accent family for the user's fourth navigation slot. */
 enum class DockSlotAccent(val id: String) {
     OCEAN("ocean"),
     MINT("mint"),
@@ -1273,82 +737,34 @@ fun parseDockSlotAccent(raw: String): DockSlotAccent =
             else -> DockSlotAccent.DEFAULT
         }
 
-/** Longest caption the dock will draw for the fourth slot, in characters. */
 const val DOCK_SLOT_CAPTION_MAX: Int = 14
 
-/** The English default caption of a [DockSlotKind.PULSE] slot, translated at the call site. */
 const val DOCK_SLOT_CAPTION_PULSE: String = "Pulse"
 
-/** The English default caption of a slot that has no target to name yet. */
 const val DOCK_SLOT_CAPTION_FALLBACK: String = "Custom"
 
-/**
- * MARBLE_DOCK_SLOT_V167 — the caption the dock prints for the fourth slot.
- *
- * The user's own words always win; a blank caption is filled in by what the slot actually opens,
- * so a tab can never be an anonymous rectangle. The result is bounded, because the bar divides
- * one row between four tabs and an unbounded caption is how a tab starts eliding its own name.
- */
 fun dockSlotCaption(configured: String): String =
     configured.trim().take(DOCK_SLOT_CAPTION_MAX)
 
-/**
- * The caption a slot uses when the user wrote none: the target's own name when it has one, and a
- * constant (`Pulse` / `Custom`) when it does not. Kept separate from [dockSlotCaption] so the two
- * constants can be translated at the call site without translating a user's own words.
- */
 fun dockSlotDefaultCaption(kind: DockSlotKind, targetName: String): String = when {
     kind == DockSlotKind.PULSE -> DOCK_SLOT_CAPTION_PULSE
     targetName.isNotBlank() -> targetName.trim().take(DOCK_SLOT_CAPTION_MAX)
     else -> DOCK_SLOT_CAPTION_FALLBACK
 }
 
-/**
- * MARBLE_DOCK_SLOT_V167 — the dock's slots, in render order.
- *
- * The fourth slot is a preference, not a fixture: a user who does not want it gets the three-tab
- * bar the product shipped before it, and the bar and the pager are handed the *same* list so they
- * can never disagree about how many tabs are on screen.
- */
 fun <T> dockSlots(all: List<T>, optional: T, showOptional: Boolean): List<T> =
     if (showOptional) all.toList() else all.filterNot { it == optional }
 
-/**
- * MARBLE_DOCK_SLOT_V167 — the page a remembered tab name opens in a dock that may be missing its
- * fourth slot.
- *
- * The name is persisted across launches, so an install that had the fourth slot selected and then
- * turned it off comes back asking for page 4 of a three-page pager. The index is therefore always
- * repaired into the list that is actually on screen: a hidden slot falls back to the first tab
- * instead of asking the pager for a page that does not exist.
- */
 fun <T> dockSlotIndex(slots: List<T>, remembered: T): Int {
     if (slots.isEmpty()) return 0
     return slots.indexOf(remembered).coerceIn(0, slots.lastIndex)
 }
 
-/**
- * MARBLE_DOCK_CUSTOM_V145 — the dock's content policy.
- *
- * Labels and icons are independent switches, but a bar with neither is not a navigation
- * control, it is three empty rectangles. These two functions resolve the requested pair into a
- * legal one exactly once, so the bar can never render blank whatever is persisted.
- */
 fun dockShowsIcons(showIcons: Boolean, showLabels: Boolean): Boolean = showIcons || !showLabels
 
 @Suppress("UNUSED_PARAMETER")
 fun dockShowsLabels(showIcons: Boolean, showLabels: Boolean): Boolean = showLabels
 
-/**
- * MARBLE_MODULAR_LAYOUT_V145 — the Theme 4 (customizer) module order, repaired.
- *
- * The persisted order is a free-form comma string, and Home used to render it literally. A
- * stored order that had lost an entry (an older build, a partial save, a hand-edited
- * preference) therefore dropped that module from the page for good — including CONNECT, which
- * left the user with a Home screen that cannot connect — and a duplicated entry rendered the
- * same card twice. The order is now always a permutation of exactly the known modules: unknown
- * tokens are dropped, duplicates collapse, and anything missing is appended in canonical order.
- */
 object ModularLayout {
     const val STATUS = "STATUS"
     const val SERVERS = "SERVERS"
@@ -1356,7 +772,6 @@ object ModularLayout {
     const val STATS = "STATS"
     const val SHORTCUTS = "SHORTCUTS"
 
-    /** Canonical order, also the factory default of [AppSettings.modularCardOrder]. */
     val CANONICAL = listOf(STATUS, SERVERS, CONNECT, STATS, SHORTCUTS)
 
     val DEFAULT_ORDER: String = CANONICAL.joinToString(",")
@@ -1372,14 +787,6 @@ object ModularLayout {
     fun serialize(order: List<String>): String = order(order.joinToString(",")).joinToString(",")
 }
 
-
-/**
- * Canonical MarbleNG routing baseline.
- *
- * Chocolate4U/Iran-v2ray-rules publishes a continuously updated `release` branch containing
- * Xray-compatible geoip.dat/geosite.dat. Signed CI builds also bundle the same two verified files,
- * so a blocked GitHub/raw endpoint can never prevent the first proxy connection.
- */
 object RoutingDefaults {
     const val GEOIP_URL =
         "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/release/geoip.dat"
@@ -1393,16 +800,6 @@ object RoutingDefaults {
     const val GEOSITE_DIRECT_TAGS = "ir"
     const val ADS_TAG = "category-ads-all"
     const val DOMAIN_STRATEGY = "IPIfNonMatch"
-    /**
-     * v2 — MARBLE_SMART_FAMILY_V136: installs migrated by v1 had IPv6 forced off; the smart
-     * address-family policy makes IPv6-on safe (underlay gate + per-node measurement), so this
-     * schema turns both family switches on exactly once. Any later user choice persists.
-     *
-     * v3 — MARBLE_MULTI_SOURCE_ROUTING_V212: routing reads a *set* of geo databases and separates
-     * domestic traffic with curated knowledge as well as geo tags. The set is seeded from the
-     * single source the install already used, and the precision dial lands on ENHANCED. Nothing
-     * that was working changes; a source the user adds later is theirs to keep.
-     */
     const val PREFS_SCHEMA_VERSION = 3
     const val SOURCE_CHOCOLATE4U = "chocolate4u-iran"
     const val STALE_ASSET_MS = 7L * 24L * 60L * 60L * 1000L
@@ -1428,10 +825,7 @@ object RoutingDefaults {
             geoIpUrl = "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat",
             geoSiteUrl = "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat"
         ),
-        // MARBLE_MULTI_SOURCE_ROUTING_V212 — a source that publishes ONE family is a source. This
-        // one exists so the interesting combination is reachable: v2fly's address database, which
-        // is the most conservatively maintained one there is, beside the Iranian domain database
-        // that actually knows domestic services. Picking it never costs the other source's family.
+
         GeoAssetSource(
             id = "v2fly-geoip",
             label = "v2fly geoip only",
@@ -1450,13 +844,8 @@ object RoutingDefaults {
         SOURCES.firstOrNull { it.id == id } ?: SOURCES.first()
 }
 
-/** How Iran Mode decides whether the anti-filtering engine should run. */
 enum class IranModePolicy { AUTO, ALWAYS_ON, OFF }
 
-/**
- * User-facing address-family contract. Unlike the legacy pair of booleans this cannot represent
- * contradictory states, and distinguishes a preference (safe fallback) from a force (fail closed).
- */
 enum class AddressFamilyMode {
     SMART,
     PREFER_IPV4,
@@ -1465,24 +854,6 @@ enum class AddressFamilyMode {
     FORCE_IPV6
 }
 
-/**
- * MARBLE_AUTO_SERVER_SELECTOR_V202 — how the automatic server selector ranks a pool.
- *
- * The strategies answer different questions, and the product now lets the user choose a built-in
- * strategy or build a weighted profile:
- *
- *  - [LEAST_PING]  "which route answers fastest right now" — the classic v2rayNG behaviour and
- *    still the right answer on a link where latency is the whole story.
- *  - [LEAST_LOAD]  "which route is least busy" — compare congestion under transfer and throughput.
- *  - [CUSTOM]      "what matters most to me" — tune ping, load, stability and evidence freshness.
- *  - [ROUND_ROBIN] "spread the wear" — deterministic, and independent of measurement, so it is
- *    also the honest choice when measurements are scarce.
- *  - [RANDOM]      "do not let anyone build a profile" — spreads traffic and defeats per-node
- *    throttling, at the cost of occasionally landing on the worst node in the pool.
- *  - [SMART]       "weigh everything we have measured" — latency, jitter, loss, throughput,
- *    recent failures, congestion-under-load and the age of the evidence, combined in
- *    [com.marbleng.app.core.AutoServerSelector].
- */
 enum class AutoServerStrategy(val id: String) {
     LEAST_PING("least_ping"),
     LEAST_LOAD("least_load"),
@@ -1507,11 +878,8 @@ fun parseAutoServerStrategy(raw: String): AutoServerStrategy =
             else -> AutoServerStrategy.DEFAULT
         }
 
-/** How wide the automatic selector's pool is. */
 enum class AutoServerScope(val id: String) {
-    /** Only the source currently shown on the Servers page. */
     SOURCE("source"),
-    /** Every enabled server in the library. */
     ALL("all");
 
     companion object {
@@ -1527,85 +895,45 @@ fun parseAutoServerScope(raw: String): AutoServerScope =
             else -> AutoServerScope.DEFAULT
         }
 
-/** Extension readers so the engine never parses a raw string twice. */
 val AppSettings.autoServerStrategyEnum: AutoServerStrategy
     get() = parseAutoServerStrategy(autoServerStrategy)
 
 val AppSettings.autoServerScopeEnum: AutoServerScope
     get() = parseAutoServerScope(autoServerScope)
 
-/** MARBLE_SERVER_TILE_LAYOUT_V208 — the parsed server silhouette; the string is only storage. */
 val AppSettings.serversLayoutEnum: ServerLayout
     get() = parseServerLayout(serversLayout)
 
-// MARBLE_SMART_DEFAULTS_V14
-// MARBLE_ULTIMATE_DEBUG_SETTING_V15
-// MARBLE_INTELLIGENCE_V24
-// MARBLE_SOURCE_TARGETING_V25_4
-// MARBLE_AURORA_UI_SETTINGS_V26
-// MARBLE_SYSTEM_THEME_MODEL_V32
-// MARBLE_KINETIC_GLASS_DEFAULT_V34
-// MARBLE_HOME_SUMMARY_VISIBILITY_V35
 data class AppSettings(
     val socksPort: Int = 10808,
     val localProxyPort: Int = 10101,
     val connectionMode: ConnectionMode = ConnectionMode.FULL_TUN,
 
-    // How nodes are measured, and how deep each measurement goes.
     val probeMethod: ProbeMethod = ProbeMethod.REAL_DELAY,
     val probeSpeedTest: Boolean = false,
 
-    /**
-     * MARBLE_PATTNG_PING_V151 — the URL every real delay / URL test fetches through the tunnel.
-     * PattNG's default; a blank or non-HTTP value falls back to [DelayTest.URL].
-     */
     val delayTestUrl: String = DelayTest.URL,
 
-    /**
-     * MARBLE_SINGBOX_CORE_V151 — which core carries the tunnel. See [com.marbleng.app.core.CoreEngine]:
-     * `xray` (default) or `singbox` (sing-box extended).
-     */
     val coreEngineId: String = "xray",
 
-    /** sing-box extended: measure a real round trip instead of trusting a cached handshake. */
     val singBoxUnifiedDelay: Boolean = true,
 
-    /** sing-box extended: per-connection dial budget, in seconds. */
     val singBoxConnectTimeoutSec: Int = 10,
 
-    /**
-     * sing-box extended: keep a cache file of resolved addresses and RDRC answers between runs.
-     * Off means every session resolves from scratch — slower to come up, but nothing is written
-     * to disk and a stale answer can never be reused.
-     */
     val singBoxCacheFile: Boolean = true,
 
-    /** Prefer the Extended link parser for link-only profiles. Stored canonical JSON always
-     * wins: the parser supports fewer XHTTP extras and must not discard edits or chain hops. */
     val singBoxPreferParser: Boolean = true,
 
-    // ── Xray core (PattNG-style) ──────────────────────────────────────────────
-    /** Xray `log.loglevel`: none / error / warning / info / debug. */
     val xrayLogLevel: String = "error",
-    /** Sniff HTTP/TLS/QUIC on the local SOCKS inbound so routing sees the real host. */
     val xraySniffingEnabled: Boolean = true,
-    /** `routeOnly`: sniff for routing, do not rewrite the destination. */
     val xraySniffingRouteOnly: Boolean = true,
-    /** Bind the local inbounds on 0.0.0.0 so LAN clients can use them. */
     val xrayAllowLan: Boolean = false,
-    /** Extra HTTP inbound port; 0 leaves it off. */
     val xrayHttpInboundPort: Int = 0,
 
-    // ── sing-box extended (Exclave-style) ─────────────────────────────────────
-    /** sing-box `log.level`: trace / debug / info / warn / error / fatal / panic. */
     val singBoxLogLevel: String = "warn",
-    /** Emit the route `sniff` action so protocol/domain routing can see the real host. */
     val singBoxSniffEnabled: Boolean = true,
-    /** Emit the route `resolve` action (Exclave "Resolve destination"). */
     val singBoxResolveDestination: Boolean = false,
-    /** Bind the mixed inbound on 0.0.0.0 so LAN clients can use it. */
     val singBoxAllowLan: Boolean = false,
-    /** Extra HTTP inbound port; 0 leaves it off. */
     val singBoxHttpInboundPort: Int = 0,
 
     val benchMode: BenchMode = BenchMode.BALANCED,
@@ -1616,140 +944,47 @@ data class AppSettings(
     val tcpPrecheckTimeoutMs: Int = 1000,
     val tcpWorkers: Int = 20,
 
-    // MARBLE_PING_CONTROL_V145 — the ping budget the user owns. See [PingBudget]: these three
-    // values (and nothing else) decide how long one server may take, how many samples its
-    // published latency is the median of, and how many servers are measured at the same time.
-    /** Per-server budget for one ping sample, in seconds (1..30). */
     val pingTimeoutSec: Int = 5,
-    /** Samples measured per server; the published latency is their median (1..10). */
     val pingSamples: Int = 3,
-    /**
-     * Servers measured in parallel during a sweep (1..64), when [pingParallelMode] is MANUAL.
-     *
-     * 16 is the shipped compromise: wide enough that a large subscription finishes while the
-     * user is still looking at it, narrow enough that the parallel handshakes do not distort
-     * each other on a mobile link. Lower it (4, 2, 1) when accuracy matters more than speed.
-     *
-     * MARBLE_PING_PARALLEL_V200 — this is now the *manual* half of the dial. The shipped default
-     * is [PingParallelMode.AUTO], which measures the device (cores + memory class) and picks the
-     * width itself; the chip only takes over when the user asks for it, and it keeps whatever the
-     * user last chose so switching back and forth is not a reset.
-     */
     val pingConcurrency: Int = 16,
 
-    /**
-     * MARBLE_PING_PARALLEL_V200 — who picks [pingConcurrency].
-     *
-     * AUTO (the default) derives it from the device every time a sweep starts, so a phone with
-     * four cores stops being handed a flagship's 16-way sweep and the inflated latencies that
-     * come with it. MANUAL restores the chips.
-     */
     val pingParallelMode: PingParallelMode = PingParallelMode.AUTO,
 
-    // MARBLE_PING_SPEED_DIAL_V199 — the speed dial the user owns. Off (the default) runs every
-    // sweep at the shipped V199 speed: about 1.5× the V160 baseline, delivered as width and
-    // pacing, never as a shorter timeout or fewer samples. On, the percent IS the multiplier
-    // against that same baseline — 100 % is the classic pace, higher is faster, lower slower —
-    // so the default and the manual scale are one ruler. See [PingSpeed].
-    /** False → the shipped default speed; true → [pingSpeedPercent] drives every sweep. */
     val pingSpeedCustom: Boolean = false,
-    /** Speed of every sweep, in percent of the V160 baseline pace (50..200, step 5). */
     val pingSpeedPercent: Int = PingSpeed.DEFAULT_PERCENT,
 
-    // Library order. Ping is intentionally the default; untested nodes stay last.
     val nodeSortMode: NodeSortMode = NodeSortMode.DEFAULT,
     val nodeSortReverse: Boolean = false,
 
-    // MARBLE_SERVERS_QUERY_V120 — the Servers filter bar. Every field is a control the user can
-    // see: the protocol chip, and the three switches inside the advanced-filter menu. They persist
-    // so a working filter set survives a restart, and Reset returns them to these defaults.
-    /** Wire-scheme filter for the Servers list; blank shows every protocol. */
     val serversProtocolFilter: String = "",
-    /** Hide servers whose latest stored measurement failed. */
     val serversOnlyReachable: Boolean = false,
-    /** Hide servers slower than this many milliseconds; 0 turns the ceiling off. */
     val serversMaxPingMs: Int = 0,
-    /** Bucket the Servers list by resolved country instead of by source. */
     val serversGroupByCountry: Boolean = false,
-    /**
-     * MARBLE_SERVER_TILE_LAYOUT_V208 — [ServerLayout] id: `row` (one server per line) or `grid`
-     * (small tiles, several per line). One preference answers for both the Servers page and the
-     * Home server box, so the two lists cannot disagree about how a server looks.
-     */
     val serversLayout: String = ServerLayout.DEFAULT.id,
 
     val subscriptionAutoRefresh: Boolean = true,
-    // MARBLE_APP_UPDATE_SETTING_V102
-    /** Check GitHub Releases whenever MarbleNG returns to the foreground. */
+
     val appUpdateCheckEnabled: Boolean = true,
     val subscriptionRefreshHours: Int = 12,
-    // MARBLE_MANUAL_BUCKET_V122 — the Manual bucket is a permanent, always-on local source.
-    // The old opt-in toggle is gone: every install can save servers locally without a setting.
 
-    // Home composition. Hiding a card does not disable its underlying engine.
-    // MARBLE_SETTINGS_TREE_V215 — the flags that no screen read any more (summary metrics, Iran
-    // badge, quick actions, server selector, route details and ribbon) are removed with their
-    // settings rows. Their keys are simply never read again; the Home surface is fixed by style.
     val homeShowLiveQuality: Boolean = true,
-    /** Compact live transfer card on Home. Opt-in to keep the default Home surface quiet. */
     val homeSpeedWidgetEnabled: Boolean = false,
-    /** After a completed source scan, select and connect the fastest reachable server. */
     val autoConnectBestAfterScan: Boolean = false,
 
-    /**
-     * Optional public metadata lookup for the selected server endpoint shown on Home.
-     * Enabled by default; users can hide it, and only the resolved public server IP is queried.
-     */
     val serverIntelEnabled: Boolean = true,
 
-    /**
-     * MARBLE_SERVER_LOCATION_V192 — the app tests each server's location once, automatically
-     * (one bounded public lookup per endpoint, cached for good), and fills the server rows with
-     * the real national flag of the answer instead of a label-guessed emoji. On by default: the
-     * radio cost is at most one tiny request per server per install, and it happens in the
-     * background while the user is reading the list.
-     */
     val serverLocationAutoDetect: Boolean = true,
 
-    /**
-     * MARBLE_SESSION_USAGE_V192 — show the data used per connection. When on, the Home server
-     * status box carries a live "this session" readout while connected and a "last session"
-     * readout afterwards. Off by default: usage tracking is a display choice, and the counter
-     * still records nothing extra to disk beyond the bounded session history.
-     */
     val homeShowDataUsage: Boolean = false,
 
-    /**
-     * MARBLE_ROUTE_ATELIER_V207 — the page backdrop's breathing light, and every ambient pulse that
-     * shares its clock (the status pip, the heartbeat trace), may be switched off.
-     *
-     * A full-screen glow says nothing about whether the tunnel is up, and it is the one animation in
-     * the product that never answers a question. The design review asked for that cost to be a choice
-     * rather than a personality, so it is: off keeps every gradient, colour and hairline and drops the
-     * redraw, which is the whole difference between an instrument and a screensaver.
-     */
     val homeAmbientBackdrop: Boolean = true,
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_HOME_PING_CONTROLS_V212 — three ping surfaces on Home, three verbs.
-    //
-    // Every ping surface on the connection page is a control. Which measurement each one runs is
-    // the user's decision, stored per surface so the two cannot drift into being the same button
-    // twice (see [HomePingAction]). The defaults keep the product's shipped meaning: the gauge and
-    // the header pulse answer "is *this* server alive?", the shortcut pill answers "how does the
-    // rest of my subscription compare?" — but both are now tappable, and both are re-pointable.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /** The latency gauge on Home ([com.marbleng.app.ui.HomeLivePingMeter]). */
     val homePingGaugeAction: String = HomePingAction.ROUTE.id,
 
-    /** The ping pill of the Home shortcut deck. */
     val homePingChipAction: String = HomePingAction.GROUP.id,
 
-    /** The pulse control in the Home header. */
     val homePingHeaderAction: String = HomePingAction.ROUTE.id,
 
-    // Optional smart alerts. Foreground-service status is managed separately while connected.
     val smartNotificationsEnabled: Boolean = true,
     val notifyConnectionEvents: Boolean = false,
     val notifyRecoveryEvents: Boolean = true,
@@ -1761,32 +996,16 @@ data class AppSettings(
     val notificationCooldownSec: Int = 20,
 
     val routingMode: RoutingMode = RoutingMode.GEO_DIRECT,
-    // MARBLE_ROUTING_SEPARATE_V143 — custom Routing is opt-in and off by default. The default
-    // mode continues to apply while the dedicated Routing page stays disabled.
+
     val customRoutingEnabled: Boolean = false,
     val geoAssetSourceId: String = RoutingDefaults.SOURCE_CHOCOLATE4U,
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_MULTI_SOURCE_ROUTING_V212 — the routing layer reads several geo databases at once.
-    //
-    // [geoAssetSourceId] stays: it is the *primary* source, the one the APK bundles and the one
-    // that keeps working on a fresh install with no network. [geoAssetSourceIds] is the ordered
-    // set of every source the routing layer consults, primary first, and it is what the config
-    // writers turn into one `ext:<file>:<tag>` reference per source for Xray and one rule set per
-    // source for sing-box. A source that is enabled but not (yet) on disk is skipped by the
-    // fail-closed gate rather than killing the core, so "more sources" can never cost the tunnel.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /** Comma-separated, ordered list of enabled geo asset source ids; the first is the primary. */
     val geoAssetSourceIds: String = RoutingDefaults.SOURCE_CHOCOLATE4U,
 
-    /** User-defined extra sources, as a JSON array of {id,label,geoIpUrl,geoSiteUrl}. */
     val geoCustomSourcesJson: String = "",
 
-    /** How finely domestic traffic is separated. See [GeoPrecision]. */
     val geoPrecision: String = GeoPrecision.DEFAULT.id,
 
-    /** False = read only the primary source, which is the pre-V212 behaviour. */
     val geoMultiSourceEnabled: Boolean = true,
     val routingRulesJson: String = "",
     val geoIpUrl: String = RoutingDefaults.GEOIP_URL,
@@ -1813,284 +1032,101 @@ data class AppSettings(
     val dnsSecondaryDoH: String = "https://8.8.8.8/dns-query",
     val dnsQueryStrategy: String = "UseIP",
 
-    // MARBLE_SMART_FAMILY_V136 — IPv6 and the v6 preference are ON by default; the app, not the
-    // user, decides which family actually carries each connection. The decision lives in
-    // AddressFamilyPolicy: the underlay must expose a real global IPv6 address, the node's own
-    // IPv6 history on this network must be healthy, and an explicit user demand still wins over
-    // both. Turning the master switch off is an IPv4-only TUN (no ::/0 capture) so Happy
-    // Eyeballs cannot stall on a blackhole; the cores still reject leftover v6 as defence.
-    /** Single source of truth for smart/preferred/forced IPv4 and IPv6 selection. */
     val addressFamilyMode: AddressFamilyMode = AddressFamilyMode.SMART,
-    /** Compatibility projections retained for tunnel/routing code while it migrates to the mode. */
     val ipv6Enabled: Boolean = true,
     val preferIpv6: Boolean = true,
 
-    /**
-     * MARBLE_IPV6_FALLBACK_LADDER_V196 — whether a forced family may refuse to connect.
-     *
-     * OFF by default, and that default is the bug fix. With Force IPv6 selected, every IPv4-only
-     * server in the library used to be refused before the tunnel started: the kill switch held the
-     * old TUN and the user read `BLOCKED • Kill switch active` on server after server until one
-     * happened to publish an AAAA record. A transport preference that produces an outage is a
-     * defect, not a safety property — so by default Marble now walks the ladder in
-     * [com.marbleng.app.core.Ipv6FallbackLadder] (IPv6 strict → IPv6 first → IPv4 transport with
-     * IPv6 kept for destinations) and says so on screen, instead of failing closed.
-     *
-     * Switch it on to get the old contract back: a forced family is then a hard requirement and a
-     * node that cannot satisfy it is refused with the reason and the alternatives named. Leak
-     * containment is unaffected either way — the `::/0` / `0.0.0.0/0` block rules follow the
-     * *effective* family, so no traffic ever escapes the family the session actually runs.
-     */
     val strictAddressFamily: Boolean = false,
 
-    /**
-     * MARBLE_MEASURED_FAMILY_V133 — *transient*, never persisted.
-     *
-     * Marble Intelligence sets this when the node's own history shows IPv6 is unhealthy on this
-     * physical network (failure streak, success EWMA below the usable floor, or sustained jitter).
-     * It has to travel inside the settings object because [AddressFamilyPolicy] is consulted from
-     * four different places — the Xray config writer, the delay-test config, the Kotlin probers and
-     * Bug Finder — and a verdict that only one of them sees is how the diagnostics ended up
-     * reporting "IPv6 preferred, IPv4 raced after 60 ms" for a tunnel that was measuring IPv6 as
-     * broken. It is deliberately absent from [com.marbleng.app.data.AppStore]: a verdict belongs to
-     * the network session that produced it, and restoring a stale one after a reboot would demote a
-     * family that was never measured on the new link.
-     */
     val measuredIpv6Unhealthy: Boolean = false,
 
-    /**
-     * MARBLE_RESOLVER_EVIDENCE_V134 — *transient*, never persisted. Comma-separated resolver
-     * endpoints that the current network session observed failing decisively (DoH deadline storms,
-     * EOF bursts, TLS or certificate failures attributed to that exact endpoint by
-     * [com.marbleng.app.core.ResolverEvidencePolicy]).
-     *
-     * It travels inside the settings object for the same reason [measuredIpv6Unhealthy] does: the
-     * resolver list is assembled by the config writer, and a verdict that only the intelligence
-     * layer knew about is exactly why 29 attributed `DoH deadline` events never changed a single
-     * emitted resolver. Demotion is time-bounded and reversible, so a verdict belongs to the
-     * session that measured it and is deliberately absent from
-     * [com.marbleng.app.data.AppStore].
-     */
     val measuredDnsDemotedEndpoints: String = "",
 
-    /**
-     * MARBLE_RESOLVER_EVIDENCE_V134 — *transient*, never persisted. True only when an endpoint that
-     * is about to be emitted is decisively failing, which is the one condition under which racing
-     * every encrypted resolver beats paying a dead one's full deadline on each cold lookup.
-     */
     val measuredDnsParallel: Boolean = false,
 
-    /**
-     * MARBLE_RESOLVER_SINKHOLE_V163 — *transient*, never persisted. Comma-separated encrypted
-     * resolver endpoints that must be left out of the emitted resolver graph for this session:
-     * an endpoint whose certificate was measured expired on this physical network cannot answer
-     * at any rank, and demoting it to last still cost a full TLS handshake per lookup whenever the
-     * pool was raced. Domestic anti-sanction resolvers are excluded structurally by the writers
-     * and never need to appear here.
-     */
     val measuredDnsExcludedEndpoints: String = "",
 
-    /**
-     * MARBLE_MULTI_SOURCE_ROUTING_V212 — *transient*, never persisted. Comma-separated names of
-     * the geo asset files that are on disk and structurally valid for this session
-     * (`geoip.dat`, `geosite-loyalsoldier.dat`, …).
-     *
-     * It travels inside the settings object for the same reason the resolver verdicts do: the
-     * routing writer expands one geo tag into one `ext:<file>:<tag>` reference per enabled source,
-     * and a reference to a file that is not there makes the core refuse the whole config. Readiness
-     * is a fact about this session's filesystem, so it is deliberately absent from
-     * [com.marbleng.app.data.AppStore]: a list restored after a reboot would describe files a
-     * cleanup or a failed refresh already removed.
-     */
     val measuredGeoReadyFiles: String = "",
-    /**
-     * MARBLE_GEO_TAG_MEMBERSHIP_V213 — *transient*, never persisted. Exact tag membership by
-     * database file, captured from a complete, current parse immediately before Xray starts. A
-     * filename alone is not proof that `ext:<file>:<tag>` exists in that file.
-     */
     val measuredGeoTagsByFile: Map<String, Set<String>> = emptyMap(),
     val measuredGeoMembershipKnown: Boolean = false,
 
-    /**
-     * MARBLE_RESOLVER_POOL_ALIGN_V213 — *transient*, never persisted. The exact ordered HTTPS
-     * resolver subset the Xray writer is to emit for this session; its evidence and parallel-query
-     * verdict are calculated from this same subset.
-     */
     val measuredDnsResolverOrder: String = "",
-    /** Transient parallel-fallback verdict over the exact bounded resolver list sing-box emits. */
     val measuredSingBoxDnsParallel: Boolean = false,
 
-    // Realtime transport adaptation. MARBLE_REALTIME_ENGINE_V70
     val adaptiveHappyEyeballsEnabled: Boolean = true,
     val happyEyeballsTryDelayMs: Int = 60,
     val happyEyeballsMaxConcurrent: Int = 4,
     val adaptiveTcpFastOpenEnabled: Boolean = true,
     val tcpFastOpenEnabled: Boolean = false,
     val adaptiveMssEnabled: Boolean = true,
-    /** 0 = kernel/default unless a measured Marble Turbo plan supplies an MSS. */
     val tcpMaxSeg: Int = 0,
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_CORE_OPTIONS_V211 — the two cores' own options, and nothing else.
-    //
-    // What this replaced: four raw Fragment fields plus a learner that rewrote them. Packet
-    // fragmentation is gone from the product entirely — the chapter that shipped it is the
-    // chapter that showed why: the numbers were applied by whichever policy ran last, so the
-    // control could not fail visibly and the user could not tell their own setting from the
-    // engine's. Every value below is the user's, is written to the core verbatim, and is never
-    // rewritten by any automatic policy on its way to the config builder.
-    //
-    // The vocabulary of each field is its core's own (see [XrayLogLevels],
-    // [SingBoxMuxProtocols], [XrayDomainStrategies]) and the writers index those lists by name,
-    // so a value that a core would reject cannot be stored in the first place.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /** Xray `mux.enabled` — Mux.Cool over one TCP connection. */
     val muxEnabled: Boolean = false,
-    /** Xray `mux.concurrency`: how many streams share one connection (1..128). */
     val muxConcurrency: Int = 8,
-    /** Xray `mux.xudpConcurrency`: how many UDP flows share one multiplexed connection. */
     val muxXudpConcurrency: Int = 16,
-    /** Xray `mux.xudpProxyUDP443`: [XrayMuxUdp443Modes]. */
     val muxUdp443: String = "skip",
 
-    // ── Xray: log ────────────────────────────────────────────────────────────
-    /** Xray `log.dnsLog` — write every DNS query the core answers to its own log stream. */
     val xrayDnsLog: Boolean = false,
 
-    // ── Xray: sniffing ───────────────────────────────────────────────────────
-    /**
-     * Xray `sniffing.destOverride` as a comma-separated set of `http`, `tls`, `quic`, `fakedns`.
-     *
-     * The core applies the list in order and stops at the first protocol that answers, so this is
-     * the user's choice of *which* sniffers run, not a boolean the writer invented.
-     */
     val xraySniffDestOverride: String = "http,tls,quic",
-    /** Xray `sniffing.metadataOnly` — route from the sniffer's metadata without the payload. */
     val xraySniffMetadataOnly: Boolean = false,
 
-    // ── Xray: local inbounds ─────────────────────────────────────────────────
-    /** Xray SOCKS inbound `settings.udp` — accept UDP ASSOCIATE on the local SOCKS port. */
     val xraySocksUdpEnabled: Boolean = true,
 
-    // ── Xray: sockopt (the socket the physical network actually sees) ────────
-    /** Xray `sockopt.domainStrategy`: [XrayDomainStrategies]. */
     val xraySockoptDomainStrategy: String = "AsIs",
-    /** Xray `sockopt.tcpNoDelay` — disable Nagle on the dial. */
     val xrayTcpNoDelay: Boolean = false,
-    /** Xray `sockopt.tcpKeepAliveInterval`, seconds. 0 leaves the core's own value. */
     val xrayTcpKeepAliveIntervalSec: Int = 0,
-    /** Xray `sockopt.tcpUserTimeout`, milliseconds. 0 leaves the core's own value. */
     val xrayTcpUserTimeoutMs: Int = 0,
-    /** Xray `sockopt.tcpCongestion`; blank leaves the core's value. */
     val xrayTcpCongestion: String = "",
-    /** Xray `sockopt.tcpMptcp` — offer Multipath TCP, falling back to plain TCP automatically. */
     val xrayTcpMptcp: Boolean = true,
-    /** Xray `sockopt.tcpWindowClamp`; 0 disables the clamp. */
     val xrayTcpWindowClamp: Int = 0,
 
-    // ── Xray: policy ─────────────────────────────────────────────────────────
-    /** Xray `policy.levels.0.handshake`, seconds. 0 leaves the core's own value. */
     val xrayPolicyHandshakeSec: Int = 0,
-    /** Xray `policy.levels.0.connIdle`, seconds. 0 leaves the core's own value. */
     val xrayPolicyConnIdleSec: Int = 0,
-    /** Xray `policy.levels.0.uplinkOnly`, seconds. 0 leaves the core's own value. */
     val xrayPolicyUplinkOnlySec: Int = 0,
-    /** Xray `policy.levels.0.downlinkOnly`, seconds. 0 leaves the core's own value. */
     val xrayPolicyDownlinkOnlySec: Int = 0,
-    /** Xray `policy.levels.0.bufferSize`, kilobytes. 0 leaves the core's own value. */
     val xrayPolicyBufferSizeKb: Int = 0,
 
-    /**
-     * MARBLE_CORE_OPTIONS_V211 — the escape hatch: JSON merged on top of the generated document.
-     *
-     * The two cores accept far more than any settings screen can draw, and a client that cannot
-     * express the last field is a client that makes the field unreachable. This object is deep
-     * merged into the final config (objects merge key by key, arrays and scalars replace), so
-     * anything the surface above does not model — `stats`, `api`, `burstObservatory`,
-     * `reverse`, a per-outbound `sockopt`, a whole `inbounds` entry — is the user's to write.
-     */
     val xrayExtraJson: String = "",
 
-    // ── sing-box: log, sniffing, inbounds ────────────────────────────────────
-    /** sing-box `log.timestamp`. */
     val singBoxLogTimestamp: Boolean = false,
-    /**
-     * sing-box sniff action `override_destination` — hand the destination to the router already
-     * rewritten to the sniffed domain. Off keeps the connection at the address the app dialled.
-     */
     val singBoxSniffOverrideDestination: Boolean = false,
-    /** sing-box `inbounds[].users` username for the mixed/HTTP inbounds; blank = no auth. */
     val singBoxInboundUsername: String = "",
-    /** The password half of [singBoxInboundUsername]. */
     val singBoxInboundPassword: String = "",
 
-    // ── sing-box: multiplex (smux/h2mux/yamux) ───────────────────────────────
-    /** sing-box `multiplex.enabled`. */
     val singBoxMuxEnabled: Boolean = false,
-    /** sing-box `multiplex.protocol`: [SingBoxMuxProtocols]. */
     val singBoxMuxProtocol: String = "h2mux",
-    /** sing-box `multiplex.max_connections` — how many TCP connections carry the streams. */
     val singBoxMuxMaxConnections: Int = 4,
-    /** sing-box `multiplex.min_streams` — streams one connection must carry before another opens. */
     val singBoxMuxMinStreams: Int = 4,
-    /** sing-box `multiplex.max_streams` — the ceiling the core enforces per connection. */
     val singBoxMuxMaxStreams: Int = 32,
-    /** sing-box `multiplex.padding` — pad the multiplexed frames. */
     val singBoxMuxPadding: Boolean = false,
 
-    /** The sing-box twin of [xrayExtraJson], merged into the sing-box document. */
     val singBoxExtraJson: String = "",
 
-    // Iran Mode. Detection is automatic; countermeasures and domestic-direct routing can be
-    // switched off independently for users who want detection reporting only.
     val iranModePolicy: IranModePolicy = IranModePolicy.OFF,
     val iranModeCountermeasures: Boolean = true,
     val iranDomesticDirect: Boolean = true,
     val iranDeepProbeEnabled: Boolean = true,
 
-    // Marble Intelligence Engine — permanently active. There is deliberately no user-visible
-    // off switch; the engine is part of the product contract and can never be disabled.
     val intelligenceEnabled: Boolean = true,
     val configCompatibilityMode: Boolean = true,
     val verifiedPerformanceTuning: Boolean = true,
 
-    /**
-     * MARBLE_CORE_CONFIG_SUPERSET_V165 — dial a node whose payload reaches the public Internet
-     * without TLS/REALITY (`vless://…&security=none`) instead of refusing it before the tunnel.
-     *
-     * The pinned Xray core refuses such an outbound at config load (`vless without TLS or other
-     * encryption is prohibited unless the server address is a private IP or domain`), so MarbleNG
-     * ships its core with the matching policy patch (`scripts/inject-xray-config-superset.py`) and
-     * this setting is the consent the patch delegates to. It defaults to on because a subscription
-     * of 42 such nodes is not 42 broken nodes: refusing them produced a client that could not
-     * connect *at all*, while every other client on the market dials them.
-     *
-     * Turning it off restores the exact fail-closed behaviour, and both paths say what the wire
-     * looks like: a plaintext session is labelled on Home, on the Servers row and in Bug Finder.
-     */
     val allowUnencryptedPublicOutbound: Boolean = true,
 
-    // Marble Turbo. On connect, the engine executes real transport methods against the selected
-    // node (fragmentation shapes, Mux reuse, endpoint address family), measures ping and speed for
-    // each, and keeps the winner. The exit node never changes, so this stays Identity-Guard safe.
     val connectTuningEnabled: Boolean = false,
     val connectTuningBudgetSec: Int = 5,
     val connectTuningMethods: Int = 8,
-    /** Background passes re-measure the live route and hot-apply a materially faster method. */
     val liveTuningEnabled: Boolean = true,
     val liveTuningIntervalSec: Int = 300,
     val liveTuningPingTriggerMs: Int = 220,
     val liveTuningMinGainPercent: Int = 15,
-    /** Size the userspace tunnel datapath from measured throughput instead of a fixed guess. */
     val adaptiveBufferEnabled: Boolean = true,
 
-    // Identity Guard. Enabled by default: keep a user-started session on one public exit.
     val identityGuardEnabled: Boolean = true,
     val identityGuardStrictNoFailover: Boolean = true,
     val identityGuardSameRouteRetries: Int = 3,
 
-    // Continuous Marble Autopilot. Cheap active-route monitoring plus real Xray challenger probes.
     val continuousOptimizerEnabled: Boolean = false,
     val optimizerIntervalSec: Int = 120,
     val optimizerCandidateCount: Int = 4,
@@ -2111,166 +1147,65 @@ data class AppSettings(
     val mtuMax: Int = 1500,
     val dnsHijackEnabled: Boolean = true,
 
-    /**
-     * MARBLE_FAKE_IP_V184 — the core answers the app's DNS questions with instant local fake
-     * addresses instead of serial encrypted queries through the cold tunnel; the engine restores
-     * the real domain per connection and resolves the real IP inside the tunnel.
-     *
-     * Cold WhatsApp startup asked ~15 domains of the remote DoH *through the tunnel* before the
-     * first byte of the first flow could leave the device; with fake addresses the app gets its
-     * answers in the same tick and the first flows start while the tunnel warms up. Xray:
-     * top-level `fakedns` pool + a `fakedns` nameserver + the sniffing `fakedns` destination
-     * override (validated against the pinned XTLS/Xray-core v26.9.9 source). sing-box: a
-     * `fakeip` DNS server + the `query_type` rule + a forced route `resolve` action (validated
-     * against the pinned shtorm-7/sing-box-extended v1.14.1 source). Off restores the previous
-     * resolver-graph behaviour exactly.
-     */
     val dnsFakeIpEnabled: Boolean = true,
     val adaptiveDnsEnabled: Boolean = true,
     val adaptiveDualStackEnabled: Boolean = true,
     val adaptiveThroughputEnabled: Boolean = true,
     val adaptiveThroughputMaxBytes: Int = 4 * 1024 * 1024,
     val udpProbeEnabled: Boolean = true,
-    /**
-     * MARBLE_CORE_OPTIONS_V211 — the adaptive Mux/MTU switches are down to the one that is
-     * about the *path*, not about a core option. Multiplexing and packet shaping are the user's
-     * (see the Mux fields above and the per-core options): an engine that turns them on by
-     * itself is an engine whose settings screen cannot be trusted.
-     */
     val thermalAwareEnabled: Boolean = true,
     val workloadProfile: WorkloadProfile = WorkloadProfile.AUTO,
 
     val theme: String = "light",
-    /**
-     * Product typeface selected in the standard Settings workspace.
-     *
-     * MARBLE_GOOGLE_SANS_DEFAULT_V160 — a fresh install opens with Google Sans. An install that
-     * already wrote this key keeps its own choice: [AppStore.settings] only falls back to the
-     * default when no value was ever persisted.
-     */
     val fontFamily: String = AppFont.GOOGLE_SANS.id,
 
-    /**
-     * iOS-styled Home presentations: IOS_SLIDER, IOS_FLOATING, IOS_EMBOSSED, IOS_MODULAR.
-     *
-     * MARBLE_HOME_THEME_TWO_DEFAULT_V160 — Theme 2 (Floating) is what a first launch opens
-     * with. Installs that already wrote this key keep their own choice.
-     */
     val homeStyle: String = HomeStyle.DEFAULT.id,
 
-    // Theme 4: Modular customizable dashboard properties
     val modularCardOrder: String = ModularLayout.DEFAULT_ORDER,
     val modularShowStats: Boolean = true,
     val modularShowSocks: Boolean = false,
     val modularShowShortcuts: Boolean = true,
-    /** MARBLE_MODULAR_LAYOUT_V145 — the status banner is a module like every other one. */
     val modularShowStatus: Boolean = true,
-    /** MARBLE_MODULAR_LAYOUT_V145 — the server picker is a module like every other one. */
     val modularShowServers: Boolean = true,
     val modularConnectStyle: String = "SLIDER",
-    /** Modular Home card sizing, changed from the Theme 4 customizer. */
     val modularCardSize: String = ModularCardSize.COMPACT.id,
-    /** Fine-grained server-card height (dp) when the user drags the custom resize slider. */
     val modularCardHeightDp: Int = 180,
 
-    /**
-     * MARBLE_MODULAR_HIDE_CUSTOMIZER_V151 — hide the "Customize Layout" chip from Home.
-     *
-     * The chip is the customizer's only way in, so hiding it is only safe because two ways back
-     * remain: long-press the modular studio title, and Settings → Home presentation has the same
-     * switch. Nothing about the saved layout changes when it is hidden.
-     */
     val modularHideCustomizerButton: Boolean = false,
 
-    /**
-     * MARBLE_CONNECT_BUTTON_V121 — the connection-button silhouette shown on every Home style:
-     * the large round shutter (default), the slide-to-connect track or the classic power switch.
-     */
     val connectButtonStyle: String = ConnectButtonStyle.ROUND.id,
 
-    /** MARBLE_NIGHT_OUTLINES_V112 — dark-theme hairline personality for every frame/card. */
     val darkOutlineStyle: String = DarkOutlineStyle.SUBTLE.id,
 
-    // MARBLE_DOCK_CUSTOM_V145 — the bottom navigation bar is customizable from Settings.
-    /** Draw the tab captions in the dock. */
     val dockShowLabels: Boolean = true,
-    /** Draw the tab glyphs in the dock. */
     val dockShowIcons: Boolean = true,
-    /** Dock footprint: small, medium (default) or large. */
     val dockSize: String = DockSize.MEDIUM.id,
 
-    // MARBLE_DOCK_SLOT_V167 — the fourth tab, and what the user made of it.
-    /** Draw the fourth tab. On by default: the bar ships with four slots. */
     val dockSlotEnabled: Boolean = true,
-    /** What the slot opens: [DockSlotKind.PULSE], SOURCE (a subscription) or CONFIG (one node). */
     val dockSlotKind: String = DockSlotKind.DEFAULT.id,
-    /** The source a SOURCE slot opens: a subscription id, "manual", or "all". */
     val dockSlotSourceId: String = "all",
-    /** The exact config a CONFIG slot opens; blank means "not chosen yet". */
     val dockSlotProfileId: String = "",
-    /**
-     * The config's own source id, carried next to [dockSlotProfileId] for the same reason the
-     * Library carries it: an id alone is not an identity, and a node id has been seen to repeat
-     * across two sources.
-     */
     val dockSlotProfileSourceId: String = "",
-    /** The user's own caption for the slot; blank means "let the target name itself". */
     val dockSlotLabel: String = "",
-    /** The glyph the slot draws: see [DockSlotIcon]. */
     val dockSlotIcon: String = DockSlotIcon.DEFAULT.id,
-    /** The independent accent used by the fourth tab's selection pill and customization preview. */
     val dockSlotAccent: String = DockSlotAccent.DEFAULT.id,
-    /** Show a small live connection-state dot over the fourth tab's glyph. */
     val dockSlotShowStatusBadge: Boolean = true,
 
-    /** MARBLE_BILINGUAL_V110 — "system" follows the device locale; "en"/"fa" are overrides. */
     val appLanguage: String = AppLanguage.SYSTEM.id,
 
-    /**
-     * MARBLE_TEXT_SCALE_V215 — the whole app's text size, in percent of the system font scale.
-     * Stored as a whole percent so the preference file stays readable; clamped on read.
-     */
     val textScalePercent: Int = TextScale.DEFAULT_PERCENT,
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // MARBLE_AUTO_SERVER_SELECTOR_V202 — the automatic server selector.
-    //
-    // Off by default and deliberately so: a client that silently moves the user's exit node is
-    // a privacy decision, not a convenience. Every strategy, when it is allowed to act, and how
-    // wide its pool is are separate switches because the three questions have three different
-    // answers per user. See [com.marbleng.app.core.AutoServerSelector].
-    // ─────────────────────────────────────────────────────────────────────────
-    /** Master switch: false leaves route choice entirely to the user. */
     val autoServerSelectorEnabled: Boolean = false,
-    /** [com.marbleng.app.core.AutoServerStrategy] id: least_ping, least_load, custom, round_robin, random, smart. */
     val autoServerStrategy: String = AutoServerStrategy.SMART.id,
-    /** Relative weights used by the user-editable CUSTOM selector strategy. */
     val autoServerPingWeight: Int = 40,
     val autoServerLoadWeight: Int = 30,
     val autoServerStabilityWeight: Int = 20,
     val autoServerFreshnessWeight: Int = 10,
-    /** Pick a route automatically once a ping sweep finishes. */
     val autoServerOnScan: Boolean = true,
-    /** Pick a route automatically when the user presses connect with no explicit choice. */
     val autoServerOnConnect: Boolean = false,
-    /**
-     * Re-pick when the live route is measured as unusable.
-     *
-     * On by default, together with [autoServerOnScan]: those are the two moments where the
-     * selector acts *for* the user. [autoServerOnConnect] is off by default for the opposite
-     * reason — pressing connect on a server the user just tapped is an explicit choice, and a
-     * selector that overrides an explicit choice is not assistance.
-     */
     val autoServerOnFailure: Boolean = true,
-    /** Whether the pool is the current source ([AutoServerScope.SOURCE]) or the whole library. */
     val autoServerScope: String = AutoServerScope.SOURCE.id,
-    /**
-     * How much better a challenger must be before the selector leaves the current route, in
-     * percent. It exists so SMART cannot oscillate: a route that is 3 % worse in one sample is
-     * not a reason to drop a working tunnel.
-     */
     val autoServerSwitchMarginPercent: Int = 15,
 
-    /** Continuous non-blocking diagnostic export to Downloads/marbleng/report. */
     val debugModeEnabled: Boolean = false
 )

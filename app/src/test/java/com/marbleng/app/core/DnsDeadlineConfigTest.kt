@@ -8,19 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_LINK_DEADLINE_V133 / MARBLE_MEASURED_FAMILY_V133 emitted-config regressions.
- *
- * These lock the two config-level defects that made a healthy core deliver no internet:
- *
- *  - every encrypted DNS server carried a fixed 1350/1650 ms budget even though those queries are
- *    routed through the tunnel, so a ~1.1 s link produced nothing but `DoH deadline` errors and
- *    Xray could not resolve a single destination domain;
- *  - the address-family plan re-derived "IPv6 first" from the underlay alone, discarding the
- *    measured verdict, so a node whose IPv6 was known-broken was still dialled IPv6-first.
- */
 class DnsDeadlineConfigTest {
-
     private val slowCellular = LinkEvidence(
         rttMs = 1126.0,
         tailRttMs = 1326.0,
@@ -72,7 +60,6 @@ class DnsDeadlineConfigTest {
             )
         )
 
-    /** Addresses of the underlay-direct `https+local://` bootstrap resolvers, in emitted order. */
     private fun bootstrapAddresses(root: JSONObject): List<String> {
         val servers = root.getJSONObject("dns").getJSONArray("servers")
         return (0 until servers.length())
@@ -81,7 +68,6 @@ class DnsDeadlineConfigTest {
             .map { it.optString("address") }
     }
 
-    /** Timeouts of the encrypted resolvers that answer ordinary app DNS (not the +local bootstrap). */
     private fun remoteDnsTimeouts(root: JSONObject): List<Long> {
         val servers = root.getJSONObject("dns").getJSONArray("servers")
         return (0 until servers.length())
@@ -118,8 +104,6 @@ class DnsDeadlineConfigTest {
 
     @Test
     fun `the endpoint bootstrap resolvers keep their own direct budgets`() {
-        // https+local resolvers dial the underlay directly, not through the tunnel, so the tunnel
-        // RTT must not inflate them.
         val root = hardened(AppSettings(), slowCellular)
         val servers = root.getJSONObject("dns").getJSONArray("servers")
         val bootstrap = (0 until servers.length())
@@ -145,7 +129,6 @@ class DnsDeadlineConfigTest {
         assertTrue("optimistic cache must stay on", dns.optBoolean("serveStale", false))
     }
 
-    /** Addresses of the encrypted resolvers that answer ordinary app DNS, in emitted order. */
     private fun remoteDnsAddresses(root: JSONObject): List<String> {
         val servers = root.getJSONObject("dns").getJSONArray("servers")
         return (0 until servers.length())
@@ -153,10 +136,6 @@ class DnsDeadlineConfigTest {
             .filter { it.optString("address").startsWith("https://") }
             .map { it.optString("address") }
     }
-
-    // ------------------------------------------------------------------
-    // MARBLE_RESOLVER_EVIDENCE_V134 — the emitted resolver graph follows the evidence
-    // ------------------------------------------------------------------
 
     @Test
     fun `the emitted resolver list keeps three independent encrypted providers`() {
@@ -168,8 +147,6 @@ class DnsDeadlineConfigTest {
 
     @Test
     fun `a demoted resolver is replaced by healthy independent stock providers`() {
-        // The actual emitted pool must be drawn from the same six-provider catalog used by the
-        // evidence policy. A failed Cloudflare endpoint must not hide Quad9's second literal.
         val settings = AppSettings(
             measuredDnsDemotedEndpoints = "https://1.1.1.1/dns-query"
         )
@@ -263,8 +240,7 @@ class DnsDeadlineConfigTest {
             )
             assertTrue(entry.optBoolean("skipFallback", false))
         }
-        // They are emitted before the tunnel resolvers, so the node hostname can still be resolved
-        // while the tunnel's own encrypted providers are being raced.
+
         assertTrue(
             servers.getJSONObject(0).optString("address").startsWith("https+local://")
         )
@@ -317,10 +293,6 @@ class DnsDeadlineConfigTest {
 
     @Test
     fun `a strict ipv6 demand survives the measurement`() {
-        // MARBLE_SMART_FAMILY_V136 — Prefer IPv6 ships ON and is an ordering, so a measured-broken
-        // family demotes the default plan automatically. The demand a measurement cannot override
-        // is the strict v6 configuration (UseIPv6): the user asked for v6 only and must see it
-        // fail as v6-only, not as a silent IPv4 success.
         val plan = AddressFamilyPolicy.plan(
             settings = AppSettings(
                 ipv6Enabled = true,
@@ -359,15 +331,8 @@ class DnsDeadlineConfigTest {
         assertEquals(0, plan.tryDelayMs)
     }
 
-    // ------------------------------------------------------------------
-    // MARBLE_IPV6_DNS_PURGE_V135 — the underlay verdict purges the resolver graph
-    // ------------------------------------------------------------------
-
     @Test
     fun `an ipv4-only underlay emits no ipv6 bootstrap resolver`() {
-        // The attached log's Wi-Fi had no global IPv6, yet the resolver graph still carried
-        // `[2606:4700:4700::1111]`-class literals; each one burned its whole timeout with
-        // `context deadline exceeded` before failover could reach a resolver that answers.
         val root = hardened(AppSettings(), underlayHasIpv6 = false)
         val bootstrap = bootstrapAddresses(root)
         assertTrue("the node hostname still needs bootstrap resolvers", bootstrap.isNotEmpty())

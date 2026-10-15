@@ -1,13 +1,5 @@
 package com.marbleng.app.core
 
-/**
- * Make-before-break decision model. Runtime integration remains gated until Xray is resident with
- * multiple outbounds; the current external-process architecture cannot truthfully drain flows.
- *
- * MARBLE_ANTI_FLAP_V80: Enhanced with dwell time enforcement, hysteresis, and
- * Iran-aware minimum active durations to prevent rapid profile switching.
- * Also integrates with ProfileFlapGuard for comprehensive switch control.
- */
 class HandoverCoordinator {
     enum class State { IDLE, WARMING, VERIFIED, DRAINING }
     enum class Action { NONE, START_CHALLENGER, SWITCH_NEW_FLOWS, DRAIN_OLD, ABORT }
@@ -17,11 +9,8 @@ class HandoverCoordinator {
         val activeRoute: String,
         val challengerRoute: String,
         val generation: Long,
-        /** MARBLE_ANTI_FLAP_V80: when the active route was established */
         val activeSinceMs: Long = 0,
-        /** MARBLE_ANTI_FLAP_V80: minimum time the active route must stay before switching */
         val minimumDwellMs: Long = 0,
-        /** MARBLE_ANTI_FLAP_V80: number of switches attempted in the current window */
         val switchCountInWindow: Int = 0
     )
 
@@ -30,60 +19,40 @@ class HandoverCoordinator {
     private var challenger = ""
     private var generation = 0L
 
-    // MARBLE_ANTI_FLAP_V80: Dwell time tracking
     private var activeSinceMs = 0L
     private var lastSwitchMs = 0L
     private var switchCountInWindow = 0
     private var windowStartMs = 0L
 
-    // MARBLE_ANTI_FLAP_V80: Configuration
-    private val normalDwellMs = 90_000L       // 90 seconds normal
-    private val iranDwellMs = 180_000L         // 3 minutes in Iran
-    private val normalCooldownMs = 120_000L    // 2 minutes between switches
-    private val iranCooldownMs = 300_000L      // 5 minutes in Iran
-    private val windowDurationMs = 600_000L    // 10-minute rolling window
+    private val normalDwellMs = 90_000L
+    private val iranDwellMs = 180_000L
+    private val normalCooldownMs = 120_000L
+    private val iranCooldownMs = 300_000L
+    private val windowDurationMs = 600_000L
     private val maxSwitchesPerWindow = 3
 
-    // MARBLE_ANTI_FLAP_V80: Iran mode flag
     private var iranModeActive = false
 
-    // MARBLE_SMART_RANK_V90: per-network adaptive scorer consulted for soft session migration.
     private var adaptiveScorer: AdaptiveAegisScorer? = null
     private var adaptiveFingerprint: String = ""
 
-    /**
-     * Set whether Iran Mode is active (affects dwell times and hysteresis).
-     */
     @Synchronized
     fun setIranMode(active: Boolean) {
         iranModeActive = active
     }
 
-    /**
-     * MARBLE_SMART_RANK_V90: attach the per-network adaptive scorer (hashed
-     * [NetworkFingerprint]) used to decide soft session migration. The scorer enforces the 90s
-     * dwell hysteresis and the catastrophic override; this coordinator translates its decision
-     * into a make-before-break action so migration is never a raw reconnect.
-     */
     @Synchronized
     fun setAdaptiveScorer(scorer: AdaptiveAegisScorer?, fingerprint: String) {
         adaptiveScorer = scorer
         adaptiveFingerprint = fingerprint
     }
 
-    /** MARBLE_SMART_RANK_V90: result of consulting the adaptive scorer for a soft migration. */
     data class AdaptiveMigration(
         val action: Action,
         val target: String,
         val decision: AdaptiveAegisScorer.Decision
     )
 
-    /**
-     * MARBLE_SMART_RANK_V90: consult the per-network adaptive scorer and, when it authorises a
-     * migration, translate its decision into a make-before-break action (soft session migration,
-     * not a raw reconnect). Catastrophic degradation bypasses dwell/cooldown via [forceBegin];
-     * otherwise [begin] still enforces the anti-flap dwell/cooldown/window budget.
-     */
     @Synchronized
     fun consultAdaptiveMigration(
         activeRoute: String,
@@ -115,15 +84,9 @@ class HandoverCoordinator {
         return AdaptiveMigration(action = action, target = target, decision = decision)
     }
 
-    /**
-     * Current minimum dwell time based on environment.
-     */
     private val effectiveDwellMs: Long
         get() = if (iranModeActive) iranDwellMs else normalDwellMs
 
-    /**
-     * Current cooldown time based on environment and switch history.
-     */
     private val effectiveCooldownMs: Long
         get() {
             val base = if (iranModeActive) iranCooldownMs else normalCooldownMs
@@ -142,17 +105,14 @@ class HandoverCoordinator {
             activeRoute == challengerRoute || state != State.IDLE
         ) return Action.NONE
 
-        // MARBLE_ANTI_FLAP_V80: Check dwell time
         val now = System.currentTimeMillis()
         if (active.isNotEmpty() && activeSinceMs > 0) {
             val dwellMs = now - activeSinceMs
             if (dwellMs < effectiveDwellMs) {
-                // Dwell time not met — reject the switch unless it's an emergency
                 return Action.NONE
             }
         }
 
-        // MARBLE_ANTI_FLAP_V80: Check cooldown since last switch
         if (lastSwitchMs > 0) {
             val sinceLast = now - lastSwitchMs
             if (sinceLast < effectiveCooldownMs) {
@@ -160,7 +120,6 @@ class HandoverCoordinator {
             }
         }
 
-        // MARBLE_ANTI_FLAP_V80: Check window budget
         refreshWindow(now)
         if (switchCountInWindow >= maxSwitchesPerWindow) {
             return Action.NONE
@@ -189,7 +148,6 @@ class HandoverCoordinator {
         if (state != State.VERIFIED || route != challenger) return Action.NONE
         state = State.DRAINING
 
-        // MARBLE_ANTI_FLAP_V80: Record the switch
         val now = System.currentTimeMillis()
         lastSwitchMs = now
         activeSinceMs = now
@@ -206,7 +164,6 @@ class HandoverCoordinator {
         challenger = ""
         state = State.IDLE
 
-        // MARBLE_ANTI_FLAP_V80: Update active since
         activeSinceMs = System.currentTimeMillis()
 
         return Action.NONE
@@ -230,18 +187,12 @@ class HandoverCoordinator {
         switchCountInWindow = switchCountInWindow
     )
 
-    /**
-     * MARBLE_ANTI_FLAP_V80: Check if the active route has met its minimum dwell time.
-     */
     @Synchronized
     fun dwellTimeMet(nowMs: Long = System.currentTimeMillis()): Boolean {
-        if (activeSinceMs == 0L) return true  // No active route
+        if (activeSinceMs == 0L) return true
         return (nowMs - activeSinceMs) >= effectiveDwellMs
     }
 
-    /**
-     * MARBLE_ANTI_FLAP_V80: Check if a switch is allowed right now.
-     */
     @Synchronized
     fun canSwitch(nowMs: Long = System.currentTimeMillis()): Boolean {
         if (state != State.IDLE) return false
@@ -251,9 +202,6 @@ class HandoverCoordinator {
         return switchCountInWindow < maxSwitchesPerWindow
     }
 
-    /**
-     * MARBLE_ANTI_FLAP_V80: Force a switch (emergency override, bypasses dwell/cooldown).
-     */
     @Synchronized
     fun forceBegin(activeRoute: String, challengerRoute: String): Action {
         if (activeRoute.isBlank() || challengerRoute.isBlank() ||
@@ -267,9 +215,6 @@ class HandoverCoordinator {
         return Action.START_CHALLENGER
     }
 
-    /**
-     * MARBLE_ANTI_FLAP_V80: Reset all state (on disconnect).
-     */
     @Synchronized
     fun reset() {
         state = State.IDLE

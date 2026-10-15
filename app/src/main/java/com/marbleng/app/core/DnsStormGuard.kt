@@ -1,40 +1,6 @@
 package com.marbleng.app.core
 
-/**
- * MARBLE_INTELLIGENCE_V141 — DNS storm detector.
- *
- * The log pair defines the healthy and broken regimes precisely:
- *
- *  - healthy (Netherlands-3, v7.0.4): about one attributed DoH failure every six minutes
- *    (~0.17/min) while the tunnel stays up for hours;
- *  - broken (Turkey-14, v7.0.9): six `context deadline exceeded` failures per minute against
- *    1.1.1.1/8.8.8.8/9.9.9.9, apps receiving no IPs and `rejected proxy/socks` socket closures,
- *    worst windows reaching 29/min.
- *
- * Endpoint demotion (V134) already removes a *decisively failing* resolver from the order, but a
- * storm is a property of the moment, not of one endpoint: when every resolver in the pool is
- * missing its budget at once, the correct responses are to race the pool instead of walking it
- * serially, to stop asking for the address family that doubles the failure surface, and to stop
- * the ranking engine from treating DNS-induced socket closures as node failures (which is what
- * turned a resolver problem into six forced restarts).
- *
- * The detector is a rolling window over *attributed deadline events* fed from
- * [MarbleIntelligence.recordResolverEvidence]. It arms fast (three events inside five minutes —
- * already 3.5x the healthy rate) and stands down slowly (at most one event inside ten minutes),
- * because flipping the query mode on every blip is its own instability.
- *
- * MARBLE_DNS_DOMAIN_FAULT_V196 — two corrections, both about *what counts as evidence*:
- *
- *  - failures that belong to one **name** rather than to the pool never arrive here at all. Two
- *    healthy providers missing their budget on the same domestic domain is a fact about that
- *    domain ([DnsDomainFaultPolicy]); it used to arm the storm regime and triple DNS traffic
- *    through the tunnel for ten minutes with nothing actually broken;
- *  - a **proven answer** now stands the guard down instead of only time doing it. Recovery was
- *    the one half of the loop the detector was missing: a network that came back still paid the
- *    full ten-minute stand-down window in parallel-race mode, so the remedy outlived the problem.
- */
 internal class DnsStormGuard {
-
     private val events = ArrayDeque<Long>()
 
     @Synchronized
@@ -43,14 +9,6 @@ internal class DnsStormGuard {
         trim(nowMs)
     }
 
-    /**
-     * One resolver answered for real — the recovery half of the loop.
-     *
-     * A proven answer does not erase the window (a single lucky lookup during a filtering burst
-     * must not disarm the remedy), it *halves* it: two consecutive successes therefore take the
-     * regime below the stand-down threshold within seconds, while an isolated success during a
-     * genuine storm leaves the guard armed.
-     */
     @Synchronized
     fun recordProvenAnswer(nowMs: Long) {
         trim(nowMs)
@@ -65,7 +23,6 @@ internal class DnsStormGuard {
         return if (recent >= STORM_ARM_EVENTS) nowMs else null
     }
 
-    /** True while the storm regime is active: armed recently and not yet quiet for the stand-down window. */
     @Synchronized
     fun active(nowMs: Long): Boolean {
         trim(nowMs)
@@ -73,7 +30,6 @@ internal class DnsStormGuard {
         return recent > STORM_QUIET_EVENTS
     }
 
-    /** Attributed deadline events per minute over the arm window, for diagnostics. */
     @Synchronized
     fun eventsPerMinute(nowMs: Long): Double {
         trim(nowMs)

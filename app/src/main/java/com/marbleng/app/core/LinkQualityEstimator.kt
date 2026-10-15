@@ -6,21 +6,9 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
-/** Robust rolling route statistics. MARBLE_REALTIME_ENGINE_V70 */
 object LinkQualityEstimator {
-    /**
-     * MARBLE_HONEST_PING_V119 — the readout must never lie to the user. The old 15 ms floor
-     * rewrote every fast-but-genuine measurement (8 / 10 / 12 ms) into a synthetic "15", so the
-     * Home ping and the server benchmark both looked fabricated even when the route was real.
-     *
-     * The only sanity bounds that remain are physical ones: a value must be strictly positive
-     * (0 still means "not measured / failed") and at most 10 seconds (anything larger is a
-     * timeout artifact, not a latency). Within those bounds every measurement is published
-     * exactly as measured.
-     */
     const val MIN_POSITIVE_RTT_MS = 1
 
-    /** Bound one measured sample: zero/negative means "no measurement", and the ceiling clips timeout artifacts. */
     fun sanitaryRtt(ms:Int):Int =
         if(ms > 0) ms.coerceIn(MIN_POSITIVE_RTT_MS,10_000) else 0
 

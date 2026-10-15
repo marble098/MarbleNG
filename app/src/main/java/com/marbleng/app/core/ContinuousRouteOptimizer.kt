@@ -6,16 +6,6 @@ import com.marbleng.app.model.ProxyProfile
 import java.util.Locale
 import kotlin.math.max
 
-/**
- * Continuous jitter/tail/loss-aware route controller. MARBLE_REALTIME_ENGINE_V70
- *
- * MARBLE_IRAN_OPTIMIZER_V80: Enhanced with:
- * 1. Iran-aware longer cooldowns (probes are less reliable under censorship)
- * 2. Evidence completeness requirement: no switch on inconclusive data
- * 3. Integration with ProfileFlapGuard for switch rate limiting
- * 4. Higher gain threshold in Iran (switching is more costly)
- * 5. Survival-first scoring integration
- */
 data class ActiveRouteQuality(
     val latencyMs: Int,
     val samples: Int,
@@ -23,9 +13,7 @@ data class ActiveRouteQuality(
     val p95LatencyMs: Int = 0,
     val lossPercent: Int = 0,
     val spikePercent: Int = 0,
-    /** MARBLE_IRAN_OPTIMIZER_V80: whether the quality measurement is based on complete evidence */
     val evidenceComplete: Boolean = true,
-    /** MARBLE_IRAN_OPTIMIZER_V80: TCP stress flag from live session */
     val tcpStressed: Boolean = false
 )
 
@@ -39,16 +27,12 @@ data class OptimizerDecision(
     val target: ProxyProfile? = null,
     val summary: String,
     val gain: Double = 0.0,
-    /** MARBLE_IRAN_OPTIMIZER_V80: whether the decision is based on complete evidence */
     val evidenceComplete: Boolean = true,
-    /** MARBLE_IRAN_OPTIMIZER_V80: whether this is an emergency switch */
     val isEmergency: Boolean = false
 )
 
-/** Continuous jitter/tail/loss-aware route controller with Iran-aware hysteresis. */
 class ContinuousRouteOptimizer(
     private val intelligence: MarbleIntelligence,
-    /** MARBLE_IRAN_OPTIMIZER_V80: optional flap guard integration */
     private val flapGuard: ProfileFlapGuard? = null
 ) {
     private var cycle = 0
@@ -57,37 +41,21 @@ class ContinuousRouteOptimizer(
     private var consecutiveSwitches = 0
     private var pendingProfileId = ""
     private var pendingWins = 0
-    /** MARBLE_IRAN_OPTIMIZER_V80 */
     private var iranModeActive = false
-    /** MARBLE_SMART_RANK_V90: per-network adaptive scorer consulted for soft session migration. */
     private var adaptiveScorer: AdaptiveAegisScorer? = null
     private var adaptiveFingerprint: String = ""
 
-    /**
-     * MARBLE_IRAN_OPTIMIZER_V80: Set Iran mode state.
-     */
     @Synchronized
     fun setIranMode(active: Boolean) {
         iranModeActive = active
     }
 
-    /**
-     * MARBLE_SMART_RANK_V90: attach the continuous per-network adaptive scorer (hashed
-     * [NetworkFingerprint]). The optimizer records measured scores into it on every cycle and can
-     * consult it for degradation-triggered soft session migration with 90s dwell hysteresis.
-     */
     @Synchronized
     fun setAdaptiveScorer(scorer: AdaptiveAegisScorer?, fingerprint: String) {
         adaptiveScorer = scorer
         adaptiveFingerprint = fingerprint
     }
 
-    /**
-     * MARBLE_SMART_RANK_V90: ask the per-network adaptive scorer whether the active route should
-     * migrate (soft session migration) given the latest re-measured quality and candidate scores.
-     * Inconclusive measurements stay `uncertain` and are never penalised; catastrophic degradation
-     * bypasses the dwell hysteresis.
-     */
     @Synchronized
     fun evaluateAdaptiveMigration(
         active: ProxyProfile,
@@ -128,7 +96,7 @@ class ContinuousRouteOptimizer(
         now: Long = System.currentTimeMillis()
     ): Boolean {
         if (!s.continuousOptimizerEnabled || a.samples < 3 || thermalBudget < .45) return false
-        // MARBLE_IRAN_OPTIMIZER_V80: Much longer intervals in Iran
+
         val iranMultiplier = if (iranModeActive) 2.5 else 1.0
         val base = (s.optimizerIntervalSec.coerceIn(60, 900) * 1000L * iranMultiplier).toLong()
         val bad = a.latencyMs >= 300 || a.jitterMs >= 25 || a.lossPercent >= 10 ||
@@ -180,9 +148,6 @@ class ContinuousRouteOptimizer(
         val cur = results.firstOrNull { it.profileId == active.id }
             ?: return OptimizerDecision(summary = "Autopilot • active route verification unavailable")
 
-        // MARBLE_SMART_RANK_V90: feed measured scores into the per-network adaptive scorer so the
-        // continuous loop learns per network. Purely additive — it never blocks or changes the
-        // existing gain-based decision, only populates the learned score table.
         adaptiveScorer?.let { scorer ->
             if (adaptiveFingerprint.isNotBlank()) {
                 results.forEach { r ->
@@ -203,7 +168,6 @@ class ContinuousRouteOptimizer(
                 )
             }
 
-        // MARBLE_IRAN_OPTIMIZER_V80: Much longer cooldowns in Iran
         val iranMultiplier = if (iranModeActive) 2.5 else 1.0
         val baseCool = (s.optimizerSwitchCooldownSec.coerceIn(60, 1800) * 1000L * iranMultiplier).toLong()
         val penaltyMultiplier = when {
@@ -220,7 +184,6 @@ class ContinuousRouteOptimizer(
             )
         }
 
-        // MARBLE_IRAN_OPTIMIZER_V80: Check flap guard if available
         if (flapGuard != null) {
             val flapDecision = flapGuard.evaluateSwitch(
                 targetProfileId = best.profileId,
@@ -251,7 +214,6 @@ class ContinuousRouteOptimizer(
         val gain = best.score - cur.score
         val emergency = cur.success < 75 && best.success >= 75
 
-        // MARBLE_IRAN_OPTIMIZER_V80: Higher safety margins in Iran
         val latencyMargin = if (iranModeActive) 1.25 else 1.15
         val jitterMargin = if (iranModeActive) 1.50 else 1.35
         val tailMargin = if (iranModeActive) 1.30 else 1.20
@@ -263,7 +225,6 @@ class ContinuousRouteOptimizer(
                 loss(best) <= loss(cur) + 5
             )
 
-        // MARBLE_IRAN_OPTIMIZER_V80: Higher gain threshold in Iran
         val minGain = if (iranModeActive) 8.0 else 5.0
         val meaningful = emergency || (gain >= minGain && (lGain >= .10 || sGain >= .25 || jGain >= .20 || tGain >= .15 || lossGain >= 5) && safe)
 
@@ -274,7 +235,6 @@ class ContinuousRouteOptimizer(
             )
         }
 
-        // MARBLE_IRAN_OPTIMIZER_V80: More confirmations required in Iran
         val reqConfirmations = if (iranModeActive) {
             (s.optimizerConfirmations.coerceIn(1, 3) + 1).coerceAtMost(4)
         } else {
@@ -298,10 +258,8 @@ class ContinuousRouteOptimizer(
         clear()
         val jl = bj.takeIf { it >= 0 }?.let { " • jitter ${it.toInt()} ms" }.orEmpty()
 
-        // MARBLE_IRAN_OPTIMIZER_V80: Notify flap guard of the switch
         flapGuard?.noteSwitch(now)
 
-        // MARBLE_SMART_RANK_V90: mark the adaptive scorer switch so dwell hysteresis starts here.
         adaptiveScorer?.let { scorer ->
             if (adaptiveFingerprint.isNotBlank()) scorer.noteSwitch(target.id, adaptiveFingerprint, now)
         }
@@ -317,7 +275,7 @@ class ContinuousRouteOptimizer(
 
     @Synchronized
     fun noteSwitch(now: Long = System.currentTimeMillis()) {
-        val window = 600_000L // 10 minutes
+        val window = 600_000L
         if (lastSwitchAt > 0 && now - lastSwitchAt < window) {
             consecutiveSwitches++
         } else {

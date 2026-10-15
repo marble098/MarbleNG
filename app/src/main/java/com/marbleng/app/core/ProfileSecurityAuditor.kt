@@ -3,33 +3,16 @@ package com.marbleng.app.core
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
 
-/**
- * Profile Security Auditor — assesses the security posture of VPN profiles.
- *
- * Problem addressed: Xray warned about VMess without Forward Secrecy. Some profiles
- * use weak encryption, no TLS, or deprecated security settings that are vulnerable
- * to deep packet inspection and traffic correlation. This auditor:
- *
- * 1. Detects VMess without TLS/REALITY (no forward secrecy)
- * 2. Identifies weak cipher suites
- * 3. Flags deprecated transport configurations
- * 4. Scores each profile's security posture
- * 5. Provides recommendations for upgrading weak profiles
- * 6. Integrates with the ranker to deprioritize insecure profiles
- */
 object ProfileSecurityAuditor {
-
-    /** Security level classification. */
     enum class SecurityLevel {
-        STRONG,     // VLESS+REALITY, VLESS+TLS, Trojan+TLS with modern ciphers
-        ADEQUATE,   // VMess+TLS, SS+AEAD, older but still functional
-        WEAK,       // VMess without TLS, plain-text transports
-        INSECURE,   // Known-vulnerable configurations
-        INFO_LEVEL, // Informational finding (no impact on score)
-        UNKNOWN     // Cannot determine
+        STRONG,
+        ADEQUATE,
+        WEAK,
+        INSECURE,
+        INFO_LEVEL,
+        UNKNOWN
     }
 
-    /** Individual security finding. */
     data class SecurityFinding(
         val category: String,
         val level: SecurityLevel,
@@ -37,12 +20,11 @@ object ProfileSecurityAuditor {
         val recommendation: String = ""
     )
 
-    /** Complete security assessment for a profile. */
     data class SecurityAssessment(
         val profileId: String,
         val profileName: String,
         val level: SecurityLevel,
-        val score: Double,  // 0-100
+        val score: Double,
         val findings: List<SecurityFinding>,
         val forwardSecrecy: Boolean,
         val encrypted: Boolean,
@@ -50,9 +32,6 @@ object ProfileSecurityAuditor {
         val deprecated: Boolean
     )
 
-    /**
-     * Perform a comprehensive security assessment of a profile.
-     */
     fun assess(profile: ProxyProfile): SecurityAssessment {
         val findings = mutableListOf<SecurityFinding>()
         val scheme = profile.scheme.lowercase()
@@ -65,7 +44,6 @@ object ProfileSecurityAuditor {
         var dpiResistant = false
         var deprecated = false
 
-        // --- Protocol analysis ---
         when {
             scheme == "vless" -> {
                 encrypted = security.contains("reality") || security.contains("tls")
@@ -98,12 +76,12 @@ object ProfileSecurityAuditor {
                         "VMess without TLS: NO FORWARD SECRECY. Traffic can be decrypted later if key is compromised.",
                         "Strongly recommend migrating to VLESS+REALITY or at minimum VMess+TLS")
                 }
-                // VMess AEAD detection
+
                 if (raw.contains("aead")) {
                     findings += SecurityFinding("cipher", SecurityLevel.ADEQUATE,
                         "VMess AEAD mode: Authenticated encryption")
                 }
-                // Check for legacy (non-AEAD) VMess
+
                 if (!raw.contains("aead") && !raw.contains("alterid=0")) {
                     deprecated = true
                     findings += SecurityFinding("cipher", SecurityLevel.INSECURE,
@@ -122,7 +100,7 @@ object ProfileSecurityAuditor {
 
             scheme == "shadowsocks" || scheme == "ss" -> {
                 encrypted = true
-                // Check cipher
+
                 val hasAead = raw.contains("2022-blake3") || raw.contains("aes-256-gcm") ||
                     raw.contains("aes-128-gcm") || raw.contains("chacha20")
                 if (hasAead) {
@@ -140,7 +118,7 @@ object ProfileSecurityAuditor {
                 forwardSecrecy = true
                 findings += SecurityFinding("protocol", SecurityLevel.ADEQUATE,
                     "Hysteria2: QUIC-based with built-in encryption")
-                // Note: UDP-based, may be blocked in Iran
+
                 findings += SecurityFinding("transport", SecurityLevel.INFO_LEVEL,
                     "Hysteria2 uses UDP which may be blocked during Iranian clampdowns")
             }
@@ -165,7 +143,7 @@ object ProfileSecurityAuditor {
 
             scheme == "wireguard" -> {
                 encrypted = true
-                forwardSecrecy = false  // WireGuard has known limitations with forward secrecy
+                forwardSecrecy = false
                 findings += SecurityFinding("protocol", SecurityLevel.ADEQUATE,
                     "WireGuard: Strong encryption but limited forward secrecy",
                     "Consider VLESS+REALITY for better censorship resistance")
@@ -192,7 +170,6 @@ object ProfileSecurityAuditor {
             }
         }
 
-        // --- Transport analysis ---
         when {
             transport.contains("xhttp") || transport.contains("splithttp") -> {
                 dpiResistant = true
@@ -222,7 +199,6 @@ object ProfileSecurityAuditor {
             }
         }
 
-        // --- Port analysis ---
         when (profile.port) {
             443 -> findings += SecurityFinding("port", SecurityLevel.STRONG,
                 "Port 443: Standard HTTPS port, blends with normal traffic")
@@ -238,14 +214,12 @@ object ProfileSecurityAuditor {
             }
         }
 
-        // --- Flow analysis (XTLS) ---
         if (raw.contains("flow=xtls-rprx-vision")) {
             forwardSecrecy = true
             findings += SecurityFinding("flow", SecurityLevel.STRONG,
                 "XTLS Vision: Strong flow with forward secrecy")
         }
 
-        // Compute overall score
         val score = computeScore(findings)
         val level = computeLevel(findings, score)
 
@@ -265,7 +239,7 @@ object ProfileSecurityAuditor {
     private fun computeScore(findings: List<SecurityFinding>): Double {
         if (findings.isEmpty()) return 50.0
 
-        var score = 70.0 // Base score
+        var score = 70.0
 
         findings.forEach { finding ->
             score += when (finding.level) {
@@ -289,10 +263,6 @@ object ProfileSecurityAuditor {
         return SecurityLevel.INSECURE
     }
 
-    /**
-     * Compute a ranking penalty for a profile based on its security assessment.
-     * Used by the ranker to deprioritize insecure profiles.
-     */
     fun rankPenalty(profile: ProxyProfile): Double {
         val assessment = assess(profile)
         return when (assessment.level) {
@@ -305,18 +275,13 @@ object ProfileSecurityAuditor {
         }
     }
 
-    /**
-     * Check if a profile should be excluded from ranking due to security issues.
-     */
     fun shouldExcludeFromRank(profile: ProxyProfile): Boolean {
         val assessment = assess(profile)
         return assessment.level == SecurityLevel.INSECURE && assessment.deprecated
     }
 
-    /** Rank-pool eligibility. */
     enum class RankEligibility { ACTIVE, DEPRECATED }
 
-    /** A profile's rank-pool placement plus a stable machine-readable reason. */
     data class Eligibility(
         val eligibility: RankEligibility,
         val reason: String
@@ -324,14 +289,6 @@ object ProfileSecurityAuditor {
         val active: Boolean get() = eligibility == RankEligibility.ACTIVE
     }
 
-    /**
-     * MARBLE_SMART_RANK_V90 — move censorship-unsafe nodes out of the active rank pool before they
-     * can fail a benchmark:
-     *  - VLESS without TLS/REALITY has no anti-detection and no forward secrecy;
-     *  - VMess without TLS/REALITY has no forward secrecy;
-     *  - legacy VMess (alterId > 0) is already flagged deprecated by [assess].
-     *
-     */
     fun rankEligibility(
         profile: ProxyProfile,
         settings: AppSettings = AppSettings()
@@ -339,17 +296,7 @@ object ProfileSecurityAuditor {
         val scheme = profile.scheme.lowercase()
         val security = effectiveSecurity(profile)
         val assessment = assess(profile)
-        // MARBLE_CORE_CONFIG_SUPERSET_V165 — the rank pool used to apply its own copy of "VLESS
-        // without TLS is deprecated", which hid every node of a plaintext subscription from Smart
-        // Rank *on top of* the connect path refusing them: 42 profiles, 0 rankable, no sentence
-        // anywhere saying why. There is now one authority for both questions:
-        //
-        //  · a shape the selected core cannot load at all stays out (the probe would only burn its
-        //    timeout on a config the core rejects before it starts);
-        //  · a cleartext node the user has consented to is ACTIVE — it dials, so it can be measured,
-        //    and hiding it from ranking is what "no fast node found" really meant;
-        //  · a cleartext node the user has *not* consented to is DEPRECATED with the refusal as its
-        //    reason, so the Servers row explains it instead of showing a stale delay.
+
         val engine = settings.coreEngine()
         CoreConfigSuperset.coreGapIssue(profile, engine)?.let {
             return Eligibility(RankEligibility.DEPRECATED, "core-gap")
@@ -369,10 +316,6 @@ object ProfileSecurityAuditor {
         }
     }
 
-    /**
-     * Partition a candidate list into the active rank pool and the deprecated/hidden set so a
-     * censorship-unsafe node can never fail a benchmark (MARBLE_SMART_RANK_V90).
-     */
     fun partitionForRank(
         profiles: List<ProxyProfile>,
         settings: AppSettings = AppSettings()
@@ -387,7 +330,6 @@ object ProfileSecurityAuditor {
         return active to deprecated
     }
 
-    /** Effective TLS/REALITY security, reading both the profile field and the emitted config. */
     private fun effectiveSecurity(profile: ProxyProfile): String {
         val explicit = profile.security.trim().lowercase()
         if (explicit.contains("reality")) return "reality"
@@ -398,18 +340,11 @@ object ProfileSecurityAuditor {
         return explicit.ifBlank { "none" }
     }
 
-    /**
-     * Batch assess all profiles and return summary.
-     */
     fun batchAssess(profiles: List<ProxyProfile>): Map<String, SecurityAssessment> {
         return profiles.associate { it.id to assess(it) }
     }
 
-    /**
-     * Count profiles by security level.
-     */
     fun levelCounts(profiles: List<ProxyProfile>): Map<SecurityLevel, Int> {
         return profiles.groupBy { assess(it).level }.mapValues { it.value.size }
     }
-
 }

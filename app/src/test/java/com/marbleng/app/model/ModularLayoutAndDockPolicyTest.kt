@@ -5,28 +5,19 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_MODULAR_LAYOUT_V145 / MARBLE_DOCK_CUSTOM_V145.
- *
- * Two chrome preferences that used to be able to render an unusable product: a modular Home
- * order that had lost the CONNECT module, and a navigation bar with neither icons nor labels.
- * Both are repaired by pure functions, so both are pinned here.
- */
 class ModularLayoutAndDockPolicyTest {
-
     @Test
     fun aTruncatedOrderStillRendersEveryModule() {
         val repaired = ModularLayout.order("STATUS,SERVERS")
         assertEquals(ModularLayout.CANONICAL.size, repaired.size)
         assertTrue(repaired.containsAll(ModularLayout.CANONICAL))
-        // The user's own ordering of what they did save is preserved, first.
+
         assertEquals(ModularLayout.STATUS, repaired[0])
         assertEquals(ModularLayout.SERVERS, repaired[1])
     }
 
     @Test
     fun anOrderWithoutConnectStillContainsConnect() {
-        // The regression that made Home unusable: no CONNECT token, therefore no connect button.
         val repaired = ModularLayout.order("STATS,SERVERS,STATUS")
         assertTrue(ModularLayout.CONNECT in repaired)
     }

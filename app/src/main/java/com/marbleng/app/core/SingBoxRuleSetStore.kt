@@ -5,8 +5,6 @@ import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 
-/** APK assets are the startup authority; an offline first install must never contact GitHub.
- * Extraction is checksum-verified and atomic, including after a package update or partial write. */
 class SingBoxRuleSetStore(private val context: Context) {
     @Synchronized fun prepare(): Map<String, String> {
         val manifest = context.assets.open("singbox/manifest.json").bufferedReader().use { JSONObject(it.readText()) }

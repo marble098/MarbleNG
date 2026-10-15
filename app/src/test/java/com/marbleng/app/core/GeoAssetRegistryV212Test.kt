@@ -9,19 +9,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_MULTI_SOURCE_ROUTING_V212 — the set of geo databases routing reads.
- *
- * The report was that routing is "still weak" at separating domestic traffic, and the structural
- * half of that is here: the preference used to be ONE source id, and choosing a second database
- * meant giving up the first. What can go wrong invisibly in the replacement is not the download —
- * it is the *set*: its order (the first entry owns the canonical file names), its floor (routing
- * with no database is a worse product than routing with the bundled one), its ceiling (a set the
- * writer cannot finish downloading), and the token shape each member is addressed by (a wrong
- * `ext:` reference is a config the core refuses to load).
- */
 class GeoAssetRegistryV212Test {
-
     @Test
     fun anEmptyStoredListMeansTheBundledPrimaryAndNeverNothing() {
         assertEquals(
@@ -29,7 +17,7 @@ class GeoAssetRegistryV212Test {
             GeoAssetRegistry.parseIds("")
         )
         assertEquals(listOf(RoutingDefaults.SOURCE_CHOCOLATE4U), GeoAssetRegistry.parseIds("  "))
-        // The legacy spelling of "everything" is not a source: it is the word the old list used.
+
         assertEquals(listOf(RoutingDefaults.SOURCE_CHOCOLATE4U), GeoAssetRegistry.parseIds("all"))
     }
 
@@ -49,7 +37,6 @@ class GeoAssetRegistryV212Test {
 
     @Test
     fun pickingAPrimaryReordersInsteadOfDroppingTheRest() {
-        // The defect this exists to remove: a source chooser that replaced the previous source.
         val set = listOf("chocolate4u-iran", "loyalsoldier", "v2fly")
         val reordered = GeoAssetRegistry.withPrimary(set, "v2fly")
         assertEquals(listOf("v2fly", "chocolate4u-iran", "loyalsoldier"), reordered)
@@ -63,7 +50,7 @@ class GeoAssetRegistryV212Test {
         val two = GeoAssetRegistry.withAdded(only, "loyalsoldier")
         assertEquals(listOf(RoutingDefaults.SOURCE_CHOCOLATE4U, "loyalsoldier"), two)
         assertEquals(only, GeoAssetRegistry.without(two, "loyalsoldier"))
-        // Adding one that is already there is not a duplicate.
+
         assertEquals(two, GeoAssetRegistry.withAdded(two, "LOYALSOLDIER"))
     }
 
@@ -123,8 +110,6 @@ class GeoAssetRegistryV212Test {
 
     @Test
     fun aSourceThatPublishesOneFamilyCannotBeAskedForTheOther() {
-        // v2fly-geoip ships geoip.dat only: asking it for a geosite tag has no answer, and a
-        // half-answer written as a rule is a reference to a file that does not exist.
         val geoIpOnly = GeoAssetRegistry.SourceSpec(
             id = "v2fly-geoip",
             label = "v2fly GeoIP",
@@ -160,9 +145,6 @@ class GeoAssetRegistryV212Test {
         val restored = GeoAssetRegistry.customSources(GeoAssetRegistry.serializeCustom(sources))
         assertEquals(sources, restored)
 
-        // http (not https), a blank url pair, and junk JSON are all "no source here". Written as
-        // isEmpty() rather than a size comparison so the assertion cannot silently compare a
-        // number against a list — which is exactly what the first cut of this test did.
         assertTrue(
             GeoAssetRegistry.customSources(
                 """[{"id":"x","geoIpUrl":"http://a.example/x.dat"}]"""
@@ -182,8 +164,6 @@ class GeoAssetRegistryV212Test {
 
     @Test
     fun theSelectionReadsTheNewSetAndFallsBackToTheLegacySingleId() {
-        // v2 → v3 migration seeds the set from the single id; a stored set that predates the
-        // seeding must still resolve, or an upgrade would silently lose the user's source.
         val legacy = AppSettings(geoAssetSourceIds = "", geoAssetSourceId = "loyalsoldier")
         assertEquals(listOf("loyalsoldier"), GeoAssetRegistry.parseSelection(legacy).ids)
         assertEquals("loyalsoldier", GeoAssetRegistry.parseSelection(legacy).primaryId)
@@ -219,7 +199,7 @@ class GeoAssetRegistryV212Test {
             "1 source • geoip ×1 • geosite ×1 • 5.7 MB",
             GeoAssetRegistry.summary(listOf(state))
         )
-        // A source that is enabled but not on disk is not an error and is not counted as ready.
+
         val pending = state.copy(geoIpReady = false, geoSiteReady = false)
         assertFalse(pending.usable())
         assertFalse(pending.readyFor(GeoAssetRegistry.Kind.GEOIP))

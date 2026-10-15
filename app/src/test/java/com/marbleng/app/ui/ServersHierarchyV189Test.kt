@@ -20,9 +20,6 @@ import org.junit.Test
  * The drawing code is allowed to evolve; these numbers are the contract.
  */
 class ServersHierarchyV189Test {
-
-    // ------------------------------------------------------------------ level 2 is smaller
-
     @Test
     fun aNestedServerIsSmallerThanTheCardThatHoldsIt() {
         assertTrue(
@@ -83,13 +80,11 @@ class ServersHierarchyV189Test {
         )
     }
 
-    // ------------------------------------------------------------------ plan arithmetic
-
     @Test
     fun usagePercentRoundsToTheNearestWholeNumber() {
         assertEquals(0, ServersHierarchy.usagePercent(0L, 100L))
         assertEquals(50, ServersHierarchy.usagePercent(50L, 100L))
-        // 69.9 % and 70.4 % both print 70; 70.5 % prints 71.
+
         assertEquals(70, ServersHierarchy.usagePercent(699L, 1_000L))
         assertEquals(70, ServersHierarchy.usagePercent(704L, 1_000L))
         assertEquals(71, ServersHierarchy.usagePercent(705L, 1_000L))
@@ -100,7 +95,7 @@ class ServersHierarchyV189Test {
     fun anOverQuotaPlanReportsMoreThanAHundredPercentButNeverANegativeOne() {
         assertEquals(150, ServersHierarchy.usagePercent(150L, 100L))
         assertEquals(0, ServersHierarchy.usagePercent(-50L, 100L))
-        // A provider that reported nothing at all has no percent to show.
+
         assertEquals(0, ServersHierarchy.usagePercent(50L, 0L))
     }
 
@@ -110,7 +105,7 @@ class ServersHierarchyV189Test {
         assertEquals(SubscriptionUsageTier.WATCH, ServersHierarchy.usageTier(705L, 1_000L))
         assertEquals(SubscriptionUsageTier.WATCH, ServersHierarchy.usageTier(900L, 1_000L))
         assertEquals(SubscriptionUsageTier.CRITICAL, ServersHierarchy.usageTier(905L, 1_000L))
-        // The boundaries themselves, stated once, in percent.
+
         assertEquals(SubscriptionUsageTier.CALM, ServersHierarchy.usageTierOf(70))
         assertEquals(SubscriptionUsageTier.WATCH, ServersHierarchy.usageTierOf(71))
         assertEquals(SubscriptionUsageTier.WATCH, ServersHierarchy.usageTierOf(90))
@@ -154,8 +149,6 @@ class ServersHierarchyV189Test {
         assertEquals("42%", ServersHierarchy.percentLabel(42))
     }
 
-    // ------------------------------------------------------------------ count badges
-
     @Test
     fun everyBadgeNamesTheThingItCounts() {
         assertEquals("1 group", ServersHierarchy.groupBadge(1))
@@ -165,7 +158,7 @@ class ServersHierarchyV189Test {
         assertEquals("0 servers", ServersHierarchy.serverBadge(0))
         assertEquals("1 filter", ServersHierarchy.filterBadge(1))
         assertEquals("3 filters", ServersHierarchy.filterBadge(3))
-        // A negative count is a bug upstream; the badge must still read as a count.
+
         assertEquals("0 groups", ServersHierarchy.groupBadge(-4))
     }
 

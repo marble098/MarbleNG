@@ -5,16 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Regression tests for the adaptive scorer (MARBLE_SMART_RANK_V90).
- *
- * These lock in the continuous adaptive-selection contract: per-network learned score tables,
- * 90-second dwell hysteresis after every successful selection, a catastrophic override (>40% loss
- * or full drop), and inconclusive first tests that stay `uncertain` and are re-probed in the
- * background instead of penalising the node.
- */
 class AdaptiveAegisScorerTest {
-
     @Test
     fun healthyRouteIsKept() {
         val scorer = AdaptiveAegisScorer(dwellTimeMs = 90_000L) { 1_000_000L }
@@ -39,7 +30,7 @@ class AdaptiveAegisScorerTest {
             "fp", "active",
             AdaptiveAegisScorer.Quality(rttMs = 500, lossPercent = 30.0, stressFlag = true),
             mapOf("other" to 95.0),
-            nowMs = 1_030_000L // only 30s after the selection
+            nowMs = 1_030_000L
         )
         assertTrue(decision.keep)
         assertTrue(decision.reason.contains("dwell"))
@@ -101,7 +92,7 @@ class AdaptiveAegisScorerTest {
             "fp", "active",
             AdaptiveAegisScorer.Quality(rttMs = 500, lossPercent = 25.0, stressFlag = true),
             mapOf("other" to 95.0),
-            nowMs = 1_100_000L // 100s after selection — dwell satisfied
+            nowMs = 1_100_000L
         )
         assertFalse(decision.keep)
         assertEquals("other", decision.switchTo)

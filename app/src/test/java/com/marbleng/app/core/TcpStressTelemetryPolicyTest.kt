@@ -46,7 +46,7 @@ class TcpStressTelemetryPolicyTest {
         assertEquals(0.0, assessment.lossRate, 0.0)
         assertFalse(assessment.jitterPressure)
         assertFalse(assessment.stressed)
-        // Low MSS remains visible to diagnostics but is not proof that the TUN MTU should shrink.
+
         assertTrue(assessment.mssRatio < 0.55)
     }
 

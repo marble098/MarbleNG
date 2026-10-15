@@ -16,7 +16,6 @@ data class RealtimeScore(val selected:Double,val interactive:Double,val streamin
     val stability:Double,val resilience:Double,val reliabilityAxis:Double,val latencyAxis:Double,
     val jitterAxis:Double,val tailAxis:Double,val lossAxis:Double)
 
-/** Shared jitter-first quality model. MARBLE_REALTIME_ENGINE_V70 */
 object RealtimeQualityEngine {
     fun score(r:BenchmarkResult,w:WorkloadProfile,b:BenchMode=BenchMode.BALANCED)=score(
         RealtimeEvidence(r.success.toDouble(),r.latencyMs,

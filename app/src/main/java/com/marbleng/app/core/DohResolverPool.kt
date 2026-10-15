@@ -6,50 +6,20 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 
-/**
- * Transport abstraction for DNS-over-HTTPS (MARBLE_SMART_RANK_V90).
- *
- * The production implementation ([HttpUrlConnectionDohTransport]) keeps a DoH connection pool that
- * is deliberately separate from the general HTTPS / management pool: it enables keep-alive, sets a
- * bounded per-hop idle timeout, and — critically — always drains the full response body before the
- * socket is closed, so a resolver answer can never be torn down mid-read. This is the root-cause
- * fix for the `io: read/write on closed pipe` bursts observed on 1.1.1.1 / 8.8.8.8 for
- * google.com, ws.chatgpt.com, dns.quad9.net and mtalk.google.com: the old code closed the HttpsURL
- * connection (or let a too-short deadline cancel it) before the response stream had finished.
- */
 interface DohTransport {
     fun query(endpoint: String, wire: ByteArray, timeoutMs: Long): DohTransportResult
 }
 
-/** Result of a single DoH query against one endpoint. */
 data class DohTransportResult(
     val body: ByteArray = ByteArray(0),
     val success: Boolean = false,
-    /** Precise failure classification; null only on success. */
     val failureKind: ResolverFailureKind? = null,
     val latencyMs: Long = 0L,
     val detail: String = ""
 )
 
-/**
- * Production DoH transport over a dedicated, keep-alive connection pool.
- *
- * Each query:
- *  1. sets a per-endpoint read deadline (never shorter than the resolver's overall budget),
- *  2. sends the RFC 8484 POST body,
- *  3. reads the complete response before [javax.net.ssl.HttpsURLConnection.disconnect], so the
- *     socket is returned to the keep-alive pool intact and is never closed mid-response.
- *
- * Failures are classified through the shared [ResolverFailureClassifier] so shutdown-safe events
- * (`read/write on closed pipe`, `broken pipe`) are never counted as resolver outages, while
- * deadline / EOF / TLS / cert-expired are quarantinable.
- */
 class HttpUrlConnectionDohTransport : DohTransport {
-
     override fun query(endpoint: String, wire: ByteArray, timeoutMs: Long): DohTransportResult {
-        // A DoH provider with a hostname (or a redirect to one) would bootstrap through netd
-        // before encryption starts. No direct JVM DoH call may reveal a queried node name to
-        // Android DNS; providers must be HTTPS IP literals or this lookup fails closed.
         val endpointUrl = runCatching { java.net.URL(endpoint) }.getOrNull()
         if (endpointUrl == null || endpointUrl.protocol != "https" ||
             !AddressFamilyPolicy.isLiteralIp(endpointUrl.host)) {
@@ -149,33 +119,19 @@ class HttpUrlConnectionDohTransport : DohTransport {
 
     companion object {
         init {
-            // Enable HTTP keep-alive for the dedicated DoH pool. The general management pool is
-            // built with its own explicit `Connection: close` policy in SocksHttpClient, so this
-            // setting only widens reuse for DoH sockets.
             runCatching { System.setProperty("http.keepAlive", "true") }
         }
     }
 }
 
-/**
- * Parallel racing resolver pool over at least four providers (MARBLE_SMART_RANK_V90).
- *
- * Cloudflare, Google and Quad9 are raced in parallel together with an internal/proxied DoH
- * provider, so a blocked or throttled public resolver can never stall the whole lookup. The first
- * valid answer wins; any error class (not just timeouts) triggers automatic fallback to the next
- * provider. A bounded overall deadline guarantees the race itself can never exceed the resolver's
- * budget.
- */
 class DohResolverPool(
     private val transport: DohTransport,
     private val executor: ExecutorService,
     private val overallDeadlineMs: Long = 4_000L
 ) {
-
     data class Provider(
         val id: String,
         val endpoint: String,
-        /** True for the internal/proxied fallback tier (raced last, never first). */
         val internal: Boolean = false
     )
 
@@ -184,27 +140,19 @@ class DohResolverPool(
         val body: ByteArray = ByteArray(0),
         val providerId: String? = null,
         val latencyMs: Long = 0L,
-        /** Per-provider failures in race order, so callers can quarantine the right endpoint. */
         val failures: List<Pair<Provider, DohTransportResult>> = emptyList()
     )
 
     companion object {
-        /** Four IP-literal public providers + an internal/proxied IP-literal DoH fallback. */
         val DEFAULT_PROVIDERS = listOf(
             Provider("cloudflare-doh", "https://1.1.1.1/dns-query"),
             Provider("google-doh", "https://8.8.8.8/dns-query"),
-            Provider("quad9-doh", "https://9.9.9.9/dns-query"),
             Provider("cloudflare-fallback", "https://1.0.0.1/dns-query"),
+            Provider("quad9-doh", "https://9.9.9.9/dns-query"),
             Provider("internal-doh", "https://149.112.112.112/dns-query", internal = true)
         )
     }
 
-    /**
-     * Race [wire] against every [providers] entry in parallel and return the first success. Any
-     * error — deadline, EOF, TLS, certificate-expired, closed-pipe, etc. — falls back to the next
-     * provider. Returns [RaceOutcome.success] = false with the per-provider [RaceOutcome.failures]
-     * only when every provider failed or the overall deadline elapsed.
-     */
     fun raceResolve(
         wire: ByteArray,
         providers: List<Provider> = DEFAULT_PROVIDERS,
@@ -215,12 +163,8 @@ class DohResolverPool(
         }
 
         val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(overallDeadlineMs.coerceAtLeast(0L))
-        val ordered = providers.sortedBy { it.internal } // public providers race first
+        val ordered = providers.sortedBy { it.internal }
 
-        // Poll COMPLETIONS, not futures in provider order. Waiting on the first provider's
-        // Future.get(deadline) hid an answer from a healthy second provider until the deadline:
-        // a blocked Cloudflare IPv6 endpoint could make all IPv6 node probes fail even though
-        // Google (or an IPv4-reachable DoH peer) had already returned AAAA in milliseconds.
         val completion = java.util.concurrent.ExecutorCompletionService<Pair<Provider, DohTransportResult>>(executor)
         val pending = linkedMapOf<Future<Pair<Provider, DohTransportResult>>, Provider>()
         val failures = mutableListOf<Pair<Provider, DohTransportResult>>()
@@ -268,8 +212,6 @@ class DohResolverPool(
                 if (Thread.currentThread().isInterrupted) break
             }
         } finally {
-            // The winner never waits for stragglers, and cancelled / superseded lookups cannot
-            // keep a worker occupied beyond the transport's own socket timeout.
             pending.keys.forEach { runCatching { it.cancel(true) } }
         }
 
@@ -283,7 +225,6 @@ class DohResolverPool(
         return RaceOutcome(success = false, failures = failures)
     }
 
-    /** Short, user-readable one-line outcome for logs / diagnostics. */
     fun describe(outcome: RaceOutcome): String = if (outcome.success) {
         "DoH race won by ${outcome.providerId} in ${String.format(Locale.US, "%.0f", outcome.latencyMs.toDouble())}ms"
     } else {

@@ -1,10 +1,5 @@
 package com.marbleng.app.ui
 
-// MARBLE_BILINGUAL_V110
-// MarbleNG speaks English and Persian. The active language follows the Android device locale by
-// default and can be pinned from Settings → Appearance. Every user-visible Home/connection string
-// lives here so a translation is a data change, never a layout change.
-
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
@@ -16,25 +11,15 @@ import com.marbleng.app.model.AppLanguage
 import com.marbleng.app.model.parseAppLanguage
 import java.util.Locale
 
-/** The two product languages MarbleNG renders. */
 enum class MarbleLanguage { EN, FA }
 
-/**
- * Every translatable product string.
- *
- * It is a plain data class instead of Android resources on purpose: the language can be switched
- * inside the running app without recreating the Activity, and Compose recomposes the whole tree
- * from this single value.
- */
 data class MarbleStrings(
     val language: MarbleLanguage,
 
-    // Navigation
     val tabHome: String,
     val tabLibrary: String,
     val tabSettings: String,
 
-    // Connection state
     val connect: String,
     val disconnect: String,
     val cancel: String,
@@ -44,18 +29,10 @@ data class MarbleStrings(
     val connectionStopped: String,
     val readyToConnect: String,
     val chooseRoute: String,
-    // MARBLE_CONNECT_BUTTON_V121 — the tunnel takes real time to close, so the shutdown is a
-    // first-class state of the connect control instead of an instant jump back to "ready".
-    //
-    // MARBLE_ROUTE_ATELIER_V207 — two retired pairs left the table with this pass: `slideToAct`
-    // ("Slide to act"), which the direction-specific "slide right to connect" / "slide left to
-    // disconnect" captions replaced, and `socksStandby` ("Waiting for connection"), whose last caller
-    // went away when the six-state table took over the status copy. A bilingual table is a promise
-    // that every pair on it reaches a user; a pair that reaches no one is the drift the review named.
+
     val disconnecting: String,
     val closingRoute: String,
 
-    // Home evidence block
     val node: String,
     val source: String,
     val ipAddress: String,
@@ -66,8 +43,7 @@ data class MarbleStrings(
     val testPing: String,
     val retestPing: String,
     val measuring: String,
-    // MARBLE_PING_FIXED_GEOMETRY_V114 — the ping readout is a fixed-size instrument: the value
-    // slot only ever holds digit-shaped glyphs, and the words live in the reserved hint slot.
+
     val pingMeasuringValue: String,
     val pingIdleValue: String,
     val notMeasured: String,
@@ -77,7 +53,7 @@ data class MarbleStrings(
     val refreshIp: String,
     val ipDetails: String,
     val library: String,
-    // MARBLE_SERVERS_LANGUAGE_V114 — "Library" is now "Servers" and a "node" is a "server".
+
     val serversTitle: String,
     val serversSubtitle: String,
     val searchServersHint: String,
@@ -93,7 +69,7 @@ data class MarbleStrings(
     val clipboardNothingFound: String,
     val noServersTitle: String,
     val noServersBody: String,
-    // MARBLE_SETTINGS_HUB_V114 — one settings page, every title opens its own page.
+
     val settingsTitle: String,
     val settingsSubtitle: String,
     val categoryAppearance: String,
@@ -102,8 +78,7 @@ data class MarbleStrings(
     val categoryEngine: String,
     val categoryTests: String,
     val categorySystem: String,
-    // MARBLE_SETTINGS_HIERARCHY_V192 — the hub's two new parent titles: everything the user
-    // sees on Home in one card, everything that moves their data in another.
+
     val categoryHome: String,
     val categoryData: String,
     val categoryInformation: String,
@@ -129,7 +104,6 @@ data class MarbleStrings(
     val upload: String,
     val dataFlow: String,
 
-    // Settings — appearance / style / language
     val appearance: String,
     val homeStyleTitle: String,
     val homeStyleDetail: String,
@@ -142,7 +116,6 @@ data class MarbleStrings(
     val styleIosModular: String,
     val styleIosModularDetail: String,
 
-    // MARBLE_ROUTE_ATELIER_V207 — the fifth presentation's name and its one-line promise.
     val styleRouteAtelier: String,
     val styleRouteAtelierDetail: String,
     val styleCosmicOrbit: String,
@@ -156,7 +129,6 @@ data class MarbleStrings(
     val languageEnglish: String,
     val languagePersian: String,
 
-    // iOS 4 Themes actions & indicators
     val socksProxyLabel: String,
     val socksCopied: String,
     val quickAddConnect: String,
@@ -164,12 +136,10 @@ data class MarbleStrings(
     val slideToDisconnect: String,
     val customizeLayout: String,
 
-    // MARBLE_SIGNATURE_STUDIO_REMOVED_V143 — the Signature studio surface is permanently removed.
     val proNightOutlines: String,
     val proNightOutlinesDetail: String,
     val proAddRoute: String,
 
-    // MARBLE_HOME_REDESIGN_V132 — the selected route card, the shortcut deck and the live meter.
     val selectedRoute: String,
     val changeRoute: String,
     val livePing: String,
@@ -179,13 +149,12 @@ data class MarbleStrings(
     val livePingShow: String,
     val pasteShortcut: String,
     val qrShortcut: String,
-    // MARBLE_CONNECT_BUTTON_STYLES_V132 — the two docked connection controls.
+
     val styleStream: String,
     val styleStreamDetail: String,
     val styleFloating: String,
     val styleFloatingDetail: String,
-    // MARBLE_HOME_V137 — the rebuilt Home deck: live-ping states, the server selector and the
-    // status banner. Every word here has a Persian twin below.
+
     val pingChecking: String,
     val pingTimeout: String,
     val pingUnreachable: String,
@@ -198,15 +167,12 @@ data class MarbleStrings(
     val homeConnectedBadge: String,
     val homeSelectedBadge: String,
     val homeProtocol: String,
-    // MARBLE_HOME_CLOUD_V141 — the Home server box speaks the active language everywhere:
-    // group menu entries, the copy affordance and the SOCKS standby line are product strings,
-    // not leftovers of the English draft.
+
     val homeAllServers: String,
     val homeManualGroup: String,
     val copyAction: String,
     val modularStudioTitle: String,
-    // MARBLE_MODULAR_CUSTOMIZER_V151 — the customizer's hide switch. `customizeLayout` itself
-    // already exists above; only the hide affordance is new.
+
     val hideCustomizeButton: String,
     val hideCustomizeButtonHint: String
 )
@@ -324,7 +290,6 @@ private val EnglishStrings = MarbleStrings(
     slideToDisconnect = "Slide to disconnect",
     customizeLayout = "Customize Layout",
 
-    // MARBLE_SIGNATURE_STUDIO_REMOVED_V143
     proNightOutlines = "Night outlines",
     proNightOutlinesDetail = "Frame lines of the dark theme",
     proAddRoute = "Add server",
@@ -386,8 +351,7 @@ private val PersianStrings = MarbleStrings(
     connectionPing = "پینگ",
     testPing = "تست پینگ",
     retestPing = "تست دوباره",
-    // Short on purpose: this string lives inside compact ping readouts where it must never
-    // overflow its box (MARBLE_HOME_PING_AUTOFIT_V112).
+
     measuring = "اندازه‌گیری…",
     pingMeasuringValue = "•••",
     pingIdleValue = "—",
@@ -476,7 +440,6 @@ private val PersianStrings = MarbleStrings(
     slideToDisconnect = "برای قطع اتصال بکشید",
     customizeLayout = "شخصی‌سازی چیدمان",
 
-    // MARBLE_SIGNATURE_STUDIO_REMOVED_V143
     proNightOutlines = "خطوط حالت شب",
     proNightOutlinesDetail = "خطوط و کادرهای تم تاریک",
     proAddRoute = "افزودن سرور",
@@ -515,7 +478,6 @@ private val PersianStrings = MarbleStrings(
 
 internal val LocalMarbleStrings = staticCompositionLocalOf { EnglishStrings }
 
-/** `Tr.now.connect` reads the active translation from anywhere in the tree. */
 object Tr {
     val now: MarbleStrings
         @Composable @ReadOnlyComposable get() = LocalMarbleStrings.current
@@ -524,7 +486,6 @@ object Tr {
 private fun stringsFor(language: MarbleLanguage): MarbleStrings =
     if (language == MarbleLanguage.FA) PersianStrings else EnglishStrings
 
-/** Persian, Dari and Tajik locales all read Persian copy; everything else falls back to English. */
 internal fun languageForLocale(locale: Locale): MarbleLanguage =
     if (locale.language.lowercase(Locale.ROOT) in setOf("fa", "prs", "tg")) {
         MarbleLanguage.FA
@@ -532,11 +493,6 @@ internal fun languageForLocale(locale: Locale): MarbleLanguage =
         MarbleLanguage.EN
     }
 
-/**
- * Resolve the effective language: an explicit user choice always wins, otherwise the device locale
- * decides. Persian also flips the whole app to a right-to-left layout so every existing Row,
- * padding and alignment mirrors without per-screen work.
- */
 @Composable
 internal fun ProvideMarbleLanguage(
     languageId: String,

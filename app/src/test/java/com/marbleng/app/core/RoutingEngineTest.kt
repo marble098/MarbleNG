@@ -15,14 +15,10 @@ import org.junit.Before
 import org.junit.Test
 
 class RoutingEngineTest {
-
     @Before
     fun resetGeoIndex() {
-        // Validation consults the process-wide geo index; tests must run without one so the
-        // "unknown tag" verdicts stay deterministic regardless of execution order.
         GeoAssetIndex.resetForTests()
     }
-
 
     private fun proxyConfigSource(): String = JSONObject()
         .put(
@@ -68,8 +64,6 @@ class RoutingEngineTest {
 
     @Test
     fun `an empty or deleted rule list stays empty - no silent resurrection`() {
-        // The old parseRules turned "" and "[]" back into DEFAULT_RULES, so a user could never
-        // actually delete the built-in rules. The stored list is now the truth.
         assertTrue(RoutingEngine.parseRules("").isEmpty())
         assertTrue(RoutingEngine.parseRules("[]").isEmpty())
         assertTrue(RoutingEngine.effectiveRules(AppSettings(routingRulesJson = "")).isEmpty())
@@ -120,9 +114,9 @@ class RoutingEngineTest {
         val text = rulesOut.toString()
         assertFalse(text.contains("geoip:ir"))
         assertFalse(text.contains("geosite:ir"))
-        // The ads switch is an explicit independent control the user owns in every mode.
+
         assertTrue(text.contains("geosite:category-ads-all"))
-        // Private bypass stays an independent switch and is on by default.
+
         assertTrue(text.contains("10.0.0.0/8"))
     }
 
@@ -164,7 +158,7 @@ class RoutingEngineTest {
             routeBypassPrivate = false,
             routingRulesJson = RoutingEngine.serializeRules(
                 listOf(
-                    // A port token the engine rejects ("443 udp") used to fail the whole config.
+
                     RoutingRule(
                         id = "bad-port",
                         kind = RoutingRuleKind.PORT,
@@ -244,7 +238,7 @@ class RoutingEngineTest {
                 java.net.InetAddress.getByName("11.0.0.1")
             )
         )
-        // Words are refused textually - a validator must never trigger a resolver lookup.
+
         assertNull(RoutingEngine.parseCidr("ir"))
         assertNull(RoutingEngine.parseCidr("1.2.3.4/99"))
         assertNull(RoutingEngine.parseCidr("1.2.3"))
@@ -313,7 +307,7 @@ class RoutingEngineTest {
         val sim = RoutingEngine.simulate(settings, "10.1.2.3")
         assertEquals(RoutingOutbound.DIRECT, sim.verdict)
         assertTrue(sim.isIpLiteral)
-        // A geoip tag cannot be verified offline: the layer must report unverifiable, not "no".
+
         val geo = RoutingEngine.simulate(
             settings.copy(
                 routingRulesJson = RoutingEngine.serializeRules(
@@ -338,7 +332,7 @@ class RoutingEngineTest {
         assertTrue(RoutingEngine.needsGeoSite(AppSettings(customRoutingEnabled = true, routingRulesJson = RoutingEngine.serializeRules(recommended))))
         assertTrue(RoutingEngine.needsGeoIp(AppSettings(customRoutingEnabled = true, routingRulesJson = RoutingEngine.serializeRules(recommended))))
         assertTrue(RoutingEngine.needsDirectOutbound(AppSettings(customRoutingEnabled = true, routingRulesJson = RoutingEngine.serializeRules(recommended))))
-        // Every preset's rules pass validation without a loaded index.
+
         RoutingPresets.Preset.entries.forEach { preset ->
             RoutingPresets.materialize(preset).forEach { rule ->
                 assertTrue(
@@ -375,13 +369,13 @@ class RoutingEngineTest {
         val defaults = AppSettings()
         assertTrue("IPv6 ships enabled", defaults.ipv6Enabled)
         assertTrue("the v6 preference ships enabled", defaults.preferIpv6)
-        // The decision is the app's: an IPv4-only underlay never gets a v6-first dial order.
+
         val v4Only = AddressFamilyPolicy.plan(settings = defaults, underlayHasIpv6 = false)
         assertEquals(IpFamilyPreference.DUAL, v4Only.preference)
         assertFalse(v4Only.prioritizeIpv6)
         assertTrue(v4Only.raceEnabled)
         assertFalse(v4Only.blockIpv6Traffic)
-        // On a v6-capable underlay the same defaults prefer IPv6 with an armed race.
+
         val dual = AddressFamilyPolicy.plan(settings = defaults, underlayHasIpv6 = true)
         assertEquals(IpFamilyPreference.IPV6_FIRST, dual.preference)
         assertTrue(dual.prioritizeIpv6)

@@ -5,16 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Tests for the offline country resolver behind the Servers page (MARBLE_SERVERS_COUNTRY_V120).
- *
- * Subscriptions label nodes in every dialect imaginable, and the page has to answer one stable
- * question per node for its flag column, its "Country" sort and its "Group by country" switch.
- * These lock the readable cases in — and, just as importantly, the cases that must stay unknown
- * rather than invent a country.
- */
 class ServerCountryTest {
-
     @Test
     fun leadingFlagEmojiWins() {
         val country = ServerCountry.of("\uD83C\uDDE9\uD83C\uDDEA Frankfurt 01")
@@ -31,7 +22,6 @@ class ServerCountryTest {
 
     @Test
     fun bracketedTokenThatIsNotACountryStaysUnknown() {
-        // "[443]" and "(id)" are common node-label decorations, not countries.
         assertFalse(ServerCountry.of("Node [443] premium").isKnown)
         assertFalse(ServerCountry.of("(id) relay").isKnown)
     }
@@ -44,8 +34,6 @@ class ServerCountryTest {
 
     @Test
     fun lowerCaseTwoLetterWordIsNotACountry() {
-        // The edge-code pattern is deliberately case-sensitive: "No route" must never become
-        // Norway, and "In touch" must never become India.
         assertFalse(ServerCountry.of("No route to host").isKnown)
         assertFalse(ServerCountry.of("In touch relay").isKnown)
     }
@@ -82,7 +70,7 @@ class ServerCountryTest {
     fun flagIsBuiltFromRegionalIndicators() {
         assertEquals("\uD83C\uDDE9\uD83C\uDDEA", ServerCountry.flagFor("DE"))
         assertEquals("\uD83C\uDDFA\uD83C\uDDF8", ServerCountry.flagFor("us"))
-        // Anything that is not two letters falls back to the neutral glyph.
+
         assertEquals(ServerCountry.UNKNOWN.flag, ServerCountry.flagFor("ZZZ"))
         assertEquals(ServerCountry.UNKNOWN.flag, ServerCountry.flagFor(""))
     }

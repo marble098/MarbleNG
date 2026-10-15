@@ -2,25 +2,6 @@
 
 package com.marbleng.app.ui
 
-// iOS-STYLED 4 HOME THEMES
-//
-// 1. IOS_SLIDER: Bottom Slide-to-connect slider, sub & server list box in center with centered sub name, wide status card at top.
-// 2. IOS_FLOATING: Floating button on right that splits into disconnect (pause) and ping when connected, wide status card at top, expanded servers box.
-// 3. IOS_EMBOSSED: Bold embossed center circular button, wide status card at top, sub & servers box at bottom.
-// 4. IOS_MODULAR: Modular customizable layout where user can reorder boxes, toggle modules, and customize widgets.
-//
-// All 4 themes feature iOS-style glass boxes, fixed screen height (no outer page scroll),
-// and inner scrollable components where needed.
-//
-// MARBLE_EXPRESSIVE_MOTION_V186 — the Material 3 Expressive motion chapter for Home: every
-// presentation cascades its cards in on arrival, the state word and the ping readout roll on
-// the emphasized curves instead of hard-swapping, the connect controls' securing arcs stretch
-// and contract on the shared clock (the wavy rhythm of the newest Android loaders), released
-// knobs and pressed discs spring back with one visible overshoot, and the status pip became a
-// living double-pulse dot. The status and route lines plus the ping slot remain stable; optional
-// download/upload telemetry expands inside that same card, while Theme 1's center lane absorbs
-// the extra height and keeps the slide-to-connect control anchored at the page floor.
-
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -130,13 +111,13 @@ import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.model.BenchmarkResult
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.ConnectButtonStyle
-// MARBLE_HOME_PING_CONTROLS_V212 — the vocabulary every Home ping surface is configured with.
+
 import com.marbleng.app.model.HomePingAction
 import com.marbleng.app.model.HomeStyle
 import com.marbleng.app.model.ModularCardSize
 import com.marbleng.app.model.ModularLayout
 import com.marbleng.app.model.ProbeState
-// MARBLE_SERVER_TILE_LAYOUT_V208 — the row/tile preference this box reads.
+
 import com.marbleng.app.model.ServerLayout
 import com.marbleng.app.model.serversLayoutEnum
 import com.marbleng.app.model.parseConnectButtonStyle
@@ -153,13 +134,6 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-// ---------------------------------------------------------------------------------------------
-// Shared evidence model
-// ---------------------------------------------------------------------------------------------
-
-/**
- * Everything the Home styles are allowed to show, resolved exactly once per composition.
- */
 internal data class HomeEvidence(
     val profile: ProxyProfile?,
     val nodeName: String,
@@ -168,7 +142,6 @@ internal data class HomeEvidence(
     val flag: String,
     val countryCode: String,
     val location: String,
-    /** Address family selected for the active server path (never the device's unrelated public IP). */
     val ipFamily: String,
     val ipLoading: Boolean,
     val ipError: Boolean,
@@ -180,54 +153,30 @@ internal data class HomeEvidence(
     val pingMs: Int,
     val pingState: ConnectionPingState,
     val pingFailure: String,
-    /**
-     * MARBLE_HOME_PING_SPEED_V200 — the number on screen is one sample of a run still in
-     * progress, not the settled median.
-     */
     val pingProvisional: Boolean = false,
     val selectedPingMs: Int,
     val selectedPingState: ConnectionPingState,
     val selectedPingFailure: String,
-    /** The disconnected twin of [pingProvisional]. */
     val selectedProvisional: Boolean = false,
     val downBps: Long,
     val upBps: Long,
     val showSpeedWidget: Boolean,
-    // MARBLE_IRAN_AWARE_PING_UI — Layer 0/2 signals: the capsule's ⚠️ and the sparkline's
-    // injection segments consume them.
+
     val injectedResetSuspected: Boolean = false,
     val stabilityClass: String = "",
-    // MARBLE_SESSION_USAGE_V192 — the data this connection has moved (live) and the one before
-    // it finished with, plus the display choice that gates both readouts.
+
     val sessionBytes: Long = 0L,
     val lastSessionBytes: Long = 0L,
     val showDataUsage: Boolean = false,
-    // MARBLE_SERVER_LOCATION_V192 — the ISO code the status card's flag circle should draw:
-    // the live server-intel geo, else the repository's once-tested location. A country an operator
-    // wrote into a node name is NOT part of this value any more — see [locationTrust].
+
     val flagCode: String = "",
-    /**
-     * MARBLE_ROUTE_ATELIER_V207 — the one state this page is in, resolved from the same evidence
-     * every surface reads. Hue, copy and enabled-ness of the connect control all derive from it, so
-     * the five silhouettes cannot drift apart, and neither can the status card next to them.
-     */
     val routeState: MarbleRouteState = MarbleRouteState.READY,
-    /** What the flag in this page's tile is allowed to claim: measured, lone, label, or nothing. */
     val locationTrust: MarbleLocationTrust = MarbleLocationTrust.UNKNOWN,
-    // MARBLE_HOME_PING_CONTROLS_V212 — the verb of each ping surface on this page.
-    //
-    // These live in the evidence block, not in a per-widget branch, for the same reason every
-    // other Home fact does: the five presentations and the Atelier all draw a ping surface, and a
-    // verb that each of them resolved privately is how two of them ended up doing different things
-    // (and a third doing nothing). One resolution, one place, three surfaces.
-    /** The latency gauge / latency readout. */
+
     val pingGaugeAction: HomePingAction = HomePingAction.ROUTE,
-    /** The shortcut deck's ping pill. */
     val pingChipAction: HomePingAction = HomePingAction.GROUP,
-    /** The header's pulse control. */
     val pingHeaderAction: HomePingAction = HomePingAction.ROUTE
 ) {
-    /** True when a national flag may be painted for this route at all. */
     val mayPaintLocationFlag: Boolean get() = locationTrust.mayDrawFlag()
 }
 
@@ -242,14 +191,7 @@ internal fun buildHomeEvidence(
     val connecting = repo.state == "CONNECTING"
     val disconnecting = repo.state == "DISCONNECTING"
     val blocked = repo.state == "BLOCKED"
-    // MARBLE_ROUTE_ATELIER_V207 — the location answer and its strength travel together.
-    //
-    // Three sources can name a country here and they are not three versions of one fact: the exit
-    // report of a running session is data about the tunnel, the resolver's measured code is data
-    // about the endpoint, and an emoji inside a node's own name is marketing copy. The flag circle
-    // used to read them as one fallback chain, which let a label claim a measurement's authority.
-    // The chain stays — a page should still use the best code it has — but the label tier is no
-    // longer a flag, and a lone witness is no longer a confirmed one.
+
     val intelCode = info?.countryCode?.takeIf { it.isNotBlank() }.orEmpty()
     val measuredCode = profile?.let { repo.serverLocation(it).code }.orEmpty()
     val labelCode = leadingFlagCodeOf(profile?.name.orEmpty())
@@ -313,21 +255,18 @@ internal fun buildHomeEvidence(
         showSpeedWidget = repo.settings.homeSpeedWidgetEnabled,
         injectedResetSuspected = repo.homePingInjectedReset,
         stabilityClass = repo.homePingStabilityClass,
-        // MARBLE_SESSION_USAGE_V192 — the live counter only means something while the session
-        // runs; the last one stays readable afterwards for the "last session" chip.
+
         sessionBytes = if (repo.state == "CONNECTED") repo.sessionBytes else 0L,
         lastSessionBytes = repo.lastSessionBytes,
         showDataUsage = repo.settings.homeShowDataUsage,
         flagCode = flagCode,
-        // MARBLE_HOME_PING_CONTROLS_V212 — resolved from the stored ids, so every surface reads
-        // one parsed value instead of parsing a string of its own.
+
         pingGaugeAction = parseHomePingAction(repo.settings.homePingGaugeAction),
         pingChipAction = parseHomePingAction(repo.settings.homePingChipAction),
         pingHeaderAction = parseHomePingAction(repo.settings.homePingHeaderAction)
     )
 }
 
-/** The ISO code a leading flag emoji in a node name encodes, or blank when there is none. */
 private fun leadingFlagCodeOf(name: String): String {
     val points = name.trim().codePoints().toArray()
     val base = 0x1F1E6
@@ -343,7 +282,6 @@ private fun leadingFlagCodeOf(name: String): String {
     return ""
 }
 
-/** Actions the evidence block can trigger. Identical in every style. */
 internal data class HomeActions(
     val onToggleConnection: () -> Unit,
     val onCopyIp: () -> Unit,
@@ -359,11 +297,6 @@ internal data class HomeActions(
     val onTests: () -> Unit = {},
     val onPasteImport: () -> Unit = {},
     val onQrImport: () -> Unit = {},
-    /**
-     * MARBLE_HOME_PING_ROUTE_GROUP_V146 — measure every server of the subscription that the
-     * route currently shown on Home belongs to. Distinct from [onTestPing], which measures the
-     * one route the connect button acts on.
-     */
     val onPingGroup: () -> Unit = {},
     /**
      * MARBLE_HOME_ROUTE_PING_V210 — measure the ONE server this page is showing.
@@ -376,25 +309,9 @@ internal data class HomeActions(
      * page.
      */
     val onPingRoute: () -> Unit = {},
-    /**
-     * MARBLE_HOME_PING_CONTROLS_V212 — sweep the whole library.
-     *
-     * The bulk verb used to live only on the Servers page, which made the Home ping surfaces a
-     * two-choice menu no matter what the user wanted them to do. It is now a first-class ping
-     * action, so any of the three Home controls can be pointed at it.
-     */
     val onPingLibrary: () -> Unit = {}
 )
 
-/**
- * MARBLE_HOME_PING_CONTROLS_V212 — the verb one Home ping surface runs.
- *
- * Every ping surface on the connection page is a control; what it *does* is the user's setting
- * ([com.marbleng.app.model.HomePingAction]). This one mapping is the whole feature's contract:
- * one action in, one real destination out, and no surface can end up a dead key again. It is a
- * plain function rather than a per-widget branch so the three surfaces cannot drift into three
- * private opinions about what "ping" means — which is exactly how one of them became decorative.
- */
 internal fun runHomePingAction(action: HomePingAction, actions: HomeActions) {
     when (action) {
         HomePingAction.ROUTE -> actions.onPingRoute()
@@ -404,7 +321,6 @@ internal fun runHomePingAction(action: HomePingAction, actions: HomeActions) {
     }
 }
 
-/** The label a Home ping control wears, so a button always says what its tap will do. */
 @Composable
 internal fun homePingActionLabel(action: HomePingAction): String = when (action) {
     HomePingAction.ROUTE -> trx("Measure this server")
@@ -413,7 +329,6 @@ internal fun homePingActionLabel(action: HomePingAction): String = when (action)
     HomePingAction.TESTS -> trx("Open ping settings")
 }
 
-/** The one-line description of a Home ping action, for the Settings picker. */
 @Composable
 internal fun homePingActionDetail(action: HomePingAction): String = when (action) {
     HomePingAction.ROUTE -> trx("The route on screen, through the tunnel when one is up")
@@ -422,10 +337,8 @@ internal fun homePingActionDetail(action: HomePingAction): String = when (action
     HomePingAction.TESTS -> trx("Jump to the Tests workspace instead of measuring")
 }
 
-/** The per-style skin every shared evidence widget renders through. */
 internal enum class HomeFlavor { IOS_SLIDER, IOS_FLOATING, IOS_EMBOSSED, IOS_MODULAR, ROUTE_ATELIER }
 
-/** The single source of truth for which presentation skin a [HomeStyle] renders through. */
 internal fun homeFlavorFor(style: HomeStyle): HomeFlavor = when (style) {
     HomeStyle.IOS_SLIDER -> HomeFlavor.IOS_SLIDER
     HomeStyle.IOS_FLOATING -> HomeFlavor.IOS_FLOATING
@@ -434,21 +347,6 @@ internal fun homeFlavorFor(style: HomeStyle): HomeFlavor = when (style) {
     HomeStyle.ROUTE_ATELIER -> HomeFlavor.ROUTE_ATELIER
 }
 
-/**
- * The state word of every Home surface.
- *
- * MARBLE_ROUTE_ATELIER_V207 — the three per-style tone functions that used to sit here (`homeTone`,
- * `styleConnectedTone`, `styleStateTone`) are deleted rather than deprecated. They were the review's
- * complaint in miniature: four Home presentations holding four private opinions about what
- * "connected" looks like — one of them reading `Aether.AmethystBright`, a token that holds the very
- * value of `Cyan` in both brand palettes — and nothing was wired to them, so the drift cost nothing
- * to keep and everything to reason about. A state colour is one mapping now ([marbleRouteTone]); a
- * style may choose its accent, never its meaning.
- *
- * The copy follows the same table, and it closes a hole the button had: with no route selected the
- * page used to offer "Connect" for a connection that cannot be made. It offers the picker instead,
- * because that is the real next step, and the glyph on the face now agrees with the word.
- */
 @Composable
 internal fun homeStatusText(evidence: HomeEvidence): String {
     val t = Tr.now
@@ -462,7 +360,6 @@ internal fun homeStatusText(evidence: HomeEvidence): String {
     }
 }
 
-/** The verb of the connect control: one table for the five silhouettes and for the Atelier hero. */
 @Composable
 internal fun homeActionLabel(evidence: HomeEvidence): String {
     val t = Tr.now
@@ -505,23 +402,9 @@ internal fun homeV137PingChannel(evidence: HomeEvidence): Triple<Int, Connection
         Triple(evidence.selectedPingMs, evidence.selectedPingState, evidence.selectedPingFailure)
     }
 
-/**
- * MARBLE_HOME_PING_SPEED_V200 — is the number on screen one sample of a run still in progress?
- *
- * The old Home ping showed nothing until every sample was in: `IDLE -> MEASURING ("•••") ->
- * MEASURED`. On a slow link the capsule sat blank for seconds after the first round trip had
- * already come back and answered the user's question. The number now lands with the first
- * sample and is marked with a tilde until the run settles — the same measurement, shown the
- * moment it exists, never a different one.
- */
 internal fun homePingIsProvisional(evidence: HomeEvidence): Boolean =
     if (evidence.connected) evidence.pingProvisional else evidence.selectedProvisional
 
-/**
- * MARBLE_IRAN_AWARE_PING_UI — the latency capsule carries the verdict glyph as well as the
- * number: ✅ verified, ⚠️ injection or instability observed, 🚫 failed. The glyph is the
- * one-glance cross-validation summary; the number alone is not a status.
- */
 @Composable
 internal fun homePingLabel(evidence: HomeEvidence): String {
     val t = Tr.now
@@ -533,8 +416,7 @@ internal fun homePingLabel(evidence: HomeEvidence): String {
         state == ConnectionPingState.MEASURED -> "✅"
         else -> ""
     }
-    // MARBLE_HOME_PING_SPEED_V200 — a real sample outranks a placeholder. The tilde is the
-    // whole contract: the number is real, the run is not finished.
+
     val provisional = homePingIsProvisional(evidence) && ms >= 1
     return when (state) {
         ConnectionPingState.MEASURING -> if (provisional) "~ $ms ms" else t.pingMeasuringValue
@@ -544,15 +426,6 @@ internal fun homePingLabel(evidence: HomeEvidence): String {
     }
 }
 
-/**
- * MARBLE_HOME_PING_COLOUR_V215 — which colour a Home ping reading wears.
- *
- * Until V215 a provisional number was coloured by the latency band it fell in. A run is several
- * samples, and each one can land in a different band, so the two ping icons changed colour on every
- * sample: green, then amber, then green again, for the whole run. The band is a verdict about a
- * *settled* measurement, so it now applies only once the run is MEASURED. While a run is in progress
- * (including a provisional failure) the reading wears the measuring hue, which does not move.
- */
 internal enum class HomePingToneKind { MEASURING, BAND, FAILED, IDLE }
 
 internal fun homePingToneKind(state: ConnectionPingState, ms: Int, provisional: Boolean): HomePingToneKind =
@@ -577,7 +450,6 @@ internal fun homePingTone(evidence: HomeEvidence, fallback: Color): Color {
     }
 }
 
-/** The three words a failed Home ping may show, resolved against the active language. */
 @Composable
 internal fun pingFailureLabel(failure: String): String {
     val t = Tr.now
@@ -600,10 +472,6 @@ internal fun homePingActionHint(evidence: HomeEvidence): String {
     }
 }
 
-/**
- * MARBLE_CONNECT_BUTTON_V121 — the Home tree provides the user's chosen silhouette here so every
- * [HomePowerControl] call site resolves it identically.
- */
 internal val LocalConnectButtonStyle = staticCompositionLocalOf { ConnectButtonStyle.ROUND }
 
 internal fun connectButtonGlyph(evidence: HomeEvidence): HomeGlyph = when {
@@ -631,18 +499,6 @@ internal fun ConnectButtonCaption(
     )
 }
 
-/**
- * The connection control.
- *
- * Deliberately carries NO quality ring: link quality lives in its own readouts, and wrapping the
- * primary action in a score made the button's own state ambiguous. Every Home presentation shares
- * the exact same control, in the silhouette the user picked in Settings.
- *
- * MARBLE_CONNECT_BUTTON_V121 — the silhouette is resolved in order: an explicit per-call style,
- * then the user's Settings choice, then the product default. The iOS themes keep their own
- * [IosSlideToConnect] for the dedicated slider theme; every shared call site renders through this
- * entry point so the Home evidence and action contract stays identical everywhere.
- */
 @Composable
 internal fun HomePowerControl(
     evidence: HomeEvidence,
@@ -666,27 +522,6 @@ internal fun HomePowerControl(
     )
 }
 
-// ---------------------------------------------------------------------------------------------
-// MARBLE_CONNECT_BUTTON_V121 — the one connection button of the product, in every silhouette
-// ---------------------------------------------------------------------------------------------
-
-/**
- * MARBLE_CONNECT_BUTTON_V121 — the semantic colour of the primary action.
- *
- * The connect control is the one element of the product whose meaning must be readable in a
- * quarter of a second, so its colour is a pure function of the runtime state and nothing else:
- *
- *  | state          | tone                               |
- *  |----------------|------------------------------------|
- *  | disconnected   | ice blue  — armed and ready        |
- *  | connecting     | amethyst  — work in progress       |
- *  | connected      | emerald   — protected              |
- *  | disconnecting  | amber     — winding the tunnel down|
- *  | fail-closed    | danger    — blocked, needs a reset |
- *
- * Every transition between them is animated ([MarbleMotionSpecs.Color]); the control itself never
- * moves, floats, drifts or resizes.
- */
 @Composable
 internal fun connectButtonTone(evidence: HomeEvidence): Color = marbleRouteTone(evidence.routeState)
 
@@ -702,22 +537,6 @@ internal fun homeRouteMeasuring(evidence: HomeEvidence): Boolean =
     evidence.pingState == ConnectionPingState.MEASURING ||
         evidence.selectedPingState == ConnectionPingState.MEASURING
 
-/**
- * MARBLE_CONNECT_BUTTON_V121 — the one connection button of the product, in five silhouettes.
- *
- *  - [ConnectButtonStyle.ROUND]    the large round shutter (default), centred in the hero;
- *  - [ConnectButtonStyle.SLIDE]    a slide-to-connect track dragged from left to right;
- *  - [ConnectButtonStyle.CLASSIC]  the classic rectangular power switch, docked under the hero;
- *  - [ConnectButtonStyle.STREAM]   the full-width floor bar with a travelling light band;
- *  - [ConnectButtonStyle.FLOATING] the compact pill docked at the bottom-end corner.
- *
- * Rules shared by all five: the control never changes position or size, never floats and never
- * breathes. Only its colour, its copy and — while a route is actually being secured — a single
- * progress indicator animate, so the button is calm at rest and unmistakable while it works.
- *
- * The two docked silhouettes live in `MarbleHomeStudio.kt` and are dispatched here so every Home
- * presentation reaches them through the same evidence and action contract.
- */
 @Composable
 internal fun MarbleConnectionButton(
     evidence: HomeEvidence,
@@ -735,9 +554,7 @@ internal fun MarbleConnectionButton(
         animationSpec = MarbleMotionSpecs.Color,
         label = "marble-connection-tone"
     )
-    // The one action the control is busy with cannot be re-triggered by an impatient tap.
-    // MARBLE_ROUTE_ATELIER_V207 — the gate is the state table's own answer rather than a local
-    // reading of one flag, so the five silhouettes cannot disagree about what "wait" means.
+
     val armed = evidence.routeState.isActionable()
 
     when (style) {
@@ -770,8 +587,6 @@ internal fun MarbleConnectionButton(
             width = (diameter * 1.55f).coerceIn(200.dp, 280.dp)
         )
 
-        // MARBLE_CONNECT_BUTTON_STYLES_V132 — the two bottom-docked silhouettes. Both are
-        // full-bleed by nature, so they take the caller's modifier and never a derived width.
         ConnectButtonStyle.STREAM -> ConnectButtonStream(
             evidence = evidence,
             animatedTone = animatedTone,
@@ -790,15 +605,6 @@ internal fun MarbleConnectionButton(
     }
 }
 
-/**
- * Style 1 — the round shutter. Big, centred, fixed. A hairline rim states the state colour, and a
- * single indeterminate arc is drawn only while the route is actually being secured or closed.
- *
- * MARBLE_HOME_V137 — Style A (Classic). The tap answers the finger: the face compresses under
- * pressure and springs back, an acknowledgement ring expands outward once, the securing arc
- * rotates with a breathing pulse while busy, and the connected ring glows with a slow halo
- * instead of sitting static. Disconnected stays calm — a resting instrument, not a screensaver.
- */
 @Composable
 private fun ConnectButtonRound(
     evidence: HomeEvidence,
@@ -812,14 +618,13 @@ private fun ConnectButtonRound(
 ) {
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
-    // MARBLE_SMOOTH_CLOCK_V193 — sweep/busyPulse/haloPulse moved into the draw lambda below;
-    // this round button no longer recomposes at the frame rate while connected.
+
     val label = homeActionLabel(evidence)
     val controlDescription = "${trx(label)} ${trx("connection button")}"
-    // One-shot acknowledgement ring: 0 = rest, 1 = fully expanded and faded.
+
     val tapRipple = remember { Animatable(0f) }
     val rippleScope = rememberCoroutineScope()
-    // The icon eases between its connected/disconnected sizes instead of jumping.
+
     val iconFraction by animateFloatAsState(
         targetValue = if (evidence.connected) .22f else .26f,
         animationSpec = MarbleMotionSpecs.ResponseFloat,
@@ -833,11 +638,6 @@ private fun ConnectButtonRound(
         Box(
             modifier = Modifier
                 .size(diameter)
-                // MARBLE_EXPRESSIVE_MOTION_V186 — the acknowledgement beat: when the session
-                // flips, the whole face springs past rest once, then settles on the emphasized
-                // decelerate curve. MARBLE_ROUTE_ATELIER_V207 halves the travel and gates it: five
-                // percent of a 168 dp disc is a lurch, and a control that leaps for its own state
-                // change is competing with the status word directly above it for the same sentence.
                 .marblePopWhen(evidence.connected, peak = MarbleConnectMotion.statePopPeak)
                 .shadow(
                     elevation = 16.dp,
@@ -862,10 +662,6 @@ private fun ConnectButtonRound(
                     boundedShape = CircleShape,
                     releaseSpec = MarbleExpressiveSpecs.SpringReleaseFloat,
                     onClick = {
-                        // The acknowledgement ring expands outward once per tap, on the shared
-                        // response spring, while the press scale (owned by kineticClickable)
-                        // compresses and releases the face. The ring is motion, so reduced motion
-                        // keeps the press and drops the echo instead of the whole conversation.
                         if (motion.acknowledges(MarbleControlKind.Primary)) {
                             rippleScope.launch {
                                 tapRipple.snapTo(0f)
@@ -881,29 +677,24 @@ private fun ConnectButtonRound(
             Canvas(Modifier.matchParentSize().padding(10.dp)) {
                 val r = size.minDimension / 2f
                 val c = Offset(size.width / 2f, size.height / 2f)
-                // Draw-phase clock reads (MARBLE_SMOOTH_CLOCK_V193) — recomposes nothing.
+
                 val sweep = if (busy) motion.loop(1_150) * 360f else 0f
-                // The securing arc breathes while it rotates: width and alpha pulse on a shared clock.
+
                 val busyPulse = if (busy) motion.breathe(1_150) else 0f
-                // MARBLE_ROUTE_ATELIER_V207 — a connected tunnel used to breathe forever: a ring
-                // swelling on a 2.8 s loop that reported nothing, kept a frame callback alive on the
-                // single most-seen screen, and made "it is working" look like "something is happening".
-                // The face now holds still while a session is up and moves only for the two changes a
-                // user actually needs to see: the securing arc and the press echo. The ambient switch
-                // can bring the breathing back for whoever liked it.
+
                 val haloPulse = if (evidence.connected && motion.acknowledges(MarbleControlKind.Primary)) {
                     motion.breathe(2_800)
                 } else {
                     0f
                 }
-                // Outer rim — the calm resting statement of the current state.
+
                 drawCircle(
                     color = animatedTone.copy(alpha = .22f),
                     radius = r * .94f,
                     center = c,
                     style = Stroke(width = 1.6.dp.toPx())
                 )
-                // Inner face.
+
                 drawCircle(
                     color = animatedTone.copy(alpha = .10f),
                     radius = r * .70f,
@@ -911,14 +702,10 @@ private fun ConnectButtonRound(
                 )
                 when {
                     busy -> {
-                        // Rotating securing arc with a breathing pulse: the width swells and the
-                        // alpha lifts on the shared clock, so progress reads as alive, not stuck.
                         drawArc(
                             color = animatedTone.copy(alpha = .85f + .15f * busyPulse),
                             startAngle = -90f + sweep,
-                            // MARBLE_EXPRESSIVE_MOTION_V186 — the securing arc STRETCHES: its
-                            // sweep oscillates between 74 and 136 degrees on the breathing
-                            // clock, the elastic rhythm of the newest Android loaders.
+
                             sweepAngle = ExpressiveMath.arcSweep(busyPulse, 74f, 136f),
                             useCenter = false,
                             topLeft = Offset(c.x - r * .80f, c.y - r * .80f),
@@ -928,7 +715,7 @@ private fun ConnectButtonRound(
                                 cap = StrokeCap.Round
                             )
                         )
-                        // Faint full track so the arc travels a visible orbit.
+
                         drawCircle(
                             color = animatedTone.copy(alpha = .18f),
                             radius = r * .80f,
@@ -938,8 +725,6 @@ private fun ConnectButtonRound(
                     }
 
                     evidence.connected -> {
-                        // Breathing halo: the ring swells outward a touch and glows, on a slow
-                        // loop that never distracts.
                         drawCircle(
                             color = animatedTone.copy(alpha = .16f + .10f * haloPulse),
                             radius = r * (.84f + .03f * haloPulse),
@@ -961,8 +746,7 @@ private fun ConnectButtonRound(
                         style = Stroke(width = 2.4.dp.toPx())
                     )
                 }
-                // Tap acknowledgement: one ring expanding outward and fading, driven by the
-                // one-shot ripple progress. Invisible at rest (progress 0 or 1).
+
                 val ripple = tapRipple.value
                 if (ripple in 0.001f..0.999f) {
                     drawCircle(
@@ -977,10 +761,6 @@ private fun ConnectButtonRound(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // MARBLE_EXPRESSIVE_MOTION_V186 — the power glyph rolls instead of snapping:
-                // the departing glyph accelerates out of the slot while the incoming one
-                // springs in from a slight underscale, all inside the animated icon box, so
-                // the button face keeps its exact footprint in every state.
                 MarbleExpressiveGlyphSwap(
                     key = connectButtonGlyph(evidence),
                     modifier = Modifier.size(diameter * iconFraction)
@@ -993,8 +773,7 @@ private fun ConnectButtonRound(
                 }
                 if (evidence.connected) {
                     Spacer(Modifier.height(4.dp))
-                    // MARBLE_HOME_PING_SPEED_V200 — the first sample shows as "~ N ms" instead of the
-                    // dots, so the capsule answers as soon as the route does.
+
                     val settled = evidence.pingMs >= 20
                     val measuring = evidence.pingState == ConnectionPingState.MEASURING
                     val provisional = settled && evidence.pingProvisional &&
@@ -1033,8 +812,7 @@ private fun ConnectButtonRound(
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontFeatureSettings = "tnum",
-                                // MARBLE_MATERIAL_YOU_REFRESH_V185 — the micro chip rides the new
-                                // label floor (11.5 sp) instead of the retired 11 sp.
+
                                 fontSize = 11.5.sp
                             ),
                             maxLines = 1,
@@ -1049,22 +827,6 @@ private fun ConnectButtonRound(
     }
 }
 
-
-/**
- * Style 2 — slide to connect.
- *
- * A safety switch: the user drags the knob from left to right across the track to arm or close
- * the tunnel. The knob is the only thing that ever moves, it follows the finger exactly, and it
- * springs back when the gesture is released before the end of the track, so a pocket tap can
- * never toggle the connection. The gesture is pinned to LTR because it is a physical, screen-space
- * control: it reads left → right in Persian exactly as it does in English.
- *
- * MARBLE_HOME_V137 — Style B (Lumen swipe). Crossing the generous threshold answers with a
- * haptic tick and lights the end chevrons; releasing past it flies the knob home through the
- * end first (a visible completion beat) instead of vanishing mid-track; releasing short of it
- * springs back with the response spring. The track fill deepens with progress so the drag reads
- * as charging the action.
- */
 @Composable
 private fun ConnectButtonSlide(
     evidence: HomeEvidence,
@@ -1086,20 +848,18 @@ private fun ConnectButtonSlide(
     val busy = evidence.connecting || evidence.disconnecting
     val label = homeActionLabel(evidence)
     val controlDescription = "${trx(label)} ${trx("slider")}"
-    // Generous on purpose: the last fifth of the travel is all commitment.
+
     val threshold = .78f
 
     val scope = rememberCoroutineScope()
     val knob = remember { Animatable(0f) }
     val progress = (knob.value / travelPx).coerceIn(0f, 1f)
-    // MARBLE_SMOOTH_CLOCK_V193 — the shimmer phase is read in the draw lambda below.
+
     var dragging by remember { mutableStateOf(false) }
     val thresholdReached = progress >= threshold
 
     // MARBLE_SLIDE_PARK_V146 — the knob parks on the side it was dragged to. While a route is
-    // live (or being opened) it rests at the END of the track; otherwise at the START. This
-    // replaces the old "always spring back to zero", which left a connected control still
-    // reading "slide to connect".
+
     val restAtEnd = evidence.connected || evidence.connecting
     val animates = motion.acknowledges(MarbleControlKind.Primary)
     LaunchedEffect(restAtEnd, travelPx, animates) {
@@ -1109,8 +869,6 @@ private fun ConnectButtonSlide(
         }
     }
 
-    // One haptic tick at the exact moment the finger crosses the threshold — never while the
-    // knob animates on its own (completion beat, spring-back), only while dragged.
     LaunchedEffect(thresholdReached, dragging) {
         if (thresholdReached && dragging) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1137,11 +895,6 @@ private fun ConnectButtonSlide(
                         )
                     )
                     .border(1.4.dp, animatedTone.copy(alpha = .38f), shape)
-                    // MARBLE_ROUTE_ATELIER_V207 — a drag-only control has no accessibility path: a
-                    // TalkBack user heard "connect slider" and had nothing to activate. The drag stays
-                    // the touch gesture (it is the whole point of a slide-to-confirm: a pocket tap
-                    // must never close a tunnel) and the semantic action is offered next to it, so the
-                    // verb exists for everyone who cannot sweep a 54 dp knob across a track.
                     .semantics {
                         contentDescription = controlDescription
                         onClick(label = controlDescription) {
@@ -1153,9 +906,6 @@ private fun ConnectButtonSlide(
             ) {
                 if (busy) {
                     Canvas(Modifier.matchParentSize()) {
-                        // One travelling highlight, drawn only while the tunnel is actually
-                        // opening or closing: the track states progress without ever moving.
-                        // Draw-phase clock read (MARBLE_SMOOTH_CLOCK_V193).
                         val x = size.width * (if (busy) motion.loop(1_400) else 0f)
                         drawRect(
                             brush = Brush.horizontalGradient(
@@ -1177,11 +927,9 @@ private fun ConnectButtonSlide(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        // The threshold chevrons own the end of the track; the word stays clear.
                         .padding(start = knobSize, end = 44.dp)
                 )
-                // Threshold chevrons: dim at rest, lit once the knob crosses the commitment
-                // point, so the eye knows exactly where the action arms.
+
                 Canvas(
                     Modifier
                         .align(Alignment.CenterEnd)
@@ -1224,10 +972,7 @@ private fun ConnectButtonSlide(
                                 onDragEnd = {
                                     dragging = false
                                     // MARBLE_SLIDE_PARK_V146 — the commit direction follows the
-                                    // route state: connected drags back toward the start to
-                                    // disconnect, disconnected drags to the end to connect. A
-                                    // completed drag flies to the committed side and HOLDS there;
-                                    // a short drag springs back to the state's own side.
+
                                     val wasConnected = evidence.connected
                                     val completed = if (wasConnected) {
                                         knob.value <= travelPx * (1f - threshold)
@@ -1235,15 +980,6 @@ private fun ConnectButtonSlide(
                                         knob.value >= travelPx * threshold
                                     }
                                     if (completed) {
-                                        // MARBLE_ROUTE_ATELIER_V207 — the command leaves FIRST.
-                                        //
-                                        // The commit used to read `animateTo(…) then onToggle()`, so a
-                                        // network action sat behind a 120 ms decorative tween: on a
-                                        // dropped frame the haptic had promised a connection the
-                                        // engine had not been told about yet, and the whole control
-                                        // felt like a UI toy rather than a switch. Follow-through is
-                                        // worth keeping, so it now runs BESIDE the command, and with
-                                        // animations off it is an instant snap instead of a wait.
                                         haptics.performHapticFeedback(
                                             HapticFeedbackType.TextHandleMove
                                         )
@@ -1258,10 +994,6 @@ private fun ConnectButtonSlide(
                                         }
                                     } else {
                                         scope.launch {
-                                            // MARBLE_EXPRESSIVE_MOTION_V186 — a short drag releases on
-                                            // the wave spring: the knob springs back to its resting
-                                            // side with one visible overshoot and squishes against the
-                                            // track's clip before settling.
                                             val rest = if (wasConnected) travelPx else 0f
                                             if (animates) {
                                                 knob.animateTo(
@@ -1297,8 +1029,6 @@ private fun ConnectButtonSlide(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    // MARBLE_EXPRESSIVE_MOTION_V186 — the knob's glyph rolls on state flips
-                    // inside its fixed 42%-of-knob slot; the drag geometry never changes.
                     MarbleExpressiveGlyphSwap(
                         key = connectButtonGlyph(evidence),
                         modifier = Modifier.size(knobSize * .42f)
@@ -1312,10 +1042,7 @@ private fun ConnectButtonSlide(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            // MARBLE_ROUTE_ATELIER_V207 — the track is deliberately pinned left-to-right (it is a
-            // physical, screen-space control), which means the generic "slide to act" caption cannot
-            // tell a Persian reader which way to move, or that the direction does not flip with the
-            // page. The hint states the direction the verb needs instead.
+
             Text(
                 if (evidence.connected) trx("Slide left to disconnect") else trx("Slide right to connect"),
                 color = Aether.InkFaint,
@@ -1328,10 +1055,6 @@ private fun ConnectButtonSlide(
     }
 }
 
-/**
- * Style 3 — the classic power switch: a rectangle with the old desktop power glyph, a state lamp
- * and the action word. Nothing about it moves; the lamp and the frame carry the state colour.
- */
 @Composable
 private fun ConnectButtonClassic(
     evidence: HomeEvidence,
@@ -1343,7 +1066,7 @@ private fun ConnectButtonClassic(
 ) {
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
-    // MARBLE_SMOOTH_CLOCK_V193 — the securing sweep is read in the draw lambda below.
+
     val shape = RoundedCornerShape(14.dp)
     val label = homeActionLabel(evidence)
     val controlDescription = "${trx(label)} ${trx("connection button")}"
@@ -1387,7 +1110,7 @@ private fun ConnectButtonClassic(
                 Canvas(Modifier.matchParentSize()) {
                     val r = size.minDimension / 2f
                     val c = Offset(size.width / 2f, size.height / 2f)
-                    // Draw-phase clock read (MARBLE_SMOOTH_CLOCK_V193) — recomposes nothing.
+
                     val sweep = if (busy) motion.loop(1_150) * 360f else 0f
                     drawCircle(
                         color = animatedTone.copy(alpha = .18f),
@@ -1427,10 +1150,8 @@ private fun ConnectButtonClassic(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            // State lamp / live ping: the classic switch shows live line state and ping.
+
             if (evidence.connected) {
-                // MARBLE_HOME_PING_SPEED_V200 — the first sample shows as "~ N ms" instead of the
-                // dots, so the capsule answers as soon as the route does.
                 val settled = evidence.pingMs >= 20
                 val measuring = evidence.pingState == ConnectionPingState.MEASURING
                 val provisional = settled && evidence.pingProvisional &&
@@ -1521,21 +1242,11 @@ internal fun homePingTappable(evidence: HomeEvidence): Boolean {
 // MARBLE_SEAMLESS_LOOPS_V112
 internal fun loopFade(t: Float): Float = sin((t.coerceIn(0f, 1f)) * PI.toFloat())
 
-// ---------------------------------------------------------------------------------------------
-// Glyph system
-// ---------------------------------------------------------------------------------------------
-
 internal enum class HomeGlyph {
     POWER, CHECK, RESET, COPY, REFRESH, MORE, PULSE, CLOCK, LIBRARY, PLUS, BOLT, PASTE, QR, INFO,
     DOWNLOAD, UPLOAD,
-    /** MARBLE_SESSION_USAGE_V192 — a storage cylinder: the data a session has moved. */
     DATA,
 
-    /**
-     * MARBLE_PING_CANCEL_V156 — a filled rounded square: the universal stop. It is the glyph the
-     * Home pulse action swaps to while a bulk measurement is live, so the control that started a
-     * sweep is always the one that can end it.
-     */
     STOP
 }
 
@@ -1544,8 +1255,7 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
     Canvas(modifier) {
         val w = size.width
         val h = size.height
-        // MARBLE_MATERIAL_YOU_REFRESH_V185 — the Home glyph stroke lifts to the refreshed
-        // Material Symbols weight so every Home presentation's icons read fuller and modern.
+
         val stroke = (size.minDimension * .102f).coerceIn(1.45f, 3.5f)
         val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
         when (glyph) {
@@ -1692,8 +1402,6 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
                 drawLine(color, Offset(w * .5f, h * .44f), Offset(w * .5f, h * .68f), stroke, StrokeCap.Round)
             }
             HomeGlyph.STOP -> {
-                // Solid, not outlined: a stop has to read at 12 dp and at a glance, and a hollow
-                // square at this size reads as an empty checkbox instead.
                 drawRoundRect(
                     color = color,
                     topLeft = Offset(w * .22f, h * .22f),
@@ -1702,7 +1410,6 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
                 )
             }
             HomeGlyph.DATA -> {
-                // A storage cylinder: top ellipse + two walls + a lower arc.
                 drawOval(
                     color = color,
                     topLeft = Offset(w * .22f, h * .18f),
@@ -1724,10 +1431,6 @@ internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = 
         }
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Stat autofit helpers (enforces MARBLE_HOME_PING_AUTOFIT_V112)
-// ---------------------------------------------------------------------------------------------
 
 @Composable
 internal fun HomeStatValueText(
@@ -1799,8 +1502,7 @@ internal fun HomeIpRow(
                 fontSize = 15.sp
             )
             Spacer(Modifier.width(8.dp))
-            // MARBLE_HOME_IP_STRIP_V144 — same quiet scale as the banner strip above: the
-            // address never outranks its own row.
+
             Text(
                 if (evidence.ip.isNotBlank()) evidence.ip else Tr.now.resolving,
                 color = Aether.InkMuted,
@@ -1834,12 +1536,10 @@ internal fun HomeSessionStats(
     val uptime = rememberUptimeLabel(evidence.connectedSinceMs)
     val ping = homePingLabel(evidence)
     val pingTone = homePingTone(evidence, Aether.Cyan)
-    // MARBLE_HOME_PING_CONTROLS_V212 — resolved in composable scope: the semantics lambda below is
-    // not a composable context, and the label has to name the verb this cell's tap runs.
+
     val gaugeSpoken = homePingActionLabel(evidence.pingGaugeAction)
     val pingWord = Tr.now.connectionPing
 
-    // MARBLE_HOME_CLOUD_V140 — the stats strip is the same cloud card as every other Home box.
     HomeCloudCard(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -1853,14 +1553,7 @@ internal fun HomeSessionStats(
                 HomeStatValueText(uptime, tone, sizeScale = 1.1f)
             }
             Box(Modifier.width(1.dp).height(24.dp).background(homeCloudDivider()))
-            // MARBLE_HOME_ONE_PING_V208 — a latency read-out is not a ping button. This cell used
-            // to accept a tap that started a *second*, different measurement, so the page had two
-            // controls that both said "ping" and did different things.
-            //
-            // MARBLE_HOME_PING_CONTROLS_V212 — the ambiguity was never the tap, it was the verb
-            // being hard-wired differently per widget. Both ping surfaces on this page take a tap
-            // now, and each one runs the measurement its own setting names, so two controls can
-            // never silently disagree again: they say what they do, and the user chose it.
+
             val statShape = RoundedCornerShape(10.dp)
             Column(
                 modifier = Modifier
@@ -1882,9 +1575,7 @@ internal fun HomeSessionStats(
                 Text(Tr.now.connectionPing, color = Aether.InkMuted, style = MaterialTheme.typography.labelSmall)
                 HomeStatValueText(ping, pingTone, sizeScale = 1.1f)
             }
-            // MARBLE_SESSION_USAGE_V192 — the data the session moved joins the strip as its own
-            // quiet cell, only when the user opted in: live while connected, the last session's
-            // total afterwards.
+
             if (evidence.showDataUsage) {
                 val dataBytes = if (evidence.connected) evidence.sessionBytes else evidence.lastSessionBytes
                 Box(Modifier.width(1.dp).height(24.dp).background(homeCloudDivider()))
@@ -1897,7 +1588,6 @@ internal fun HomeSessionStats(
     }
 }
 
-/** MARBLE_SESSION_USAGE_V192 — a byte total as the quietest human number that still is one. */
 private fun homeCompactBytes(bytes: Long): String = when {
     bytes <= 0L -> "0 B"
     bytes >= 1024L * 1024L * 1024L -> String.format(Locale.US, "%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
@@ -1905,11 +1595,6 @@ private fun homeCompactBytes(bytes: Long): String = when {
     bytes >= 1024L -> String.format(Locale.US, "%.0f KB", bytes / 1024.0)
     else -> "${bytes} B"
 }
-
-
-// ---------------------------------------------------------------------------------------------
-// COMPONENT 1: WIDE STATUS BAR (Shared across all 4 iOS themes)
-// ---------------------------------------------------------------------------------------------
 
 /**
  * The iOS-styled Wide Status Bar — one shared card for all four Home presentations.
@@ -1954,9 +1639,7 @@ internal fun IosStatusWideCard(
     }
 
     // MARBLE_HOME_STATUS_REFRAME_V187 — one clear connection line and one route line. The old
-    // banner packed four metadata fields, a ping badge, copy and info glyphs into the same row;
-    // this hierarchy keeps only the endpoint + protocol at a glance and moves the full report
-    // behind the route tap. State and latency still roll in their fixed slots.
+
     HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = shape) {
         Column(
             modifier = Modifier
@@ -2039,9 +1722,7 @@ internal fun IosStatusWideCard(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                // MARBLE_HOME_STATUS_V190 — the uptime exists only while a session does. A clock
-                // beside a bare dash said nothing while disconnected and read as a broken widget;
-                // the chip now fades in with the session and leaves with it.
+
                 AnimatedVisibility(
                     visible = evidence.connected,
                     enter = fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat),
@@ -2072,9 +1753,7 @@ internal fun IosStatusWideCard(
                         )
                     }
                 }
-                // MARBLE_SESSION_USAGE_V192 — the twin of the uptime chip for the disconnected
-                // state: what the previous connection moved. The uptime leaves with the session,
-                // the usage stays as the fact that replaces it — same slot, same quiet tone.
+
                 AnimatedVisibility(
                     visible = !evidence.connected &&
                         !evidence.connecting &&
@@ -2135,16 +1814,6 @@ internal fun IosStatusWideCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    // MARBLE_ROUTE_ATELIER_V207 — the circle is the route's PLACE, and it may only
-                    // claim a country the app measured or the session reported. What used to sit here
-                    // was a fallback chain that ended in the emoji an operator put in the node's own
-                    // name: a big official-looking flag, for a guess. An unconfirmed route now shows
-                    // the world glyph and says so in the caption under it — the emoji stays where it
-                    // was written, inside the name.
-                    // MARBLE_NATIVE_ANDROID_V213 — the route's place is a chip, not a sticker:
-                    // the platform's hairline frames the flag, and an unmeasured route's world
-                    // glyph sits in the same frame, so "known" and "unknown" are one object in
-                    // two states instead of two different pictures.
                     CountryFlagCircle(
                         code = evidence.flagCode.ifBlank { null }?.takeIf { evidence.mayPaintLocationFlag },
                         size = 34.dp,
@@ -2177,9 +1846,6 @@ internal fun IosStatusWideCard(
                     }
                 }
 
-                // MARBLE_HOME_ONE_PING_V208 — the status card prints the route's latency; it no
-                // longer starts a measurement. Two controls on one page both labelled "ping" and
-                // measuring different scopes is how a user learns that neither does what it says.
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(14.dp))
@@ -2197,8 +1863,7 @@ internal fun IosStatusWideCard(
                     ) {
                         HomeGlyphIcon(HomeGlyph.PULSE, pingTone, Modifier.size(14.dp))
                     }
-                    // MARBLE_HOME_STATUS_V190 — an unmeasured route shows the pulse button alone:
-                    // a lone dash beside it looked like a missing value, not an invitation to tap.
+
                     if (pingValue != "—") {
                         MarbleExpressiveValueText(
                             value = pingValue,
@@ -2230,9 +1895,6 @@ internal fun IosStatusWideCard(
                 }
             }
 
-            // MARBLE_SESSION_USAGE_V192 — the grid shows when EITHER display choice is on:
-            // the live rates (speed widget) and/or the session's data total. Both on, three
-            // equal cells; data only, the single cell still earns the row.
             AnimatedVisibility(
                 visible = evidence.connected && (evidence.showSpeedWidget || evidence.showDataUsage),
                 enter = expandVertically(
@@ -2297,10 +1959,6 @@ internal fun IosStatusWideCard(
     }
 }
 
-/**
- * ZedSecure-inspired connection telemetry: two quiet, equal cells with circular glyph wells.
- * Values roll in place, so changing rates never reflows the server/status hierarchy.
- */
 @Composable
 private fun HomeConnectionMetric(
     glyph: HomeGlyph,
@@ -2351,7 +2009,6 @@ private fun homeCompactRate(bytesPerSecond: Long): String = when {
     else -> "${bytesPerSecond} B/s"
 }
 
-/** A short, calm ping value for the Home card; the full verdict remains in accessibility copy. */
 private fun compactHomePingValue(evidence: HomeEvidence): String {
     val (milliseconds, state, _) = homeV137PingChannel(evidence)
     return when (state) {
@@ -2362,20 +2019,8 @@ private fun compactHomePingValue(evidence: HomeEvidence): String {
     }
 }
 
-/**
- * MARBLE_HOME_WORDMARK_V145 — the product signature that opens every Home presentation.
- *
- * A single line of type, drawn with the brand's own prism ramp (ice → cyan → amethyst →
- * emerald) through a text brush, so it is one glyph run rather than four coloured Text nodes
- * that would break apart under RTL, ellipsis or a font change. It is decorative, so it carries
- * no click target and no semantics: nothing about the layout below it moves because of it.
- */
 @Composable
 internal fun MarbleWordmark(modifier: Modifier = Modifier) {
-    // MARBLE_STABLE_NAVIGATION_V202 — the wordmark joins the product's one shared clock instead
-    // of owning a second infinite transition. A coarse phase is ample for this decorative tide,
-    // avoids a permanent 60/120 Hz recomposition in the header, and freezes with every other
-    // ambient detail when the system animation scale is off.
     val motion = MarbleMotion.current
     val phase = if (motion.motionEnabled) motion.coarseBreathe(11_200) else .5f
     val ice = Aether.CyanBright
@@ -2390,8 +2035,7 @@ internal fun MarbleWordmark(modifier: Modifier = Modifier) {
         0.70f to liveB,
         1.00f to emerald
     )
-    // MARBLE_HOME_TOPBAR_CLEAN_V155 — the wordmark grew a step (titleLarge → headlineSmall) so
-    // the logo reads as the header's primary element now that the plate behind it is gone.
+
     Text(
         text = "MarbleNG",
         style = MaterialTheme.typography.headlineSmall.copy(
@@ -2447,12 +2091,8 @@ private fun HomeRoutePingButton(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    // One hue per state, and none of them is a latency colour: the header is a verb, not a meter.
-    // MARBLE_FLOATING_ACTIONS_V210 — the measure hue is the theme's own action token, so the
-    // header's pulse and the split control's second disc are the same colour in every theme.
     val chrome = rememberMarbleFloatChrome()
-    // Danger only while the button is a cancel (V156); otherwise the theme's measure hue, which
-    // is the same hue the split control's second disc wears in this theme.
+
     val tone = if (sweeping) Aether.Danger else chrome.actions.measure
     val shape = CircleShape
     Box(
@@ -2475,8 +2115,7 @@ private fun HomeRoutePingButton(
     ) {
         when {
             sweeping -> HomeGlyphIcon(HomeGlyph.STOP, tone, Modifier.size(12.dp))
-            // A one-route measurement is single-flight and has nothing to interrupt, so the
-            // control reports the wait rather than advertising a stop that would be a no-op.
+
             measuring -> MarbleExpressiveCircularIndicator(
                 modifier = Modifier.size(15.dp),
                 color = tone,
@@ -2488,12 +2127,6 @@ private fun HomeRoutePingButton(
     }
 }
 
-/**
- * The constant footprint of the header's ping control.
- *
- * It is a named number because the whole point is that it never changes: the idle and the
- * cancelling state are the same circle, so pressing the button cannot re-layout the header.
- */
 private val HomePingButtonSize = 38.dp
 
 /**
@@ -2526,24 +2159,15 @@ internal fun HomeTopActionBar(
     var addMenuOpen by remember { mutableStateOf(false) }
     val groupBusy = repo.homeGroupPingRunning
     // MARBLE_HOME_ROUTE_PING_V210 — the header pulse answers the question the box underneath it
-    // is asking: is THIS server alive? So the label names the server on screen, and the two live
-    // ping states are read from the evidence the status card is already drawing.
+
     val routeLabel = evidence.nodeName.ifBlank { Tr.now.chooseRoute }
     val routeMeasuring = homeRouteMeasuring(evidence)
 
-    // MARBLE_HOME_TOPBAR_CLEAN_V155 — the header plate is gone. The translucent gradient plate
-    // this row used to sit on read as a second status card fighting the banner underneath it, so
-    // it is removed: the wordmark and the three actions now float directly on the page with no
-    // pill, no frame and no background behind them.
-    //
     // MARBLE_HOME_TOPBAR_NO_STATUS_V156 — the status dot and its CONNECTED / READY word next to
-    // the logo are gone too, on all four Home presentations. They were a third place announcing a
-    // session state the status banner underneath already owns in full (with the reason, the
-    // uptime and the route), and next to the wordmark they read as part of the brand rather than
-    // as information. The header is now the product signature and its three actions.
+
     val cancelling = repo.probeCancelling
     val sweeping = groupBusy || cancelling
-    // The Home header stays intentionally quiet: no transient status strip is inserted under it.
+
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -2571,23 +2195,9 @@ internal fun HomeTopActionBar(
                 actions = actions
             )
         }
-        // MARBLE_PING_CANCEL_V156 — the same control that can end a group sweep ends it: while a
-        // bulk sweep is live (started here or on the Servers page) the pulse becomes a filled
-        // STOP square, so the Home page can cancel it without travelling anywhere.
-        //
-        // MARBLE_HOME_ONE_PING_V208 — and this is the ONLY ping button on the Home page. It shows
-        // no number: the header is a verb, not a meter, and the two places that do report
-        // latency (the status card, the quality card) are displays that do not accept a tap.
-        //
+
         // MARBLE_HOME_ROUTE_PING_V210 — the verb is the ROUTE, not the group: the server named on
-        // its own label, measured through the tunnel while one is up and at its endpoint while
-        // one is down. The group sweep keeps its own door on the Servers page, where the list of
-        // servers it measures is actually on screen.
-        // MARBLE_HOME_PING_CONTROLS_V212 — the verb is no longer fixed to the route. This control
-        // keeps its own two special states (a live sweep is cancelable; a route measurement is
-        // single-flight) and otherwise runs whatever the user pointed the header pulse at, with its
-        // label saying so — because a control that measures something else than its label promises
-        // is the defect this whole chapter exists to remove.
+
         val headerAction = evidence.pingHeaderAction
         val headerVerb = homePingActionLabel(headerAction)
         HomeRoutePingButton(
@@ -2620,10 +2230,6 @@ internal fun HomeTopActionBar(
     }
 }
 
-/**
- * MARBLE_HOME_ADD_MENU_V145 — the three ways a server reaches MarbleNG, in a menu that hangs
- * directly under the + icon. Styling matches the group menu of the same page.
- */
 @Composable
 private fun HomeAddRouteMenu(
     expanded: Boolean,
@@ -2666,7 +2272,6 @@ private fun HomeAddRouteMenu(
     }
 }
 
-/** One labelled action row of a Home dropdown: glyph chip, title and a quiet explanation. */
 @Composable
 private fun HomeActionMenuItem(
     label: String,
@@ -2717,13 +2322,6 @@ private fun HomeActionMenuItem(
     }
 }
 
-/**
- * A transparent circular top action: no background surface, rounded icon, kinetic press only.
- *
- * MARBLE_HOME_GROUP_PING_V145 — [busy] draws the work in the icon's own footprint (the ring
- * replaces the glyph, the circle never resizes), so a sweep that takes a few seconds is visibly
- * running instead of looking like a tap that did nothing.
- */
 @Composable
 private fun HomeBareAction(
     glyph: HomeGlyph,
@@ -2733,16 +2331,8 @@ private fun HomeBareAction(
     busy: Boolean = false,
     onClick: () -> Unit
 ) {
-    // MARBLE_HEADER_ICON_CONTRAST_V205 — the header actions sit bare on the page, so their ink
-    // is measured against the page itself. The bright sky the dark theme needs (#3399FF) is
-    // only 2.8:1 on the light page — under the 3:1 floor a graphical object must clear, which
-    // is exactly how the + / pulse / info icons read as washed-out in the System theme while
-    // looking perfect on AMOLED. Pushing the tone toward the readable endpoint keeps its hue
-    // and restores the floor in every palette.
     val pageTone = marbleReadableOn(tone, Aether.Void, 3.0f)
-    // MARBLE_ROUTE_ATELIER_V207 — three 36 dp icons used to hang off the top of the product's main
-    // page: the smallest targets of the app, on the row a user taps before they have decided to
-    // trust it. The artwork keeps its 36 dp; the hit box takes the floor the grammar promises.
+
     Box(
         modifier = Modifier
             .marbleTapTarget(MarbleTapTarget.Floor)
@@ -2760,9 +2350,6 @@ private fun HomeBareAction(
     ) {
         Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
             if (busy) {
-                // MARBLE_EXPRESSIVE_MOTION_V186 — the bare action's busy beat is the wavy
-                // expressive indicator: three arcs stretching around the 17 dp slot on the
-                // shared clock instead of a rigid stock spinner.
                 MarbleExpressiveCircularIndicator(
                     modifier = Modifier.size(17.dp),
                     color = pageTone,
@@ -2780,32 +2367,17 @@ private fun HomeBareAction(
     }
 }
 
-/** The semantic state colour of the Home instrument — one function, four themes, no drift. */
 @Composable
 internal fun homeStateTone(evidence: HomeEvidence): Color = marbleRouteTone(evidence.routeState)
 
-/**
- * Flat status pip with a soft halo; breathes only while a handshake is actually running.
- *
- * MARBLE_EXPRESSIVE_MOTION_V186 — a settled session now reads as ALIVE: one soft ring leaves the
- * pip every 2.6 s on the shared frame clock, and a second ring follows half a period behind it,
- * so the pulse never has a dead beat. Both rings expand and fade strictly inside the pip's own
- * [size] slot — the banner's 13 dp geometry is untouched — and with animations disabled the
- * rings rest and the pip renders exactly as the classic static dot.
- */
 @Composable
 private fun StatusDot(stateColor: Color, busy: Boolean, size: Dp = 18.dp) {
     val motion = MarbleMotion.current
-    // MARBLE_ROUTE_ATELIER_V207 — while a session is *up*, nothing is happening: the rings used to
-    // leave the pip every 2.6 s forever, which read as "activity" on the one state that has no
-    // activity to report, and cost a permanent redraw on the most-looked-at screen in the product.
-    // The pulse now belongs to the ambient setting (and to a busy handshake, which is real work).
+
     val ambient = LocalMarbleAmbientField.current
     Canvas(modifier = Modifier.size(size)) {
-        // MARBLE_HOME_COMPACT_BANNER_V167 — the diameter is now a parameter, and a parameter named
-        // `size` shadows DrawScope's own metric, so the pip's geometry reads it as a length.
         val diameter = size.toPx()
-        // The shared clock is read in the draw phase: ambient motion costs zero recompositions.
+
         val breathe = motion.breathe(900)
         val haloAlpha = if (busy) 0.22f + 0.20f * breathe else 0.16f
         if (!busy && motion.motionEnabled && ambient) {
@@ -2828,28 +2400,6 @@ private fun StatusDot(stateColor: Color, busy: Boolean, size: Dp = 18.dp) {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// COMPONENT 2: SUB & SERVER LIST BOX (Inner scrollable, centered sub name)
-// ---------------------------------------------------------------------------------------------
-
-/**
- * Scrollable Box showing the user's selected sub/group name uniquely centered at the top,
- * and the servers inside that sub scrollable below the sub name.
- *
- * MARBLE_HOME_FLOATING_CLEARANCE_V141 — [bottomOverlayClearance] reserves room for controls
- * that float above the list (the Theme 2 split button), so the last server row is never hidden
- * underneath them.
- *
- * MARBLE_HOME_SMART_LIST_HEIGHT_V144 — the box owns no fixed height. It wraps its content
- * (the sub header plus exactly as many server rows as exist) and only stops growing where the
- * page itself runs out of room: every caller places this box with `weight(1f, fill = false)`,
- * so the page column hands it the remaining screen space as its measuring bound and the inner
- * list scrolls the moment the servers outgrow that bound. The old 244.dp ceiling is gone —
- * it clipped large libraries into a peephole and left small ones floating in empty card.
- * A finite [maxListHeight] is still honoured when a caller passes one (Theme 4's user-chosen
- * card height); [Dp.Unspecified] — the default — means "grow with the servers, scroll on
- * overflow", which is the contract every fixed theme now uses.
- */
 @Composable
 internal fun IosServerListBox(
     repo: AppRepository,
@@ -2860,9 +2410,7 @@ internal fun IosServerListBox(
     maxListHeight: Dp = Dp.Unspecified
 ) {
     val t = Tr.now
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the Home server card owns its arrival cascade: rows rise
-    // one stagger step apart the first time the card is composed. The window disarms itself, so
-    // reorders, filter changes and scroll-backs never replay the entrance.
+
     val entranceArmed = rememberMarbleEntranceWindow()
     val activeSubId = repo.librarySourceFilter
     val allSubs = repo.subscriptions
@@ -2871,11 +2419,7 @@ internal fun IosServerListBox(
         activeSubId == "manual" -> t.homeManualGroup
         else -> allSubs.firstOrNull { it.id == activeSubId }?.name ?: t.homeAllServers
     }
-    // MARBLE_HOME_MIRRORS_SERVERS_V150 — the Home server section is not its own state. It is
-    // the exact Servers-page list: the same filter (protocol / reachable / max-ping, scoped to
-    // the group chip), the same sort mode the user chose (nodeSortMode + reverse), the same
-    // measured latency per server, and the same selected/active predicate. A user who sorted
-    // Servers by ping and picked the winner sees that winner, that order and those pings here.
+
     val settings = repo.settings
     val benchmarks = repo.benchmarks.associateBy { it.profileId }
     val visibleServers = ServersQuery.sort(
@@ -2894,11 +2438,6 @@ internal fun IosServerListBox(
         benchmarks = benchmarks
     )
 
-    // MARBLE_HOME_CLOUD_V140/V141 — the server list is a cloud card: one opaque box, quiet
-    // inset rows inside it, and only the selected server earns the sky fill + accent rim.
-    // MARBLE_HOME_SMART_LIST_HEIGHT_V144 — the cap below exists only for callers that pass an
-    // explicit maxListHeight. With the default (Unspecified) the page's own weight bound is the
-    // only ceiling, so the card is exactly as tall as its servers until the screen ends.
     val listHeightCap = if (maxListHeight.isSpecified) {
         Modifier.heightIn(max = maxListHeight)
     } else {
@@ -2915,7 +2454,6 @@ internal fun IosServerListBox(
                 .fillMaxWidth()
                 .padding(12.dp)
         ) {
-            // Group selector: name + live count chip + chevron, one flat pill.
             var groupDropdownOpen by remember { mutableStateOf(false) }
             Row(
                 modifier = Modifier
@@ -2960,7 +2498,7 @@ internal fun IosServerListBox(
                 HomeGroupMenuItem(
                     name = t.homeAllServers,
                     count = repo.libraryProfiles.size,
-                    // The repository normalises "" to "all", so both spellings mean "All".
+
                     selected = activeSubId.isBlank() || activeSubId == "all",
                     tone = HomeCloud.Accent,
                     onClick = {
@@ -2994,7 +2532,6 @@ internal fun IosServerListBox(
 
             HorizontalDivider(color = homeCloudDivider(), modifier = Modifier.padding(bottom = 6.dp))
 
-            // Inner Scrollable Server List (No whole-page scroll!)
             if (visibleServers.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -3010,11 +2547,6 @@ internal fun IosServerListBox(
                     )
                 }
             } else if (settings.serversLayoutEnum == ServerLayout.GRID) {
-                /*
-                 * MARBLE_SERVER_TILE_LAYOUT_V208 — the same list as the Servers page, in the same
-                 * compact boxes: one preference answers for both, so a user who chose tiles on
-                 * Servers does not get rows back on Home.
-                 */
                 val tileColumns = rememberServerTileColumns()
                 LazyColumn(
                     modifier = Modifier
@@ -3035,9 +2567,7 @@ internal fun IosServerListBox(
                         ) {
                             ServerTileRow(profiles = row, columns = tileColumns) { server ->
                                 val location = repo.serverLocation(server)
-                                // MARBLE_SERVER_TILE_PARITY_V212 — the box on Home shows the
-                                // measured address family too: it is a route picker, not a route
-                                // manager, so it gets the fact and not the menu.
+
                                 val familyScan = repo.ipFamilyScan(server)
                                 ServerTile(
                                     profile = server,
@@ -3075,18 +2605,11 @@ internal fun IosServerListBox(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = bottomOverlayClearance)
                 ) {
-                    // MARBLE_EXPRESSIVE_MOTION_V186 — the rows arrive in a cascade: each one
-                    // rises and settles one stagger step after the previous, first eight only
-                    // (the rest are below the fold; the index clamps at the library's maximum).
                     itemsIndexed(visibleServers, key = { _, server -> server.id }) { rowIndex, server ->
-                        // MARBLE_HOME_MIRRORS_SERVERS_V150 — same predicates as the Servers page:
-                        // selected is the stored selection (any state), active is the row actually
-                        // carrying traffic — so the Home list and Servers list agree about which
-                        // server is chosen and which is live, and a tap selects exactly as Servers does.
+
                         val isSelected = repo.isSelectedProfile(server)
                         val isConnected = repo.isActiveProfile(server)
-                        // animateItem keeps reorders/gliding smooth without touching row heights;
-                        // the stagger adds the one-time arrival rise-and-settle inside that box.
+
                         Box(
                             Modifier
                                 .animateItem()
@@ -3095,10 +2618,6 @@ internal fun IosServerListBox(
                                     enabled = entranceArmed() && rowIndex < 8
                                 )
                         ) {
-                            // MARBLE_SERVER_LOCATION_V192 — the row's location is the
-                            // repository's answer for this endpoint: the once-tested geolocation
-                            // when the app has learned it, the label's own country otherwise.
-                            // It recomposes in place the moment a background test lands.
                             val location = repo.serverLocation(server)
                             IosServerItemRow(
                                 server = server,
@@ -3128,11 +2647,6 @@ internal fun IosServerListBox(
     }
 }
 
-/**
- * MARBLE_HOME_GROUP_MENU_V143 — the subscription/group chooser is not a bare Android dropdown
- * any more. It is a rounded, elevated product panel with a hairline, generous row height, a
- * live count chip and an explicit selected check.
- */
 @Composable
 internal fun HomeGroupMenu(
     expanded: Boolean,
@@ -3209,7 +2723,6 @@ internal fun HomeGroupMenuItem(
     }
 }
 
-/** Tiny vector chevron-down for the group selector (font-independent, like every glyph here). */
 @Composable
 private fun GroupChevron(color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
@@ -3231,21 +2744,6 @@ private fun GroupChevron(color: Color, modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * MARBLE_HOME_SERVER_ROW_V141 — one clean, flat server row.
- *
- * MARBLE_PROTOCOL_IDENTITY — a circular protocol tile (the type's own glyph and tone, the flag
- * on the rim, the connection state on the rim colour) leads, the name with its tiny protocol
- * badge follows, the latency reads in the shared right-aligned stat column, and the trailing
- * state is one of two quiet marks: a check (selected) or a live check (carrying traffic).
- * Resting rows are near-invisible insets; the selected row is the one saturated element with
- * the sky fill and accent rim.
- *
- * MARBLE_HOME_MIRRORS_SERVERS_V150 — the row also carries the server's measured latency, the
- * exact same value the Servers page shows for that server, so sorting by ping in Servers and
- * reading the Home list cannot disagree. A probe that is running shows a small spinner; one that
- * ran and failed shows ✕; one that was never attempted shows —.
- */
 @Composable
 private fun IosServerItemRow(
     server: ProxyProfile,
@@ -3259,10 +2757,7 @@ private fun IosServerItemRow(
     onClick: () -> Unit
 ) {
     val rowShape = RoundedCornerShape(16.dp)
-    // MARBLE_FLOATING_CHROME_OPAQUE_V205 — the connected wash is composited onto the resting
-    // fill instead of being painted translucent. Animating between a translucent wash and an
-    // opaque fill passed through half-alpha frames that let the page aurora bleed through the
-    // row mid-transition; every endpoint of the tween is now a solid colour.
+
     val itemBg by animateColorAsState(
         targetValue = when {
             isConnected -> Aether.Emerald
@@ -3297,11 +2792,6 @@ private fun IosServerItemRow(
         else -> ""
     }
 
-    // MARBLE_PROTOCOL_TEXT_IDENTITY_V193 — the row now opens with the server's place in a
-    // circular tile: the real flag when the location is known, the name's own flag glyph
-    // otherwise — never a protocol doodle. Then the name with its coloured text badge (each
-    // protocol its own hue), and the latency in its own right-aligned stat column with a
-    // quality meter — the same anatomy the Servers page uses.
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3321,13 +2811,6 @@ private fun IosServerItemRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // MARBLE_SERVER_LOCATION_V192 — the row opens with the server's location, not its
-        // protocol: the tested country's flag fills the circle, and the protocol keeps its
-        // identity in the small badge under the name. Without a known location the protocol
-        // glyph returns to the circle, so the row never reads empty.
-        // MARBLE_ROUTE_ATELIER_V207 — the tile states the strength of its own answer (see
-        // [MarbleLocationTrust]): a measured country paints the flag, a name that merely contains a
-        // flag paints the world with a dashed rim.
         val locationTrust = marbleLocationTrustOf(
             hasSessionReport = false,
             hasMeasuredCode = countryCode.isNotBlank(),
@@ -3365,8 +2848,7 @@ private fun IosServerItemRow(
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 ProtocolBadge(scheme = server.scheme)
-                // MARBLE_SERVER_LOCATION_V192 — the tested location reads beside the badge: the
-                // circle shows the flag, the line says the country, and the endpoint follows.
+
                 if (countryName.isNotBlank() && countryName != "Unknown") {
                     Text(
                         text = countryName,
@@ -3382,9 +2864,7 @@ private fun IosServerItemRow(
                         maxLines = 1
                     )
                 }
-                // Tabular figures instead of a monospace face: digits still line up row to row,
-                // but the endpoint no longer spends a full em per dot and colon, so the port
-                // stays visible instead of being ellipsised away on a normal phone.
+
                 Text(
                     text = endpoint,
                     color = Aether.InkMuted,
@@ -3396,12 +2876,6 @@ private fun IosServerItemRow(
             }
         }
 
-        // MARBLE_PROTOCOL_IDENTITY — the latency reads in the same right-aligned stat column the
-        // Servers page uses, so one list's number is the other's number in the same place.
-        // MARBLE_HOME_ROW_V190 — the trailing check badge (and the empty 22 dp slot every other
-        // row reserved for it) is gone. Selection was already stated three times — the sky fill,
-        // the accent rim and the lit tile ring — and the reserved slot cut the endpoint short on
-        // every row. The latency column now owns the trailing edge alone.
         ServerPingStat(
             latencyMs = latency,
             measured = measured != null,
@@ -3411,19 +2885,6 @@ private fun IosServerItemRow(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// COMPONENT 3: SLIDE TO CONNECT (Theme 1 Slider Control)
-// ---------------------------------------------------------------------------------------------
-
-/**
- * MARBLE_HOME_CONNECT_CONTROLS_V141 — the Theme 1 connect control, redrawn flat and alive.
- *
- * A pill track of solid card white with a state-tinted hairline; while armed, a soft light band
- * sweeps the track so the control visibly invites the drag; while a handshake runs, the band
- * accelerates into an indeterminate sweep; the drag fill and the flat thumb follow the finger.
- * The drag gesture (including its RTL mirroring and the 65% release threshold) is unchanged —
- * only the surface was redesigned.
- */
 @Composable
 internal fun IosSlideToConnect(
     evidence: HomeEvidence,
@@ -3467,9 +2928,6 @@ internal fun IosSlideToConnect(
         modifier = modifier
             .fillMaxWidth()
             .height(62.dp)
-            // MARBLE_HOME_CLOUD_DEPTH_V191 — the track keeps its control identity (no card lift)
-            // but gains the one soft cool shadow every raised surface now carries, so it no
-            // longer reads as a hole cut in the page between two shadowed cards.
             .shadow(
                 elevation = 3.dp,
                 shape = trackShape,
@@ -3487,37 +2945,19 @@ internal fun IosSlideToConnect(
         val progress = (dragOffset.value / maxDragPx).coerceIn(0f, 1f)
 
         // MARBLE_SLIDE_PARK_V146 — the thumb parks on the side it was dragged to, instead of
-        // always springing back to the start. While a route is live (or still being opened) the
-        // thumb rests at the END; otherwise it rests at the START. The offset is layout-aware,
-        // so "end" is the right edge in LTR and the left edge in RTL — the physical side the
-        // finger travelled to either way.
+
         val restOffset = if (evidence.connected || evidence.connecting) maxDragPx else 0f
         LaunchedEffect(evidence.connected, evidence.connecting, maxDragPx) {
-            // Never fight the finger: a state change that lands mid-drag waits for the release.
             if (!dragging) {
-                // MARBLE_EXPRESSIVE_MOTION_V186 — the thumb parks on the wave spring: one soft
-                // overshoot against the track's clip, then it holds. The committed flight
-                // below keeps its deliberate 220 ms tween — that beat belongs to the action.
                 dragOffset.animateTo(restOffset, MarbleExpressiveSpecs.WaveSpringFloat)
             }
         }
 
-        // Ambient sheen: a single light band on the shared motion clock — slow when armed,
-        // fast while the tunnel negotiates, invisible once the user owns the gesture. The clock
-        // is read inside the draw lambda, so the sweep costs zero recompositions.
-        //
-        // MARBLE_SLIDE_SHEEN_THEMED_V205 — the band used to be hard-coded white. Over the dark
-        // track that reads as light; over the light theme's white track it is literally
-        // invisible, so the invitation the control advertises only ever existed in dark mode.
-        // The sheen now paints with the state tone on light pages and stays white on dark ones.
         val sheenTint = if (homeCloudDark()) Color.White else tone
         Canvas(modifier = Modifier.matchParentSize()) {
             val sheenPhase = motion.loop(if (busy) 1100 else 3000)
             val sheenAlpha = (if (busy) 0.30f else 0.20f) * (1f - progress)
             if (sheenAlpha > 0.01f) {
-                // MARBLE_EXPRESSIVE_MOTION_V186 — the invitation band breathes: its width
-                // oscillates between 22% and 42% of the track on its own slow clock while it
-                // sweeps, so the sheen reads as a living highlight instead of a fixed stripe.
                 val band = size.width * ExpressiveMath.wavyValue(motion.loop(1900), 0.22f, 0.42f)
                 val x = sheenPhase * (size.width + band) - band
                 drawRect(
@@ -3536,7 +2976,6 @@ internal fun IosSlideToConnect(
             }
         }
 
-        // Drag fill — flat state tint that grows with the thumb.
         Box(
             modifier = Modifier
                 .fillMaxHeight()
@@ -3544,7 +2983,6 @@ internal fun IosSlideToConnect(
                 .background(tone.copy(alpha = 0.16f))
         )
 
-        // Centered Label
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -3558,7 +2996,6 @@ internal fun IosSlideToConnect(
             )
         }
 
-        // Sliding Thumb Knob — flat disc, glyph, micro-lift while dragged.
         Box(
             modifier = Modifier
                 .padding(start = 5.dp, end = 5.dp)
@@ -3569,10 +3006,7 @@ internal fun IosSlideToConnect(
                     scaleX = lift
                     scaleY = lift
                 }
-                // MARBLE_SLIDE_SHEEN_THEMED_V205 — the knob's lift is cast in the track's own
-                // hue family. The stock shadow pair (a black ambient under a full-strength spot)
-                // painted a grey smudge under the thumb on the ice page and an over-saturated
-                // ring on the AMOLED page.
+
                 .shadow(
                     elevation = 6.dp,
                     shape = CircleShape,
@@ -3588,11 +3022,7 @@ internal fun IosSlideToConnect(
                         onDragEnd = {
                             dragging = false
                             // MARBLE_SLIDE_PARK_V146 — the commit direction follows the route
-                            // state: while connected the safety switch is dragged back toward the
-                            // start to disconnect; while disconnected it is dragged to the end to
-                            // connect. On a completed drag the thumb flies to the committed side
-                            // and HOLDS there; a short drag springs back to the state's own side
-                            // instead of always to zero.
+
                             val completed = if (evidence.connected) {
                                 dragOffset.value <= maxDragPx * 0.35f
                             } else {
@@ -3609,10 +3039,6 @@ internal fun IosSlideToConnect(
                                 }
                             } else {
                                 coroutineScope.launch {
-                                    // MARBLE_EXPRESSIVE_MOTION_V186 — a short drag releases on
-                                    // the wave spring: the thumb springs back to its resting
-                                    // side with one visible overshoot, exactly the elastic
-                                    // release the newest Android slide controls advertise.
                                     dragOffset.animateTo(
                                         restOffset,
                                         MarbleExpressiveSpecs.WaveSpringFloat
@@ -3638,15 +3064,10 @@ internal fun IosSlideToConnect(
                 },
             contentAlignment = Alignment.Center
         ) {
-            // MARBLE_FLOATING_CHROME_V201 — the glyph is chosen against the disc, not assumed white.
             HomeGlyphIcon(HomeGlyph.POWER, marbleOnColor(tone), Modifier.size(26.dp))
         }
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// THEME 1: iOS SLIDER THEME (Fixed Screen)
-// ---------------------------------------------------------------------------------------------
 
 @Composable
 internal fun HomeThemeSlider(
@@ -3662,18 +3083,12 @@ internal fun HomeThemeSlider(
             .padding(bottom = bottomClearance),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Top actions (outside the banner) + Wide Status Bar
         HomeTopActionBar(evidence, actions, repo)
-        // MARBLE_BANNER_IN_FLOW_V205 — the national-filtering alert occupies its own slot under
-        // the header instead of floating over it.
+
         NationalEventBanner(repo = repo)
-        // MARBLE_EXPRESSIVE_MOTION_V186 — Theme 1 arrives in a cascade: banner, server card,
-        // then the slide control, one stagger step apart on the emphasized entrance pair.
+
         IosStatusWideCard(evidence, actions, modifier = Modifier.marbleStaggerIn(1))
 
-        // The center lane owns all remaining height, while the server card stays top-aligned
-        // inside it. This caps a long list for its own scroll and leaves short libraries with
-        // intentional breathing room — the horizontal connect track always stays at the floor.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -3690,46 +3105,10 @@ internal fun HomeThemeSlider(
             )
         }
 
-        // The horizontal slide control is a true page-floor action in the first theme.
         IosSlideToConnect(evidence, actions, modifier = Modifier.marbleStaggerIn(3))
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// THEME 2: iOS FLOATING SPLIT-BUTTON THEME (Fixed Screen)
-// ---------------------------------------------------------------------------------------------
-
-/**
- * MARBLE_HOME_CONNECT_CONTROLS_V141 — the Theme 2 floating control, redrawn flat.
- *
- * Armed: a solid state-coloured disc with a breathing halo ring. Busy: the halo becomes a
- * spinning arc that orbits the disc. Connected: the whole control morphs into the split pair —
- * a flat danger pause and a flat emerald ping. Every ambient phase runs on Marble's one shared
- * frame clock, and press feedback is the product-standard kinetic scale.
- *
- * MARBLE_FLOATING_BUTTONS_V205 — the critique that reshaped this control:
- *  1. **It was a doughnut, not a button.** The V202 pass wrapped the coloured face in a
- *     neutral chrome bezel — a 76 dp pale disc, a 1 dp hairline and a 60 dp colour inside it.
- *     Three concentric rings around one action: on the light page the pale bezel read as a
- *     dirty halo and the seam between bezel and face read as a defect. The floating-action
- *     grammar every platform ships is ONE filled disc in the action's own colour; that is what
- *     this is now.
- *  2. **The busy state never changed colour.** The tone was `if (busy) AmethystBright else
- *     Cyan` — and in BOTH the light and the dark brand palettes those two tokens hold the very
- *     same value, so the "colour" branch was dead. The face then followed the product's one
- *     semantic connect ramp, and from V210 it reads the theme's own action tokens instead (see
- *     below), which is the same promise kept by a palette that has to answer for it.
- *  3. **The glyph ink is measured, not assumed** — [marbleOnColor] scores white against the
- *     palette's dark ink on the live face and takes whichever clears 3:1.
- *
- * MARBLE_FLOATING_ACTIONS_V210 — the face is a token now. `connectButtonTone` is the semantic
- * ramp every connect control in the product shares, but a *floating* button's colour is a chrome
- * decision like its body and its shadow, so it reads [MarbleFloatActionTones] instead: armed is
- * `connect`, negotiating is `securing`, closing is `stop`. Daylight, Pure black and the phone's
- * own palette each answer all three, and the V205 defect — a busy state that held the armed
- * state's value — cannot come back, because the two are now two tokens a palette has to keep
- * apart.
- */
 @Composable
 private fun FloatingConnectFab(
     evidence: HomeEvidence,
@@ -3747,8 +3126,7 @@ private fun FloatingConnectFab(
         animationSpec = MarbleMotionSpecs.DockColor,
         label = "fab-tone"
     )
-    // MARBLE_FLOATING_FACE_V215 — the face is a deep shade of the action tone and the glyph is white
-    // on it. The bright tone stays the ring and the shadow, so the control still says what it does.
+
     val face by animateColorAsState(
         targetValue = Color(marbleDeepFaceArgb(tone.toArgb())),
         animationSpec = MarbleMotionSpecs.DockColor,
@@ -3759,8 +3137,6 @@ private fun FloatingConnectFab(
         modifier = Modifier.size(88.dp),
         contentAlignment = Alignment.Center
     ) {
-        // The only ambient signal is painted inside the stable 88 dp slot. It cannot resize or
-        // translate the button, and it freezes through MarbleMotion when the system disables motion.
         Canvas(modifier = Modifier.size(88.dp)) {
             val spin = motion.loop(1_150)
             val breathe = motion.breathe(2_400)
@@ -3788,9 +3164,6 @@ private fun FloatingConnectFab(
             }
         }
 
-        // One solid face in the semantic state colour. Depth comes from a shadow cast in the
-        // face's own hue — never a grey or black smudge under a blue button — plus the faint
-        // top-light wash every raised Marble surface carries.
         Box(
             modifier = Modifier
                 .size(68.dp)
@@ -3812,8 +3185,7 @@ private fun FloatingConnectFab(
                 .kineticClickable(
                     pressScale = .94f,
                     boundedShape = CircleShape,
-                    // The FAB is a direct manipulation control; its release is quick and
-                    // damped so it never rebounds into the dock underneath it.
+
                     releaseSpec = MarbleMotionSpecs.ExitFloat
                 ) { onToggle() },
             contentAlignment = Alignment.Center
@@ -3823,27 +3195,14 @@ private fun FloatingConnectFab(
     }
 }
 
-/**
- * One circular secondary action of the Theme 2 split pair.
- *
- * MARBLE_FLOATING_BUTTONS_V205 — the same doughnut critique as the FAB: the chrome bezel around
- * a smaller colour disc is gone, the action is one filled disc in its own tone with its hue-cast
- * shadow, and the glyph ink is computed against that exact fill.
- *
- * MARBLE_FLOATING_ACTIONS_V210 — the tone arrives from the theme's own action token and the ink
- * is scored by the same chrome the sibling disc uses, so "stop" and "measure" are two colours
- * the palette guarantees are different and two glyphs the palette guarantees are readable.
- */
 @Composable
 private fun FloatingSplitAction(
     tone: Color,
     description: String,
     enabled: Boolean = true,
     onClick: () -> Unit,
-    /** Receives the ink the palette scores for [tone], so a glyph can never be assumed white. */
     content: @Composable (ink: Color) -> Unit
 ) {
-    // MARBLE_FLOATING_FACE_V215 — the same deep face as the connect disc, with a white glyph on it.
     val face = Color(marbleDeepFaceArgb(tone.toArgb()))
     Box(
         modifier = Modifier
@@ -3889,17 +3248,14 @@ internal fun HomeThemeFloating(
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .padding(bottom = bottomClearance)
     ) {
-        // Main fixed column: top actions + Status Bar + Expanded Server List Box
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             HomeTopActionBar(evidence, actions, repo)
-            // MARBLE_BANNER_IN_FLOW_V205 — the national-filtering alert occupies its own slot
-            // under the header instead of floating over it.
+
             NationalEventBanner(repo = repo)
-            // MARBLE_EXPRESSIVE_MOTION_V186 — Theme 2 arrives in a cascade: banner first,
-            // then the expanded server card one stagger step behind it.
+
             IosStatusWideCard(evidence, actions, modifier = Modifier.marbleStaggerIn(1))
             IosServerListBox(
                 repo = repo,
@@ -3908,14 +3264,11 @@ internal fun HomeThemeFloating(
                 modifier = Modifier
                     .weight(1f, fill = false)
                     .marbleStaggerIn(2),
-                // The split FAB floats above the last rows; reserve the room so no server is
-                // ever hidden underneath it (MARBLE_HOME_FLOATING_CLEARANCE_V141).
+
                 bottomOverlayClearance = 104.dp
             )
         }
 
-        // Floating Action Controls Pinned to the Right. MARBLE_MODULAR_FLOATING_V151 moved the
-        // control into its own composable so the customizer layout can offer the exact same one.
         HomeFloatingSplitControl(
             evidence = evidence,
             actions = actions,
@@ -3952,9 +3305,7 @@ internal fun HomeFloatingSplitControl(
 ) {
     val chrome = rememberMarbleFloatChrome()
     val routeMeasuring = homeRouteMeasuring(evidence)
-    // MARBLE_FLOATING_CONNECT_V202 — reserve the connected pair's full footprint even while
-    // disconnected. The bottom action therefore stays at the same physical coordinate when a
-    // connection completes; only an upper action fades in, never the whole control jumping.
+
     Box(
         modifier = modifier.size(width = 88.dp, height = 118.dp),
         contentAlignment = Alignment.BottomCenter
@@ -3964,25 +3315,18 @@ internal fun HomeFloatingSplitControl(
             modifier = Modifier.matchParentSize(),
             contentAlignment = Alignment.BottomCenter,
             transitionSpec = {
-                // Both states already occupy an identical, bottom-anchored box. A short
-                // fade-through is deliberately the whole transition: no size interpolation, no
-                // overshooting scale and no competing child measurements at connection time.
                 expressiveFadeThrough()
             },
             label = "floating-split-anim"
         ) { isConnected ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
                 if (isConnected) {
-                    // Split into TWO buttons: Disconnect (pause) and Ping. The lower action
-                    // shares the disconnected FAB's anchor exactly.
                     Column(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         FloatingSplitAction(
-                            // MARBLE_FLOATING_ACTIONS_V210 — the theme's own stop hue, not a
-                            // hard-coded danger: in the dynamic palette the brand red used to sit
-                            // unchanged on a wallpaper-coloured page.
+
                             tone = chrome.actions.stop,
                             description = Tr.now.disconnect,
                             onClick = { actions.onToggleConnection() }
@@ -3991,11 +3335,6 @@ internal fun HomeFloatingSplitControl(
                                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // MARBLE_FLOATING_CHROME_V201 — the pause bars read against the
-                                // danger disc instead of assuming white survives it: the dark
-                                // theme's danger is a light rose (#FF718B), and white bars on a
-                                // light rose are nearly invisible. In V210 the ink is the one the
-                                // palette scores for the theme's own stop hue.
                                 Box(
                                     Modifier
                                         .width(4.dp)
@@ -4014,9 +3353,7 @@ internal fun HomeFloatingSplitControl(
                         }
 
                         // MARBLE_HOME_ROUTE_PING_V210 — the second half is the measurement of the
-                        // server this page is connected to. While it runs, the disc shows the wait
-                        // instead of a stop square: a one-route probe is single-flight and there is
-                        // nothing on the other side of that button to interrupt.
+
                         FloatingSplitAction(
                             tone = chrome.actions.measure,
                             description = if (routeMeasuring) {
@@ -4047,18 +3384,6 @@ internal fun HomeFloatingSplitControl(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// THEME 3: iOS CENTER ORBITAL THEME (Fixed Screen)
-// ---------------------------------------------------------------------------------------------
-
-/**
- * MARBLE_HOME_CONNECT_CONTROLS_V141 — the Theme 3 control: an orbital power core.
- *
- * A 118 dp dial: four slowly rotating dashes invite the drag-free tap while armed, a single
- * fast arc orbits while the tunnel negotiates, and the ring solidifies with a gentle breath
- * once protected. The flat core disc carries the power glyph and the kinetic press. Distinct
- * silhouette from both the slider (Theme 1) and the floating FAB (Theme 2) by design.
- */
 @Composable
 internal fun OrbitalConnectControl(
     evidence: HomeEvidence,
@@ -4079,9 +3404,6 @@ internal fun OrbitalConnectControl(
     )
 
     Box(modifier = modifier.size(118.dp), contentAlignment = Alignment.Center) {
-        // The whole dial is one draw-phase canvas on the shared clock: dashes rotate while
-        // armed, an arc orbits while busy, the ring breathes while protected — and none of it
-        // ever recomposes the control.
         Canvas(modifier = Modifier.size(118.dp)) {
             val spin = motion.loop(1200)
             val slowSpin = motion.loop(9000)
@@ -4089,16 +3411,13 @@ internal fun OrbitalConnectControl(
             val stroke = 3.dp.toPx()
             val inset = stroke / 2f + 2.dp.toPx()
             val ring = Size(size.width - inset * 2f, size.height - inset * 2f)
-            // Flat halo wash under everything — one alpha, no gradient stack.
+
             drawCircle(
                 color = tone.copy(alpha = 0.08f + 0.06f * breathe),
                 radius = size.minDimension * 0.44f
             )
             when {
                 busy -> {
-                    // MARBLE_EXPRESSIVE_MOTION_V186 — the securing orbit stretches: the sweep
-                    // oscillates on a second clock while the arc rotates, so the dial breathes
-                    // the way the newest Android busy rings do.
                     val wobble = motion.loop(1_700)
                     rotate(degrees = spin * 360f) {
                         drawArc(
@@ -4121,9 +3440,7 @@ internal fun OrbitalConnectControl(
                     size = ring,
                     style = Stroke(stroke, cap = StrokeCap.Round)
                 )
-                // MARBLE_ORBIT_REST_V190 — the resting orbit is four even, softer dashes with
-                // equal gaps (60° arc / 30° gap) so it reads as one calm ring around the core,
-                // not as broken segments of different weights.
+
                 else -> rotate(degrees = slowSpin * 360f) {
                     repeat(4) { index ->
                         drawArc(
@@ -4140,14 +3457,10 @@ internal fun OrbitalConnectControl(
             }
         }
 
-        // Core disc — flat solid tone, kinetic press.
         Box(
             modifier = Modifier
                 .size(86.dp)
-                // MARBLE_EXPRESSIVE_MOTION_V186 — acknowledgement beat on the session flip.
                 .marblePopWhen(connected, peak = 1.05f)
-                // MARBLE_SLIDE_SHEEN_THEMED_V205 — the lift is cast in the disc's own hue; the
-                // default black ambient read as a grey smudge under the core on the light page.
                 .shadow(
                     elevation = 5.dp,
                     shape = CircleShape,
@@ -4164,7 +3477,6 @@ internal fun OrbitalConnectControl(
                 ) { actions.onToggleConnection() },
             contentAlignment = Alignment.Center
         ) {
-            // MARBLE_FLOATING_CHROME_V201 — the glyph is chosen against the disc, not assumed white.
             HomeGlyphIcon(HomeGlyph.POWER, marbleOnColor(tone), Modifier.size(40.dp))
         }
     }
@@ -4185,16 +3497,12 @@ internal fun HomeThemeEmbossed(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Top actions (outside the banner) + Status Bar
         HomeTopActionBar(evidence, actions, repo)
-        // MARBLE_BANNER_IN_FLOW_V205 — the national-filtering alert occupies its own slot under
-        // the header instead of floating over it.
+
         NationalEventBanner(repo = repo)
-        // MARBLE_EXPRESSIVE_MOTION_V186 — Theme 3 arrives in a cascade: banner, orbital core,
-        // caption, server card — one stagger step apart on the emphasized entrance pair.
+
         IosStatusWideCard(evidence, actions, modifier = Modifier.marbleStaggerIn(1))
 
-        // Center: Orbital power core + caption (fixed height, never resizes with status text)
         Box(
             modifier = Modifier
                 .padding(vertical = 2.dp)
@@ -4211,7 +3519,6 @@ internal fun HomeThemeEmbossed(
                 .padding(bottom = 2.dp)
         )
 
-        // Bottom: Server List Box
         IosServerListBox(
             repo = repo,
             evidence = evidence,
@@ -4223,36 +3530,6 @@ internal fun HomeThemeEmbossed(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// THEME 4: iOS MODULAR CUSTOMIZABLE THEME (Fixed Screen)
-// ---------------------------------------------------------------------------------------------
-
-/**
- * MARBLE_MODULAR_LAYOUT_V145 — Theme 4, the customizer layout, repaired end to end.
- *
- * Bugs this rewrite removes, all of them reachable with nothing but the customizer's own
- * controls:
- *
- *  1. **A module could disappear for good.** The page rendered `modularCardOrder` literally, so
- *     an order string that had lost an entry (older build, partial save, migrated preference)
- *     never drew that module again — including CONNECT, i.e. a Home page with no way to
- *     connect. The order now goes through [ModularLayout.order], which is always a permutation
- *     of the known modules.
- *  2. **A duplicated entry drew the same card twice** (same reason, same fix).
- *  3. **The page could not be reached past the screen edge.** A fixed Column with a 216 dp
- *     connect slot, a status banner, a stats strip and a server card sized up to 360 dp
- *     overflows a small screen; a Column clips instead of scrolling, so the bottom modules —
- *     often the connect button — were simply unreachable. The page scrolls now.
- *  4. **`weight(1f)` inside that Column** fought the user's own card-height choice: the servers
- *     module was stretched by the layout instead of sized by the slider. It is bounded by the
- *     chosen height, exactly as the customizer promises.
- *  5. **Two settings did nothing.** `modularShowShortcuts` and `modularShowSocks` were
- *     persisted, restored and never read by any composable. Both are real modules now.
- *  6. **The floating connect style had no ping companion.** Theme 2 splits into disconnect +
- *     ping once the tunnel is up; the same control inside the customizer stayed alone, so the
- *     one gesture the layout advertises was missing. Every connect silhouette in Theme 4 now
- *     gains the ping action beside it while connected.
- */
 @Composable
 internal fun HomeThemeModular(
     repo: AppRepository,
@@ -4267,14 +3544,8 @@ internal fun HomeThemeModular(
         .coerceIn(MODULAR_CARD_HEIGHT_MIN, MODULAR_CARD_HEIGHT_MAX).dp
     val modularConnect = parseConnectButtonStyle(settings.modularConnectStyle)
 
-    // MARBLE_MODULAR_FLOATING_V151 — "Floating button" in the customizer is Home style 2's own
-    // control, and it behaves the way it does there: an overlay pinned to the bottom-end corner
-    // that splits into disconnect + ping once the tunnel is up. It cannot be an inline module,
-    // because a module scrolls away and the whole point of the silhouette is that it stays under
-    // the thumb. The page therefore reserves the same 104 dp of clearance Theme 2 reserves, so no
-    // module is ever buried underneath it.
     val floatingOverlay = modularConnect == ConnectButtonStyle.FLOATING
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the customizer page cascades its modules in on arrival.
+
     val entranceArmed = rememberMarbleEntranceWindow()
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -4286,10 +3557,8 @@ internal fun HomeThemeModular(
             .padding(bottom = bottomClearance + (if (floatingOverlay) 104.dp else 0.dp)),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Top actions (outside the banner) + Top Bar with Customize Layout Button
             HomeTopActionBar(evidence, actions, repo)
-            // MARBLE_BANNER_IN_FLOW_V205 — the national-filtering alert occupies its own slot
-            // under the header instead of floating over it.
+
             NationalEventBanner(repo = repo)
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -4301,9 +3570,7 @@ internal fun HomeThemeModular(
                     color = Aether.Ink,
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                 )
-                // MARBLE_MODULAR_CUSTOMIZER_V151 — the Customize affordance can be hidden. The user
-            // asks for it at the moment they are customizing, and the switch that brings it back
-            // lives in Settings → General → Home layout, so hiding it can never strand the layout.
+
                 if (!settings.modularHideCustomizerButton) {
                     Row(
                         modifier = Modifier
@@ -4328,9 +3595,6 @@ internal fun HomeThemeModular(
                 }
             }
 
-        // Render the modules in the (repaired) configured order, honouring every visibility
-        // switch the customizer offers. CONNECT is deliberately not hideable: a Home page that
-        // cannot open a tunnel is not a layout choice, it is a broken product.
         cardOrder.forEachIndexed { moduleIndex, cardType ->
             when (cardType) {
                 ModularLayout.STATUS -> if (settings.modularShowStatus) {
@@ -4381,7 +3645,7 @@ internal fun HomeThemeModular(
                             evidence,
                             actions,
                             HomeCloud.Accent,
-                            // MARBLE_HOME_PING_CONTROLS_V212
+
                             pingAction = evidence.pingChipAction
                         )
                     }
@@ -4407,7 +3671,6 @@ internal fun HomeThemeModular(
         }
     }
 
-    // Customization Sheet / Dialog
     if (customizeOpen) {
         ModularCustomizerDialog(
             repo = repo,
@@ -4416,13 +3679,6 @@ internal fun HomeThemeModular(
     }
 }
 
-/**
- * The connect module of Theme 4: the chosen silhouette, plus the ping companion the layout has
- * always promised once a tunnel is up.
- *
- * The slot keeps one fixed footprint per silhouette family so switching the shape in the
- * customizer never re-flows the modules above and below it.
- */
 @Composable
 private fun ModularConnectModule(
     evidence: HomeEvidence,
@@ -4456,12 +3712,9 @@ private fun ModularConnectModule(
                 modifier = if (fullWidth) Modifier.fillMaxWidth() else Modifier
             )
         }
-        // MARBLE_HOME_ONE_PING_V208 — the modular theme's ping companion is gone: the connect
-        // control now owns the whole row and the header owns the page's one ping verb.
     }
 }
 
-/** The circular ping companion that appears beside the connect control once protected. */
 @Composable
 private fun ModularPingAction(
     enabled: Boolean,
@@ -4474,7 +3727,6 @@ private fun ModularPingAction(
             .shadow(3.dp, CircleShape, spotColor = Aether.Emerald)
             .clip(CircleShape)
             .background(Aether.Emerald)
-            // MARBLE_EXPRESSIVE_MOTION_V186 — the deck's ping disc releases on the bouncy spring.
             .kineticClickable(
                 enabled = enabled,
                 pressScale = .92f,
@@ -4489,13 +3741,6 @@ private fun ModularPingAction(
     }
 }
 
-/**
- * MARBLE_MODULAR_LAYOUT_V145 — the local SOCKS endpoint module.
- *
- * `modularShowSocks` was a persisted preference with no renderer. It exists for the people who
- * point another app at MarbleNG's proxy, so the module states the address, whether it is live,
- * and copies it on tap.
- */
 @Composable
 private fun ModularSocksCard(repo: AppRepository, evidence: HomeEvidence) {
     val clipboard = LocalClipboardManager.current
@@ -4547,8 +3792,7 @@ private fun ModularCustomizerDialog(
     onDismiss: () -> Unit
 ) {
     val s = repo.settings
-    // MARBLE_MODULAR_LAYOUT_V145 — the editor starts from a repaired order, so a legacy value
-    // cannot present the user with a list that is missing the module they are looking for.
+
     var order by remember { mutableStateOf(ModularLayout.order(s.modularCardOrder)) }
     var showStatus by remember { mutableStateOf(s.modularShowStatus) }
     var showServers by remember { mutableStateOf(s.modularShowServers) }
@@ -4556,8 +3800,7 @@ private fun ModularCustomizerDialog(
     var showShortcuts by remember { mutableStateOf(s.modularShowShortcuts) }
     var showSocks by remember { mutableStateOf(s.modularShowSocks) }
     var connectStyle by remember { mutableStateOf(s.modularConnectStyle) }
-    // MARBLE_MODULAR_CUSTOMIZER_V151 — the hide affordance lives here, at the moment the user is
-    // actually customizing, which is when they ask for it.
+
     var hideCustomize by remember { mutableStateOf(s.modularHideCustomizerButton) }
     var cardSize by remember { mutableStateOf(s.modularCardSize) }
     var cardHeight by remember {
@@ -4655,9 +3898,7 @@ private fun ModularCustomizerDialog(
                     horizontalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     ModularCardSize.entries.forEach { size ->
-                        // The chip reflects the height that is actually configured: dragging the
-                        // slider away from a preset now deselects the chip instead of leaving a
-                        // "Comfortable" badge lit next to a 187 dp card.
+
                         val selected = modularCardHeightFor(size) == cardHeight
                         val shape = RoundedCornerShape(12.dp)
                         Column(
@@ -4825,9 +4066,6 @@ private fun ModularCustomizerDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // A layout editor without a way back to the factory layout is a trap: the
-                    // user who reorders everything and hides three modules has to reconstruct
-                    // the default from memory.
                     TextButton(
                         onClick = {
                             order = ModularLayout.CANONICAL
@@ -4875,7 +4113,6 @@ private fun ModularCustomizerDialog(
     }
 }
 
-/** One module switch of the Theme 4 customizer: what it is, what it shows, on/off. */
 @Composable
 private fun ModularToggleRow(
     label: String,
@@ -4944,11 +4181,6 @@ private fun modularCardHeightFor(size: ModularCardSize): Int = when (size) {
     ModularCardSize.SPACIOUS -> 320
 }
 
-// ---------------------------------------------------------------------------------------------
-// SURFACE DISPATCHER
-// ---------------------------------------------------------------------------------------------
-
-/** Renders the Home surface in the presentation the user selected in Settings. */
 @Composable
 internal fun HomeStyleSurface(
     style: HomeStyle,
@@ -4983,8 +4215,7 @@ internal fun HomeStyleSurface(
             actions = actions,
             bottomClearance = bottomClearance
         )
-        // MARBLE_ROUTE_ATELIER_V207 — the route presentation lives in its own file, on the same
-        // evidence and the same shared widgets as the four above it.
+
         HomeStyle.ROUTE_ATELIER -> HomeThemeAtelier(
             repo = repo,
             evidence = evidence,
@@ -4994,7 +4225,6 @@ internal fun HomeStyleSurface(
     }
 }
 
-/** Clipboard helper shared by every style so "copy" behaves identically across presentations. */
 @Composable
 internal fun rememberCopyIpAction(repo: AppRepository, ip: String): () -> Unit {
     val clipboard = LocalClipboardManager.current

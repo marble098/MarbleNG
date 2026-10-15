@@ -11,20 +11,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_CORE_OPTIONS_V211 — the sing-box half of the cores' own options.
- *
- * The fragment mapping that used to be pinned here is gone with the feature. What remains, and
- * what this file now pins, is the rule the whole release is built on: the policy translates the
- * *user's* multiplex settings into the pinned core's own field names, writes nothing when the user
- * asked for nothing, and never invents a key.
- *
- * Getting a key wrong on this core is not cosmetic: `sing-box check` rejects the whole document on
- * an unknown field, so a typo is a tunnel that refuses to start rather than a setting that is
- * quietly ignored.
- */
 class SingBoxTransportPolicyV208Test {
-
     private fun profile(
         scheme: String = "vless",
         security: String = "",
@@ -39,8 +26,6 @@ class SingBoxTransportPolicyV208Test {
         port = 443,
         security = security
     )
-
-    // ── the user's multiplex object ──────────────────────────────────────────────────────────
 
     @Test
     fun anOffSettingWritesNoObjectAtAll() {
@@ -65,7 +50,7 @@ class SingBoxTransportPolicyV208Test {
         assertEquals(2, mux.getInt("min_streams"))
         assertEquals(64, mux.getInt("max_streams"))
         assertEquals(true, mux.getBoolean("padding"))
-        // Xray's spelling must never leak into a sing-box document.
+
         assertFalse(mux.has("concurrency"))
         assertFalse(mux.has("xudpConcurrency"))
     }
@@ -100,8 +85,6 @@ class SingBoxTransportPolicyV208Test {
         val mux = SingBoxTransportPolicy.multiplex(AppSettings(singBoxMuxEnabled = true))!!
         assertFalse(mux.has("mux"))
     }
-
-    // ── the veto that is a fact about the wire ───────────────────────────────────────────────
 
     @Test
     fun realityAndVisionAreReportedAsUnsafeForMultiplexing() {

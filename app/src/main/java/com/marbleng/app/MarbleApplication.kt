@@ -1,8 +1,5 @@
 package com.marbleng.app
 
-// MARBLE_ULTIMATE_DIAGNOSTICS_BOOT_V15
-// MARBLE_MEMORY_PRESSURE_BOOT_V26
-
 import android.app.Application
 import com.marbleng.app.core.RuntimeDiagnostics
 import com.marbleng.app.core.XrayManager
@@ -21,14 +18,10 @@ class MarbleApplication : Application() {
         xray = XrayManager(this)
         repo = AppRepository(this, xray)
 
-        // MARBLE_GEO_ASSET_INDEX_V136 — index the managed geo databases off the main thread so
-        // the routing editor opens with live suggestions, validation and the route simulator.
         Thread(
             { runCatching { xray.refreshGeoAssetIndex(repo.settings) } },
             "marble-geo-asset-index"
         ).apply {
-            // The executor was never shut down, so its idle non-daemon worker lived for the whole
-            // process after one index pass. This one-shot worker owns no long-lived pool or queue.
             isDaemon = true
             start()
         }

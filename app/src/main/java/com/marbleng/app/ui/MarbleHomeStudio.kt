@@ -2,35 +2,6 @@
 
 package com.marbleng.app.ui
 
-// MARBLE_HOME_REDESIGN_V132
-//
-// The Home surface was rebuilt around one idea: the page is a single, calm instrument for the
-// ONE route the user actually selected. Everything here is presentation over the shared
-// [HomeEvidence] model — no widget in this file invents, rounds or hides a runtime fact.
-//
-//   1. [HomeSelectedRouteCard]  the only server on the page: the selected node and the group it
-//      was chosen from. Home never renders a list, so "group 1 of 10" is a fact, not a menu.
-//   2. [HomePowerStage]         the chosen connection control with the live ping meter beside it.
-//   3. [HomeLivePingMeter]      the instrument that opens with an animation while the route comes
-//      up. It only ever measures the one server the tunnel is attached to.
-//   4. [HomeShortcutDeck]       add / paste / QR / always-visible ping, sitting above the banner.
-//   5. [ConnectButtonStream]    the floor bar with a light band travelling right → left.
-//   6. [ConnectButtonFloating]  the circular shutter pinned to the bottom-end corner (V137).
-//
-// MARBLE_EXPRESSIVE_MOTION_V186 — the Material 3 Expressive motion pass over this file: the
-// ping meter's readout ROLLS on the emphasized curves inside its fixed slot (the V135
-// opacity-only reveal contract survives untouched, only its easing changed), the stream bar's
-// travelling ribbon became a stretching blob, the floating shutter's securing arc breathes,
-// glyphs roll instead of snapping, and every press releases on the bouncy expressive spring.
-//
-// MARBLE_FLOATING_CHROME_OPAQUE_V205 — every surface in this file stopped paying its fill with
-// `VoidElevated.copy(alpha = .74f … .97f)`. The Home page sits on a breathing aurora, so a
-// translucent widget never had one colour: it had the aurora's colour bleeding through it,
-// unevenly, brighter at the top of the box than at the bottom — the exact compositing defect
-// MARBLE_HOME_CLOUD_V141 removed from the cards. The shortcut buttons, the selected-route card,
-// the stream bar, the floating shutter and the floor dock are now the same opaque surface the
-// cards are, in every theme.
-
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateColorAsState
@@ -79,43 +50,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.model.ConnectionPingState
-// MARBLE_HOME_PING_CONTROLS_V212 — which measurement each ping surface runs.
+
 import com.marbleng.app.model.HomePingAction
 import com.marbleng.app.model.parseHomePingAction
 import kotlinx.coroutines.delay
 import kotlin.math.max
 
-// ---------------------------------------------------------------------------------------------
-// Live ping constants
-// ---------------------------------------------------------------------------------------------
-
-/**
- * How long the live meter waits before it re-arms the one-shot connection probe.
- *
- * The repository deliberately owns a ONE-SHOT measurement with no background timer
- * (`MARBLE_PING_ONE_SHOT`); the meter is a visible, user-open instrument, so it is the only
- * place in the product allowed to re-arm it — and only while it is on screen and the route is
- * genuinely up. Close the meter or drop the tunnel and the ladder stops immediately.
- */
 internal const val LIVE_PING_INTERVAL_MS = 3_000L
 
-/** Samples kept for the meter's sparkline. */
 internal const val LIVE_PING_HISTORY = 24
 
-/** Full-scale latency of the arc gauge, in milliseconds. */
 internal const val LIVE_PING_FULL_SCALE_MS = 400
 
-// ---------------------------------------------------------------------------------------------
-// 1. The selected route
-// ---------------------------------------------------------------------------------------------
-
-/**
- * MARBLE_HOME_SELECTED_ROUTE_V132 — the one server Home is allowed to show.
- *
- * Home is not a second Servers page. It renders exactly the route the user selected on the
- * Servers tab (the live route wins while a tunnel carries traffic), so "group 1 of 10 groups"
- * is a single fact with a single way to change it: the Servers tab.
- */
 @Composable
 internal fun HomeSelectedRouteCard(
     evidence: HomeEvidence,
@@ -125,7 +71,7 @@ internal fun HomeSelectedRouteCard(
     modifier: Modifier = Modifier
 ) {
     val t = Tr.now
-    // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home cards round to the refreshed card radius.
+
     val shape = RoundedCornerShape(22.dp)
     val node = evidence.nodeName.ifBlank { t.chooseRoute }
     val group = evidence.sourceName.ifBlank { "—" }
@@ -148,8 +94,6 @@ internal fun HomeSelectedRouteCard(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // The flag in a soft tile: national identity stays readable at a glance without a
-        // second colour competing with the state tone.
         Box(
             modifier = Modifier
                 .size(42.dp)
@@ -226,28 +170,6 @@ internal fun HomeSelectedRouteCard(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// 2. Live ping meter
-// ---------------------------------------------------------------------------------------------
-
-/**
- * MARBLE_HOME_LIVE_PING_V132 — the instrument that measures the attached route.
- *
- * A compact latency meter in the spirit of the dedicated ping utilities: an arc gauge for the
- * current sample, the number in the middle, a sparkline of the last probes underneath and the
- * name of the ONE server being measured. It never ranks, never compares and never touches
- * another node — it re-arms [HomeActions.onTestPing], which measures the live tunnel and nothing
- * else, so the value on screen is always the latency of the server the user is attached to.
- *
- * MARBLE_LIVE_PING_FIXED_SLOT_V135 — the meter owns a PERMANENT layout slot: it is composed in
- * every connection state and [visible] only animates its opacity and interactivity. The old
- * `AnimatedVisibility` reveal inserted the instrument into the layout the moment a connect fired,
- * which grew the hero and pushed every readout below it — the "everything jumps" defect users
- * reported after tapping Connect. A slot that never appears and never disappears can never move
- * anything. The meter is the visual companion of the connect control: same elevated glass, the
- * control's own state tone in its hairline and wash, revealed only once the control itself has
- * reached the CONNECTED state.
- */
 @Composable
 internal fun HomeLivePingMeter(
     evidence: HomeEvidence,
@@ -256,9 +178,7 @@ internal fun HomeLivePingMeter(
     modifier: Modifier = Modifier,
     active: Boolean = true,
     visible: Boolean = true,
-    // MARBLE_HOME_PING_CONTROLS_V212 — the verb this gauge runs when it is tapped, which is a
-    // setting and not a constant. It is passed in rather than read from the repository here so
-    // every Home presentation resolves it the same way, from the same evidence block.
+
     pingAction: HomePingAction = HomePingAction.ROUTE
 ) {
     val t = Tr.now
@@ -266,7 +186,6 @@ internal fun HomeLivePingMeter(
     val measured = evidence.pingState == ConnectionPingState.MEASURED
     val samples = remember { mutableStateListOf<Int>() }
 
-    // One history point per completed measurement, never per recomposition.
     LaunchedEffect(evidence.pingMs, evidence.pingState) {
         if (evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs > 0) {
             samples.add(evidence.pingMs)
@@ -274,8 +193,6 @@ internal fun HomeLivePingMeter(
         }
     }
 
-    // MARBLE_PING_USER_TAPPED_ONLY_V143 — the live meter is a readout, not a scheduler. It never
-    // re-arms the one-shot probe; the only way a value changes is the user tapping the ping action.
     val band = if (measured) pingMetricBand(evidence.pingMs) else MarbleMetricBand.UNKNOWN
     val valueTone = if (measured) marbleMetricTone(band) else tone
     val fill = if (measured) {
@@ -283,19 +200,15 @@ internal fun HomeLivePingMeter(
     } else {
         0f
     }
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the gauge needle settles on the expressive progress
-    // spring: it arrives a hair past the new measurement, then rests. Deterministic target,
-    // elastic arrival.
+
     val animatedFill by animateFloatAsState(
         targetValue = fill,
         animationSpec = MarbleExpressiveSpecs.ProgressSettleFloat,
         label = "live-ping-fill"
     )
-    // MARBLE_SMOOTH_CLOCK_V193 — the measuring pulse is read in the dot's layer phase, so the
-    // gauge recomposes for measurements, not for frames.
+
     val gaugeMotion = MarbleMotion.current
 
-    // MARBLE_MATERIAL_YOU_REFRESH_V185 — Home cards round to the refreshed card radius.
     val shape = RoundedCornerShape(22.dp)
     val valueLabel = when {
         measured -> "${evidence.pingMs}"
@@ -306,19 +219,12 @@ internal fun HomeLivePingMeter(
         !evidence.connected -> t.livePingWaiting
         else -> evidence.nodeName.ifBlank { t.livePingHint }
     }
-    // Resolved in composable scope: the semantics lambda below is not a composable context.
+
     val spokenPing = homePingLabel(evidence)
-    // MARBLE_HOME_PING_CONTROLS_V212 — the gauge is a control, so it carries the product's own
-    // enabled-ness rule for a ping control: a measurement already in flight is not interrupted by
-    // a second tap, and the control says so by going quiet instead of lying about the tap.
+
     val tappable = visible && homePingTappable(evidence)
     val spokenAction = homePingActionLabel(pingAction)
 
-    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — opacity is the ONLY reveal: the slot this column
-    // occupies is identical in every state, so nothing around the meter can ever move.
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the reveal stays strictly opacity-only (fixed slot V135:
-    // nothing around the meter may ever move), but it now rides the emphasized pair — it
-    // decelerates into presence and accelerates out of it.
     val presence by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
         animationSpec = if (visible) {
@@ -340,8 +246,6 @@ internal fun HomeLivePingMeter(
             .width(150.dp)
             .graphicsLayer { alpha = presence }
             .clip(shape)
-            // Companion chrome of the connect control: the same elevated glass as the power
-            // dock, washed and hairlined with the control's own state tone.
             .background(Aether.VoidElevated)
             .background(
                 Brush.verticalGradient(
@@ -349,16 +253,6 @@ internal fun HomeLivePingMeter(
                 )
             )
             .border(1.dp, tone.copy(alpha = .30f), shape)
-            // MARBLE_HOME_ONE_PING_V208 — a gauge that also happens to be a button is two
-            // controls in one silhouette.
-            //
-            // MARBLE_HOME_PING_CONTROLS_V212 — and the report reopened exactly that decision, with
-            // the better argument: a 150 dp rounded surface with a number on it, sitting where a
-            // button sits, under a thumb that is looking at a latency, is a button whether the
-            // design calls it one or not. An object that never answers is not a calm instrument,
-            // it is a dead key. So the gauge is a control, and the ambiguity the V208 note was
-            // protecting against is gone for a different reason: the verb is not fixed by the
-            // silhouette any more, it is the user's setting, and the label says what it is.
             .semantics {
                 contentDescription = "${t.livePing}: $spokenPing — $spokenAction"
             }
@@ -399,7 +293,6 @@ internal fun HomeLivePingMeter(
             )
         }
 
-        // Arc gauge + the number inside it: one glance, no reading required.
         Box(contentAlignment = Alignment.Center) {
             Canvas(Modifier.size(78.dp, 46.dp)) {
                 val w = size.width
@@ -429,10 +322,6 @@ internal fun HomeLivePingMeter(
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.Bottom) {
-                    // MARBLE_EXPRESSIVE_MOTION_V186 — the headline number rolls: each new
-                    // measurement decelerates up into the gauge while the old one accelerates
-                    // away, inside the gauge's own fixed slot. The " ms" companion keeps its
-                    // static place, so the row's geometry never moves.
                     MarbleExpressiveValueText(
                         value = valueLabel,
                         color = Aether.Ink,
@@ -453,7 +342,6 @@ internal fun HomeLivePingMeter(
             }
         }
 
-        // Sparkline: the shape of the last probes, so a spike reads as context, not as a failure.
         if (samples.size >= 2) {
             Canvas(
                 Modifier
@@ -496,19 +384,6 @@ internal fun HomeLivePingMeter(
     }
 }
 
-/**
- * MARBLE_HOME_LIVE_PING_V132 — the same instrument as a free-standing slab.
- *
- * The two classic presentations keep their own hero geometry, so they host the meter as its own
- * row directly beneath the connect control instead of inside it. The contract is identical: the
- * meter measures only the connected server.
- *
- * MARBLE_LIVE_PING_FIXED_SLOT_V135 — the slab is a PERMANENT row. It used to be an
- * `AnimatedVisibility` that entered the layout when a connect fired; entering the layout is
- * exactly what pushed the status headline, the identity block and every readout beneath it down
- * the page. The row is now always measured, the instrument is always composed, and only its
- * opacity reveals it — the moment the connect control itself reaches CONNECTED, never before.
- */
 @Composable
 internal fun HomeLivePingSlab(
     evidence: HomeEvidence,
@@ -525,19 +400,12 @@ internal fun HomeLivePingSlab(
             actions = actions,
             tone = tone,
             visible = evidence.connected,
-            // MARBLE_HOME_PING_CONTROLS_V212 — the gauge is a control, and its verb is the one
-            // the user chose for the gauge surface.
+
             pingAction = evidence.pingGaugeAction
         )
     }
 }
 
-/**
- * MARBLE_HOME_LIVE_PING_V132 — the connection control with integrated zero-space live ping.
- *
- * The live ping HUD is embedded directly into the connection control's own animation geometry
- * and rings, requiring zero extra layout space in portrait and maintaining stable geometry.
- */
 @Composable
 internal fun HomePowerStage(
     evidence: HomeEvidence,
@@ -563,39 +431,23 @@ private fun StageMeter(
     actions: HomeActions,
     tone: Color
 ) {
-    // MARBLE_LIVE_PING_FIXED_SLOT_V135 — no AnimatedVisibility here: inserting/removing the meter
-    // from composition is precisely what changed the stage height and moved the connect control.
-    // The meter is always composed; `visible` only fades it.
     HomeLivePingMeter(
         evidence = evidence,
         actions = actions,
         tone = tone,
         visible = visible,
-        // MARBLE_HOME_PING_CONTROLS_V212
+
         pingAction = evidence.pingGaugeAction
     )
 }
 
-// ---------------------------------------------------------------------------------------------
-// 4. Shortcut deck
-// ---------------------------------------------------------------------------------------------
-
-/**
- * MARBLE_HOME_SHORTCUT_DECK_V132 — add / paste / QR / ping, sitting just above the status banner.
- *
- * The four actions a user reaches for while looking at a connection. Ping is not a button that
- * appears when it feels like it: it is always present, always shows the live value when one has
- * been measured, and always says what a tap will do.
- */
 @Composable
 internal fun HomeShortcutDeck(
     evidence: HomeEvidence,
     actions: HomeActions,
     accent: Color,
     modifier: Modifier = Modifier,
-    // MARBLE_HOME_PING_CONTROLS_V212 — the pill's verb is a setting, like every other ping
-    // surface's. The deck's other three members are controls, and a fourth that looks identical
-    // and does nothing is the exact inconsistency the report named.
+
     pingAction: HomePingAction = HomePingAction.GROUP
 ) {
     val t = Tr.now
@@ -632,16 +484,6 @@ internal fun HomeShortcutDeck(
             HomeGlyphIcon(HomeGlyph.QR, accent, Modifier.size(17.dp))
         }
 
-        // Ping is a permanent member of the deck — always visible, always labelled.
-        // MARBLE_HOME_ONE_PING_V208 — and it is a *member of the deck*.
-        //
-        // MARBLE_HOME_PING_CONTROLS_V212 — and it is a *button* in it. The V208 note kept it a
-        // display on the reasoning that one page needs one ping verb; the report that reopened it
-        // is the answer to that: the deck's three neighbours are 38 dp round controls and this one
-        // is a 38 dp pill that sits in the same row with the same fill and hairline. Users pressed
-        // it, nothing happened, and the product's explanation was invisible. It takes the tap now,
-        // and the tap is the user's choice of measurement — so "one verb per page" holds, it just
-        // stopped being a decision the layout made on the user's behalf.
         val pingShape = RoundedCornerShape(13.dp)
         Row(
             modifier = Modifier
@@ -719,21 +561,6 @@ private fun HomeDeckButton(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// 5. Stream bar — the floor control with a band travelling right → left
-// ---------------------------------------------------------------------------------------------
-
-/**
- * MARBLE_CONNECT_BUTTON_STYLES_V132 — the full-width floor bar.
- *
- * The band is the whole point of this silhouette: a soft ribbon of the state colour that enters
- * from the RIGHT edge and leaves through the LEFT edge, forever, while the bar is on screen. It
- * is screen-space motion, pinned to LTR, so Persian and English see exactly the same direction —
- * the same discipline the slide knob already follows.
- *
- * The band is bright and quick while the tunnel is opening or closing, slow and quiet while the
- * route is simply protected, and absent when nothing is happening.
- */
 @Composable
 internal fun ConnectButtonStream(
     evidence: HomeEvidence,
@@ -745,8 +572,7 @@ internal fun ConnectButtonStream(
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
     val period = if (busy) 1_600 else if (evidence.connected) 3_400 else 5_600
-    // MARBLE_SMOOTH_CLOCK_V193 — `phase` is read inside the travelling band's draw lambda, so
-    // this button recomposes when the connection state changes, never at the frame rate.
+
     val shape = RoundedCornerShape(22.dp)
     val label = homeActionLabel(evidence)
     val controlDescription = "${trx(label)} ${trx("connection button")}"
@@ -786,12 +612,7 @@ internal fun ConnectButtonStream(
                 )
                 .semantics { contentDescription = controlDescription }
         ) {
-            // The travelling band sits under the content so the glyph and copy stay crisp.
             Canvas(Modifier.matchParentSize()) {
-                // Right → left: the band's centre walks from `width + band` down to `-band`.
-                // MARBLE_EXPRESSIVE_MOTION_V186 — the ribbon is a blob, not a stripe: its
-                // width swells and thins once per pass on the wave curve, exactly the
-                // stretching rhythm of the newest Android travelling indicators.
                 val phase = motion.loop(period)
                 val bandWidth = size.width * ExpressiveMath.wavyValue(phase, .24f, .46f)
                 val travel = size.width + bandWidth
@@ -835,7 +656,7 @@ internal fun ConnectButtonStream(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            // End-of-track lamp / live ping badge: states line condition and live ping.
+
             if (evidence.connected) {
                 val pingLabel = when {
                     evidence.pingState == ConnectionPingState.MEASURED && evidence.pingMs >= 20 -> "${evidence.pingMs} ms"
@@ -886,18 +707,6 @@ internal fun ConnectButtonStream(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// 6. Floating circular shutter — the bottom-end primary action
-// ---------------------------------------------------------------------------------------------
-
-/**
- * MARBLE_HOME_V137 — Style C. The circular shutter pinned to the bottom-end corner of the page,
- * v2rayNG-style: a round 76 dp instrument with a state-coloured rim, a securing arc while the
- * tunnel opens or closes, and a slow halo once it is up. Disconnected is calm and static;
- * connecting rotates with a breathing pulse; connected glows. The press compresses the face and
- * springs back; the icon eases between its sizes. The caller pins it above the navigation dock
- * with safe-area clearance — it never consumes a hero row and never covers a readout.
- */
 @Composable
 internal fun ConnectButtonFloating(
     evidence: HomeEvidence,
@@ -908,8 +717,7 @@ internal fun ConnectButtonFloating(
 ) {
     val motion = MarbleMotion.current
     val busy = evidence.connecting || evidence.disconnecting
-    // MARBLE_SMOOTH_CLOCK_V193 — breathe/sweep moved into the draw lambda below: this control
-    // used to recompose at the frame rate the whole time it was connected.
+
     val label = homeActionLabel(evidence)
     val controlDescription = "${trx(label)} ${trx("floating connection button")}"
     val iconFraction by animateFloatAsState(
@@ -925,8 +733,6 @@ internal fun ConnectButtonFloating(
         Box(
             modifier = Modifier
                 .size(76.dp)
-                // MARBLE_EXPRESSIVE_MOTION_V186 — acknowledgement beat on the session flip:
-                // the shutter springs up past rest once, then settles.
                 .marblePopWhen(evidence.connected, peak = 1.06f)
                 .shadow(
                     elevation = 18.dp,
@@ -960,8 +766,7 @@ internal fun ConnectButtonFloating(
             Canvas(Modifier.matchParentSize().padding(7.dp)) {
                 val r = size.minDimension / 2f
                 val c = Offset(size.width / 2f, size.height / 2f)
-                // Draw-phase clock reads (MARBLE_SMOOTH_CLOCK_V193) — the button surface
-                // never recomposes for ambient motion; only this canvas redraws.
+
                 val breathe = if (busy || evidence.connected) motion.breathe(2_400) else 0f
                 val sweep = if (busy) motion.loop(1_150) * 360f else 0f
                 when {
@@ -975,9 +780,7 @@ internal fun ConnectButtonFloating(
                         drawArc(
                             color = animatedTone.copy(alpha = .85f + .15f * breathe),
                             startAngle = -90f + sweep,
-                            // MARBLE_EXPRESSIVE_MOTION_V186 — the securing arc stretches: the
-                            // sweep oscillates on a second clock (read in the draw phase, so
-                            // it never recomposes) while the arc rotates.
+
                             sweepAngle = ExpressiveMath.arcSweep(motion.loop(1_900), 70f, 132f),
                             useCenter = false,
                             topLeft = Offset(c.x - r * .86f, c.y - r * .86f),
@@ -1010,8 +813,7 @@ internal fun ConnectButtonFloating(
                     )
                 }
             }
-            // MARBLE_EXPRESSIVE_MOTION_V186 — the glyph rolls inside the animated icon slot
-            // instead of snapping when the session flips.
+
             MarbleExpressiveGlyphSwap(
                 key = connectButtonGlyph(evidence),
                 modifier = Modifier.size(76.dp * iconFraction)
@@ -1028,14 +830,6 @@ internal fun ConnectButtonFloating(
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Docked floor chrome shared by the two bottom-docked silhouettes
-// ---------------------------------------------------------------------------------------------
-
-/**
- * The capsule behind a bottom-docked control. It gives the bar/pill a deliberate home at the
- * floor of the page instead of leaving it floating between the artwork and the readouts.
- */
 @Composable
 internal fun HomeFloorDock(
     evidence: HomeEvidence,

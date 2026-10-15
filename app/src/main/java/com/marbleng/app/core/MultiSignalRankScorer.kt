@@ -4,30 +4,7 @@ import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * Multi-signal weighted ranking model (MARBLE_SMART_RANK_V90).
- *
- * Replaces the old "one short HTTPS generate204 probe" pass/fail criterion with a weighted
- * composite built from several survivability signals:
- *
- *  - TCP handshake success ratio (over all attempts),
- *  - RTT median and p95,
- *  - jitter,
- *  - TCP retransmission rate,
- *  - packet-loss rate,
- *  - live session lifetime.
- *
- * The crucial behaviour for Iran's filtering environment: a single timeout is NOT a death
- * sentence. A node is only classified [Classification.DEAD] after it has been convicted by
- * multiple attempts (the probe layer performs 2-3 attempts with exponential backoff before a
- * final failure), and even then an explicit `uncertain` signal keeps it in
- * [Classification.UNCERTAIN] instead of penalising the whole node for one inconclusive pass.
- *
- * Pure and dependency-free so the weighting, classification and uncertain handling are all
- * deterministic in JVM unit tests.
- */
 object MultiSignalRankScorer {
-
     enum class Classification(val rank: Int) {
         HEALTHY(0),
         DEGRADED(1),
@@ -36,22 +13,17 @@ object MultiSignalRankScorer {
         INVALID(4)
     }
 
-    /** All the signals a completed rank pass can contribute for one node. */
     data class Signals(
-        /** Successful handshakes / total handshake attempts, 0.0..1.0. */
         val tcpHandshakeSuccessRatio: Double = 0.0,
         val handshakeAttempts: Int = 0,
         val rttMedianMs: Double = UNKNOWN_RTT,
         val rttP95Ms: Double = UNKNOWN_RTT,
         val jitterMs: Double = 0.0,
-        /** Fraction of retransmitted segments, 0.0..1.0. */
         val retransmitRate: Double = 0.0,
         val lossRate: Double = 0.0,
         val sessionLifetimeMs: Long = 0L,
-        /** Inconclusive measurement (e.g. TURBO live-inconclusive-backoff): hold, do not penalise. */
         val uncertain: Boolean = false,
         val structurallyInvalid: Boolean = false,
-        /** Deprecated/hidden node (VLESS without TLS/REALITY, VMess without forward secrecy). */
         val deprecated: Boolean = false
     )
 
@@ -61,7 +33,6 @@ object MultiSignalRankScorer {
         val reason: String
     )
 
-    /** A node is only convicted after this many failed attempts with exponential backoff. */
     const val MIN_ATTEMPTS_TO_CONVICT = 3
 
     const val UNKNOWN_RTT = Double.MAX_VALUE
@@ -77,9 +48,6 @@ object MultiSignalRankScorer {
     private const val W_PACKET = 0.15
     private const val W_LONGEVITY = 0.05
 
-    /**
-     * Compute the weighted multi-signal score and classification for a node.
-     */
     fun score(signals: Signals): Score {
         if (signals.structurallyInvalid) {
             return Score(0.0, Classification.INVALID, "structurally-invalid")
@@ -122,8 +90,6 @@ object MultiSignalRankScorer {
                     longevity * W_LONGEVITY
 
                 if (classification == Classification.UNCERTAIN) {
-                    // Inconclusive evidence: shrink toward a neutral-but-liveable floor so the node
-                    // stays eligible for selection instead of being dropped to zero.
                     composite * 0.45 + 25.0
                 } else {
                     composite

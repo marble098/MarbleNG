@@ -12,26 +12,13 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_SINGBOX_LINK_AUTHORITY_V156 — the share link is the authority; the stored Xray JSON is a
- * cache of it.
- *
- * Every node in MarbleNG carries both: the `vless://…` link it was created from and the Xray JSON
- * the importer derived from that link. The sing-box writer only ever looked at the JSON, so the
- * extended core ran a *translation of a translation* and every parameter Marble's translator does
- * not model was silently dropped from the node the user actually subscribed to. These tests pin
- * the corrected reading order, the fallback that keeps one reader's blind spot from killing a
- * node, and the fact that routing is written identically for every reader.
- */
 class SingBoxLinkAuthorityV156Test {
-
     private val uuid = "11111111-2222-3333-4444-555555555555"
     private val host = "198.51.100.7"
 
     private val link =
         "vless://$uuid@$host:443?encryption=none&security=tls&type=tcp&sni=example.org#Node A"
 
-    /** The Xray JSON Marble's own importer derives from [link]. */
     private fun xrayJson(): String = JSONObject()
         .put(
             "outbounds",
@@ -58,7 +45,6 @@ class SingBoxLinkAuthorityV156Test {
         )
         .toString()
 
-    /** A node exactly as a subscription stores it: the link *and* the JSON derived from it. */
     private fun subscriptionProfile(
         raw: String = link,
         configJson: String = xrayJson()
@@ -91,15 +77,6 @@ class SingBoxLinkAuthorityV156Test {
             .single { it.optString("tag") == SingBoxConfigBuilder.PROXY_TAG }
     }
 
-    /**
-     * The same node as the link says it is *today* — a port and an SNI the stored copy has since
-     * drifted away from. This is the situation reader 2 exists for: the stored JSON is a cache,
-     * and the cache can be stale.
-     *
-     * The reader is injected because [ProxyParser] parses URIs with `android.net.Uri`, which is a
-     * stub that throws in a plain JVM unit test. What is under test here is the candidate *order*
-     * and the fallback, not the link grammar.
-     */
     private fun rereadJson(): String = JSONObject()
         .put(
             "outbounds",
@@ -136,10 +113,7 @@ class SingBoxLinkAuthorityV156Test {
         }
     }
 
-    /** Reader 2 as a pure function of the link: today's reading of the same node. */
     private fun readers(json: String = rereadJson()): (String) -> JSONObject = { JSONObject(json) }
-
-    // ───────────────────────────────────────────────────────────────── reader preference
 
     @Test
     fun aStoredNodeIsHandedToTheCoresOwnParserFirst() {
@@ -159,8 +133,6 @@ class SingBoxLinkAuthorityV156Test {
 
     @Test
     fun readersThatProduceTheSameDocumentAreOfferedOnce() {
-        // De-duplication is a promise, not an accident: offering the identical document twice
-        // would make the manager spend a second core spawn proving the same refusal twice.
         val profile = subscriptionProfile()
         val strategies = withLinkReader({ JSONObject(xrayJson()) }) {
             candidates(profile).map { it.strategy }
@@ -184,8 +156,7 @@ class SingBoxLinkAuthorityV156Test {
             ),
             strategies
         )
-        // The point of the list: the manager hands them over in order and moves on only when the
-        // core itself refuses one, so a blind spot in any single reader cannot kill the node.
+
         val builds = withLinkReader(readers()) { candidates(profile) }
         assertEquals(8443, proxyOf(builds[1]).getInt("server_port"))
         assertEquals(443, proxyOf(builds[2]).getInt("server_port"))
@@ -210,8 +181,6 @@ class SingBoxLinkAuthorityV156Test {
 
     @Test
     fun marbleReadsTheLinkItselfWhenTheStoredJsonIsMissing() {
-        // tuic/anytls and any node whose import predates a parser fix land here: no stored JSON,
-        // but the link is still readable by Marble.
         val profile = subscriptionProfile(configJson = "")
         val builds = withLinkReader({ JSONObject(xrayJson()) }) {
             candidates(profile)
@@ -268,12 +237,8 @@ class SingBoxLinkAuthorityV156Test {
         )
     }
 
-    // ───────────────────────────────────────────────────────────────── routing parity
-
     @Test
     fun routingIsIdenticalForEveryReaderOfTheSameNode() {
-        // The whole point of one scaffolder: the URL test, the DNS graph and the split rules mean
-        // the same thing whichever reader produced the proxy hop.
         val builds = withLinkReader(readers()) {
             candidates(
                 subscriptionProfile(),
@@ -294,12 +259,10 @@ class SingBoxLinkAuthorityV156Test {
 
     @Test
     fun anUnbundledGeoRuleIsReportedInsteadOfKillingTheEngine() {
-        // One `geoip:us` rule used to throw out of routeConfig, which made every node on the
-        // sing-box engine unconnectable while the same profile worked on Xray.
         val built = SingBoxConfigBuilder.build(
             profile = subscriptionProfile(),
             settings = AppSettings(
-                // geo tags only reach the writer in the split mode that reads them.
+
                 routingMode = RoutingMode.GEO_DIRECT,
                 routeGeoIpTags = "geoip:us",
                 routeBlockAds = false
@@ -315,14 +278,12 @@ class SingBoxLinkAuthorityV156Test {
             "the dropped rule has to be named, not silently absent",
             built.notes.any { it.contains("geoip:us") && it.contains("not applied") }
         )
-        // Everything Marble does bundle is still honoured.
+
         assertEquals(SingBoxConfigBuilder.RULE_SET_GEOIP_IR, SingBoxConfigBuilder.geoTag(true, "geoip:ir"))
         assertEquals(SingBoxConfigBuilder.RULE_SET_GEOSITE_IR, SingBoxConfigBuilder.geoTag(false, "geosite:ir"))
         assertEquals(SingBoxConfigBuilder.RULE_SET_ADS, SingBoxConfigBuilder.geoTag(false, "geosite:category-ads-all"))
         assertEquals(SingBoxConfigBuilder.RULE_SET_GEOIP_PRIVATE, SingBoxConfigBuilder.geoTag(true, "geoip:private"))
     }
-
-    // ───────────────────────────────────────────────────────────────── refusal honesty
 
     @Test
     fun aNodeNoReaderCanServeIsRefusedWithAReason() {
@@ -356,8 +317,6 @@ class SingBoxLinkAuthorityV156Test {
         assertFalse(support.supported)
         assertTrue(support.reason.contains("Xray"))
     }
-
-    // ───────────────────────────────────────────────────────────────── candidate walking
 
     @Test
     fun onlyADocumentRefusalMovesOnToTheNextReader() {

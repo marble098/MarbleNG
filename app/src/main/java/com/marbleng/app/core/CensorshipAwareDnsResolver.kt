@@ -9,27 +9,7 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 
-/**
- * Censorship-Aware DNS Resolution Engine for MarbleNG.
- *
- * Problem addressed: The old DnsHedgePolicy had a single primary + secondary resolver
- * and relied on DoH deadlines that would burst during Iran's filtering windows (78+ retained
- * resolver errors seen in logs). This engine provides:
- *
- * 1. Multi-layer parallel resolution with measured scoring per network session.
- * 2. Stage-based fallback: DoH -> DoT -> remote-in-tunnel -> direct-UDP (as last resort).
- * 3. Bounded deadlines with fast-fail on per-provider timeout.
- * 4. Per-session cache with realistic TTL to avoid re-querying poisoned resolvers.
- * 5. Resolver health tracking with automatic exclusion of degraded providers.
- * 6. Anti-poisoning: validates responses against known-block-page ranges.
- * 7. Parallel racing: first valid response wins, slow/failed providers scored down.
- *
- * All decisions are network-scoped: a bad resolver on one ISP session does not
- * contaminate the next session's choices.
- */
 object CensorshipAwareDnsResolver {
-
-    /** Resolution stage ordered by censorship resistance. */
     enum class DnsStage(val label: String, val encrypted: Boolean) {
         DOH("DoH", encrypted = true),
         DOT("DoT", encrypted = true),
@@ -38,7 +18,6 @@ object CensorshipAwareDnsResolver {
         DIRECT_UDP("Direct-UDP", encrypted = false);
     }
 
-    /** Per-resolver health telemetry for a given network session. */
     data class ResolverHealth(
         val id: String,
         val stage: DnsStage,
@@ -72,7 +51,6 @@ object CensorshipAwareDnsResolver {
                 return true
             }
 
-        /** Weighted score: higher is better. Combines reliability and speed. */
         val score: Double
             get() {
                 val rate = successRate
@@ -111,7 +89,6 @@ object CensorshipAwareDnsResolver {
         )
     }
 
-    /** Cache entry for resolved hostnames. */
     data class CacheEntry(
         val addresses: List<InetAddress>,
         val resolvedAt: Long,
@@ -123,7 +100,6 @@ object CensorshipAwareDnsResolver {
             get() = System.currentTimeMillis() - resolvedAt > ttlMs
     }
 
-    /** Resolution result with full provenance. */
     data class ResolutionResult(
         val addresses: List<InetAddress>,
         val resolverId: String,
@@ -134,19 +110,18 @@ object CensorshipAwareDnsResolver {
         val valid: Boolean = true
     )
 
-    // Default resolver endpoints for each stage
     private val DEFAULT_DOH_RESOLVERS = listOf(
         Triple("cloudflare-doh", "https://1.1.1.1/dns-query", DnsStage.DOH),
         Triple("google-doh", "https://8.8.8.8/dns-query", DnsStage.DOH),
-        Triple("quad9-doh", "https://9.9.9.9/dns-query", DnsStage.DOH),
-        Triple("cloudflare-fallback", "https://1.0.0.1/dns-query", DnsStage.DOH)
+        Triple("cloudflare-fallback", "https://1.0.0.1/dns-query", DnsStage.DOH),
+        Triple("quad9-doh", "https://9.9.9.9/dns-query", DnsStage.DOH)
     )
 
     private val DEFAULT_FALLBACK_DOH = listOf(
+        Triple("google-doh-fallback", "https://8.8.4.4/dns-query", DnsStage.FALLBACK_DOH),
         Triple("quad9-doh-ip", "https://149.112.112.112/dns-query", DnsStage.FALLBACK_DOH)
     )
 
-    // Known Iranian block-page address ranges for anti-poisoning validation
     private val KNOWN_BLOCK_PAGE_PREFIXES = setOf(
         "10.10.34.",
         "192.168.51.",
@@ -154,7 +129,6 @@ object CensorshipAwareDnsResolver {
         "fd19:"
     )
 
-    // Per-session state
     private val sessionResolvers = CopyOnWriteArrayList<ResolverHealth>()
     private val sessionCache = ConcurrentHashMap<String, CacheEntry>()
     private val sessionNetworkKey = AtomicReference("")
@@ -163,9 +137,6 @@ object CensorshipAwareDnsResolver {
     private val totalResolutions = AtomicInteger(0)
     private val poisonedDetections = AtomicInteger(0)
 
-    // MARBLE_RESOLVER_QUARANTINE_V1 / MARBLE_DIAGNOSTICS_CONSISTENCY_V1
-    // Session-scoped endpoint quarantine + category counters so the resolver telemetry is the
-    // same source of truth as the offline log classifier.
     private val endpointQuarantine = ResolverEndpointQuarantine()
     private val deadlineCount = AtomicInteger(0)
     private val eofCount = AtomicInteger(0)
@@ -175,12 +146,8 @@ object CensorshipAwareDnsResolver {
     private val certExpiredCount = AtomicInteger(0)
     private val poisonedCategoryCount = AtomicInteger(0)
     private val otherFailureCount = AtomicInteger(0)
-    /** Session stickiness: the resolver that won the session and should be reused. */
     private val stickyResolverId = AtomicReference("")
 
-    // MARBLE_SMART_RANK_V90: parallel racing DoH pool with a dedicated keep-alive connection pool
-    // and fallback on ANY error class (not just timeout). The pool is lazily created once and can
-    // be overridden for deterministic unit testing.
     @Volatile
     private var poolOverride: DohResolverPool? = null
     @Volatile
@@ -191,7 +158,6 @@ object CensorshipAwareDnsResolver {
         }
     }
 
-    /** Install a test/diagnostic pool; pass null to restore the production pool. */
     fun setPoolOverride(pool: DohResolverPool?) {
         poolOverride = pool
     }
@@ -209,16 +175,13 @@ object CensorshipAwareDnsResolver {
 
     private const val MAX_CONSECUTIVE_FAILS = 5
     private const val BLACKLIST_THRESHOLD = 3
-    private const val CACHE_TTL_MS = 300_000L  // 5 minutes
-    private const val SHORT_CACHE_TTL_MS = 30_000L  // 30 seconds for failed lookups
-    private const val BLACKLIST_DURATION_MS = 60_000L  // 1 minute blacklist
+    private const val CACHE_TTL_MS = 300_000L
+    private const val SHORT_CACHE_TTL_MS = 30_000L
+    private const val BLACKLIST_DURATION_MS = 60_000L
     private const val MAX_CACHE_SIZE = 256
     private const val DEADLINE_MS = 4_000L
     private const val PER_RESOLVER_DEADLINE_MS = 2_500L
 
-    /**
-     * Initialize or refresh the resolver pool for a new network session.
-     */
     fun initializeForSession(networkKey: String, settings: AppSettings): List<ResolverHealth> {
         val prev = sessionNetworkKey.get()
         if (prev == networkKey && sessionResolvers.isNotEmpty()) {
@@ -243,9 +206,6 @@ object CensorshipAwareDnsResolver {
             resolvers += ResolverHealth(id, stage, endpoint)
         }
 
-        // MARBLE_RESOLVER_SINKHOLE_V163 — a domestic anti-sanction resolver (dns.shecan.ir …) is
-        // never raced for a tunnel-endpoint lookup: it answers node hostnames with the operator's
-        // own injector addresses. It stays a locality probe target, nothing more.
         if (DnsResolverCatalog.isXrayBootstrapSafe(settings.dnsPrimaryDoH) &&
             !ResolverEvidencePolicy.isDomesticResolver(settings.dnsPrimaryDoH)
         ) {
@@ -271,9 +231,6 @@ object CensorshipAwareDnsResolver {
         return resolvers.toList()
     }
 
-    /**
-     * Resolve a hostname with full censorship awareness.
-     */
     fun resolve(
         hostname: String,
         networkKey: String,
@@ -286,10 +243,8 @@ object CensorshipAwareDnsResolver {
             initializeForSession(networkKey, settings)
         }
 
-        // A Force IPv4 answer must never become the cached response for Force IPv6 (or vice
-        // versa) after a live settings change on the same physical network.
         val cacheKey = "$hostname|${settings.addressFamilyMode}|${settings.ipv6Enabled}|${settings.dnsQueryStrategy}|${AddressFamilyPolicy.underlayHasIpv6()}"
-        // Stage 1: Check cache
+
         val cached = sessionCache[cacheKey]
         if (cached != null && !cached.isExpired) {
             cacheHits.incrementAndGet()
@@ -309,10 +264,6 @@ object CensorshipAwareDnsResolver {
             evictExpiredCache()
         }
 
-        // Stage 2: race healthy, non-quarantined DoH resolvers in parallel (MARBLE_SMART_RANK_V90).
-        // A quarantined endpoint (expired cert, repeated handshake/EOF/deadline failures) is not
-        // tried at all within this session, and every error class — not just timeouts — falls back
-        // automatically to the next provider.
         val deadline = System.currentTimeMillis() + deadlineMs
         val healthy = sessionResolvers.filter { resolver ->
             resolver.isHealthy && !endpointQuarantine.isQuarantined(resolver.endpoint)
@@ -327,7 +278,6 @@ object CensorshipAwareDnsResolver {
             return null
         }
 
-        // Session stickiness: the resolver that already won this session races first.
         val sticky = stickyResolverId.get()
         val ordered = if (sticky.isNotBlank()) {
             val stickyResolver = healthy.firstOrNull { it.id == sticky && !endpointQuarantine.isQuarantined(it.endpoint) }
@@ -340,9 +290,6 @@ object CensorshipAwareDnsResolver {
             healthy
         }
 
-        // Only IP-literal HTTPS endpoints belong on this pre-tunnel DIRECT path. A DoH
-        // provider named by DNS would itself trigger an Android/system lookup before the
-        // encrypted query even begins.
         val providers = ordered
             .filter { it.stage == DnsStage.DOH || it.stage == DnsStage.FALLBACK_DOH }
             .filter { resolver ->
@@ -379,8 +326,7 @@ object CensorshipAwareDnsResolver {
                     found.addAll(answers)
                     if (winning == null) winning = outcome
                 }
-                // A valid NOERROR/NODATA for one family is not a transport failure. Keep asking
-                // the other family; an IPv6-only node has no A answer by design.
+
             } else failures.addAll(outcome.failures)
         }
         failures.forEach { (provider, failure) ->
@@ -418,14 +364,6 @@ object CensorshipAwareDnsResolver {
         return result
     }
 
-    /**
-     * Record a classified resolver outcome, updating category counters, quarantine state and
-     * resolver health.
-     *
-     * Cancellations and closed-pipe events are shutdown-safe: they update their counters but NEVER
-     * count toward the resolver's failure streak or endpoint quarantine, so a clean reconnect can
-     * no longer flood "resolver broken" misclassifications.
-     */
     private fun recordFailureKind(resolver: ResolverHealth, kind: ResolverFailureKind) {
         when (kind) {
             ResolverFailureKind.CANCELLED -> cancelledCount.incrementAndGet()
@@ -448,7 +386,7 @@ object CensorshipAwareDnsResolver {
             ResolverFailureKind.CERT_EXPIRED -> {
                 certExpiredCount.incrementAndGet()
                 endpointQuarantine.record(kind, resolver.endpoint)
-                // Cert-expired is decisive: blacklist the endpoint for this session.
+
                 resolver.recordFailure(BLACKLIST_DURATION_MS * 4)
             }
             ResolverFailureKind.POISON -> poisonedCategoryCount.incrementAndGet()
@@ -479,16 +417,20 @@ object CensorshipAwareDnsResolver {
         toRemove.forEach { sessionCache.remove(it) }
     }
 
-    /**
-     * Get current resolver health snapshot for diagnostics/reporting.
-     */
+    fun onMemoryPressure(level: Int) {
+        evictExpiredCache()
+        if (level < 15) return
+        val oldest = sessionCache.entries
+            .sortedBy { it.value.resolvedAt }
+            .take(sessionCache.size / 2)
+            .map { it.key }
+        oldest.forEach { sessionCache.remove(it) }
+    }
+
     fun snapshot(): List<ResolverHealth> {
         return sessionResolvers.map { it.snapshot() }.sortedByDescending { it.score }
     }
 
-    /**
-     * Get session statistics.
-     */
     fun stats(): Map<String, Int> = mapOf(
         "totalResolutions" to totalResolutions.get(),
         "cacheHits" to cacheHits.get(),
@@ -506,10 +448,6 @@ object CensorshipAwareDnsResolver {
         "quarantinedEndpoints" to endpointQuarantine.snapshot().count { it.quarantineUntil.get() > System.currentTimeMillis() }
     )
 
-    /**
-     * Current session resolver failure summary, derived from the same counters the live path
-     * maintains. Consistent with [ResolverFailureClassifier.summarize] for offline log lines.
-     */
     fun failureSummary(): ResolverFailureSummary = ResolverFailureSummary(
         deadlineCount = deadlineCount.get(),
         eofCount = eofCount.get(),
@@ -521,7 +459,6 @@ object CensorshipAwareDnsResolver {
         otherCount = otherFailureCount.get()
     )
 
-    /** Shutdown-safe counters for teardown diagnostics. */
     fun shutdownCounters(): DiagnosticsSummary.ShutdownCounters = DiagnosticsSummary.ShutdownCounters(
         cancellations = cancelledCount.get(),
         closedPipes = closedPipeCount.get(),
@@ -529,9 +466,6 @@ object CensorshipAwareDnsResolver {
         misclassifiedTransportFailures = 0
     )
 
-    /**
-     * Build the recommended DNS server ordering for Xray config generation.
-     */
     fun recommendedServerOrder(settings: AppSettings): List<Triple<String, DnsStage, String>> {
         val healthy = sessionResolvers.filter {
             it.isHealthy && !endpointQuarantine.isQuarantined(it.endpoint)
@@ -541,7 +475,7 @@ object CensorshipAwareDnsResolver {
                 Triple(id, stage, endpoint)
             }
         }
-        // Session stickiness: a healthy winning resolver is preferred over an unproven peer.
+
         val sticky = stickyResolverId.get()
         val ordered = if (sticky.isNotBlank()) {
             healthy.sortedByDescending { it.id == sticky }

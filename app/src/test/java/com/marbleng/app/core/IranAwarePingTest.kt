@@ -5,32 +5,17 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_IRAN_AWARE_PING — Layer 0–3 regressions.
- *
- * The redesign's rules are the acceptance criteria and must be pinned as tests:
- *  1. Layer 0 endpoint verification is TCP+TLS-ServerHello, not SYN-only; the rotating pool is
- *     deterministic per 10-minute epoch and never fixes on one SNI.
- *  2. Layer 1 sawtooth detection separates deliberate throttling from a flat slow transfer.
- *  3. Layer 2 requires three 20-minute-apart samples before an instability verdict, and
- *     reset-after-volume requires three reset-like observations.
- *  4. Layer 3 attributes a >70 % simultaneous multi-ASN drop as a national event and freezes
- *     ranking.
- */
 class IranAwarePingTest {
-
-    // ---------------------------------------------------------------- Layer 0
-
     @Test
     fun `probe target pool rotates deterministically per epoch`() {
         val seed = "profile-a"
         val first = ProbeTargetPool.ordered(ProbeTargetPool.CDN_TARGETS, seed)
         val second = ProbeTargetPool.ordered(ProbeTargetPool.CDN_TARGETS, seed)
-        // Same seed + same epoch = same order (determinism for reproducibility).
+
         assertEquals(first, second)
-        // The pool is a permutation: same members, no loss, no duplicates.
+
         assertEquals(first.toSet(), ProbeTargetPool.CDN_TARGETS.toSet())
-        // Google/Cloudflare are members of the pool but by construction not the whole pool.
+
         assertTrue(ProbeTargetPool.CDN_TARGETS.size > 4)
     }
 
@@ -78,11 +63,8 @@ class IranAwarePingTest {
         assertEquals(MultiVectorReachability.Verdict.INJECTED_RESET, summary.verdict)
     }
 
-    // ---------------------------------------------------------------- Layer 1
-
     @Test
     fun `sawtooth detector calls a collapsing rate throttling`() {
-        // 256 KiB over 1 s in 10 buckets; first buckets deliver fast, last buckets stall.
         val samples = (0L until 10L).map { bucket ->
             val delivered = when {
                 bucket < 2 -> (bucket + 1) * 60_000L
@@ -124,8 +106,6 @@ class IranAwarePingTest {
         assertEquals("vless/tcp/reality", ProtocolFingerprintAwareVerifier.transportTypeOf(vless))
         assertEquals("hysteria2/quic/none", ProtocolFingerprintAwareVerifier.transportTypeOf(hy2))
     }
-
-    // ---------------------------------------------------------------- Layer 2
 
     @Test
     fun `three well-spaced stable samples are stable`() {
@@ -189,8 +169,6 @@ class IranAwarePingTest {
         state = BehavioralConsistency.resetAfterVolumePattern(sample, state)
         assertTrue("three volumetric resets must form the pattern", state.confidence >= 0.66)
     }
-
-    // ---------------------------------------------------------------- Layer 3
 
     private fun observation(
         id: String,
@@ -282,8 +260,6 @@ class IranAwarePingTest {
         assertEquals(CausalAttribution.AttributedCause.INJECTED_RESET, result.cause)
     }
 
-    // ---------------------------------------------------------------- deadlines & policies
-
     @Test
     fun `censorship aware deadline adds injection margin and fails fast`() {
         val base = 2_000L
@@ -301,11 +277,9 @@ class IranAwarePingTest {
     fun `deadline policy never shrinks the measured budget`() {
         val evidence = LinkEvidence(rttMs = 400.0, tailRttMs = 520.0, jitterMs = 30.0, samples = 6)
         val budget = LinkDeadlinePolicy.httpsProbeTimeoutMs(evidence)
-        // 4 hops × 520 + 3×30 headroom must stay above the legacy floor.
+
         assertTrue(budget > LinkDeadlinePolicy.PRIMARY_DNS_FLOOR_MS)
     }
-
-    // ---------------------------------------------------------------- resolvers
 
     @Test
     fun `resolver diversity counts operators not endpoints`() {
@@ -375,12 +349,8 @@ class IranAwarePingTest {
         assertEquals("https://1.1.1.1/dns-query", ordered.last())
     }
 
-    // ---------------------------------------------------------------- Path MTU
-
     @Test
     fun `throttle synchronized mtu drop is reported to layer three`() {
-        // Corroboration rule: a single differing sample is socket rotation; the second
-        // identical reading is the learned signal.
         var state = PathMtuPolicy.State()
         state = PathMtuPolicy.observe(
             state = state,
@@ -417,8 +387,6 @@ class IranAwarePingTest {
         )
         assertFalse(decision.throttlingSynchronized)
     }
-
-    // ---------------------------------------------------------------- Turbo backoff
 
     @Test
     fun `national event never escalates the transport backoff`() {

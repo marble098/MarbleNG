@@ -28,7 +28,6 @@ class CoreInteropRegressionTest {
         .single { it.optString("tag") == SingBoxConfigBuilder.PROXY_TAG }
 
     @Test fun sampleShapePreservesRealityPasswordAndXhttpExtra() {
-        // Same schema as the report, but documentation IPs and synthetic credentials only.
         val outbound = vless().put("streamSettings", JSONObject().put("method", "xhttp").put("security", "reality")
             .put("realitySettings", JSONObject().put("serverName", "example.com").put("fingerprint", "chrome")
                 .put("password", publicKey).put("shortId", "806b49dd").put("spiderX", "/test"))
@@ -219,10 +218,7 @@ class CoreInteropRegressionTest {
         assertEquals(ResolverFailureKind.DEADLINE, ResolverFailureClassifier.classify("dns: TLS handshake timeout"))
         assertEquals(ResolverFailureKind.OTHER, ResolverFailureClassifier.classify("dns: read: connection reset by peer"))
     }
-    // MARBLE_URLTEST_SINGBOX_ONLY_V156 — the URL test is sing-box extended's own measurement, so
-    // the target contract lives with the session that asks the core, not with a second HTTP
-    // client. What is pinned is the part that protects the user: no plain http (the core would
-    // silently substitute its own target) and never a URL carrying credentials.
+
     @Test fun urlTestAcceptsOnlyAPlainHttpsTarget() {
         assertNull(UrlTestTarget.validate("https://example.com:8443/check?token=kept"))
         assertNull(UrlTestTarget.validate(DelayTest.URL))
@@ -233,8 +229,6 @@ class CoreInteropRegressionTest {
         assertTrue(CoreFailurePolicy.isLocal(UrlTestTarget.INVALID))
     }
 
-    // The method belongs to one engine now: on any other it says so instead of measuring
-    // something else behind the same name.
     @Test fun urlTestRefusesAnEngineThatDoesNotOwnIt() {
         RouteProbe.urlTestHook = { _, _, _ ->
             RouteProbe.ProbeResult(RouteProbe.METHOD_URL_TEST, 42.0, 100, 1)
@@ -263,14 +257,6 @@ class CoreInteropRegressionTest {
         assertEquals("no-live-tunnel", measured.failureReason)
     }
 
-    // ── MARBLE_SINGBOX_PINNED_COMPAT_V164 ────────────────────────────────────
-    // Pinned VLESS/VMess nodes with pcs/vcn must now be translatable to sing-box
-    // with insecure:true instead of being refused.
-
-    /**
-     * A VLESS/TCP/TLS node with certificate pinning (pcs + vcn) — the exact shape the user
-     * reported — must build a sing-box config with flow, ALPN, SNI and insecure all present.
-     */
     @Test fun pinnedVlessWithFlowAndAlpnTranslatesToSingBoxWithInsecure() {
         val sha256Hex = "c88234050d72a3e9430ec7738636806deaf85c3708fee0fd9202ebd917e2c843"
         val pinnedOutbound = vless()
@@ -299,8 +285,7 @@ class CoreInteropRegressionTest {
         assertEquals(8443, proxy.getInt("server_port"))
         val tls = proxy.getJSONObject("tls")
         assertTrue("pinned TLS must set insecure", tls.getBoolean("insecure"))
-        // verifyPeerCertByName ("198.51.100.7") differs from SNI ("spotify.com"), so the
-        // translator uses verifyPeerCertByName as the effective server_name.
+
         assertEquals("198.51.100.7", tls.getString("server_name"))
         assertTrue(tls.has("utls"))
         val alpn = tls.getJSONArray("alpn")
@@ -309,13 +294,7 @@ class CoreInteropRegressionTest {
         assertTrue("build notes must mention pinning", build.notes.any { it.contains("tls-pinning") })
     }
 
-    /**
-     * Pinned configs must be excluded from the parser candidate (it silently ignores pins)
-     * and use the translated strategy instead.
-     */
     @Test fun pinnedConfigUsesTranslatedStrategyNotParser() {
-        // Build a profile that carries both a raw link (for parser exclusion test) and a stored
-        // configJson (for the translated path to work in JVM unit tests where Uri.parse is a stub).
         val sha256Hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         val storedOutbound = vless()
             .put("settings", JSONObject()
@@ -335,10 +314,6 @@ class CoreInteropRegressionTest {
             support.strategy != SingBoxConfigBuilder.STRATEGY_LINK)
     }
 
-    /**
-     * A non-pinned VLESS node must still work normally — the pinning path must not affect
-     * regular profiles.
-     */
     @Test fun nonPinnedVlessStillUsesParserWhenAvailable() {
         val raw = "vless://$uuid@198.51.100.7:443?security=tls&type=tcp&sni=example.com#Normal"
         val p = ProxyProfile("normal", "Normal", "vless", raw,
@@ -348,10 +323,6 @@ class CoreInteropRegressionTest {
         assertEquals(SingBoxConfigBuilder.STRATEGY_LINK, support.strategy)
     }
 
-    /**
-     * Multiple pinned SHA-256 fingerprints (comma-separated) must all be accepted and the
-     * config must still build successfully with insecure.
-     */
     @Test fun multiplePinnedFingerprintsAllAccepted() {
         val pins = "${"aa".repeat(32)},${"bb".repeat(32)},${"cc".repeat(32)}"
         val pinnedOutbound = vless()
@@ -369,5 +340,4 @@ class CoreInteropRegressionTest {
         }
         assertTrue(proxy.getJSONObject("tls").getBoolean("insecure"))
     }
-
 }

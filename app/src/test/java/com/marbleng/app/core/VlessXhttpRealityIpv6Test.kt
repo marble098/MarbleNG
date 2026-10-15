@@ -7,8 +7,6 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.util.Base64
 
-/** Synthetic reproduction of an IPv6-only VLESS/XHTTP/REALITY link copied from rendered text.
- * No production endpoint, account, short ID or public key is included in this fixture. */
 class VlessXhttpRealityIpv6Test {
     private val id = "11111111-2222-3333-4444-555555555555"
     private val key = "A".repeat(43)
@@ -40,7 +38,7 @@ class VlessXhttpRealityIpv6Test {
         assertEquals("vless://id@host:443?pbk=AB+%2F&path=%2F%26amp%3Bsecret#Tom&amp;Jerry", clean)
         assertEquals("AB+/", ShareLinkParams.ofRawLink(clean).get("pbk"))
         assertEquals("/&amp;secret", ShareLinkParams.ofRawLink(clean).get("path"))
-        // A hyperlink to *another* host is not authority to replace the operator's SNI.
+
         val mismatch = "vless://id@host:443?SNI=[example.org](https://other.example/)"
         assertEquals(mismatch, ShareLinkNormalizer.normalize(mismatch))
         assertEquals("vless://id@host:443#Node?security=reality&sni=example.org",
@@ -80,9 +78,6 @@ class VlessXhttpRealityIpv6Test {
         val old = SingBoxConfigBuilder.linkJson
         SingBoxConfigBuilder.linkJson = { JSONObject(profile.configJson) }
         try {
-            // Even with the parser preference OFF, a current link must beat a stale cached
-            // outbound: the core's parser ignores JSON extra and a cached outbound may have lost
-            // REALITY while still passing `sing-box check`.
             listOf(true, false).forEach { preferParser ->
                 val builds = SingBoxConfigBuilder.candidateBuilds(profile, AppSettings(
                     singBoxPreferParser = preferParser), 10808, 39090, "test", "", "cache.db")

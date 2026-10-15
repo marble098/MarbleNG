@@ -4,11 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_TEXT_SCALE_V215 — the text-size ladder is bounded, and a stored value can never leave it.
- */
 class TextScaleV215Test {
-
     @Test
     fun theDefaultIsTheSystemSizeAndIsOnTheLadder() {
         assertEquals(100, TextScale.DEFAULT_PERCENT)

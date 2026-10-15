@@ -5,45 +5,12 @@ import com.marbleng.app.model.ProxyProfile
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * Structural preflight validation for proxy profiles.
- *
- * Problem addressed (MARBLE_PROFILE_QUARANTINE_V1):
- * A structurally broken profile (for example a VLESS/TLS config that fails Xray's config-load /
- * xray-start validation, like the "Turkey 4-All" profile seen in logs) previously joined the
- * benchmark / Smart Rank pool, burned a probe slot, and could poison ranking or user selection
- * even though it could never connect.
- *
- * This validator cheaply checks the emitted Xray JSON for the conditions that make Xray reject a
- * config at startup (missing outbounds, a dialing outbound with no address/port, a VLESS/TLS or
- * REALITY outbound missing its required TLS serverName, a port outside the valid range, etc.) and
- * marks the profile INVALID so it is quarantined before Smart Rank ever probes it.
- *
- * The validator is intentionally conservative about what it *allows*: it only rejects clearly
- * broken configs and never second-guesses legitimate transport choices, so it cannot flag healthy
- * censorship-resistant profiles (VLESS + REALITY, etc.).
- *
- * MARBLE_CORE_CONFIG_SUPERSET_V165 — the validator learned which core it is validating for.
- *
- * It used to answer the same way no matter which engine the user selected, which quarantined nodes
- * that the *other* core runs natively (sing-box extended reads `tuic`, AnyTLS, h2/h3, QUIC, and
- * cleartext VLESS). The verdict now takes the engine and the app's own consent policy through
- * [CoreConfigSuperset], the same authority the connect path asks. A node that the selected core can
- * dial is rankable, including an unencrypted one: it is labelled, not hidden. A node that the
- * selected core *cannot* load is quarantined with the reason that names the other engine — which is
- * actionable ("switch core") instead of a probe that burns a slot and dies.
- */
 object ProfilePreflightValidator {
-
-    /** Preflight outcome. */
     enum class Verdict {
-        /** Structurally sound; allowed to join benchmark / rank selection. */
         VALID,
-        /** Structurally broken; quarantined before benchmark / rank selection. */
         INVALID
     }
 
-    /** Machine-readable, stable reason code plus human detail. */
     data class PreflightVerdict(
         val verdict: Verdict,
         val reason: String,
@@ -52,40 +19,17 @@ object ProfilePreflightValidator {
         val valid: Boolean get() = verdict == Verdict.VALID
     }
 
-    /** Minimal Xray outbound protocols that actually dial a server and must have an address+port. */
     private val DIALING_PROTOCOLS = setOf(
         "vless", "vmess", "trojan", "shadowsocks", "ss", "socks", "http", "tuic", "anytls", "hysteria", "hysteria2", "hy2", "wireguard"
     )
 
-    /**
-     * MARBLE_SINGBOX_PROTOCOLS_V153 — protocols whose only Marble representation is a share link
-     * because the extended core's own `parser` outbound runs them and there is no Xray outbound
-     * shape. Only these may pass preflight with an empty `configJson`; every other protocol still
-     * needs real Xray JSON before it may be ranked.
-     */
     private val SINGBOX_LINK_ONLY_PROTOCOLS = setOf("tuic", "anytls")
 
-    /** TLS/REALITY security schemes that require a serverName to be present to validate. */
     private val TLS_REQUIRING_SECURITY = setOf("tls", "reality")
 
-    /**
-     * Validate a single profile.
-     *
-     * MARBLE_SMART_RANK_V90: before a node is quarantined for a missing address, its address is
-     * cross-checked against the local cache + fresh subscription through
-     * [ProfileAddressCrossCheck], so the old blanket `missing-address` verdict becomes one of the
-     * precise reasons `malformed-config`, `stale-subscription` or `address-resolved-but-invalid`.
-     */
     fun validate(profile: ProxyProfile): PreflightVerdict =
         validate(profile, ProfileAddressCrossCheck.CrossCheckSources())
 
-    /**
-     * Validate a single profile with fresh-subscription evidence available for address
-     * cross-checking.
-     *
-     * [engine] and [settings] default to the historical behaviour (validate as if Xray were the
-     * core, with the shipped default consent), so every existing caller keeps its exact answer.
-     */
     fun validate(
         profile: ProxyProfile,
         sources: ProfileAddressCrossCheck.CrossCheckSources = ProfileAddressCrossCheck.CrossCheckSources(),
@@ -98,13 +42,8 @@ object ProfilePreflightValidator {
         if (AddressFamilyPolicy.excludedIpv4Endpoint(profile.host, settings)) {
             return PreflightVerdict(Verdict.INVALID, "ipv4-disabled", AddressFamilyPolicy.IPV4_LITERAL_DISABLED)
         }
-        // SS/SSR hostname-only profiles may carry no emitted JSON yet; allow them through so the
-        // engine (XrayManager) is the judge, but flag them for re-check.
+
         if (profile.configJson.isBlank()) {
-            // MARBLE_SINGBOX_PROTOCOLS_V153 — TUIC and AnyTLS have no Xray outbound shape, so the
-            // importer keeps only the share link and an empty config. On the sing-box extended
-            // engine the core's own `parser` outbound runs them; quarantining them as "no Xray
-            // JSON" hid exactly the nodes the second engine is there for.
             if (profile.scheme.lowercase() in SINGBOX_LINK_ONLY_PROTOCOLS &&
                 SingBoxConfigBuilder.shareLink(profile) != null
             ) {
@@ -114,14 +53,9 @@ object ProfilePreflightValidator {
                     "sing-box extended's parser runs the stored share link; no Xray JSON needed"
                 )
             }
-            // MARBLE_CORE_CONFIG_SUPERSET_V165 — a link-only profile is not a broken profile when
-            // the selected core parses links itself. sing-box extended's `parser` outbound accepts a
-            // share link of any protocol it implements, so on that engine a blank config is only
-            // blank *for Xray*; refusing it is what made 42/42 nodes look dead.
+
             val link = SingBoxConfigBuilder.shareLink(profile)
-            // The builder's own exclusion, mirrored here rather than invented: sing-box's `parser`
-            // silently ignores a certificate pin, so a pinned link-only profile has exactly one
-            // candidate, and preflight must not promise what that candidate cannot deliver.
+
             val linkOnly = engine == CoreEngine.SINGBOX && profile.raw.isNotBlank() &&
                 link != null && !SingBoxConfigBuilder.linkCarriesPin(link)
             if (linkOnly) {
@@ -181,8 +115,6 @@ object ProfilePreflightValidator {
             DIALING_PROTOCOLS.contains(protocol)
         }
 
-        // A config that only defines routing/free/blackhole outbounds has nothing that can carry
-        // user traffic. Treat as invalid (nothing to rank).
         if (dialers.isEmpty()) {
             return PreflightVerdict(
                 Verdict.INVALID,
@@ -196,10 +128,6 @@ object ProfilePreflightValidator {
             val settings = dialer.optJSONObject("settings")
             val address = resolveAddress(protocol, dialer, settings)
             if (address.isNullOrBlank()) {
-                // MARBLE_SMART_RANK_V90: cross-check the address against the local cache and the
-                // fresh subscription before quarantining, and report a precise reason instead of
-                // the blanket "missing-address" (which wrongly quarantined 13 of 14 nodes when the
-                // address actually existed but the emitted JSON could not be parsed).
                 val cross = ProfileAddressCrossCheck.crossCheck(profile, profile.configJson, sources)
                 return PreflightVerdict(
                     Verdict.INVALID,
@@ -217,8 +145,6 @@ object ProfilePreflightValidator {
                 )
             }
 
-            // VLESS/TLS and REALITY outbounds that omit the TLS serverName will be rejected by
-            // Xray at config-load (seen as the "Turkey 4-All" xray-start invalid-config family).
             val stream = dialer.optJSONObject("streamSettings")
             val security = stream?.optString("security", "")?.lowercase()
             if (stream != null && security != null && security in TLS_REQUIRING_SECURITY) {
@@ -234,8 +160,6 @@ object ProfilePreflightValidator {
             }
         }
 
-        // MARBLE_CORE_CONFIG_SUPERSET_V165 — two engine-aware questions, asked only after the
-        // structural checks pass, so a config that is broken for every core keeps its old reason.
         CoreConfigSuperset.coreGapIssue(profile, engine)?.let { gap ->
             return PreflightVerdict(Verdict.INVALID, "core-gap", gap)
         }
@@ -243,9 +167,7 @@ object ProfilePreflightValidator {
         if (!verdict.runnable) {
             return PreflightVerdict(Verdict.INVALID, verdict.reason, verdict.detail)
         }
-        // An unencrypted node that the user has allowed is VALID and stays rankable. The note is
-        // what travels with it, so the label on the Servers row and in Bug Finder cannot drift from
-        // the fact about the wire.
+
         return PreflightVerdict(
             Verdict.VALID,
             if (verdict.note.isEmpty()) "structurally-valid" else "structurally-valid-unencrypted",
@@ -254,7 +176,6 @@ object ProfilePreflightValidator {
     }
 
     private fun resolveAddress(protocol: String, outbound: JSONObject, settings: JSONObject?): String? {
-        // Direct address field (used by some wireguard/hysteria outbounds).
         outbound.optString("address").takeIf { it.isNotBlank() }?.let { return it }
 
         val settingsObject = settings ?: return null
@@ -313,11 +234,9 @@ object ProfilePreflightValidator {
         }
     }
 
-    /** Split a candidate list into valid and quarantined (invalid) profiles. */
     fun partition(profiles: List<ProxyProfile>): Pair<List<ProxyProfile>, List<Pair<ProxyProfile, PreflightVerdict>>> =
         partition(profiles, ProfileAddressCrossCheck.CrossCheckSources())
 
-    /** Engine-aware partition: the same rules the connect path applies. */
     fun partition(
         profiles: List<ProxyProfile>,
         engine: CoreEngine,
@@ -325,10 +244,6 @@ object ProfilePreflightValidator {
     ): Pair<List<ProxyProfile>, List<Pair<ProxyProfile, PreflightVerdict>>> =
         partition(profiles, ProfileAddressCrossCheck.CrossCheckSources(), engine, settings)
 
-    /**
-     * Split a candidate list into valid and quarantined (invalid) profiles, cross-checking each
-     * missing-address candidate against [sources] (local cache + fresh subscription).
-     */
     fun partition(
         profiles: List<ProxyProfile>,
         sources: ProfileAddressCrossCheck.CrossCheckSources,
@@ -344,7 +259,6 @@ object ProfilePreflightValidator {
         return valid to invalid
     }
 
-    /** Validate many profiles, returning a map of profileId -> verdict for diagnostics. */
     fun validateAll(
         profiles: List<ProxyProfile>,
         engine: CoreEngine = CoreEngine.XRAY,
@@ -352,7 +266,6 @@ object ProfilePreflightValidator {
     ): Map<String, PreflightVerdict> =
         profiles.associate { it.id to validate(it, ProfileAddressCrossCheck.CrossCheckSources(), engine, settings) }
 
-    /** Render a machine-readable preflight block for diagnostics. */
     fun renderMachineReadable(verdicts: Map<String, PreflightVerdict>): String {
         val invalid = verdicts.filter { !it.value.valid }
         return buildString {
@@ -371,15 +284,9 @@ object ProfilePreflightValidator {
         }
     }
 
-    /** True when the profile should be excluded from ranking. */
     fun isQuarantined(profile: ProxyProfile, verdict: PreflightVerdict?): Boolean =
         verdict == null || !verdict.valid
 
-    /**
-     * MARBLE_SMART_RANK_V90: true when more than half of the candidate pool was quarantined. A
-     * majority quarantine means the subscription is stale or broken, not that the nodes are dead —
-     * Rank must stop and ask the user to refresh instead of silently finishing empty.
-     */
     fun isMajorityQuarantined(invalid: Int, total: Int): Boolean =
         total > 0 && invalid * 2 > total
 }

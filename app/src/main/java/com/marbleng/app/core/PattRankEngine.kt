@@ -19,19 +19,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.exp
 
-/**
- * PattNG-style Rank for MarbleNG.
- *
- * PattNG's fast path does not spawn an Xray CLI child + localhost SOCKS listener for every node.
- * It creates Xray cores in-process and calls core.Dial for the HTTPS delay request. MarbleNG keeps
- * its existing CLI Xray for VPN runtime, while a tiny Go helper hosts the whole Rank batch in ONE
- * Android process and creates the per-node Xray core instances inside it.
- */
-// MARBLE_PATTRANK_CONCURRENT_MAP_KEY_FIX_V62_3
-// MARBLE_SINGLE_XRAY_BINARY_RANK_V63
-// MARBLE_RANK_PROTOCOL_RECOVERY_V64
-    // MARBLE_REALTIME_ENGINE_V70
-// ConcurrentHashMap inherits Java's legacy contains(value); always use containsKey explicitly.
 class PattRankEngine(
     private val context: Context,
     private val xray: XrayManager,
@@ -54,14 +41,6 @@ class PattRankEngine(
         onCandidates: (List<ProxyProfile>) -> Unit = {},
         onStart: (ProxyProfile) -> Unit = {},
         onResult: (ProxyProfile, BenchmarkResult) -> Unit = { _, _ -> },
-        /**
-         * MARBLE_PING_CANCEL_V156 — Rank is a bulk ping like any other sweep, so it obeys the same
-         * cancel flag: the sing-box path forwards it to the benchmark pool, and the native path
-         * stops queueing candidates at the same boundaries.
-         *
-         * Declared before [onProgress] on purpose: the caller passes progress as a trailing
-         * lambda, and a trailing lambda only ever binds to the LAST parameter.
-         */
         shouldStop: () -> Boolean = { false },
         onProgress: (Int, Int, String) -> Unit = { _, _, _ -> }
     ): List<BenchmarkResult> {
@@ -85,7 +64,6 @@ class PattRankEngine(
         val completed = AtomicInteger(0)
 
         fun publish(profile: ProxyProfile, result: BenchmarkResult) {
-            // A fallback path must never publish the same card twice.
             if (results.putIfAbsent(profile.id, result) != null) return
             onResult(profile, result)
             val done = completed.incrementAndGet()
@@ -111,13 +89,10 @@ class PattRankEngine(
             }
 
             if (jobs.length() > 0) {
-                // MARBLE_RANK_SPEED_V78 — aggressive concurrency for fast throughput without
-                // Android ANR risk; more workers = fewer sequential waves = faster overall rank.
                 val workers = settings.tcpWorkers
                     .coerceIn(1, 4)
                     .coerceAtMost(jobs.length())
 
-                // Tight per-node timeout so a single unresponsive node can't slow a whole wave.
                 val timeoutMs = (settings.benchTimeoutSec * 1000)
                     .coerceIn(4_000, 10_000)
 
@@ -165,9 +140,7 @@ class PattRankEngine(
                         try {
                             process.inputStream.bufferedReader().useLines { lines ->
                                 lines.forEach { line ->
-                                    // Any malformed event / callback failure on this reader thread must never
-                                    // escape the Thread body. The default uncaught exception handler kills the
-                                    // whole app, so a single broken result can turn a Rank click into a crash.
+
                                     try {
                                         if (!line.startsWith(PREFIX)) {
                                             if (line.isNotBlank()) lastNoise.set(line.take(220))
@@ -265,11 +238,6 @@ class PattRankEngine(
                                 }
                             }
                         } catch (t: Throwable) {
-                            // process.destroy()/destroyForcibly() closes the pipe while this daemon
-                            // thread is blocked in BufferedReader.readLine(). A closed pipe surfaces as
-                            // java.io.InterruptedIOException: "read interrupted by close() on another thread"
-                            // and previously escaped this Thread body, killing the app through the default
-                            // uncaught handler. That is a normal Rank teardown signal, not a fatal error.
                             val expectedShutdown = t is InterruptedIOException || t is IOException
                             lastNoise.set(
                                 if (expectedShutdown) {
@@ -318,10 +286,6 @@ class PattRankEngine(
                         }
                     }
 
-                    // The reader can still be blocked in readLine() while the child is being reaped.
-                    // Interrupt it, then force-close the pipe only if it has not drained. The close is
-                    // expected to raise InterruptedIOException inside the reader, which its try/catch
-                    // handles and records as "reader-closed" instead of a process-killing uncaught error.
                     reader.interrupt()
                     try {
                         if (!readerDone.await(2_000L, TimeUnit.MILLISECONDS)) {
@@ -377,17 +341,11 @@ class PattRankEngine(
                 } finally {
                     runCatching { input.delete() }
                 }
-
-                // Native results are trusted only when they produced real successful evidence.
-                // Every unresolved node gets a selective second path instead of a false FAILED.
-                // Removed legacy fallback for native profiles to significantly speed up ranking.
             }
         } else if (nativeProfiles.isNotEmpty()) {
             legacyProfiles += nativeProfiles
         }
 
-        // SSH needs Marble's Java SSH bridge. Keep the old isolated-Xray path only there
-        // (and as an emergency integrated-command fallback), never as normal multi-node Rank.
         if (legacyProfiles.isNotEmpty()) {
             val pendingLegacy = legacyProfiles.distinctBy { it.id }.filter { !results.containsKey(it.id) }
             if (pendingLegacy.isNotEmpty()) {
@@ -397,8 +355,7 @@ class PattRankEngine(
                     benchSamples = 1,
                     benchTimeoutSec = settings.benchTimeoutSec.coerceIn(4, 6),
                     tcpWorkers = pendingLegacy.size.coerceIn(1, 4),
-                    // MARBLE_PROBE_METHODS_V151 — the legacy ladder measured through a real core;
-                    // Real delay is that same measurement in the three-method product.
+
                     probeMethod = ProbeMethod.REAL_DELAY,
                     probeSpeedTest = false,
                     verifiedPerformanceTuning = false,
@@ -440,7 +397,6 @@ class PattRankEngine(
             "integratedFailure" to integratedFailure.get().take(160)
         )
 
-        // Persistence is deliberately outside the native reader fast path.
         ordered.forEach { result ->
             profileById[result.profileId]?.let { profile ->
                 intelligence?.recordBenchmark(profile, result, settings)

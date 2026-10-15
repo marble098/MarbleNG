@@ -4,7 +4,6 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.net.InetAddress
 
-/** Small defensive codec for the API 26-28 resolver bridge. API 29+ uses raw DNS messages. */
 object DnsBootstrapCodec {
     data class Question(val host: String, val type: Int, val end: Int)
 
@@ -15,8 +14,7 @@ object DnsBootstrapCodec {
         while (offset < query.size) {
             val length = query[offset++].toInt() and 255
             if (length == 0) break
-            // Queries from the core have a single uncompressed question. Refuse malformed or
-            // compressed input rather than chasing pointers from other apps on loopback.
+
             if (length > 63 || offset + length >= query.size) return null
             val label = String(query, offset, length, Charsets.US_ASCII)
             if (label.any { it <= ' ' || it >= '\u007f' }) return null

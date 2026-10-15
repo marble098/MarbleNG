@@ -20,11 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-/**
- * Access is deliberately requested at the moment a user starts a connection, not at first launch.
- * Keeping the flow as a modal also makes the reason for each Android prompt visible immediately
- * before the operating system owns the next screen.
- */
 enum class ConnectionPermissionStep {
     VPN,
     NOTIFICATIONS
@@ -63,10 +58,7 @@ fun ConnectionPermissionDialog(
     onDismiss: () -> Unit
 ) {
     val copy = permissionCopy(step)
-    // MARBLE_EXPRESSIVE_MOTION_V186 — the permission dialog arrives as a cascade instead of a
-    // single flash: icon, headline, explanation, assurance row and error line rise one stagger
-    // step apart on the emphasized entrance pair. The window disarms itself, so a step change
-    // that recomposes the dialog mid-life never replays the entrance.
+
     val entranceArmed = rememberMarbleEntranceWindow()
 
     AlertDialog(

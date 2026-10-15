@@ -34,9 +34,6 @@ import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.TrustManagerFactory
 
-/** Acceptance tests against EXACT core-lock.json binaries, not JSON shape assertions. CI makes
- * these mandatory. All traffic stays on loopback: no user's credentials, public DNS or healthy
- * external server is required. A passing schema check alone never counts as connectivity. */
 class SingBoxNativeIntegrationTest {
     @get:Rule val temporary = TemporaryFolder()
     private lateinit var singbox: File
@@ -91,7 +88,7 @@ class SingBoxNativeIntegrationTest {
             val config = config(node)
             checkConfig(config, "matrix-$index")
         }
-        // Exercise the production offline routing assets, not just a proxy-only test shell.
+
         val directory = repositoryFile("app/src/main/assets/singbox")
         val paths = listOf("geoip-ir", "geosite-ir", "geosite-ads").associateWith { File(directory, "$it.srs").absolutePath }
         val full = JSONObject(SingBoxConfigBuilder.build(matrix.first(), AppSettings(), freePort(), freePort(), "fixture", "", "cache.db",
@@ -133,7 +130,7 @@ class SingBoxNativeIntegrationTest {
             assertTrue(tls.paths.contains("/generate_204?token=retained"))
             assertFalse("http must not be silently replaced with gstatic", active.delay("http://127.0.0.1/", 1000).ok)
         }
-        // Control: a listening core with the WRONG account must not report success.
+
         client.getJSONObject("settings").put("id", "22222222-2222-3333-4444-555555555555")
         start(config(profile(client), certificate = tls.certificate)).use { active ->
             assertFalse(active.delay(tls.url, 2000).ok)
@@ -145,7 +142,7 @@ class SingBoxNativeIntegrationTest {
         val port = freePort()
         startXray(JSONObject().put("listen", "127.0.0.1").put("port", port).put("protocol", "socks")
             .put("settings", JSONObject().put("auth", "noauth").put("udp", true)), port)
-        val badTlsPort = freePort() // deliberately no listener
+        val badTlsPort = freePort()
         val built = config(socksProfile(port), tls.certificate,
             listOf("tls://127.0.0.1:$badTlsPort", "https://127.0.0.1:${tls.port}/dns-query"))
         val socks = built.getJSONArray("inbounds").getJSONObject(0).getInt("listen_port")
@@ -154,8 +151,7 @@ class SingBoxNativeIntegrationTest {
             assertEquals("127.0.0.42", DnsWireCodec.parseAnswers(response).single().hostAddress)
             assertTrue(tls.paths.contains("/dns-query"))
         }
-        // Both encrypted endpoints unavailable: do not fall through to dns-local, which would
-        // incorrectly turn an encrypted-DNS outage into a cleartext browsing leak.
+
         val remotes = NativeSingBoxConfig.objects(built.getJSONObject("dns").getJSONArray("servers"))
             .filter { it.optString("tag").startsWith("dns-remote-") }
         remotes.forEach { it.put("server_port", badTlsPort) }
@@ -172,7 +168,7 @@ class SingBoxNativeIntegrationTest {
             .put("settings", JSONObject().put("auth", "noauth")), port)
         val a = config(socksProfile(port), tls.certificate)
         val b = config(socksProfile(port), tls.certificate)
-        // Allocate workspaces before concurrency; only process execution itself is parallel.
+
         val aDir = temporary.newFolder("concurrent-a")
         val bDir = temporary.newFolder("concurrent-b")
         val executor = Executors.newFixedThreadPool(2)
@@ -204,7 +200,6 @@ class SingBoxNativeIntegrationTest {
                 SingBoxProcessSession.open(singbox, cfg.toString(), File(dir, "config.json"), File(dir, "core.log"), dir,
                     socks, api, "wrong-secret", 12_000).use { fail("401 must not count as a ready controller") }
             } catch (_: InterruptedException) {
-                // The API exists, but wrong auth must keep startup pending until cancellation.
             } finally { finished.countDown() }
         }
         thread.start()
@@ -247,7 +242,7 @@ class SingBoxNativeIntegrationTest {
                     it.sendResponseHeaders(200, answer.size.toLong())
                     it.responseBody.write(answer)
                 } else {
-                    Thread.sleep(20) // keep sub-millisecond CI timing from rounding to zero
+                    Thread.sleep(20)
                     it.sendResponseHeaders(204, -1)
                 }
             } finally { exchange.close() }
@@ -257,18 +252,6 @@ class SingBoxNativeIntegrationTest {
         return Origin(ssl, pem, server.address.port, paths)
     }
 
-    /**
-     * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the canary must be a document the pinned core
-     * actually runs, or the self-test would report "the core is broken" on healthy devices, which
-     * is a worse bug than the one it was written for.
-     *
-     * This is the only place the canary is executed against a real binary in CI, and it runs on
-     * the *host* core: on Linux an app-UID-style netlink ban does not exist, so the canary is
-     * expected to pass here and its verdict is expected to be cacheable. The Android-specific half
-     * of the contract — a `direct` outbound surviving a nil interface monitor — is proven by the
-     * Go tests `scripts/inject-singbox-android-fix.py` writes into the core source, which
-     * `.github/workflows/verify.yml` runs before any ABI is built.
-     */
     @Test fun theCoreSelfTestCanaryStartsThePinnedCoreAndServesItsLocalInbound() {
         val directory = temporary.newFolder("singbox-selftest-${sequence++}")
         val verdict = SingBoxCoreSelfTest.probe(singbox, directory, freePort())
@@ -276,8 +259,6 @@ class SingBoxNativeIntegrationTest {
         assertEquals(SingBoxCoreSelfTest.fingerprint(singbox), verdict.fingerprint)
         assertFalse(verdict.coreFault)
 
-        // The canary is the production shape in miniature: same inbound type, same `direct`
-        // outbound, same `route.final` — and nothing that can reach a network.
         val canary = JSONObject(SingBoxCoreSelfTest.canaryConfig(freePort()))
         val inbound = canary.getJSONArray("inbounds").getJSONObject(0)
         assertEquals("mixed", inbound.getString("type"))
@@ -289,8 +270,7 @@ class SingBoxNativeIntegrationTest {
         assertEquals(SingBoxConfigBuilder.DIRECT_TAG, canary.getJSONObject("route").getString("final"))
         assertEquals(1, canary.getJSONArray("inbounds").length())
         assertEquals(1, canary.getJSONArray("outbounds").length())
-        // No DNS transport, no controller, no cache file: nothing in the canary can reach a
-        // network, so nothing it reports can be an observation about a server.
+
         listOf("dns", "experimental", "ntp", "tun").forEach { key ->
             assertFalse("the canary must stay offline: $key", canary.has(key))
         }
@@ -299,17 +279,12 @@ class SingBoxNativeIntegrationTest {
             SingBoxAndroidRuntime.ANDROID_FORBIDDEN_ROUTE_KEYS.any { "\"$it\"" in canary.toString() }
         )
 
-        // The verdict is cached against the binary's identity, and only against that identity.
         val cache = File(directory, "verdict.json")
         SingBoxCoreSelfTest.write(cache, verdict)
         assertEquals(verdict, SingBoxCoreSelfTest.read(cache, singbox))
         assertNull(SingBoxCoreSelfTest.read(cache, File(directory, "some-other-binary")))
     }
 
-    /**
-     * A binary that cannot start must produce a *core fault* verdict, never a silent pass and
-     * never an exception: the whole point of the canary is that the manager can act on the answer.
-     */
     @Test fun theCoreSelfTestReportsAnUnusableBinaryAsAFaultInsteadOfThrowing() {
         val directory = temporary.newFolder("singbox-selftest-fault-${sequence++}")
         val notABinary = File(directory, "libsingbox.so").apply { writeText("#!/bin/sh\nexit 2\n") }

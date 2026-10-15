@@ -1,15 +1,9 @@
 <resources>
     <style name="Theme.MarbleNG" parent="android:style/Theme.Material.Light.NoActionBar">
-        <!-- MARBLE_FAKE_IP_V184 — platform-rendered text (window titles, toasts, IME chrome,
-             any non-Compose surface) was falling back to the stock Roboto "sans" face while
-             every Compose surface in the product already draws Vazirmatn in Persian. One
-             app-wide identity instead of a two-face product. -->
-        <item name="android:fontFamily">@font/vazirmatn_medium</item>
+                <item name="android:fontFamily">@font/vazirmatn_medium</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
-        <!-- MARBLE_MATERIAL_YOU_REFRESH_V185 — the pre-compose window paints the refreshed
-             light page tone so launch never flashes the old alice-blue. -->
-        <item name="android:statusBarColor">#F4F8FD</item>
+                <item name="android:statusBarColor">#F4F8FD</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:navigationBarDividerColor">@android:color/transparent</item>
         <item name="android:windowActionModeOverlay">true</item>

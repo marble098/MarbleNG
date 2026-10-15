@@ -36,8 +36,6 @@ class LinkQualityEstimatorTest {
 
     @Test
     fun clampsHostileRttValues() {
-        // MARBLE_HONEST_PING_V119 — the hostile 50 s value is clamped to the 10 s ceiling before
-        // it can distort the summary; the honest 1 ms value is preserved as-is.
         val result = requireNotNull(LinkQualityEstimator.summarize(listOf(1, 50_000)))
         assertEquals(10_000, result.medianRttMs)
         assertEquals(10_000, result.p90RttMs)
@@ -46,8 +44,6 @@ class LinkQualityEstimatorTest {
 
     @Test
     fun preservesHonestSingleDigitReadings() {
-        // MARBLE_HONEST_PING_V119 — 3 / 4 / 6 ms are genuine fast-route measurements, not
-        // artifacts; the estimator publishes them untouched instead of rewriting them to 15.
         val result = requireNotNull(LinkQualityEstimator.summarize(listOf(3, 4, 6)))
         assertEquals(4, result.medianRttMs)
         assertEquals(6, result.p90RttMs)

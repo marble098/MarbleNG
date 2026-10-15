@@ -19,24 +19,14 @@ data class PrivacyReport(
     val overallScore: Int,
     val healthy: Boolean,
     val note: String,
-    /** Independent IPv6-only egress observations, empty means unverified (NOT proof of no leak). */
     val proxyIpv6: String = "",
     val underlayIpv6: String = "",
-    /** MARBLE_LEAK_GUARD_V80: additional leak assessment from continuous monitoring */
     val leakAssessment: LeakGuard.LeakAssessment? = null
 )
 
 object PrivacyAuditor {
     private const val TRACE_URL = "https://www.cloudflare.com/cdn-cgi/trace"
 
-    /**
-     * User-triggered audit with two intentionally independent views:
-     *  - proxy view travels through the active core's local SOCKS inbound;
-     *  - underlay view is explicitly bound to Android's physical Network.
-     *
-     * The direct view is never scheduled in the background and is used only to prove that an
-     * international destination sees a different address through the selected proxy.
-     */
     fun audit(
         port: Int,
         underlay: Network?,
@@ -53,9 +43,7 @@ object PrivacyAuditor {
 
         val underlayTrace = underlay?.let(::readUnderlayTrace).orEmpty()
         val underlayIp = traceValue(underlayTrace, "ip")
-        // A dual-stack Cloudflare trace may choose IPv4 on BOTH paths and miss an IPv6 bypass.
-        // Use an IPv6-only diagnostic origin via SOCKS domain ATYP, so the proxy's exit must
-        // actually carry AAAA traffic. The physical comparison is opt-in with this manual audit.
+
         val proxyIpv6 = if (requireIpv6) runCatching {
             val response = SocksHttpClient.get(port, "ipv6.icanhazip.com", "/", 6_000, 256)
             if (response.status in 200..299) ipv6Literal(String(response.body)) else ""
@@ -71,7 +59,6 @@ object PrivacyAuditor {
         }.getOrDefault("")
 
         if (id.isNotBlank()) {
-            // Each hostname is sent as SOCKS ATYP=domain. Android/system DNS never resolves it.
             for (index in 1..3) {
                 runCatching {
                     SocksHttpClient.get(port, "$index.$id.bash.ws", "/", 3_500, 4_096)
@@ -95,7 +82,7 @@ object PrivacyAuditor {
         }
         val ipv6Score = when {
             !requireIpv6 -> 100
-            proxyIpv6.isBlank() -> 40 // unverified IPv6 exit is NOT a passing audit
+            proxyIpv6.isBlank() -> 40
             underlayIpv6.isBlank() -> 85
             proxyIpv6 == underlayIpv6 -> 0
             else -> 100
@@ -128,7 +115,6 @@ object PrivacyAuditor {
             })
         }
 
-        // MARBLE_LEAK_GUARD_V80: Feed the report into the continuous LeakGuard
         val leakAssessment = leakGuard?.let { guard ->
             val report = PrivacyReport(
                 proxyIp = proxyIp,

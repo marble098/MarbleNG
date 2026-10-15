@@ -5,16 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * MARBLE_TURBO_BACKOFF_V133 regressions.
- *
- * The attached runtime log showed `TURBO live-inconclusive-backoff` with 600 s, 1200 s and 1800 s
- * windows repeating for the whole session. Three defects produced that: a pass that could not
- * measure anything escalated the *transport* backoff, nothing ever decayed the streak, and nothing
- * could release the timer when the route recovered. Each test below pins one of those fixes.
- */
 class TurboBackoffPolicyTest {
-
     private val base = 600_000L
     private val max = 1_800_000L
 
@@ -34,7 +25,6 @@ class TurboBackoffPolicyTest {
         val third = TurboBackoffPolicy.inconclusive(state, 2_000L, TurboBackoffPolicy.Cause.TRANSPORT_INCONCLUSIVE, base, max)
         assertEquals(1_800_000L, third.backoffMs)
 
-        // The ceiling holds: a fourth failure must not grow past it.
         val fourth = TurboBackoffPolicy.inconclusive(
             third.state, 3_000L, TurboBackoffPolicy.Cause.TRANSPORT_INCONCLUSIVE, base, max
         )
@@ -61,9 +51,6 @@ class TurboBackoffPolicyTest {
 
     @Test
     fun `a pass that never ran cannot escalate the transport backoff`() {
-        // MARBLE_TURBO_BACKOFF_V134 — `report == null` is not an unhealthy verdict, it is no verdict:
-        // the tuner vetoed itself on the thermal budget, found fewer than two methods to compare, or
-        // threw. The service used to answer TRANSPORT_INCONCLUSIVE for all of them by construction.
         var state = TurboBackoffPolicy.State()
         repeat(4) { index ->
             val outcome = TurboBackoffPolicy.inconclusive(
@@ -79,8 +66,7 @@ class TurboBackoffPolicyTest {
             assertEquals("pass-not-attempted-no-escalation", outcome.reason)
             state = outcome.state
         }
-        // A vetoed pass must not consume the escalation budget either: the next genuine transport
-        // verdict still starts at the base window instead of inheriting a streak it did not earn.
+
         val transport = TurboBackoffPolicy.inconclusive(
             state,
             10_000L,
@@ -120,7 +106,6 @@ class TurboBackoffPolicyTest {
 
     @Test
     fun `a stale escalation decays instead of lasting the whole session`() {
-        // Three failures in a row reach the 1800 s ceiling.
         var state = TurboBackoffPolicy.State()
         repeat(3) {
             state = TurboBackoffPolicy.inconclusive(
@@ -129,8 +114,6 @@ class TurboBackoffPolicyTest {
         }
         assertEquals(3, state.streak)
 
-        // One half-life of quiet forgives half the streak (floored, so a streak of three drops to
-        // one); three half-lives forgive all of it.
         assertEquals(
             1,
             TurboBackoffPolicy.decayedStreak(3, TurboBackoffPolicy.STREAK_HALF_LIFE_MS)
@@ -144,7 +127,6 @@ class TurboBackoffPolicyTest {
             TurboBackoffPolicy.decayedStreak(3, TurboBackoffPolicy.STREAK_HALF_LIFE_MS * 3)
         )
 
-        // A new failure after three quiet half-lives starts from one, not from four.
         val afterQuiet = TurboBackoffPolicy.inconclusive(
             state = state,
             nowMs = TurboBackoffPolicy.STREAK_HALF_LIFE_MS * 3,
@@ -155,8 +137,6 @@ class TurboBackoffPolicyTest {
         assertEquals(1, afterQuiet.state.streak)
         assertEquals(600_000L, afterQuiet.backoffMs)
 
-        // One quiet half-life leaves one step of escalation (3 >> 1 == 1), so the next failure lands
-        // on 1200 s instead of restarting at the ceiling or staying there.
         val partlyDecayed = TurboBackoffPolicy.inconclusive(
             state = state,
             nowMs = TurboBackoffPolicy.STREAK_HALF_LIFE_MS,
@@ -191,7 +171,7 @@ class TurboBackoffPolicyTest {
             state = TurboBackoffPolicy.observeRoute(state, 1L, recovered = true)
         }
         assertEquals(TurboBackoffPolicy.MAX_EARLY_RELEASES, state.earlyReleases)
-        // Once the budget is spent the timer is left alone.
+
         assertTrue(TurboBackoffPolicy.isWaiting(state, 1L))
     }
 

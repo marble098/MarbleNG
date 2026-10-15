@@ -1,35 +1,8 @@
 package com.marbleng.app.core
 
-/**
- * Resolver / transport failure classifier for MarbleNG diagnostics.
- *
- * Problem addressed (MARBLE_DIAGNOSTICS_CONSISTENCY_V1):
- * The old Bug Finder counted DoH deadline and DNS EOF errors with a couple of narrow
- * hard-coded substrings. Raw Xray lines that said the same thing in a slightly different
- * wording (for example "unexpected EOF" on a DNS-over-HTTPS exchange) produced a summary of
- * `0 DNS EOF` while the raw evidence clearly contained EOF. The summary and the raw log then
- * disagreed, which made resolver failures look like they were "not reproduced" when they were.
- *
- * This classifier is the single source of truth for categorising a raw log line. The summary is
- * always derived from the same raw lines through this classifier, so a category can never report
- * zero while the raw text it was built from contains that category.
- *
- * It also separates shutdown-safe events (cancellations and closed-pipe reads that happen during
- * teardown) from real transport failures, so a clean reconnect no longer floods the "resolver is
- * broken" counter.
- */
 enum class ResolverFailureKind(
     val code: String,
-    /**
-     * True when the event is an expected side effect of cancellation / teardown rather than a
-     * genuine resolver outage. Cancelled and closed-pipe events must never be counted as normal
-     * transport failures.
-     */
     val isShutdownSafe: Boolean,
-    /**
-     * True when the event is evidence that the resolver endpoint itself is broken or hostile and
-     * the endpoint should be eligible for quarantine.
-     */
     val quarantinable: Boolean
 ) {
     DEADLINE("deadline", isShutdownSafe = false, quarantinable = true),
@@ -42,10 +15,6 @@ enum class ResolverFailureKind(
     OTHER("other", isShutdownSafe = false, quarantinable = true)
 }
 
-/**
- * Immutable, machine-readable summary of resolver failure categories. Total and the
- * transport-failure total are derived once from the raw counters so they can never drift apart.
- */
 data class ResolverFailureSummary(
     val deadlineCount: Int = 0,
     val eofCount: Int = 0,
@@ -56,15 +25,10 @@ data class ResolverFailureSummary(
     val poisonedCount: Int = 0,
     val otherCount: Int = 0
 ) {
-    /** Every resolver category, including shutdown-safe ones. */
     val total: Int
         get() = deadlineCount + eofCount + closedPipeCount + cancelledCount +
             tlsCount + certExpiredCount + poisonedCount + otherCount
 
-    /**
-     * Genuine transport failures only. Cancellations and closed-pipe events from a clean teardown
-     * are deliberately excluded so they cannot look like resolver outages.
-     */
     val transportFailures: Int
         get() = deadlineCount + eofCount + tlsCount + certExpiredCount + poisonedCount + otherCount
 
@@ -79,7 +43,6 @@ data class ResolverFailureSummary(
         ResolverFailureKind.OTHER -> otherCount
     }
 
-    /** Increment a single category, returning a new summary. */
     fun withIncrement(kind: ResolverFailureKind): ResolverFailureSummary = when (kind) {
         ResolverFailureKind.DEADLINE -> copy(deadlineCount = deadlineCount + 1)
         ResolverFailureKind.EOF -> copy(eofCount = eofCount + 1)
@@ -104,12 +67,7 @@ data class ResolverFailureSummary(
     }
 }
 
-/**
- * Pure, deterministic resolver line classifier. Kept dependency-free so it can be unit tested on
- * the JVM and shared by Bug Finder, RuntimeDiagnostics and the live resolver telemetry.
- */
 object ResolverFailureClassifier {
-
     private val CERT_EXPIRED_MARKERS = listOf(
         "certificate has expired",
         "certificate is not yet valid",
@@ -147,7 +105,7 @@ object ResolverFailureClassifier {
         "eof while reading",
         "transport closed early",
         "connection closed before message completed",
-        "eof" // last resort: a bare EOF marker inside a resolver line
+        "eof"
     )
 
     private val CLOSED_PIPE_MARKERS = listOf(
@@ -173,7 +131,6 @@ object ResolverFailureClassifier {
         "blocked by dns"
     )
 
-    /** True when a raw line plausibly concerns DNS / resolver / upstream resolution traffic. */
     fun isDnsRelated(line: String): Boolean {
         if (line.isBlank()) return false
         val lower = line.lowercase()
@@ -185,13 +142,6 @@ object ResolverFailureClassifier {
             lower.contains("exchange failed")
     }
 
-    /**
-     * Classify a raw log line into a resolver/transport failure kind, or null when the line is not
-     * a resolver failure event. Works on both JVM tests and real Xray logs.
-     *
-     * Cancellation markers are checked first because a cancelled request frequently also surfaces a
-     * closed-pipe / reset text; the intent of the line is what matters for quarantine.
-     */
     fun classify(line: String): ResolverFailureKind? {
         if (line.isBlank()) return null
         val lower = line.lowercase()
@@ -207,20 +157,11 @@ object ResolverFailureClassifier {
         return null
     }
 
-    /**
-     * Classify an exception (or a raw line) into a resolver failure kind. Convenience used by the
-     * live resolver path so cancellation and transport failures are recorded with the same scheme
-     * as the offline log classifier.
-     */
     fun classifyThrowable(t: Throwable): ResolverFailureKind? {
         val text = (t.message ?: "").let { it + " " + (t::class.java.simpleName) }
         return classify(text) ?: classify(t::class.java.simpleName)
     }
 
-    /**
-     * Summarise a batch of raw log lines. Only DNS-related lines are considered; every other line
-     * is ignored, matching what the summary claims to represent.
-     */
     fun summarize(lines: List<String>): ResolverFailureSummary {
         var summary = ResolverFailureSummary()
         lines.forEach { line ->
@@ -231,7 +172,6 @@ object ResolverFailureClassifier {
         return summary
     }
 
-    /** True when every raw line was found; used to verify the summary is consistent with raw. */
     fun rawConsistentWithSummary(lines: List<String>, summary: ResolverFailureSummary): Boolean {
         val recomputed = summarize(lines)
         return recomputed == summary

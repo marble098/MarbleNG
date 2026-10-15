@@ -1,9 +1,5 @@
 package com.marbleng.app.core
 
-// MARBLE_BUG_FINDER_ULTIMATE_V15
-// MARBLE_RUNTIME_STARTUP_RESCUE_V21
-// MARBLE_EXIT_RECENCY_V23
-// MARBLE_MEMORY_EXIT_CLASSIFICATION_V26
 // MARBLE_VERIFIED_EVIDENCE_CLASSIFICATION_V50
 
 import android.app.ActivityManager
@@ -13,6 +9,7 @@ import android.os.Build
 import android.os.Debug
 import android.os.Process
 import com.marbleng.app.MarbleApplication
+import com.marbleng.app.data.AppStore
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ConnectionRecord
@@ -99,13 +96,11 @@ private data class ExitEvidence(
     val text: String,
     val crashLike: Int,
     val lowMemory: Int,
-    /** One line per crash-like record, so the WARN itself says what happened. */
     val crashSummaries: List<String> = emptyList(),
     val totalCrashLike: Int = 0
 )
 
 class BugFinder(private val context: Context, private val xray: XrayManager, private val singbox: SingBoxManager? = null) {
-    // MARBLE_LOG_NOISE_COMPACTION_V35
     private val diag = RuntimeDiagnostics(context)
 
     fun scan(
@@ -119,16 +114,8 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         sentinel: PrivacySentinelState,
         privacy: PrivacyReport?,
         tunnelUptimeMs: Long = 0L,
-        /**
-         * MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the reason the last measurement sweep stopped
-         * itself ([ProbeLocalFaultGate]), or `""` when it finished or was cancelled by the user.
-         * A report that lists 17 failed measurements and cannot say whether the device could
-         * measure at all is the report that made a crashed core look like a dead network.
-         */
         lastProbeFault: String = ""
     ): BugReport {
-        // The diagnostics writer is asynchronous; a short bounded drain avoids freezing Settings
-        // for two seconds while still capturing events already queued by the failing operation.
         RuntimeDiagnostics.flush(400L)
 
         val now = System.currentTimeMillis()
@@ -172,18 +159,6 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             BugCheck("SingBox extended native core", BugSeverity.FAIL, "libsingbox.so is missing", "Rebuild SingBox extended bundle")
         }
 
-        // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the one core check that ignores appState.
-        //
-        // Every other core check in this scan is gated on a live route or on a particular state,
-        // so a scan taken while DISCONNECTED — the state a user is in *because* the core crashed —
-        // walked past all of them and printed `scan-finish | failures=0` with a SIGSEGV sitting in
-        // the retained log it printed two sections later. Whether the installed binary can start
-        // is not a property of the connection; it is a property of the APK, and when it is wrong it
-        // is the first thing this report has to say, in any state.
-        //
-        // Evidence is read, never produced: the scan does not spawn a canary of its own. It uses
-        // the verdict [SingBoxManager.selfTest] already recorded (in memory, or cached against the
-        // binary's fingerprint) plus the retained core logs, so a scan stays as fast as it was.
         val selfTestLog = tail(File(context.cacheDir, "singbox-selftest.log"), 40_000)
         val coreEvidence = listOf(singboxLog, singboxUrlTestLog, selfTestLog).joinToString("\n")
         val selfTestVerdict = singbox?.lastSelfTest
@@ -211,10 +186,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 singboxStartFault.headline,
                 singboxStartFault.remediation
             )
-            // MARBLE_SINGBOX_STARTUP_GATE_V162 — a tunnel that is up with a controller that is
-            // not. It outranks the package-manager WARN below it because that one is printed by
-            // every healthy Android core, while this one is a real degradation of the URL test
-            // and the Engine page that the user can otherwise only guess at.
+
             singbox?.lastStartReadiness?.controllerMissing == true -> BugCheck(
                 "SingBox core start-up",
                 BugSeverity.WARN,
@@ -224,11 +196,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                     "counters read nothing, while the route itself is unaffected",
                 SingBoxAndroidRuntime.STARTUP_TIMEOUT_REMEDIATION
             )
-            // MARBLE_RESERVED_TAG_COLLISION_V183 — INFO, not WARN. The probe line is printed by
-            // every Android build of the core on every start, the crash it used to accompany is
-            // fixed in the binary MarbleNG compiles, and the crash itself is the FAIL branch above.
-            // Warning about it on a healthy start made every report carry a warning nobody could
-            // act on, which is how the real warnings stopped being read.
+
             SingBoxAndroidRuntime.isPackageManagerFault(coreEvidence) -> BugCheck(
                 "SingBox core start-up",
                 BugSeverity.INFO,
@@ -247,10 +215,6 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             )
         }
 
-        // MARBLE_RESERVED_TAG_COLLISION_V183 — the Xray twin of the sing-box start-up check. A
-        // config-load refusal (`Failed to start: … existing tag found: block`, exit code 23) is a
-        // fact about the document MarbleNG wrote, never about the server, and it must be named as
-        // such in every app state instead of surfacing only as "BLOCKED • Kill switch active".
         val xrayStartFault = XrayStartFailure.classify(xray.lastStartError, allRuntime)
         if (xrayStartFault != null) {
             checks += BugCheck(
@@ -267,16 +231,24 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 BugCheck("Active profile", BugSeverity.FAIL, "CONNECTED but activeProfileId is empty", "Safe runtime reset")
             connected && profiles.none { it.id == activeProfileId } ->
                 BugCheck("Active profile", BugSeverity.FAIL, "Connected profile no longer exists", "Reconnect a valid server")
-            else -> BugCheck("Server inventory", BugSeverity.PASS, "${profiles.size} profiles • ${stateDetail.ifBlank { "idle" }}")
+
+            else -> {
+                val stored = runCatching { AppStore(context).loadProfiles().size }.getOrNull()
+                if (stored != null && stored != profiles.size) {
+                    BugCheck(
+                        "Server inventory",
+                        BugSeverity.WARN,
+                        "${profiles.size} loaded • $stored stored • store and memory disagree",
+                        "Refresh the affected source or restart the app to reconcile the inventory"
+                    )
+                } else {
+                    BugCheck("Server inventory", BugSeverity.PASS, "${profiles.size} profiles • ${stateDetail.ifBlank { "idle" }}")
+                }
+            }
         }
 
         checks += BugCheck("Android underlay", BugSeverity.INFO, networkLabel.ifBlank { "Unknown network" })
 
-        // IPv6 is only real when three independent things agree: the underlay actually carries a
-        // global v6 address, Android handed the tunnel the ::/0 route, and the emitted config gave the
-        // engine an explicit family order instead of leaving a dual-stack endpoint to chance. Every one
-        // of those legs used to be invisible, which is why "IPv6 is enabled but never used" was so hard
-        // to see from inside the app.
         val familyPlan = AddressFamilyPolicy.plan(
             settings = settings,
             underlayHasIpv6 = AddressFamilyPolicy.underlayHasIpv6()
@@ -313,10 +285,6 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             )
         }
 
-        // MARBLE_ENGINE_AWARE_BUGFINDER_V164 — ask about the core the settings selected, not the
-        // Xray manager that a sing-box session stops on purpose. A healthy sing-box tunnel used to
-        // read as "UI says CONNECTED but Xray is dead" because `xray.isAlive` is false by design
-        // whenever the other engine carries the route.
         val coreState = resolveActiveCoreState(
             engine = settings.coreEngine(),
             xrayAlive = xray.isAlive,
@@ -360,7 +328,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         val latestVerifiedLatencySample = allRuntime.lastIndexOf(
             "method=verified-https-ttfb-rolling-ipdv-loss-p90"
         )
-        // Backward-compatible diagnosis for reports produced by v47-v49.
+
         val latestLegacyConnectEstimate = allRuntime.lastIndexOf(
             "method=socks-connect-estimate-rolling-ipdv-loss-p90"
         )
@@ -465,9 +433,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         )
 
         // MARBLE_LIVE_METRIC_OBSERVABILITY_V47
-        // A healthy TUN is not proof that the independent HTTPS measurement path produced a
-        // displayable sample. Surface that distinction instead of leaving Ping/Jitter/Quality
-        // silently blank while traffic works.
+
         checks += when {
             latestHevReady >= 0 && latestVerifiedLatencySample > latestHevReady -> BugCheck(
                 "Live Ping / Jitter / Quality",
@@ -532,8 +498,6 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
 
         val assets = xray.routingAssetStatus()
         checks += when {
-            // MARBLE_ROUTING_ENGINE_V136 — one shared definition of "this policy needs geo data",
-            // identical to what the config writer and the asset preloader consult.
             RoutingEngine.needsGeoSite(settings) && !assets.geoSiteReady ->
                 BugCheck("GeoSite asset", BugSeverity.FAIL, "Ad/routing policy needs geosite.dat but it is missing", "Prepare routing assets")
             RoutingEngine.needsGeoIp(settings) && !assets.geoIpReady ->
@@ -563,11 +527,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         }
 
         // MARBLE_RESOLVER_HEALTH_V38 / MARBLE_DIAGNOSTICS_CONSISTENCY_V1
-        // xray.log rotates on every live start, so this classifies current-session resolver
-        // degradation instead of silently burying it inside the raw ERROR INDEX.
-        // The summary is derived from the SAME raw lines via the shared classifier, so a category
-        // can never report 0 while the raw log clearly contains it (the old narrow substring match
-        // reported "0 DNS EOF" on DoH "unexpected EOF" lines).
+
         val activeCoreLog = if (settings.coreEngine() == CoreEngine.SINGBOX) singboxLog else xrayLog
         val rawLines = activeCoreLog.lineSequence().filter { it.isNotBlank() }.toList()
         val resolverSummary = ResolverFailureClassifier.summarize(rawLines)
@@ -590,20 +550,6 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         val tlsCount = maxOf(resolverSummary.tlsCount, endpointEvidence.sumOf { it.tls })
         val resolverErrors = maxOf(resolverSummary.transportFailures, dohDeadlineCount + dnsEofCount + certExpired + tlsCount)
 
-        /*
-         * MARBLE_RESOLVER_EVIDENCE_V134 — a count without a window is not a measurement.
-         *
-         * The absolute threshold this check used (`>= 8` events → WARN) compared sessions of
-         * different lengths, so it reported the *healthy* one as worse: 16 events inside a short
-         * disconnected session read as INFO while 29 events spread over a two-and-a-half-hour stable
-         * tunnel read as WARN. Both numbers came from the same retained log; only the denominator was
-         * missing. The rate is the measurement and the count is just its numerator.
-         *
-         * The same raw lines are also attributed to the endpoints the core named, so the report says
-         * *which* resolver was failing and whether Marble has already demoted it — the loop that
-         * turns this evidence into a different emitted resolver list lives in ResolverEvidencePolicy,
-         * MarbleIntelligence and XrayConfigHardener.
-         */
         val effectiveUptimeMs = if (tunnelUptimeMs > 0L) {
             tunnelUptimeMs
         } else {
@@ -644,8 +590,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 "Failing endpoints are demoted and encrypted fallback stays armed; if this rate " +
                     "survives a reconnect, the operator is filtering every resolver in the pool"
             )
-            // With no window to divide by, fall back to the absolute reading rather than inventing a
-            // rate out of an unknown denominator.
+
             resolverWindow.rateUnknown &&
                 resolverWindow.severity == ResolverEvidencePolicy.Severity.ELEVATED -> BugCheck(
                 "Resolver health",
@@ -678,12 +623,6 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             )
         }
 
-        // MARBLE_DNS_DOMAIN_FAULT_V196 — name the *site* when the site is the problem.
-        //
-        // "Your DNS is unstable" is the wrong report when two independent healthy resolvers both
-        // time out on one domestic name: nothing the user changes about their resolvers will fix
-        // it, and the previous build spent that failure demoting good endpoints instead of saying
-        // which name failed. This check is the visible half of that correction.
         val domainFaults = intelligence?.dnsDomainFaultSummary().orEmpty()
         if (domainFaults.isNotBlank()) {
             checks += BugCheck(
@@ -727,9 +666,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                     "Historical process exits",
                     if (exits.crashLike >= 3) BugSeverity.FAIL else BugSeverity.WARN,
                     "${exits.crashLike} crash/ANR/native-crash exit record(s) found in Android history" +
-                        // MARBLE_RESERVED_TAG_COLLISION_V183 — the records travel with the check:
-                        // a report that is shared as a screenshot or trimmed to its HEALTH CHECKS
-                        // used to point at a section the reader did not have.
+
                         exits.crashSummaries.joinToString("") { " • $it" },
                     "Review the PROCESS EXIT HISTORY section for the full traces"
                 )
@@ -765,10 +702,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         }
 
         val active = profiles.firstOrNull { it.id == activeProfileId }
-        // MARBLE_REALITY_MLKEM_HANDSHAKE_V194 — a REALITY rejection is a handshake-shape fault
-        // (missing hybrid key share, incapable fingerprint, or genuinely wrong keys), never a
-        // dead server or a broken route. Without this check the evidence sat unnamed in the
-        // retained tails while every probe and every reconnect burned another attempt on it.
+
         RealityHandshakePolicy.check(RealityHandshakePolicy.scan(coreEvidence), active)?.let { checks += it }
         sections += BugSection("SYSTEM / BUILD", systemSection(settings, diagnosticStatus))
         sections += BugSection(
@@ -819,8 +753,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             }
         )
         sections += BugSection("CONNECTION / ENGINE EVENT TIMELINE", connectionTimeline(allRuntime))
-        // The WARN above points the reader at this section by name; it must exist under that name
-        // even when Android returned nothing, or the report references a section that is not there.
+
         sections += BugSection(
             "PROCESS EXIT HISTORY",
             exits.text.ifBlank { "No ApplicationExitInfo records returned by Android" }
@@ -869,9 +802,6 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 (if (localClientAborts > 0) " (benign: local client(s) closed mid-handshake; not counted as failures)" else "")
         )
 
-        // MARBLE_SINGBOX_ANDROID_RUNTIME_V155 — the two lines a sing-box triage always needs
-        // first: does anything still request the netlink interface monitor Android bans, and did
-        // the core exit on an impending deprecation instead of a real fault?
         val runtimeConfigText = runCatching {
             File(context.filesDir, "runtime-singbox.json").readText()
         }.getOrDefault("")
@@ -889,17 +819,12 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 SingBoxAndroidRuntime.DEPRECATION_ENV.keys.sorted().joinToString(", ") +
                 "\nnetlink ban seen in retained sing-box log: " +
                 SingBoxAndroidRuntime.isNetlinkBan(singboxLog + singboxUrlTestLog) +
-                // MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the three answers that decide whether a
-                // measurement result describes a server or this device.
+
                 "\ncrash signature in retained sing-box log: " +
                 SingBoxAndroidRuntime.isCoreCrash(coreEvidence) +
                 "\npackage-manager probe (/data/system/packages.xml) seen: " +
                 SingBoxAndroidRuntime.isPackageManagerFault(coreEvidence) +
-                // MARBLE_SINGBOX_STARTUP_GATE_V162 — the two halves of the last start-up wait.
-                // `core-start-timeout` alone could not tell them apart, and they have opposite
-                // remedies: an inbound that never opened is a core this device cannot run, a
-                // controller that never answered is a working route with a missing measurement
-                // surface.
+
                 "\nlast start-up: inbound=" + (singbox?.lastStartReadiness?.inboundUp ?: false) +
                 " controller=" + (singbox?.lastStartReadiness?.controllerUp ?: false) +
                 " phase=" + (singbox?.lastStartReadiness?.phase ?: "not run") +
@@ -923,14 +848,6 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         )
     }
 
-    /**
-     * Whether the node itself answers on IPv6, measured in the same family order the tunnel uses.
-     *
-     * The engine's plan and the network's capability are not enough to answer "is IPv6 actually on":
-     * a hostname with no AAAA record can only ever be dialled over IPv4, and that is a property of
-     * the node rather than of Marble's configuration. Without this line the two cases look identical
-     * in a report.
-     */
     private fun nodeIpv6Evidence(profile: ProxyProfile?, settings: AppSettings): String {
         if (
             profile == null ||
@@ -1181,25 +1098,13 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 val benignNoise =
                     line.contains("proxy/socks: failed to read request > EOF", true) ||
                         (line.contains("HTTPUpgrade transport", true) && line.contains("deprecated", true)) ||
-                        // MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — a local client that opened the
-                        // SOCKS inbound and closed mid-handshake. sing-box logs the abort at
-                        // ERROR level with the "read fqdn: unexpected EOF" shape (the client sent
-                        // ATYP=domain and died inside the name), which used to match the bare
-                        // "error" keyword and count every one of them as a scan failure. The
-                        // 2026-09-09 window (six of these in six seconds from 127.0.0.1, beside
-                        // ROUTE probe misses on a degraded exit) shows the shape: no core fault
-                        // exists behind the line — the count now travels as benign evidence in
-                        // the SINGBOX EXTENDED CORE STATUS section instead.
+
                         CoreLogNoise.isLocalClientHandshakeAbort(line)
                 !cleanHevExit && !benignNoise && keywords.any { line.contains(it, true) }
             }
             .map(::sanitize)
             .toList()
 
-        // Xray can emit hundreds of timestamp-distinct closed-pipe cancellations during a clean
-        // stop and repeated DoH deadlines during one provider outage. Keep small occurrences
-        // verbatim; compact only contiguous bursts, with their count and endpoints. The complete
-        // raw evidence remains available in the retained-tail sections below the index.
         val compacted = mutableListOf<String>()
         val repetitiveBurst = mutableListOf<String>()
         var burstLabel = ""
@@ -1246,8 +1151,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             }
         }
         flushRepetitiveBurst()
-        // MARBLE_BUGFINDER_LIST_TAIL_FIX_V102
-        // `compacted` is a MutableList; the local compatibility helper is Sequence-only.
+
         return compacted.takeLast(500)
     }
 
@@ -1284,24 +1188,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
     }
 }
 
-/**
- * MARBLE_SINGBOX_PORT_SOVEREIGNTY_V158 — classification of the sing-box inbound ERROR lines a
- * *local client* produces by opening a SOCKS5 handshake to the loopback inbound and closing it
- * before the request is complete.
- *
- * The shape is unambiguous in the server's own source (`sing/common/metadata/serializer.go`):
- * `read fqdn: unexpected EOF` is `ReadSockString` — the client sent `VER CMD RSV ATYP=03` plus
- * the length byte and then disconnected inside the name. MarbleNG's own probes always send the
- * complete handshake in one write (SocksHttpClient), hev-socks5-tunnel only ever sends literal
- * IPs (the address comes from the lwIP PCB), and a bare connect+close aborts at the first byte,
- * which the mixed inbound logs at DEBUG — invisible at the configured `warn` level. What remains
- * is exactly one class: some local app using the loopback proxy that aborted its own request.
- * The line is real evidence about that client and no evidence at all about MarbleNG, so it is
- * counted as benign noise in the report instead of being matched into scan failures by the bare
- * "error" keyword in [BugFinder.problems].
- */
 internal object CoreLogNoise {
-    /** Every member implies "the client died inside its own SOCKS5/HTTP request". */
     private val clientAbortMarkers = listOf(
         "read fqdn: unexpected eof",
         "read fqdn: eof",
@@ -1314,8 +1201,7 @@ internal object CoreLogNoise {
 
     fun isLocalClientHandshakeAbort(line: String): Boolean {
         val value = line.lowercase()
-        // The local inbounds only: a remote listener would make the same client abort a
-        // different story, and "process connection from" is the inbound error wrapper.
+
         val localInbound = value.contains("inbound/mixed[socks-in]") ||
             value.contains("inbound/socks[socks-in]")
         if (!localInbound || !value.contains("process connection from 127.0.0.1:")) return false
