@@ -4,9 +4,9 @@ object DnsResolverCatalog {
     val STOCK_DOH: List<String> = listOf(
         "https://1.1.1.1/dns-query",
         "https://8.8.8.8/dns-query",
-        "https://1.0.0.1/dns-query",
         "https://9.9.9.9/dns-query",
-        "https://149.112.112.112/dns-query"
+        "https://149.112.112.112/dns-query",
+        "https://1.0.0.1/dns-query"
     )
 
     fun candidates(primary: String, secondary: String): List<String> =
