@@ -178,10 +178,10 @@ object RouteProbe {
         if (candidates.isEmpty()) return UNREACHABLE
         val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMs.toLong())
 
-        val hopMs = if (candidates.size <= 1) {
-            budgetMs
+        val hopMs: Long = if (candidates.size <= 1) {
+            budgetMs.toLong()
         } else {
-            (budgetMs * 2 / 3 / (candidates.size - 1)).coerceIn(250, budgetMs)
+            (budgetMs * 2 / 3 / (candidates.size - 1)).coerceIn(250, budgetMs).toLong()
         }
         candidates.forEachIndexed { index, address ->
             val leftMs = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime())
