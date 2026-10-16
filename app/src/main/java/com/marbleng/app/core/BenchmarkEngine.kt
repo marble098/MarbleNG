@@ -5,8 +5,10 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.Collections
 import java.util.Locale
+import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorCompletionService
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.exp
@@ -732,6 +734,80 @@ class BenchmarkEngine(
     private fun linkEvidenceFor(profileId: String): LinkEvidence =
         runCatching { intelligence?.linkEvidenceFor(profileId) }.getOrNull() ?: LinkEvidence.UNKNOWN
 
+    private fun hedgedTunnelRtt(
+        port: Int,
+        targets: List<String>,
+        requested: Int,
+        timeoutMs: Int
+    ): TunnelRttBatch? {
+        if (targets.isEmpty()) return null
+        if (targets.size == 1) {
+            return runCatching {
+                SocksHttpClient.tunnelRttBatchUrl(port, targets[0], requested, timeoutMs)
+            }.getOrNull()
+        }
+
+        val pool = Executors.newFixedThreadPool(minOf(targets.size, 3))
+        val completion = ExecutorCompletionService<TunnelRttBatch>(pool)
+        val activeFutures = mutableListOf<Future<TunnelRttBatch>>()
+        val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong() + 750L)
+        var submitted = 0
+        var successfulBatch: TunnelRttBatch? = null
+
+        fun submitTarget(target: String) {
+            SingBoxProcessSession.checkInterrupted()
+            activeFutures += completion.submit(Callable {
+                SingBoxProcessSession.checkInterrupted()
+                SocksHttpClient.tunnelRttBatchUrl(port, target, requested, timeoutMs)
+            })
+            submitted++
+        }
+
+        try {
+            submitTarget(targets[0])
+            val headStartMs = 300L
+
+            while (submitted < targets.size && successfulBatch == null) {
+                val left = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime())
+                if (left <= 0) break
+
+                val waitSlice = minOf(headStartMs, left)
+                val completed = completion.poll(waitSlice, TimeUnit.MILLISECONDS)
+                if (completed != null) {
+                    val batch = runCatching { completed.get() }.getOrNull()
+                    if (batch != null && batch.samplesMs.any { it.isFinite() && it > 0.0 }) {
+                        successfulBatch = batch
+                        break
+                    }
+                    if (submitted < targets.size) {
+                        submitTarget(targets[submitted])
+                    }
+                } else {
+                    if (submitted < targets.size) {
+                        submitTarget(targets[submitted])
+                    }
+                }
+            }
+
+            while (successfulBatch == null && submitted > 0) {
+                SingBoxProcessSession.checkInterrupted()
+                val left = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime())
+                if (left <= 0) break
+                val completed = completion.poll(minOf(left, 200L), TimeUnit.MILLISECONDS) ?: continue
+                submitted--
+                val batch = runCatching { completed.get() }.getOrNull()
+                if (batch != null && batch.samplesMs.any { it.isFinite() && it > 0.0 }) {
+                    successfulBatch = batch
+                    break
+                }
+            }
+        } finally {
+            activeFutures.forEach { if (!it.isDone) it.cancel(true) }
+            pool.shutdownNow()
+        }
+        return successfulBatch
+    }
+
     private fun measure(
         p: ProxyProfile,
         port: Int,
@@ -755,21 +831,16 @@ class BenchmarkEngine(
         var failureReason = "${s.coreEngine().id}-start"
 
         val started = runCatching {
-            fun attempt(): Boolean = xray.temporary(p, port, s, delayTest = false, link = linkEvidence) { livePort ->
+            fun attempt(): Boolean = xray.temporary(p, port, s, delayTest = true, link = linkEvidence) { livePort ->
 
-                val targets = DelayTest.candidates(s.delayTestUrl)
-                val batch = targets.firstNotNullOfOrNull { target ->
-                    SingBoxProcessSession.checkInterrupted()
-                    runCatching {
-                        SocksHttpClient.tunnelRttBatchUrl(livePort, target, requested, timeoutMs)
-                    }.onFailure { error ->
-                        failureReason = "https:${error::class.java.simpleName}:${error.message.orEmpty()}"
-                    }.getOrNull()
-                }
+                val targets = DelayTest.candidates(s.delayTestUrl).distinct().take(ProbeTargetWalk.MAX_TARGETS)
+                val batch = hedgedTunnelRtt(livePort, targets, requested, timeoutMs)
                 if (batch != null) {
                     times = batch.samplesMs.filter { it.isFinite() && it > 0.0 }
                     warmup = batch.warmupMs
                     failureReason = ""
+                } else {
+                    failureReason = "delay-url-timeout"
                 }
 
                 if (includeThroughput && s.probeSpeedTest && times.isNotEmpty()) {
