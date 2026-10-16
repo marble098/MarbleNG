@@ -687,6 +687,260 @@ jobs:
           ls -lh dist
 
       # ========================================================================
+      # MARBLE_RELEASE_INSTALL_GATE_V217 — verify the install contract on the
+      # built APKs themselves, before anything is uploaded.
+      # ========================================================================
+
+      - name: Verify the APK install contract
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Everything Android checks when a user taps Install over an existing copy:
+          # the package name, a versionCode strictly newer than the one already on the
+          # phone, the extraction contract for the compressed native cores, the ABI
+          # payload of each split, and the SAME signing certificate as the release the
+          # phone already carries. apksigner proves a signature is well-formed, not
+          # that it is the same identity, and before V217 nothing proved the version
+          # properties or extractNativeLibs actually landed in the packaged manifest.
+          # A release that breaks any of these installs nowhere: the phone answers
+          # "App not installed" / "app not updated" and the pipeline stayed green.
+
+          AAPT2="$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt2"
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
+
+          test -x "$AAPT2"
+          test -x "$APKSIGNER"
+
+          normalize_abis() {
+            tr ',' '\n' | tr -d " '" | awk 'NF' | sort -u | tr '\n' ' ' | sed 's/ $//'
+          }
+
+          badging_package_line() {
+            "$AAPT2" dump badging "$1" | grep -m1 '^package:'
+          }
+
+          package_name_of() {
+            badging_package_line "$1" |
+              sed -n "s/^package: name='\([^']*\)'.*$/\1/p"
+          }
+
+          version_code_of() {
+            badging_package_line "$1" |
+              sed -n "s/^package: name='[^']*' versionCode='\([0-9]*\)'.*$/\1/p"
+          }
+
+          version_name_of() {
+            badging_package_line "$1" |
+              sed -n "s/^package: name='[^']*' versionCode='[0-9]*' versionName='\([^']*\)'.*$/\1/p"
+          }
+
+          native_code_of() {
+            "$AAPT2" dump badging "$1" |
+              grep -m1 '^native-code:' |
+              cut -d: -f3-
+          }
+
+          certificate_of() {
+            "$APKSIGNER" verify --print-certs "$1" |
+              sed -n 's/^Signer #1 certificate SHA-256 digest: \([0-9a-fA-F]*\)$/\1/p'
+          }
+
+          shopt -s nullglob
+          apks=(dist/*.apk)
+          (( ${#apks[@]} > 0 )) || {
+            echo "::error::No APK found for the install-contract gate."
+            exit 1
+          }
+
+          release_certificate=""
+
+          for apk in "${apks[@]}"; do
+
+            name="$(basename "$apk")"
+
+            echo
+            echo "------------------------------------------------------------"
+            echo "Install contract: $name"
+            echo "------------------------------------------------------------"
+
+            pkg="$(package_name_of "$apk")"
+            code="$(version_code_of "$apk")"
+            vname="$(version_name_of "$apk")"
+
+            [[ "$pkg" == "com.marbleng.app" ]] || {
+              echo "::error::$name: packaged package name is '$pkg', expected 'com.marbleng.app'."
+              exit 1
+            }
+
+            [[ -n "$code" ]] || {
+              echo "::error::$name: could not read versionCode from the packaged manifest."
+              exit 1
+            }
+
+            [[ "$code" == "$VERSION_CODE" ]] || {
+              echo "::error::$name: packaged versionCode is '$code', expected '$VERSION_CODE'. A stale or missing -PVERSION_CODE ships a silent downgrade; every phone with a newer code refuses the update ('App not installed')."
+              exit 1
+            }
+
+            [[ "$vname" == "$VERSION_NAME" ]] || {
+              echo "::error::$name: packaged versionName is '$vname', expected '$VERSION_NAME'."
+              exit 1
+            }
+
+            stem="${name%.apk}"
+            stem="${stem%-release}"
+            abi="${stem##*-}"
+
+            declared="$(native_code_of "$apk" | normalize_abis)"
+
+            if [[ "$abi" == "universal" ]]; then
+              expected="$(printf '%s\n' armeabi-v7a arm64-v8a x86 x86_64 | normalize_abis)"
+            else
+              expected="$abi"
+            fi
+
+            [[ -n "$declared" && "$declared" == "$expected" ]] || {
+              echo "::error::$name: packaged native code is '${declared:-none}', expected '$expected'."
+              exit 1
+            }
+
+            extract_line="$(
+              "$AAPT2" dump xmltree --file AndroidManifest.xml "$apk" |
+                grep -m1 'extractNativeLibs' || true
+            )"
+
+            if [[ -n "$extract_line" ]]; then
+              extract_value="$(
+                grep -oE '\(type 0x12\)0x[0-9a-fA-F]+' <<< "$extract_line" |
+                  grep -oE '0x[0-9a-fA-F]+$'
+              )"
+              [[ "$extract_value" == "0xffffffff" ]] || {
+                echo "::error::$name: android:extractNativeLibs is not true ('$extract_line'). Compressed native entries the installer may not extract are the documented instant-install-failure: 'App not installed' (INSTALL_FAILED_INVALID_APK: Failed to extract native libraries, res=-2)."
+                exit 1
+              }
+            else
+              echo "::notice::$name: android:extractNativeLibs is absent; the platform default (true) applies."
+            fi
+
+            stored_libs="$(
+              unzip -v "$apk" |
+                awk '$2 ~ /^Stored/ && $NF ~ /^lib\// { print $NF }'
+            )"
+
+            [[ -z "$stored_libs" ]] || {
+              echo "::error::$name: uncompressed native entries: $(echo "$stored_libs" | tr '\n' ' '). useLegacyPackaging=true must keep every lib/* entry DEFLATED; a silently uncompressed payload means the AGP packaging contract flipped."
+              exit 1
+            }
+
+            cert="$(certificate_of "$apk")"
+
+            [[ -n "$cert" ]] || {
+              echo "::error::$name: could not read the signing certificate digest."
+              exit 1
+            }
+
+            if [[ -z "$release_certificate" ]]; then
+              release_certificate="$cert"
+            elif [[ "$cert" != "$release_certificate" ]]; then
+              echo "::error::$name: signed with a different certificate than the other APKs of this release."
+              exit 1
+            fi
+
+            echo "[OK] $name: package=$pkg versionCode=$code versionName=$vname abi=$abi extract=true libs=deflated"
+
+          done
+
+          echo
+          echo "Release signing certificate SHA-256: $release_certificate"
+
+          # ----------------------------------------------------------------
+          # Baseline: the newest published release is what phones carry.
+          # The update must be strictly newer and signed with the same
+          # certificate, unless release-signing.lock pins an intentional
+          # rotation.
+          # ----------------------------------------------------------------
+
+          pinned_certificate=""
+
+          if [[ -f release-signing.lock ]]; then
+            pinned_certificate="$(
+              jq -r '.signingCertSha256 // empty' release-signing.lock 2>/dev/null || true
+            )"
+            if [[ -n "$pinned_certificate" ]] &&
+               [[ ! "$pinned_certificate" =~ ^[0-9a-fA-F]{64}$ ]]; then
+              echo "::error::release-signing.lock carries a malformed signingCertSha256 (expected 64 hex characters)."
+              exit 1
+            fi
+          fi
+
+          baseline_tag="$(
+            gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName \
+              2>/dev/null || true
+          )"
+
+          if [[ -z "$baseline_tag" ]]; then
+
+            echo "No published release yet; baseline guards skipped (bootstrap)."
+
+          else
+
+            baseline_dir="$RUNNER_TEMP/install-gate-baseline"
+            rm -rf "$baseline_dir"
+            mkdir -p "$baseline_dir"
+
+            if ! gh release download "$baseline_tag" \
+                --repo "$GITHUB_REPOSITORY" \
+                --dir "$baseline_dir" \
+                --pattern '*-arm64-v8a-release.apk' \
+                --clobber; then
+              echo "::notice::$baseline_tag has no arm64 APK; baseline guards skipped."
+            else
+
+              baseline_apk="$(
+                find "$baseline_dir" -type f -name '*.apk' -print -quit
+              )"
+              test -n "$baseline_apk"
+
+              baseline_code="$(version_code_of "$baseline_apk")"
+              baseline_cert="$(certificate_of "$baseline_apk")"
+
+              if [[ -n "$baseline_code" ]]; then
+                if (( baseline_code >= VERSION_CODE )); then
+                  echo "::error::Refusing to ship a downgrade: $baseline_tag carries versionCode $baseline_code, this build is $VERSION_CODE. Android rejects updates whose versionCode is not strictly newer ('App not installed')."
+                  exit 1
+                fi
+                echo "[OK] versionCode $VERSION_CODE is strictly newer than $baseline_tag's $baseline_code"
+              else
+                echo "::warning::Could not read $baseline_tag's versionCode; downgrade guard skipped."
+              fi
+
+              expected_certificate="${pinned_certificate:-$baseline_cert}"
+
+              [[ -n "$expected_certificate" ]] || {
+                echo "::error::Could not read the signing certificate of $baseline_tag and no release-signing.lock pin exists; signing continuity cannot be proven."
+                exit 1
+              }
+
+              if [[ "$release_certificate" != "$expected_certificate" ]]; then
+                echo "::error::Signing identity changed: this build signs with SHA-256 $release_certificate, but $baseline_tag — the release phones have installed — signs with $expected_certificate. Android refuses to update an app whose certificate differs, so every existing install fails with 'App not installed' / 'app not updated'. Restore the previous ANDROID_KEYSTORE_B64, ANDROID_KEY_ALIAS, ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_PASSWORD secrets; or, if the rotation is intentional, record the new digest in release-signing.lock and tell users to uninstall first."
+                exit 1
+              fi
+
+              echo "[OK] signing certificate matches $baseline_tag"
+
+            fi
+
+          fi
+
+          echo "RELEASE_CERT_SHA256=$release_certificate" >> "$GITHUB_ENV"
+
+          echo
+          echo "[OK] APK install contract verified on every release APK."
+
+      # ========================================================================
       # Artifact
       # ========================================================================
 
@@ -763,6 +1017,9 @@ jobs:
             printf '\n### Runtime cores\n'
             printf -- '- Xray: `%s`\n' "$XRAY_VERSION"
             printf -- '- HEV: `%s`\n' "$HEV_VERSION"
+            printf '\n### Build identity\n'
+            printf -- '- Android `versionCode`: `%s`\n' "$VERSION_CODE"
+            printf -- '- Signing certificate SHA-256: `%s`\n' "${RELEASE_CERT_SHA256:-not recorded}"
             printf '\n### Build integrity\n'
             printf '%s\n' '- Release APKs are built, signed and verified in GitHub Actions.'
             printf '%s\n' '- `SHA256SUMS.txt` contains the SHA-256 digest of every APK.'
