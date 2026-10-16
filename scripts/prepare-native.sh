@@ -1749,7 +1749,7 @@ LAST_BUILD_LOG="$SINGBOX_PATCH_LOG"
 #
 # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 — the pinned Xray's go.mod decides this
 # build's toolchain (build.yml resolves it from .bootstrap/xray/go.mod), and
-# Xray v26.9.9 moved that directive from `go 1.26` to `go 1.27`. Under Go 1.27,
+# Xray moved that directive from `go 1.26` to `go 1.27`. Under Go 1.27,
 # golang.org/x/net v0.57.0 compiles http2 as a wrapper over net/http's internal
 # http2, the unexported (*Transport).connPool symbol the fork's
 # transport/v2rayxhttp/dialer.go pulls by linkname stops existing, and the first

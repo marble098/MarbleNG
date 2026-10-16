@@ -1725,10 +1725,21 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.TUNNEL -> {
-                drawCircle(color, m*.105f, Offset(w*.27f,h*.50f), style = fineLine)
-                drawCircle(color, m*.105f, Offset(w*.73f,h*.50f), style = fineLine)
-                drawLine(color, Offset(w*.37f,h*.42f), Offset(w*.63f,h*.42f), fine, StrokeCap.Round)
-                drawLine(color, Offset(w*.37f,h*.58f), Offset(w*.63f,h*.58f), fine, StrokeCap.Round)
+                val outerArch = Path().apply {
+                    moveTo(w * .18f, h * .80f)
+                    lineTo(w * .18f, h * .48f)
+                    cubicTo(w * .18f, h * .20f, w * .82f, h * .20f, w * .82f, h * .48f)
+                    lineTo(w * .82f, h * .80f)
+                }
+                drawPath(outerArch, color, style = line)
+                val innerArch = Path().apply {
+                    moveTo(w * .34f, h * .80f)
+                    lineTo(w * .34f, h * .54f)
+                    cubicTo(w * .34f, h * .36f, w * .66f, h * .36f, w * .66f, h * .54f)
+                    lineTo(w * .66f, h * .80f)
+                }
+                drawPath(innerArch, color, style = fineLine)
+                drawLine(color, Offset(w * .10f, h * .80f), Offset(w * .90f, h * .80f), stroke, StrokeCap.Round)
             }
 
             HomeIcon.ROUTE, HomeIcon.ROUTING, HomeIcon.DETAILS -> {
@@ -1811,29 +1822,68 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.MODE -> {
-                val frame = Path().apply {
-                    moveTo(w*.27f,h*.18f); lineTo(w*.73f,h*.18f); lineTo(w*.73f,h*.82f)
-                    lineTo(w*.27f,h*.82f); close()
+                val roof = Path().apply {
+                    moveTo(w * .16f, h * .48f)
+                    lineTo(w * .50f, h * .20f)
+                    lineTo(w * .84f, h * .48f)
                 }
-                drawPath(frame,color,style=fineLine)
-                drawCircle(color,m*.035f,Offset(w*.50f,h*.72f))
+                drawPath(roof, color, style = line)
+                val body = Path().apply {
+                    moveTo(w * .24f, h * .44f)
+                    lineTo(w * .24f, h * .78f)
+                    quadraticBezierTo(w * .24f, h * .82f, w * .28f, h * .82f)
+                    lineTo(w * .42f, h * .82f)
+                    lineTo(w * .42f, h * .58f)
+                    quadraticBezierTo(w * .42f, h * .54f, w * .50f, h * .54f)
+                    quadraticBezierTo(w * .58f, h * .54f, w * .58f, h * .58f)
+                    lineTo(w * .58f, h * .82f)
+                    lineTo(w * .72f, h * .82f)
+                    quadraticBezierTo(w * .76f, h * .82f, w * .76f, h * .78f)
+                    lineTo(w * .76f, h * .44f)
+                }
+                drawPath(body, color, style = fineLine)
             }
 
             HomeIcon.BENCHMARK, HomeIcon.RANK -> {
-                val xs = listOf(.27f,.50f,.73f)
-                val tops = if (icon == HomeIcon.RANK) listOf(.61f,.43f,.24f) else listOf(.47f,.31f,.54f)
-                for (i in xs.indices) {
-                    drawLine(color,Offset(w*xs[i],h*.73f),Offset(w*xs[i],h*tops[i]),stroke*1.45f,StrokeCap.Round)
+                drawArc(
+                    color = color,
+                    startAngle = 145f,
+                    sweepAngle = 250f,
+                    useCenter = false,
+                    topLeft = Offset(w * .18f, h * .18f),
+                    size = Size(w * .64f, h * .64f),
+                    style = line
+                )
+                drawCircle(color, m * .065f, Offset(w * .50f, h * .58f))
+                val needle = Path().apply {
+                    moveTo(w * .47f, h * .56f)
+                    lineTo(w * .70f, h * .34f)
+                    lineTo(w * .53f, h * .60f)
+                    close()
                 }
-                drawLine(color,Offset(w*.17f,h*.78f),Offset(w*.83f,h*.78f),fine,StrokeCap.Round)
+                drawPath(needle, color)
+                drawLine(color, Offset(w * .48f, h * .58f), Offset(w * .72f, h * .32f), stroke, StrokeCap.Round)
             }
 
             HomeIcon.LIBRARY -> {
-                val box = Size(w*.22f,h*.22f)
-                drawRect(color,Offset(w*.22f,h*.22f),box,style=fineLine)
-                drawRect(color,Offset(w*.56f,h*.22f),box,style=fineLine)
-                drawRect(color,Offset(w*.22f,h*.56f),box,style=fineLine)
-                drawRect(color,Offset(w*.56f,h*.56f),box,style=fineLine)
+                drawOval(
+                    color = color,
+                    topLeft = Offset(w * .20f, h * .18f),
+                    size = Size(w * .60f, h * .20f),
+                    style = line
+                )
+                val mid = Path().apply {
+                    moveTo(w * .20f, h * .44f)
+                    cubicTo(w * .20f, h * .56f, w * .80f, h * .56f, w * .80f, h * .44f)
+                }
+                drawPath(mid, color, style = fineLine)
+                val bottom = Path().apply {
+                    moveTo(w * .20f, h * .28f)
+                    lineTo(w * .20f, h * .70f)
+                    cubicTo(w * .20f, h * .82f, w * .80f, h * .82f, w * .80f, h * .70f)
+                    lineTo(w * .80f, h * .28f)
+                }
+                drawPath(bottom, color, style = fineLine)
             }
 
             HomeIcon.NETWORK -> {
@@ -1845,20 +1895,25 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.SERVER -> {
-                val top = Path().apply {
-                    moveTo(w*.22f,h*.20f); lineTo(w*.78f,h*.20f)
-                    lineTo(w*.78f,h*.45f); lineTo(w*.22f,h*.45f); close()
-                }
-                val bottom = Path().apply {
-                    moveTo(w*.22f,h*.55f); lineTo(w*.78f,h*.55f)
-                    lineTo(w*.78f,h*.80f); lineTo(w*.22f,h*.80f); close()
-                }
-                drawPath(top,color,style=fineLine)
-                drawPath(bottom,color,style=fineLine)
-                drawCircle(color,m*.035f,Offset(w*.31f,h*.325f))
-                drawCircle(color,m*.035f,Offset(w*.31f,h*.675f))
-                drawLine(color,Offset(w*.43f,h*.325f),Offset(w*.68f,h*.325f),fine,StrokeCap.Round)
-                drawLine(color,Offset(w*.43f,h*.675f),Offset(w*.68f,h*.675f),fine,StrokeCap.Round)
+                val r = m * .06f
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * .18f, h * .22f),
+                    size = Size(w * .64f, h * .24f),
+                    cornerRadius = CornerRadius(r, r),
+                    style = line
+                )
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * .18f, h * .54f),
+                    size = Size(w * .64f, h * .24f),
+                    cornerRadius = CornerRadius(r, r),
+                    style = line
+                )
+                drawCircle(color, m * .035f, Offset(w * .30f, h * .34f))
+                drawCircle(color, m * .035f, Offset(w * .30f, h * .66f))
+                drawLine(color, Offset(w * .44f, h * .34f), Offset(w * .70f, h * .34f), fine, StrokeCap.Round)
+                drawLine(color, Offset(w * .44f, h * .66f), Offset(w * .70f, h * .66f), fine, StrokeCap.Round)
             }
 
             HomeIcon.DOWNLOAD, HomeIcon.UPLOAD -> {
@@ -1885,8 +1940,21 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.STATUS -> {
-                drawCircle(color,m*.31f,Offset(w*.50f,h*.50f),style=fineLine)
-                drawCircle(color,m*.08f,Offset(w*.50f,h*.50f))
+                drawCircle(color, m * .14f, Offset(w * .50f, h * .50f), style = line)
+                for (i in 0 until 6) {
+                    val angle = (i * 60.0) * Math.PI / 180.0
+                    val cos = Math.cos(angle).toFloat()
+                    val sin = Math.sin(angle).toFloat()
+                    val r1 = m * .22f
+                    val r2 = m * .34f
+                    drawLine(
+                        color,
+                        Offset(w * .50f + cos * r1, h * .50f + sin * r1),
+                        Offset(w * .50f + cos * r2, h * .50f + sin * r2),
+                        stroke * 1.5f,
+                        StrokeCap.Round
+                    )
+                }
             }
 
             HomeIcon.MORE -> {
@@ -1922,22 +1990,20 @@ private fun HomeVectorIcon(
             }
 
             HomeIcon.PALETTE -> {
-                drawPath(
-                    Path().apply {
-                        moveTo(w*.50f,h*.14f)
-                        cubicTo(w*.20f,h*.14f,w*.12f,h*.44f,w*.20f,h*.64f)
-                        cubicTo(w*.26f,h*.80f,w*.42f,h*.86f,w*.50f,h*.78f)
-                        cubicTo(w*.56f,h*.72f,w*.52f,h*.62f,w*.58f,h*.60f)
-                        cubicTo(w*.72f,h*.56f,w*.88f,h*.52f,w*.88f,h*.38f)
-                        cubicTo(w*.88f,h*.22f,w*.72f,h*.14f,w*.50f,h*.14f)
-                        close()
-                    },
-                    color,style=fineLine
-                )
-                drawCircle(color,m*.055f,Offset(w*.36f,h*.34f))
-                drawCircle(color,m*.055f,Offset(w*.52f,h*.28f))
-                drawCircle(color,m*.055f,Offset(w*.68f,h*.34f))
-                drawCircle(color,m*.055f,Offset(w*.34f,h*.54f))
+                val palette = Path().apply {
+                    moveTo(w * .50f, h * .18f)
+                    cubicTo(w * .22f, h * .18f, w * .16f, h * .46f, w * .22f, h * .66f)
+                    cubicTo(w * .26f, h * .80f, w * .40f, h * .82f, w * .48f, h * .74f)
+                    cubicTo(w * .54f, h * .68f, w * .58f, h * .64f, w * .66f, h * .66f)
+                    cubicTo(w * .78f, h * .70f, w * .84f, h * .60f, w * .84f, h * .48f)
+                    cubicTo(w * .84f, h * .28f, w * .70f, h * .18f, w * .50f, h * .18f)
+                    close()
+                }
+                drawPath(palette, color, style = line)
+                drawCircle(color, m * .045f, Offset(w * .36f, h * .36f))
+                drawCircle(color, m * .045f, Offset(w * .52f, h * .30f))
+                drawCircle(color, m * .045f, Offset(w * .68f, h * .36f))
+                drawCircle(color, m * .055f, Offset(w * .68f, h * .54f), style = fineLine)
             }
 
             HomeIcon.GLOBE -> {
@@ -9947,14 +10013,15 @@ private fun SettingsThemeMiniRow(repo: AppRepository) {
             choices.forEach { (theme, label, ramp) ->
                 val selected = active == theme
                 val shape = RoundedCornerShape(11.dp)
+                val fill = if (selected) ramp[2].copy(alpha = if (homeCloudDark()) .16f else .08f).compositeOver(marbleNativeContainerHigh()) else marbleNativeContainerHigh()
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .clip(shape)
-                        .background(marbleNativeContainerHigh())
+                        .background(fill)
                         .border(
-                            1.dp,
-                            if (selected) ramp[2].copy(alpha = .62f) else marbleNativeOutline(),
+                            if (selected) 1.5.dp else 1.dp,
+                            if (selected) ramp[2] else marbleNativeOutline().copy(alpha = .65f),
                             shape
                         )
                         .kineticClickable(role = Role.Button, boundedShape = shape) {
@@ -10036,20 +10103,21 @@ private fun SettingsStyleMiniRow(repo: AppRepository) {
                     HomeStyle.ROUTE_ATELIER -> Aether.Cyan
                 }
                 val shape = RoundedCornerShape(11.dp)
+                val fill = if (selected) tone.copy(alpha = if (homeCloudDark()) .16f else .08f).compositeOver(marbleNativeContainerHigh()) else marbleNativeContainerHigh()
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .clip(shape)
-                        .background(marbleNativeContainerHigh())
+                        .background(fill)
                         .border(
-                            1.dp,
-                            if (selected) tone.copy(alpha = .62f) else marbleNativeOutline(),
+                            if (selected) 1.5.dp else 1.dp,
+                            if (selected) tone else marbleNativeOutline().copy(alpha = .65f),
                             shape
                         )
                         .kineticClickable(role = Role.Button, boundedShape = shape) {
                             repo.updateSettings(repo.settings.copy(homeStyle = style.id))
                         }
-                        .padding(5.dp),
+                        .padding(vertical = 6.dp, horizontal = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -10843,35 +10911,28 @@ private fun SettingsHubSubSectionCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(insetFill)
-            .border(1.dp, subOutline, shape)
+            .background(insetFill.copy(alpha = 0.65f))
+            .border(1.dp, subOutline.copy(alpha = 0.75f), shape)
             .padding(
-                start = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 6.dp,
-                end = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 6.dp,
-                top = 10.dp,
-                bottom = 11.dp
+                start = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 4.dp,
+                end = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 4.dp,
+                top = 11.dp,
+                bottom = 12.dp
             ),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Box(
                 Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(tone.copy(alpha = .16f).compositeOver(insetFill)),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(tone)
-                )
-            }
+                    .width(3.5.dp)
+                    .height(16.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(tone)
+            )
             Column(
                 Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(1.dp)

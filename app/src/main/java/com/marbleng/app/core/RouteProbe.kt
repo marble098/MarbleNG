@@ -176,21 +176,65 @@ object RouteProbe {
             AddressFamilyPolicy.plan(settings = settings)
         )
         if (candidates.isEmpty()) return UNREACHABLE
-        val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMs.toLong())
+        if (candidates.size == 1) {
+            return rawTcpConnectOnce(candidates[0], port, budgetMs)
+        }
 
-        val hopMs: Long = if (candidates.size <= 1) {
-            budgetMs.toLong()
-        } else {
-            (budgetMs * 2 / 3 / (candidates.size - 1)).coerceIn(250, budgetMs).toLong()
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(minOf(candidates.size, 4))
+        val completion = java.util.concurrent.ExecutorCompletionService<Double>(pool)
+        val activeFutures = mutableListOf<java.util.concurrent.Future<Double>>()
+        val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMs.toLong())
+        var fastest = UNREACHABLE
+
+        fun dial(address: InetAddress, windowMs: Int) {
+            activeFutures += completion.submit(java.util.concurrent.Callable {
+                rawTcpConnectOnce(address, port, windowMs)
+            })
         }
-        candidates.forEachIndexed { index, address ->
-            val leftMs = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime())
-            if (leftMs <= 0) return UNREACHABLE
-            val windowMs = if (index == candidates.lastIndex) leftMs else minOf(leftMs, hopMs)
-            val value = rawTcpConnectOnce(address, port, windowMs.toInt())
-            if (value < UNREACHABLE) return value
+
+        try {
+            dial(candidates[0], budgetMs)
+            val happyEyeballsDelayMs = 200L
+            var dialedCount = 1
+
+            while (dialedCount < candidates.size && fastest >= UNREACHABLE) {
+                val leftMs = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime()).toInt()
+                if (leftMs <= 0) break
+                val completed = completion.poll(minOf(happyEyeballsDelayMs, leftMs.toLong()), TimeUnit.MILLISECONDS)
+                if (completed != null) {
+                    val res = runCatching { completed.get() }.getOrDefault(UNREACHABLE)
+                    if (res < UNREACHABLE) {
+                        fastest = res
+                        break
+                    }
+                    if (dialedCount < candidates.size) {
+                        dial(candidates[dialedCount], leftMs)
+                        dialedCount++
+                    }
+                } else {
+                    if (dialedCount < candidates.size) {
+                        dial(candidates[dialedCount], leftMs)
+                        dialedCount++
+                    }
+                }
+            }
+
+            while (fastest >= UNREACHABLE && dialedCount > 0) {
+                val leftMs = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime()).toInt()
+                if (leftMs <= 0) break
+                val completed = completion.poll(minOf(leftMs.toLong(), 200L), TimeUnit.MILLISECONDS) ?: continue
+                dialedCount--
+                val res = runCatching { completed.get() }.getOrDefault(UNREACHABLE)
+                if (res < UNREACHABLE) {
+                    fastest = res
+                    break
+                }
+            }
+        } finally {
+            activeFutures.forEach { if (!it.isDone) it.cancel(true) }
+            pool.shutdownNow()
         }
-        return UNREACHABLE
+        return fastest
     }
 
     private fun rawTcpConnectOnce(address: InetAddress, port: Int, timeoutMs: Int): Double {
