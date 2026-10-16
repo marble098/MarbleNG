@@ -16,19 +16,6 @@ fun toolchainVersion(
     fallback: String
 ): String = toolchain.getProperty(key)?.trim()?.takeIf { it.isNotEmpty() } ?: fallback
 
-val versionCodeFromCi =
-    providers
-        .gradleProperty("VERSION_CODE")
-        .orNull
-        ?.toIntOrNull()
-        ?: 10000
-
-val versionNameFromCi =
-    providers
-        .gradleProperty("VERSION_NAME")
-        .orNull
-        ?: "1.0.2"
-
 val signingPropertiesFile =
     rootProject.file("signing.properties")
 
@@ -43,6 +30,50 @@ val signingProps =
 
 val signingConfigured =
     signingPropertiesFile.exists()
+
+// MARBLE_RELEASE_INSTALL_GATE_V217 — the release APK's version properties must never
+// silently fall back. build.yml always passes -PVERSION_CODE (a UTC timestamp, so every
+// release is strictly newer than the one before it) and -PVERSION_NAME; if either ever
+// stopped arriving, the old fallbacks would package versionCode 10000 / versionName
+// "1.0.2" — a silent downgrade every phone already running a timestamp-coded release
+// refuses to install ("App not installed"). With signing configured this is a release
+// context, so the build fails loudly instead; a local tree without signing.properties
+// keeps the plain developer fallbacks.
+val versionCodeFromCi =
+    if (signingConfigured) {
+        providers
+            .gradleProperty("VERSION_CODE")
+            .orNull
+            ?.toIntOrNull()
+            ?: error(
+                "Release signing is configured but VERSION_CODE is missing. " +
+                    "Pass -PVERSION_CODE=<int> (build.yml always does); a silent " +
+                    "fallback would ship a downgrade Android refuses to install."
+            )
+    } else {
+        providers
+            .gradleProperty("VERSION_CODE")
+            .orNull
+            ?.toIntOrNull()
+            ?: 10000
+    }
+
+val versionNameFromCi =
+    if (signingConfigured) {
+        providers
+            .gradleProperty("VERSION_NAME")
+            .orNull
+            ?.takeIf { it.isNotBlank() }
+            ?: error(
+                "Release signing is configured but VERSION_NAME is missing. " +
+                    "Pass -PVERSION_NAME=<x.y.z> (build.yml always does)."
+            )
+    } else {
+        providers
+            .gradleProperty("VERSION_NAME")
+            .orNull
+            ?: "1.0.2"
+    }
 
 val coreLockFile = rootProject.file("core-lock.json")
 

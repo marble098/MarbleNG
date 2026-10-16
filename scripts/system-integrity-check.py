@@ -2111,6 +2111,33 @@ check(
     and '"**/libsingbox.so"' in files["gradle"],
 )
 
+# MARBLE_RELEASE_INSTALL_GATE_V217 — the install contract was pinned at the source level
+# (V195) but never proven on the packaged artifact: apksigner validates that a signature is
+# well-formed, not that it is the same identity as the release phones already carry, and
+# nothing compared the packaged versionCode/versionName/extractNativeLibs/ABI payload with
+# what the release claims to ship. The gate closes all four on every dist APK, plus the
+# published-release baseline (strictly newer versionCode, same signing certificate unless
+# release-signing.lock pins an intentional rotation), and the Gradle version properties
+# fail loudly instead of silently falling back to a downgrade.
+check(
+    "release APKs prove the install contract before publishing",
+    "Verify the APK install contract" in files["build"]
+    and "MARBLE_RELEASE_INSTALL_GATE_V217" in files["build"]
+    and '"$AAPT2" dump badging' in files["build"]
+    and "extractNativeLibs" in files["build"]
+    and "useLegacyPackaging=true must keep every lib/* entry DEFLATED" in files["build"]
+    and "Signing identity changed" in files["build"]
+    and "release-signing.lock" in files["build"]
+    and "RELEASE_CERT_SHA256" in files["build"]
+    and "not strictly newer" in files["build"],
+)
+check(
+    "release version properties fail loudly instead of a silent downgrade",
+    "MARBLE_RELEASE_INSTALL_GATE_V217" in files["gradle"]
+    and "Release signing is configured but VERSION_CODE is missing" in files["gradle"]
+    and "Release signing is configured but VERSION_NAME is missing" in files["gradle"],
+)
+
 build_release = files["build"]
 
 check(
