@@ -715,7 +715,11 @@ jobs:
           test -x "$APKSIGNER"
 
           normalize_abis() {
-            tr ',' '\n' | tr -d " '" | awk 'NF' | sort -u | tr '\n' ' ' | sed 's/ $//'
+            # aapt2 space-separates quoted ABIs on build-tools 36
+            # (`'arm64-v8a' 'armeabi-v7a'`); older build-tools comma-separate.
+            # Split on both before the set comparison.
+            tr ',' ' ' | tr -s ' ' '\n' | tr -d "'" |
+              awk 'NF' | sort -u | tr '\n' ' ' | sed 's/ $//'
           }
 
           badging_package_line() {
