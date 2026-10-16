@@ -719,7 +719,10 @@ jobs:
           }
 
           badging_package_line() {
-            "$AAPT2" dump badging "$1" | grep -m1 '^package:'
+            # Full-stream awk, never grep -m1: an early-exiting reader SIGPIPEs
+            # aapt2 under pipefail (the class of bug prepare-native.sh documents).
+            "$AAPT2" dump badging "$1" |
+              awk '/^package:/ && !found { print; found = 1 }'
           }
 
           package_name_of() {
@@ -738,9 +741,10 @@ jobs:
           }
 
           native_code_of() {
+            # aapt2 prints `native-code: 'arm64-v8a'` (AGP 9's build-tools);
+            # older build-tools printed `native-code::'arm64-v8a'`. Accept both.
             "$AAPT2" dump badging "$1" |
-              grep -m1 '^native-code:' |
-              cut -d: -f3-
+              sed -n "s/^native-code:*[[:space:]]*//p"
           }
 
           certificate_of() {
@@ -790,9 +794,8 @@ jobs:
               exit 1
             }
 
-            stem="${name%.apk}"
-            stem="${stem%-release}"
-            abi="${stem##*-}"
+            stem="${name#MarbleNG-${VERSION_NAME}-}"
+            abi="${stem%-release.apk}"
 
             declared="$(native_code_of "$apk" | normalize_abis)"
 
@@ -813,12 +816,15 @@ jobs:
             )"
 
             if [[ -n "$extract_line" ]]; then
-              extract_value="$(
-                grep -oE '\(type 0x12\)0x[0-9a-fA-F]+' <<< "$extract_line" |
-                  grep -oE '0x[0-9a-fA-F]+$'
-              )"
-              [[ "$extract_value" == "0xffffffff" ]] || {
-                echo "::error::$name: android:extractNativeLibs is not true ('$extract_line'). Compressed native entries the installer may not extract are the documented instant-install-failure: 'App not installed' (INSTALL_FAILED_INVALID_APK: Failed to extract native libraries, res=-2)."
+              # AGP 9's aapt2 prints the resolved boolean (=true/=false); older
+              # build-tools print the raw typed value
+              # (=(type 0x12)0xffffffff / 0x0). Accept both generations.
+              if grep -Eq 'extractNativeLibs[^=]*=(false|\(type 0x12\)0x0+)[[:space:]]*$' <<< "$extract_line"; then
+                echo "::error::$name: android:extractNativeLibs is false ('$extract_line'). Compressed native entries the installer may not extract are the documented instant-install-failure: 'App not installed' (INSTALL_FAILED_INVALID_APK: Failed to extract native libraries, res=-2)."
+                exit 1
+              fi
+              grep -Eq 'extractNativeLibs[^=]*=(true|\(type 0x12\)0x[fF]+)[[:space:]]*$' <<< "$extract_line" || {
+                echo "::error::$name: cannot parse android:extractNativeLibs ('$extract_line'); failing loud rather than guessing."
                 exit 1
               }
             else
@@ -891,18 +897,21 @@ jobs:
             rm -rf "$baseline_dir"
             mkdir -p "$baseline_dir"
 
-            if ! gh release download "$baseline_tag" \
+            baseline_apk=""
+
+            if gh release download "$baseline_tag" \
                 --repo "$GITHUB_REPOSITORY" \
                 --dir "$baseline_dir" \
                 --pattern '*-arm64-v8a-release.apk' \
                 --clobber; then
-              echo "::notice::$baseline_tag has no arm64 APK; baseline guards skipped."
-            else
-
               baseline_apk="$(
                 find "$baseline_dir" -type f -name '*.apk' -print -quit
               )"
-              test -n "$baseline_apk"
+            fi
+
+            if [[ -z "$baseline_apk" ]]; then
+              echo "::notice::$baseline_tag has no downloadable arm64 APK; baseline guards skipped."
+            else
 
               baseline_code="$(version_code_of "$baseline_apk")"
               baseline_cert="$(certificate_of "$baseline_apk")"
@@ -929,7 +938,11 @@ jobs:
                 exit 1
               fi
 
-              echo "[OK] signing certificate matches $baseline_tag"
+              if [[ -n "$pinned_certificate" ]]; then
+                echo "[OK] signing certificate matches the release-signing.lock pin"
+              else
+                echo "[OK] signing certificate matches $baseline_tag"
+              fi
 
             fi
 
