@@ -15264,7 +15264,7 @@ private fun routingRulePreviewJson(rule: RoutingRule): String {
 private fun RoutingSimulatorCard(repo: AppRepository) {
     var query by rememberSaveable { mutableStateOf("") }
     val settings = repo.settings
-    val result = remember(query, settings.routingRulesJson, settings.routingMode, settings.routeBlockAds, settings.ipv6Enabled) {
+    val result = remember(query, settings, repo.geoGateNote) {
         if (query.isBlank()) null else repo.simulateRoute(query)
     }
 
