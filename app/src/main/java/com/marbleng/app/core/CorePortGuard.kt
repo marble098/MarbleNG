@@ -101,8 +101,23 @@ object CorePortGuard {
         pollMs: Long = 100L
     ): ReclaimResult {
         require(port in 1..65535)
-        val startedAt = System.currentTimeMillis()
-        fun leftMs(): Long = budgetMs - (System.currentTimeMillis() - startedAt)
+        require(budgetMs >= 0L && termWaitMs >= 0L && killWaitMs >= 0L)
+        require(pollMs > 0L)
+        val startedAt = System.nanoTime()
+        fun leftMs(): Long = budgetMs -
+            java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+        fun awaitExit(pid: Int, waitMs: Long) {
+            val waitStartedAt = System.nanoTime()
+            while (probe.alive(pid)) {
+                val phaseLeft = waitMs - java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                    System.nanoTime() - waitStartedAt
+                )
+                val remaining = minOf(phaseLeft, leftMs())
+                if (remaining <= 0L) break
+                Thread.sleep(minOf(20L, remaining))
+            }
+        }
 
         if (probe.bindable(port)) {
             return ReclaimResult(port, available = true, reaped = emptyList(), evidence = "")
@@ -114,22 +129,17 @@ object CorePortGuard {
         )
         val holders = findHolderPids(probe, inodes)
         for (pid in holders) {
+            if (leftMs() <= 0L) break
             val uid = readUid(probe, pid)
             if (uid != probe.myUid()) continue
             val binaryPath = readBinaryPath(probe, pid)
             if (!isCoreBinary(binaryPath, nativeLibDir, coreBinaries)) continue
 
             probe.signal(pid, SIGTERM)
-            val termDeadline = System.currentTimeMillis() + termWaitMs
-            while (probe.alive(pid) && System.currentTimeMillis() < termDeadline) {
-                Thread.sleep(minOf(20L, termWaitMs).coerceAtLeast(1L))
-            }
-            if (probe.alive(pid)) {
+            awaitExit(pid, termWaitMs)
+            if (probe.alive(pid) && leftMs() > 0L) {
                 probe.signal(pid, SIGKILL)
-                val killDeadline = System.currentTimeMillis() + killWaitMs
-                while (probe.alive(pid) && System.currentTimeMillis() < killDeadline) {
-                    Thread.sleep(minOf(20L, killWaitMs).coerceAtLeast(1L))
-                }
+                awaitExit(pid, killWaitMs)
             }
             reaped += "pid=$pid binary=${File(binaryPath).name} " +
                 if (probe.alive(pid)) "state=survived" else "state=reaped"

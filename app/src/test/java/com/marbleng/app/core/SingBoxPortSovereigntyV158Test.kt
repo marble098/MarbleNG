@@ -23,7 +23,8 @@ class SingBoxPortSovereigntyV158Test {
         val uid: Int,
         val cmdline: String,
         val fds: Map<String, String> = emptyMap(),
-        val ignoresTerm: Boolean = false
+        val ignoresTerm: Boolean = false,
+        val ignoresKill: Boolean = false
     ) {
         var alive = true
     }
@@ -60,7 +61,7 @@ class SingBoxPortSovereigntyV158Test {
             signals += pid to signalNumber
             when (signalNumber) {
                 15 -> if (!process.ignoresTerm) { process.alive = false; portFree = true }
-                9 -> { process.alive = false; portFree = true }
+                9 -> if (!process.ignoresKill) { process.alive = false; portFree = true }
             }
             return true
         }
@@ -151,6 +152,36 @@ class SingBoxPortSovereigntyV158Test {
             assertTrue("…naming the holder", result.evidence.contains("pid="))
             assertEquals("…and no signal ever flies", emptyList<Pair<Int, Int>>(), candidate.signals)
         }
+    }
+
+    @Test
+    fun reclaimBudgetCapsAllHoldersAndBothSignalWaits() {
+        val probe = FakeProbe(
+            (1..4).associateWith {
+                FakeProcess(
+                    MY_UID, "$NATIVE_LIB_DIR/libsingbox.so\u0000run",
+                    mapOf("7" to "socket:[1048571]"),
+                    ignoresTerm = true, ignoresKill = true
+                )
+            }.toMutableMap(),
+            tcp4 = procTcp
+        )
+        val started = System.nanoTime()
+        val result = CorePortGuard.reclaim(
+            probe, 10808, NATIVE_LIB_DIR, coreBinaries,
+            budgetMs = 30, termWaitMs = 2_000, killWaitMs = 2_000, pollMs = 5
+        )
+        val elapsedMs = (System.nanoTime() - started) / 1_000_000
+        assertFalse(result.available)
+        assertTrue("one budget, not one wait per holder: $elapsedMs ms", elapsedMs < 1_000)
+        assertTrue(probe.signals.size <= 1)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun invalidPollingIntervalIsRejected() {
+        CorePortGuard.reclaim(
+            probeWithStaleCore(), 10808, NATIVE_LIB_DIR, coreBinaries, pollMs = 0
+        )
     }
 
     @Test

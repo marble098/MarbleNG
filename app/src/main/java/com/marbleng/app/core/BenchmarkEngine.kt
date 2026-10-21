@@ -113,7 +113,7 @@ class BenchmarkEngine(
             livePool.shutdownNow()
         }
 
-        val ranked = rank(results.toList(), s)
+        val ranked = rank(synchronized(results) { results.toList() }, s)
         if (!directProbe(s)) {
             ranked.firstOrNull()?.let { top ->
                 intelligence?.setDecision(
@@ -226,10 +226,10 @@ class BenchmarkEngine(
                 intelligence?.recordBenchmark(profile, result, probeSettings)
             }
         }
-        jobs.forEach { runCatching { it.get() } }
-        pool.shutdownNow()
+        BenchmarkTaskAwaiter.await(jobs, pool)
         val byId = unique.associateBy { it.id }
-        return results.map { result ->
+        val snapshot = synchronized(results) { results.toList() }
+        return snapshot.map { result ->
             val history = byId[result.profileId]?.let {
                 intelligence?.predictedScore(it, probeSettings)
             } ?: 50.0
