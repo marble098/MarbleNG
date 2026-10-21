@@ -17,6 +17,9 @@
   an old verdict visible. Its cache now tracks the complete immutable settings value and the
   geo-load status as well as the query.
 
+- CI also exposed an unavailable upstream Xray tag (`v26.10.17`). The lock now names the
+  published prerelease `v26.10.21`; native regression smoke remains required before merge.
+
 ## Verification and boundaries
 
 Regression tests exercise failed-candidate isolation, cancellation of running and queued work,
