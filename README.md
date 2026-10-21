@@ -45,6 +45,28 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A living, layered surface** — a slowly breathing brand aurora behind every page, and one cool-shadow depth system above it, so nothing floats on a dead flat field.
 - **A Servers page that shows its hierarchy** — subscription cards with a real usage bar, and their servers nested inside them, smaller in every dimension.
 
+## Corners that close, type that fits
+
+`docs/VISUAL_POLISH_V218.md` is the newest chapter.
+
+**A subscription card now closes through every corner instead of snapping across them.** One
+animated fraction drives the header's clip, its outline's bottom edge, its padding and its ripple
+bound together, so a collapsing sub morphs from the open 16 dp top-only silhouette to the closed
+16 dp card — the same radius the outline has always drawn, at every frame of the morph. The old
+code jumped from a 20 dp clip onto a 16 dp border in a single frame, and the corners visibly
+fought each other for the whole collapse.
+
+**The type ramp came down a step and grew a weight ladder.** Page headlines dropped 28 → 24 sp,
+status titles 24 → 21 sp, section headings 20 → 18 sp, and every size tier now owns one dedicated
+weight — Display Bold, headlines SemiBold, titles stepping down to Medium, labels Medium — all of
+them faces Vazirmatn actually ships. The five `FontWeight.Black` overrides that made the platform
+synthesise a smeared faux-bold are gone.
+
+**The settings disclosures move on the product's own motion.** The stock `AnimatedVisibility`
+springs in the engine, notification, routing and speed-test sections were replaced with the same
+emphasized expand/collapse pair the Settings hub already used, so every disclosure in the app
+opens on one curve.
+
 ## Servers you can read at a glance
 
 `docs/SERVERS_HIERARCHY_V189.md` is the newest chapter.

@@ -265,75 +265,101 @@ private fun selectedFontFamily(id: String): FontFamily = when (parseAppFont(id))
     AppFont.TIMES_NEW_ROMAN -> FontFamily.Serif
 }
 
+/**
+ * MARBLE_VISUAL_POLISH_V218 — one type ramp where every size step owns its own weight.
+ *
+ * Two complaints came off real devices. First, the page-level type was too big: a 28 sp page
+ * headline, 24 sp status titles and 20 sp section headings left body text nowhere to sit and
+ * pushed every card's chrome past its content. Second, weight was not bound to size — small
+ * labels carried the same SemiBold as the headings above them while call sites escalated to
+ * FontWeight.Black, a weight Vazirmatn does not ship, so the platform synthesised a smeared
+ * faux-bold instead.
+ *
+ * The ramp now reads: the larger the text, the heavier and tighter it sits. Display is Bold,
+ * headlineLarge is Bold, the rest of the headlines are SemiBold, titles step SemiBold → Medium,
+ * body keeps the Persian Medium / Latin Normal split (Vazirmatn's Regular is too light at body
+ * sizes, Roboto's Medium too heavy), and labels are Medium under a SemiBold labelLarge. Every
+ * weight below is one the bundled faces actually ship — nothing is synthesised any more, and
+ * no call site needs a hand-rolled override to look right.
+ */
 private fun aetherTypography(fontId: String, persian: Boolean): Typography {
     val family = if (persian) VazirFamily else selectedFontFamily(fontId)
 
     fun track(latin: Double): TextUnit = if (persian) 0.sp else latin.sp
 
-    fun labelSmallSize(): TextUnit = if (persian) 12.sp else 11.5.sp
-    fun labelSmallLine(): TextUnit = if (persian) 17.sp else 16.sp
+    fun labelSmallSize(): TextUnit = if (persian) 12.sp else 11.sp
+    fun labelSmallLine(): TextUnit = if (persian) 17.sp else 15.sp
 
+    // The weight ladder: one dedicated weight per size tier, all of them shipped faces.
+    val displayWeight = FontWeight.Bold
+    val displaySmallWeight = FontWeight.SemiBold
+    val headlineLargeWeight = FontWeight.Bold
+    val headlineWeight = FontWeight.SemiBold
+    val titleWeight = FontWeight.SemiBold
+    val titleSmallWeight = FontWeight.Medium
     val bodyWeight = if (persian) FontWeight.Medium else FontWeight.Normal
+    val labelLargeWeight = FontWeight.SemiBold
+    val labelWeight = FontWeight.Medium
 
     return Typography(
     displayLarge = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Bold,
-        fontSize = 40.sp,
-        lineHeight = 48.sp,
+        fontWeight = displayWeight,
+        fontSize = 34.sp,
+        lineHeight = 42.sp,
         letterSpacing = track(-.50)
     ),
     displayMedium = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Bold,
-        fontSize = 34.sp,
-        lineHeight = 42.sp,
+        fontWeight = displayWeight,
+        fontSize = 30.sp,
+        lineHeight = 38.sp,
         letterSpacing = track(-.40)
     ),
     displaySmall = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 30.sp,
-        lineHeight = 38.sp,
+        fontWeight = displaySmallWeight,
+        fontSize = 26.sp,
+        lineHeight = 34.sp,
         letterSpacing = track(-.30)
     ),
     headlineLarge = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Bold,
-        fontSize = 28.sp,
-        lineHeight = 34.sp,
+        fontWeight = headlineLargeWeight,
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
         letterSpacing = track(-.30)
     ),
     headlineMedium = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 24.sp,
-        lineHeight = 30.sp,
+        fontWeight = headlineWeight,
+        fontSize = 21.sp,
+        lineHeight = 27.sp,
         letterSpacing = track(-.20)
     ),
     headlineSmall = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
-        lineHeight = 26.sp,
-        letterSpacing = track(-.10)
-    ),
-    titleLarge = TextStyle(
-        fontFamily = family,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = headlineWeight,
         fontSize = 18.sp,
         lineHeight = 24.sp,
         letterSpacing = track(-.10)
     ),
+    titleLarge = TextStyle(
+        fontFamily = family,
+        fontWeight = titleWeight,
+        fontSize = 17.sp,
+        lineHeight = 23.sp,
+        letterSpacing = track(-.10)
+    ),
     titleMedium = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp,
-        lineHeight = 22.sp
+        fontWeight = titleWeight,
+        fontSize = 15.5.sp,
+        lineHeight = 21.sp
     ),
     titleSmall = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = titleSmallWeight,
         fontSize = 14.sp,
         lineHeight = 19.sp,
         letterSpacing = track(.05)
@@ -341,8 +367,8 @@ private fun aetherTypography(fontId: String, persian: Boolean): Typography {
     bodyLarge = TextStyle(
         fontFamily = family,
         fontWeight = bodyWeight,
-        fontSize = 16.sp,
-        lineHeight = 24.sp,
+        fontSize = 15.5.sp,
+        lineHeight = 23.sp,
         letterSpacing = track(.15)
     ),
     bodyMedium = TextStyle(
@@ -361,21 +387,21 @@ private fun aetherTypography(fontId: String, persian: Boolean): Typography {
     ),
     labelLarge = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
+        fontWeight = labelLargeWeight,
+        fontSize = 13.5.sp,
+        lineHeight = 19.sp,
         letterSpacing = track(.10)
     ),
     labelMedium = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Medium,
+        fontWeight = labelWeight,
         fontSize = 12.sp,
         lineHeight = 16.sp,
         letterSpacing = track(.30)
     ),
     labelSmall = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Medium,
+        fontWeight = labelWeight,
         fontSize = labelSmallSize(),
         lineHeight = labelSmallLine(),
         letterSpacing = track(.40)

@@ -2040,7 +2040,7 @@ internal fun MarbleWordmark(modifier: Modifier = Modifier) {
         text = "MarbleNG",
         style = MaterialTheme.typography.headlineSmall.copy(
             brush = ramp,
-            fontWeight = FontWeight.Black,
+            fontWeight = FontWeight.Bold,
             letterSpacing = 0.4.sp
         ),
         maxLines = 1,
