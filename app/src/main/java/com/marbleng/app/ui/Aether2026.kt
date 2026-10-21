@@ -857,7 +857,7 @@ private fun MarbleUpdateDialog(
                         "↑",
                         color = Aether.Cyan,
                         style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Black
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -871,7 +871,7 @@ private fun MarbleUpdateDialog(
                     trx("A fresh MarbleNG build is ready"),
                     color = Aether.Ink,
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
                 Surface(
@@ -931,7 +931,11 @@ private fun MarbleUpdateDialog(
                                 )
                             }
                         }
-                        AnimatedVisibility(visible = notesScroll.maxValue > 0) {
+                        AnimatedVisibility(
+                            visible = notesScroll.maxValue > 0,
+                            enter = fadeIn(MarbleExpressiveSpecs.EntranceFadeFloat),
+                            exit = fadeOut(tween(MarbleExpressiveMotion.Short4))
+                        ) {
                             Text(
                                 if (notesScroll.value < notesScroll.maxValue) {
                                     "Swipe up to read all changes"
@@ -1385,8 +1389,10 @@ private fun SpatialHeader(
             Text(
                 trx(title),
                 color = Aether.Ink,
+                // MARBLE_VISUAL_POLISH_V218 — the page headline takes its weight from the type
+                // ramp (headlineLarge is Bold now); the old FontWeight.Black override asked for a
+                // weight no bundled face ships, so the platform smeared a synthesised faux-bold.
                 style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Black,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -3436,11 +3442,10 @@ private val ServersBadgeShape = RoundedCornerShape(8.dp)
 private val ServersPillShape = RoundedCornerShape(999.dp)
 
 // MARBLE_SERVERS_HIERARCHY_V189 — the two levels of the page now own two different silhouettes.
+// MARBLE_VISUAL_POLISH_V218 — the group's head silhouette is no longer a static shape: the
+// header morphs its own bottom corners on the animated attach fraction (see ServersGroupHeader),
+// so the card closes through every radius between the two states instead of jumping between them.
 
-private val ServersGroupHeadShape = RoundedCornerShape(
-    topStart = ServersHierarchy.GROUP_CORNER_DP.dp,
-    topEnd = ServersHierarchy.GROUP_CORNER_DP.dp
-)
 private val ServersGroupTailShape = RoundedCornerShape(
     bottomStart = ServersHierarchy.GROUP_CORNER_DP.dp,
     bottomEnd = ServersHierarchy.GROUP_CORNER_DP.dp
@@ -3478,6 +3483,7 @@ private fun serversRowDividerColor(): Color =
 private fun Modifier.serversStackedFrame(
     openTop: Boolean = false,
     openBottom: Boolean = false,
+    openBottomFraction: Float = if (openBottom) 1f else 0f,
     color: Color,
     width: Dp = 1.dp,
     radius: Dp = 16.dp
@@ -3485,7 +3491,10 @@ private fun Modifier.serversStackedFrame(
     val stroke = width.toPx()
     val r = radius.toPx()
     val top = if (openTop) -r * 2f else 0f
-    val bottom = if (openBottom) size.height + r * 2f else size.height
+    // MARBLE_VISUAL_POLISH_V218 — how far the bottom edge stays hidden is a fraction, not a
+    // switch: closing a sub bends the outline's bottom corners back into view in step with the
+    // card's own morphing clip instead of snapping them in on the collapse's first frame.
+    val bottom = size.height + ServersHierarchy.frameBottomExtension(openBottomFraction, r)
 
     clipRect(left = 0f, top = 0f, right = size.width, bottom = size.height) {
         drawRoundRect(
@@ -5351,7 +5360,25 @@ private fun ServersGroupHeader(
         animationSpec = MarbleExpressiveSpecs.WaveSpringFloat,
         label = "servers-group-chevron"
     )
-    val shape = if (attachedBelow) ServersGroupHeadShape else ServersCardShape
+
+    // MARBLE_VISUAL_POLISH_V218 — closing a sub morphs its corners instead of snapping them.
+    // The old code swapped a 16 dp top-only clip for a 20 dp all-round one in a single frame
+    // while the outline kept drawing its own 16 dp geometry, so the card's corners visibly
+    // fought each other for the whole collapse. One animated fraction now drives the clip, the
+    // ripple bound and the frame's bottom edge together, and the closed card rounds at the same
+    // GROUP_CORNER_DP its outline has always drawn — one silhouette at every frame of the morph.
+    val attach by animateFloatAsState(
+        targetValue = if (attachedBelow) 1f else 0f,
+        animationSpec = MarbleMotionSpecs.ResponseFloat,
+        label = "servers-group-attach"
+    )
+    val closingCorner = ServersHierarchy.attachCornerDp(attach).dp
+    val shape = RoundedCornerShape(
+        topStart = ServersHierarchy.GROUP_CORNER_DP.dp,
+        topEnd = ServersHierarchy.GROUP_CORNER_DP.dp,
+        bottomStart = closingCorner,
+        bottomEnd = closingCorner
+    )
 
     val usageTier = subscription?.let(::subscriptionUsageTier) ?: SubscriptionUsageTier.UNKNOWN
     val usageTone = usageTierTone(usageTier)
@@ -5376,7 +5403,7 @@ private fun ServersGroupHeader(
             )
 
             .serversStackedFrame(
-                openBottom = attachedBelow,
+                openBottomFraction = attach,
                 color = serversGroupFrameColor(),
                 width = ServersGroupFrameWidth,
                 radius = ServersHierarchy.GROUP_CORNER_DP.dp
@@ -5390,7 +5417,10 @@ private fun ServersGroupHeader(
                     start = 12.dp,
                     end = 7.dp,
                     top = 12.dp,
-                    bottom = if (attachedBelow) 10.dp else 12.dp
+                    // MARBLE_VISUAL_POLISH_V218 — the header's own breathing room morphs on the
+                    // same fraction as its corners: 12 dp standing alone, 10 dp while it carries
+                    // the server stack below.
+                    bottom = 12.dp - 2.dp * attach
                 ),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -11720,7 +11750,11 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
             else repo.settings.copy(singBoxSniffEnabled = it)
         )
     }
-    AnimatedVisibility(if (isXray) s.xraySniffingEnabled else s.singBoxSniffEnabled) {
+    AnimatedVisibility(
+        if (isXray) s.xraySniffingEnabled else s.singBoxSniffEnabled,
+        enter = expressiveExpandVertically(),
+        exit = expressiveCollapseVertically()
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             if (isXray) {
                 SettingSwitch(
@@ -11825,7 +11859,11 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
             subtitle = trx("Carry many streams over one connection to this node"),
             checked = s.muxEnabled
         ) { repo.updateSettings(repo.settings.copy(muxEnabled = it)) }
-        AnimatedVisibility(s.muxEnabled) {
+        AnimatedVisibility(
+            s.muxEnabled,
+            enter = expressiveExpandVertically(),
+            exit = expressiveCollapseVertically()
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 NumberSetting(
                     title = trx("Concurrency"),
@@ -11860,7 +11898,11 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
             subtitle = trx("Carry many streams over one connection to this node"),
             checked = s.singBoxMuxEnabled
         ) { repo.updateSettings(repo.settings.copy(singBoxMuxEnabled = it)) }
-        AnimatedVisibility(s.singBoxMuxEnabled) {
+        AnimatedVisibility(
+            s.singBoxMuxEnabled,
+            enter = expressiveExpandVertically(),
+            exit = expressiveCollapseVertically()
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 Text(trx("Protocol"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
                 FlowRow(
@@ -13057,7 +13099,11 @@ private fun NotificationSettings(repo: AppRepository) {
         checked = s.smartNotificationsEnabled
     ) { repo.updateSettings(s.copy(smartNotificationsEnabled = it)) }
 
-    AnimatedVisibility(s.smartNotificationsEnabled) {
+    AnimatedVisibility(
+        s.smartNotificationsEnabled,
+        enter = expressiveExpandVertically(),
+        exit = expressiveCollapseVertically()
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             SettingSwitch(
                 title = "Connection events",
@@ -15309,7 +15355,11 @@ private fun RoutingExpertSection(repo: AppRepository, s: AppSettings) {
         icon = HomeIcon.FILTER
     ) { expanded = !expanded }
 
-    AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+    AnimatedVisibility(
+        visible = expanded,
+        enter = expressiveExpandVertically(),
+        exit = expressiveCollapseVertically()
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(
                 trx("Domain matcher"),
@@ -15758,7 +15808,11 @@ private fun ProbeSettings(repo: AppRepository) {
         checked = s.probeSpeedTest
     ) { repo.updateSettings(repo.settings.copy(probeSpeedTest = it)) }
 
-    AnimatedVisibility(s.probeSpeedTest) {
+    AnimatedVisibility(
+        s.probeSpeedTest,
+        enter = expressiveExpandVertically(),
+        exit = expressiveCollapseVertically()
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             SettingSwitch(
                 title = "Grow the speed sample",

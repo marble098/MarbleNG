@@ -326,7 +326,7 @@ internal fun HomeLivePingMeter(
                         value = valueLabel,
                         color = Aether.Ink,
                         style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1
                     )
                     if (measured) {

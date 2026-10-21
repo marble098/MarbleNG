@@ -111,4 +111,29 @@ object ServersHierarchy {
         onlyReachable: Boolean,
         maxPingMs: Int
     ): Int = listOf(groupByCountry, onlyReachable, maxPingMs > 0).count { it }
+
+    /**
+     * MARBLE_VISUAL_POLISH_V218 — the arithmetic of a subscription card closing.
+     *
+     * The card's silhouette used to swap in a single frame: the moment a sub collapsed, its clip
+     * jumped from a 16 dp top-only shape to a 20 dp all-round one while its 16 dp outline kept
+     * drawing the old geometry, so the corners fought each other for the whole collapse. One
+     * animated fraction now drives the morph, and these pure functions are its single reading:
+     *
+     *  - [openFraction] clamps the animated attach fraction to 0..1 (0 = closed card, 1 = the
+     *    server stack below is attached);
+     *  - [attachCornerDp] is the card's bottom corner at that fraction — square while attached,
+     *    growing back to the card's own [GROUP_CORNER_DP] as the stack folds away, so the clip
+     *    and the outline always describe the same corner;
+     *  - [frameBottomExtension] is how far the outline's rounded rect over-extends below the
+     *    slice to hide its bottom edge while attached — two radii at full attach, zero when
+     *    closed, which is what bends the bottom border back into view in step with the clip.
+     */
+    fun openFraction(fraction: Float): Float = fraction.coerceIn(0f, 1f)
+
+    fun attachCornerDp(attachFraction: Float): Float =
+        GROUP_CORNER_DP * (1f - openFraction(attachFraction))
+
+    fun frameBottomExtension(attachFraction: Float, radius: Float): Float =
+        radius * 2f * openFraction(attachFraction)
 }
