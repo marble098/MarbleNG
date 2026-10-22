@@ -333,6 +333,16 @@ internal fun MeridianShieldPage(
     var status by remember { mutableStateOf("") }
     val fragment = parseFragmentStrategy(settings.fragmentStrategy)
 
+    // `trx` is @Composable, so it cannot be reached from a click handler, a scan coroutine or any
+    // other non-composable lambda. Everything this page says *about* a result is therefore resolved
+    // here, in composition, and the handlers below only pick from these maps.
+    val appliedWord = trx("Applied")
+    val engineSwitchNote =
+        trx("switch the engine to sing-box extended to use handshake fragmentation")
+    val cleanVerdict = trx("No interference was measured on this path.")
+    val fragmentLabels = FragmentStrategy.entries.associate { it.id to trx(it.label) }
+    val techniqueLabels = CensorshipLab.Technique.entries.associateWith { trx(it.label) }
+
     fun applyPrescription(target: CensorshipLab.Diagnosis, announce: Boolean) {
         val plan = CensorshipLab.prescribe(target, repo.settings)
         val next = plan.applyTo(repo.settings)
@@ -342,10 +352,9 @@ internal fun MeridianShieldPage(
             // the difference between a shield and a switch that silently does nothing.
             val needsSwitch = plan.touchesHandshake && repo.activeCoreEngine.id != "singbox"
             status = if (needsSwitch) {
-                trx("Applied") + " • " +
-                    trx("switch the engine to sing-box extended to use handshake fragmentation")
+                "$appliedWord • $engineSwitchNote"
             } else {
-                trx("Applied") + " • " + trx(plan.fragmentStrategy.label)
+                "$appliedWord • ${fragmentLabels[plan.fragmentStrategy.id] ?: plan.fragmentStrategy.label}"
             }
         }
     }
@@ -398,10 +407,10 @@ internal fun MeridianShieldPage(
                             applyPrescription(result, announce = true)
                         } else {
                             status = result.findings
-                                .map { trx(it.technique.label) }
+                                .map { techniqueLabels[it.technique] ?: it.technique.label }
                                 .distinct()
                                 .joinToString(" • ")
-                                .ifBlank { trx(result.summary) }
+                                .ifBlank { cleanVerdict }
                         }
                     }
                 },
