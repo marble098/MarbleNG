@@ -73,11 +73,13 @@ UPSTREAM_ISSUE = "https://github.com/SagerNet/sing-box/issues/4498"
 class Patch:
     """One anchored replacement: `old` must appear exactly once, `new` replaces it."""
 
-    def __init__(self, path, old, new, why):
+    def __init__(self, path, old, new, why, upstream_blocks=None, upstream_forbidden=None):
         self.path = path
         self.old = old
         self.new = new
         self.why = why
+        self.upstream_blocks = upstream_blocks
+        self.upstream_forbidden = upstream_forbidden or []
 
 
 PATCHES = [
@@ -96,6 +98,15 @@ PATCHES = [
         "\t}\n"
         "\tmyInterfaceNames := interfaceMonitor.MyInterfaces()\n",
         "direct outbound SIGSEGV at StartStatePostStart (core-start: exited 2)",
+        upstream_blocks=[
+            "func (h *Outbound) fetchMyAddresses() {\n"
+            "\tinterfaceMonitor := h.network.InterfaceMonitor()\n"
+            "\tif interfaceMonitor == nil {\n"
+            "\t\treturn\n"
+            "\t}\n"
+            "\tmyInterfaceNames := interfaceMonitor.MyInterfaces()\n",
+        ],
+        upstream_forbidden=["h.network.InterfaceMonitor().MyInterfaces()"],
     ),
     # ── Same guard one level up: three rule items call this accessor unguarded ─────────
     Patch(
@@ -109,8 +120,20 @@ PATCHES = [
         "\t}\n"
         "\tiif := r.interfaceMonitor.DefaultInterface()\n",
         "network_type / network_is_expensive / network_is_constrained rule items",
+        upstream_blocks=[
+            "func (r *NetworkManager) DefaultNetworkInterface() *adapter.NetworkInterface {\n"
+            "\tif r.interfaceMonitor == nil {\n"
+            "\t\treturn nil\n"
+            "\t}\n"
+            "\tiif := r.interfaceMonitor.DefaultInterface()\n",
+        ],
     ),
     # ── Upstream 288411b0: dhcp transport registers a callback on a nil monitor ────────
+    # Note: in v1.14.3-extended-2.7.3 (`adapter.Scope` lifecycle refactor), upstream kept
+    # the exact `if interfaceMonitor == nil` guard in `Start` and moved callback cleanup
+    # onto `scope.Add(...)` (`interfaceCallback := interfaceMonitor.RegisterCallback(...)`
+    # instead of `t.interfaceCallback = ...`). Verify the contiguous nil-guard block plus
+    # callback registration on the guarded local rather than the pre-1.14.3 struct field.
     Patch(
         "dns/transport/dhcp/dhcp.go",
         "\tif t.interfaceName == \"\" {\n"
@@ -125,6 +148,15 @@ PATCHES = [
         "\t\tt.interfaceCallback = interfaceMonitor.RegisterCallback(t.interfaceUpdated)\n"
         "\t}\n",
         "dhcp DNS transport callback registration",
+        upstream_blocks=[
+            "\tif t.interfaceName == \"\" {\n"
+            "\t\tinterfaceMonitor := t.networkManager.InterfaceMonitor()\n"
+            "\t\tif interfaceMonitor == nil {\n"
+            "\t\t\treturn E.New(\"missing monitor for auto DHCP, set route.auto_detect_interface\")\n"
+            "\t\t}\n",
+            "interfaceMonitor.RegisterCallback(",
+        ],
+        upstream_forbidden=["t.networkManager.InterfaceMonitor().RegisterCallback("],
     ),
     # ── Upstream 288411b0: default_interface_address rule item ────────────────────────
     Patch(
@@ -138,6 +170,13 @@ PATCHES = [
         "\t}\n"
         "\tdefaultInterface := r.interfaceMonitor.DefaultInterface()\n",
         "default_interface_address rule item",
+        upstream_blocks=[
+            "func (r *DefaultInterfaceAddressItem) Match(metadata *adapter.InboundContext) bool {\n"
+            "\tif r.interfaceMonitor == nil {\n"
+            "\t\treturn false\n"
+            "\t}\n"
+            "\tdefaultInterface := r.interfaceMonitor.DefaultInterface()\n",
+        ],
     ),
     # ── Upstream 288411b0: network_interface_address rule item ────────────────────────
     Patch(
@@ -152,11 +191,20 @@ PATCHES = [
         "\t\tmyInterfaces = interfaceMonitor.MyInterfaces()\n"
         "\t}\n",
         "network_interface_address rule item",
+        upstream_blocks=[
+            "\tinterfaces := r.networkManager.NetworkInterfaces()\n"
+            "\tvar myInterfaces []string\n"
+            "\tinterfaceMonitor := r.networkManager.InterfaceMonitor()\n"
+            "\tif interfaceMonitor != nil {\n"
+            "\t\tmyInterfaces = interfaceMonitor.MyInterfaces()\n"
+            "\t}\n",
+        ],
+        upstream_forbidden=["r.networkManager.InterfaceMonitor().MyInterfaces()"],
     ),
 ]
 
 
-DIRECT_TEST = '''package direct
+DIRECT_TEST_LEGACY = '''package direct
 
 // {marker} — regression pin for the crash that killed every sing-box start on Android.
 //
@@ -202,6 +250,119 @@ func TestMarbleDirectOutboundStartsWithoutAnInterfaceMonitor(t *testing.T) {{
 '''
 
 
+DIRECT_TEST_SCOPE = '''package direct
+
+// {marker} — regression pin for the crash that killed every sing-box start on Android.
+//
+// An app-UID CLI child gets no interface monitor: sing-tun refuses netlink on GOOS=android,
+// route.NewNetworkManager tolerates that refusal, and Outbound.Start(StartStatePostStart, scope)
+// then called InterfaceMonitor().MyInterfaces() on a nil interface — SIGSEGV, exit status 2,
+// reported by MarbleNG as `core-start: exited 2`.
+//
+// Upstream reproduced it in {issue} and fixed it in {commit}. From sing-box 1.14.3 on,
+// adapter.Lifecycle.Start takes `(stage, *adapter.Scope)`. This test recreates the device
+// condition on any host, so the guard is pinned by `go test` and not by a device.
+
+import (
+\t"context"
+\t"testing"
+
+\t"github.com/sagernet/sing-box/adapter"
+\t"github.com/sagernet/sing-tun"
+)
+
+// marbleNoInterfaceMonitor is the Android CLI condition: every other NetworkManager method
+// is left nil on purpose, so a future caller that reaches for one fails here instead of on
+// a phone.
+type marbleNoInterfaceMonitor struct {{
+\tadapter.NetworkManager
+}}
+
+func (marbleNoInterfaceMonitor) InterfaceMonitor() tun.DefaultInterfaceMonitor {{ return nil }}
+
+func TestMarbleDirectOutboundStartsWithoutAnInterfaceMonitor(t *testing.T) {{
+\tscope := adapter.NewScope(context.Background(), nil)
+\tdefer scope.Close()
+\th := &Outbound{{network: marbleNoInterfaceMonitor{{}}}}
+\tfor _, stage := range []adapter.StartStage{{
+\t\tadapter.StartStateInitialize,
+\t\tadapter.StartStatePostStart,
+\t\tadapter.StartStateStarted,
+\t}} {{
+\t\tif err := h.Start(stage, scope); err != nil {{
+\t\t\tt.Fatalf("Start(stage=%d) = %v, want nil", stage, err)
+\t\t}}
+\t}}
+\t// The interface-update path reaches the same accessor and is what a network change
+\t// would trigger mid-session.
+\th.InterfaceUpdated(context.Background())
+\tif addresses := h.myAddresses.Load(); len(addresses) != 0 {{
+\t\tt.Fatalf("myAddresses = %v, want none without an interface monitor", addresses)
+\t}}
+}}
+'''
+
+
+DHCP_TEST_LEGACY = '''package dhcp
+
+// {marker} — pins the DHCP auto-interface nil-monitor refusal (upstream {commit}).
+
+import (
+\t"strings"
+\t"testing"
+
+\t"github.com/sagernet/sing-box/adapter"
+\t"github.com/sagernet/sing-tun"
+)
+
+type marbleNoDHCPInterfaceMonitor struct {{
+\tadapter.NetworkManager
+}}
+
+func (marbleNoDHCPInterfaceMonitor) InterfaceMonitor() tun.DefaultInterfaceMonitor {{ return nil }}
+
+func TestMarbleDHCPAutoInterfaceRefusesCleanlyWithoutAnInterfaceMonitor(t *testing.T) {{
+\ttr := &Transport{{networkManager: marbleNoDHCPInterfaceMonitor{{}}}}
+\terr := tr.Start(adapter.StartStateStart)
+\tif err == nil || !strings.Contains(err.Error(), "missing monitor for auto DHCP") {{
+\t\tt.Fatalf("Start(StartStateStart) = %v, want missing monitor error", err)
+\t}}
+}}
+'''
+
+
+DHCP_TEST_SCOPE = '''package dhcp
+
+// {marker} — pins the DHCP auto-interface nil-monitor refusal across 1.14.3's adapter.Scope
+// lifecycle refactor (upstream {commit}).
+
+import (
+\t"context"
+\t"strings"
+\t"testing"
+
+\t"github.com/sagernet/sing-box/adapter"
+\t"github.com/sagernet/sing-tun"
+)
+
+type marbleNoDHCPInterfaceMonitor struct {{
+\tadapter.NetworkManager
+}}
+
+func (marbleNoDHCPInterfaceMonitor) InterfaceMonitor() tun.DefaultInterfaceMonitor {{ return nil }}
+
+func TestMarbleDHCPAutoInterfaceRefusesCleanlyWithoutAnInterfaceMonitor(t *testing.T) {{
+\tscope := adapter.NewScope(context.Background(), nil)
+\tdefer scope.Close()
+\ttr := &Transport{{networkManager: marbleNoDHCPInterfaceMonitor{{}}}}
+\terr := tr.Start(adapter.StartStateStart, scope)
+\tif err == nil || !strings.Contains(err.Error(), "missing monitor for auto DHCP") {{
+\t\tt.Fatalf("Start(StartStateStart) = %v, want missing monitor error", err)
+\t}}
+}}
+'''
+
+
 ROUTE_TEST = '''package route
 
 // {marker} — the accessor three rule items (network_type, network_is_expensive,
@@ -218,14 +379,59 @@ func TestMarbleDefaultNetworkInterfaceWithoutAnInterfaceMonitor(t *testing.T) {{
 }}
 '''
 
-TESTS = {
-    "protocol/direct/marble_android_monitor_test.go": DIRECT_TEST,
-    "route/marble_android_monitor_test.go": ROUTE_TEST,
-}
+
+def select_tests(root: Path) -> dict:
+    direct_src = (root / "protocol/direct/outbound.go").read_text(encoding="utf-8")
+    if "func (h *Outbound) Start(stage adapter.StartStage, scope *adapter.Scope) error" in direct_src:
+        direct_test = DIRECT_TEST_SCOPE
+    elif "func (h *Outbound) Start(stage adapter.StartStage) error" in direct_src:
+        direct_test = DIRECT_TEST_LEGACY
+    else:
+        raise SystemExit(
+            "sing-box Outbound.Start signature moved in protocol/direct/outbound.go. "
+            "Re-read the pinned core before rebuilding; never ship an unpatched binary."
+        )
+
+    dhcp_src = (root / "dns/transport/dhcp/dhcp.go").read_text(encoding="utf-8")
+    if "func (t *Transport) Start(stage adapter.StartStage, scope *adapter.Scope) error" in dhcp_src:
+        dhcp_test = DHCP_TEST_SCOPE
+    elif "func (t *Transport) Start(stage adapter.StartStage) error" in dhcp_src:
+        dhcp_test = DHCP_TEST_LEGACY
+    else:
+        raise SystemExit(
+            "sing-box DHCP Transport.Start signature moved in dns/transport/dhcp/dhcp.go. "
+            "Re-read the pinned core before rebuilding; never ship an unpatched binary."
+        )
+
+    return {
+        "protocol/direct/marble_android_monitor_test.go": direct_test,
+        "route/marble_android_monitor_test.go": ROUTE_TEST,
+        "dns/transport/dhcp/marble_android_monitor_test.go": dhcp_test,
+    }
 
 
 def render(template: str) -> str:
     return template.format(marker=MARKER, commit=UPSTREAM_COMMIT, issue=UPSTREAM_ISSUE)
+
+
+def is_verified_upstream(text: str, patch: Patch) -> bool:
+    if any(forbidden in text for forbidden in patch.upstream_forbidden):
+        return False
+    if patch.upstream_blocks is not None:
+        return bool(patch.upstream_blocks) and all(block in text for block in patch.upstream_blocks)
+    old_lines = {
+        line.strip()
+        for line in patch.old.splitlines()
+        if line.strip() and not line.lstrip().startswith("//")
+    }
+    postcondition = [
+        line.strip()
+        for line in patch.new.splitlines()
+        if line.strip()
+        and not line.lstrip().startswith("//")
+        and line.strip() not in old_lines
+    ]
+    return bool(postcondition) and all(line in text for line in postcondition)
 
 
 def apply_patch(root: Path, patch: Patch) -> str:
@@ -238,22 +444,10 @@ def apply_patch(root: Path, patch: Patch) -> str:
         return "already patched"
     if text.count(patch.old) != 1:
         # A newer pinned release may already contain the upstream repair without
-        # MarbleNG's explanatory comments.  Treat that as fixed only when every
-        # functional line introduced by this patch is present; merely losing an
-        # old textual anchor must still stop the build.
-        old_lines = {
-            line.strip()
-            for line in patch.old.splitlines()
-            if line.strip() and not line.lstrip().startswith("//")
-        }
-        postcondition = [
-            line.strip()
-            for line in patch.new.splitlines()
-            if line.strip()
-            and not line.lstrip().startswith("//")
-            and line.strip() not in old_lines
-        ]
-        if postcondition and all(line in text for line in postcondition):
+        # MarbleNG's explanatory comments.  Treat that as fixed only when the
+        # patch's upstream guard contract holds (and no unguarded call remains);
+        # merely losing an old textual anchor must still stop the build.
+        if is_verified_upstream(text, patch):
             # Keep the marker used by prepare-native.sh while leaving the
             # release's already-correct implementation untouched. The marker is
             # added once: re-prepending on every run would grow the file each
@@ -292,7 +486,7 @@ def main() -> None:
     for patch in PATCHES:
         results.append((patch.path, apply_patch(root, patch)))
 
-    for relative, template in TESTS.items():
+    for relative, template in select_tests(root).items():
         target = root / relative
         target.write_text(render(template), encoding="utf-8")
         results.append((relative, "regression test written"))
