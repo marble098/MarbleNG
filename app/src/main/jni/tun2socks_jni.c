@@ -12,12 +12,17 @@
  * The whole point of this file is the descriptor argument: Android's VpnService
  * creates the TUN device in this process, so the Go stack has to read it here.
  *
- * Ownership rule (V223): the descriptor belongs to the VpnService. The Go core
- * reads it and stops reading it, and it never closes it — MarbleVpnService
- * closes it once, after nativeStop() has reported that the datapath is finished.
- * So a build that still closes it on this side (or on the Go side) double-closes
- * a number the process may already have recycled, which is what a SIGABRT during
- * disconnect looks like from the outside.
+ * Ownership rule (V223, completed by MARBLE_FDSAN_DOUBLE_CLOSE_V224): the
+ * descriptor belongs to the VpnService and is only lent across this boundary.
+ * The Go wrapper duplicates it (F_DUPFD_CLOEXEC) before opening its device,
+ * so the number the gVisor stack closes from inside Stack.Wait() — via the
+ * pinned tun2socks FD.Close(), the close V223 missed — is the wrapper's own
+ * dup, never this one. MarbleVpnService closes the borrowed number once,
+ * after nativeStop() has reported that the datapath is finished, and because
+ * nothing native ever closed it, that fdsan-tagged ParcelFileDescriptor close
+ * cannot meet the EBADF that bionic reports as "double-close of file
+ * descriptor %d detected" before aborting the process. This shim itself only
+ * forwards the number; it neither dups nor closes anything.
  */
 #include <jni.h>
 #include <dlfcn.h>

@@ -2231,6 +2231,26 @@ TUN2SOCKS_HEAD="$(git -C "$TUN2SOCKS_SRC" rev-parse HEAD)"
 mkdir -p "$TUN2SOCKS_SRC/cmd/libmarble"
 cp -f "$ROOT/native/tun2socks/main.go" "$TUN2SOCKS_SRC/cmd/libmarble/main.go"
 
+# MARBLE_FDSAN_DOUBLE_CLOSE_V224 — the borrowed-descriptor guard, asserted on the exact source
+# that is about to be compiled. The VpnService lends its TUN descriptor to the wrapper, and the
+# pinned stack closes the descriptor it is given from inside Stack.Wait() (NIC removal with
+# closeLinkEndpoint=true runs tun2socks' FD.Close() = unix.Close(fd)). V223 only removed the
+# wrapper's own close, so the service's fdsan-tagged adoptFd close met an already-closed number
+# and bionic aborted the process on disconnect: "fdsan: double-close of file descriptor 148
+# detected". The wrapper therefore has to duplicate the borrowed descriptor with
+# F_DUPFD_CLOEXEC and open its device on that dup — and if that ever regresses, this build must
+# die here with the reason, not ship an APK that aborts when a user taps disconnect.
+grep -F 'MARBLE_FDSAN_DOUBLE_CLOSE_V224' "$TUN2SOCKS_SRC/cmd/libmarble/main.go" >/dev/null || die "tun2socks wrapper lost the V224 borrowed-descriptor marker"
+grep -F 'unix.F_DUPFD_CLOEXEC' "$TUN2SOCKS_SRC/cmd/libmarble/main.go" >/dev/null || die "tun2socks wrapper no longer duplicates the borrowed TUN descriptor"
+grep -F 'fdbased.Open(strconv.Itoa(ownedFd)' "$TUN2SOCKS_SRC/cmd/libmarble/main.go" >/dev/null || die "tun2socks device is not opened on the wrapper-owned dup"
+if grep -F 'fdbased.Open(strconv.Itoa(fd)' "$TUN2SOCKS_SRC/cmd/libmarble/main.go" >/dev/null; then
+    die "tun2socks device is opened on the borrowed TUN descriptor: the stack will close the VpnService's number (fdsan double-close)"
+fi
+if grep -F 'unix.Close(fd)' "$TUN2SOCKS_SRC/cmd/libmarble/main.go" >/dev/null; then
+    die "tun2socks wrapper closes the borrowed TUN descriptor (fdsan double-close)"
+fi
+ok "tun2socks borrowed-descriptor guard (V224): the stack can only close the wrapper's own dup"
+
 echo "tun2socks source : $TUN2SOCKS_REPO $TUN2SOCKS_TAG"
 echo "tun2socks commit : $TUN2SOCKS_HEAD"
 

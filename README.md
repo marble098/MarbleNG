@@ -603,6 +603,27 @@ session armed a sticky `SYNC_STOP` whose `assert()` on a closed event socketpair
 `TUN2SOCKS |`/`TUNNEL |` lifecycle lines that were missing from the timeline), and
 `Tun2SocksShutdownV223Test` pins all three rules without a device.
 
+### The V224 pass — the fdsan double-close, and a borrowed descriptor nobody else may close
+
+`docs/FDSAN_DOUBLE_CLOSE_V224.md` is the chapter. A tun2socks disconnect on a V223 build still died —
+`fdsan: double-close of file descriptor 148 detected`, one line after the service's own single,
+locked `fd-close` — because V223 had removed the wrapper's close but not the close *inside the
+stack*: gVisor's `Stack.Wait()` removes every NIC with `closeLinkEndpoint=true`, which runs the
+pinned tun2socks `FD.Close()`, and that is `unix.Close(fd)` wrapped around gVisor's no-op. The raw
+syscall close never reaches bionic's fdsan table, so the service's fdsan-tagged
+`ParcelFileDescriptor.adoptFd(fd).close()` met a kernel-closed number, and bionic turns exactly
+that pair (tagged close + `EBADF`) into the "double-close detected" abort. The rule is now about
+ownership, not about the absence of a `close` call: the service's descriptor is only ever **lent**
+across JNI, both native datapaths duplicate it at the boundary (`F_DUPFD_CLOEXEC` — in the Go
+wrapper before `fdbased.Open`, and in the HEV JNI bridge before `hev_socks5_tunnel_main_from_str`)
+and run and close only their own dup. One TUN device, two numbers, one owner and one close per
+number — so `Stack.Wait()`, a future endpoint teardown, or an auto-bumped HEV can close whatever
+they own without ever touching the number the service closes. The service side is unchanged on
+purpose (an unclosed `hevFd` would leak on every native early-refusal path), and the ownership
+split is pinned where each language is read: `FdsanDoubleCloseV224Test`, the V224 integrity checks
+(the device may only be opened on `ownedFd`, never on the borrowed `fd`), and a stage-time guard
+in `prepare-native.sh` that fails the release build if the staged wrapper ever loses the dup.
+
 ### The V221 pass — Meridian: flat surfaces, an accent the user owns, and a Censorship Lab
 
 `docs/MERIDIAN_V221.md` is the chapter. The interface gains a second material — **flat**, now the

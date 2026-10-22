@@ -6,6 +6,13 @@ the tun2socks datapath was running, and what changed so it cannot happen again.*
 Marker: `MARBLE_TUN2SOCKS_SHUTDOWN_V223`. Pins: unchanged — `core-lock.json` (Xray, HEV,
 sing-box extended, tun2socks v2.7.0). No core binary moved in this chapter.
 
+> **Follow-up (V224):** one assumption in this chapter — that removing the wrapper's own close
+> meant nothing native closed the service's descriptor — was wrong: `Stack.Wait()` closes the link
+> endpoint, and the pinned tun2socks `FD.Close()` closes the fd it was opened with. That was the
+> `fdsan: double-close of file descriptor 148` disconnect abort. The correction (borrowed
+> descriptors are duplicated at the JNI boundary; each datapath closes only its own dup) is
+> `docs/FDSAN_DOUBLE_CLOSE_V224.md`. Everything else in this chapter still stands.
+
 ---
 
 ## خلاصه (Persian summary)

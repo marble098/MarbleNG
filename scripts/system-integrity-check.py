@@ -335,6 +335,14 @@ files = {
         "app/src/test/java/com/marbleng/app/core/Tun2SocksShutdownV223Test.kt"
     ),
     "shutdownDoc": read("docs/TUN2SOCKS_SHUTDOWN_V223.md"),
+    # MARBLE_FDSAN_DOUBLE_CLOSE_V224 — the borrowed-descriptor rule: the HEV JNI bridge (the
+    # other side of the boundary the Go wrapper already had asserted), the test that pins the
+    # Kotlin-visible half and the chapter that explains the Stack.Wait() close V223 missed.
+    "hevJni": read("app/src/main/jni/marbleng_jni.c"),
+    "fdsanTest": read(
+        "app/src/test/java/com/marbleng/app/core/FdsanDoubleCloseV224Test.kt"
+    ),
+    "fdsanDoc": read("docs/FDSAN_DOUBLE_CLOSE_V224.md"),
     "build": workflow("build.yml"),
     "gradle": read("app/build.gradle.kts"),
     # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — one version file, read by the settings script, the module
@@ -1881,11 +1889,24 @@ _t2s_teardown = _t2s_go[_t2s_go.index("func teardown("):]
 _t2s_teardown = _t2s_teardown[: _t2s_teardown.index("\n}\n") + 3]
 
 check(
-    "V223 the second datapath stops before it lets go, and never closes a descriptor it does not own",
-    # The descriptor belongs to the VpnService. gVisor says so, HEV behaves that way, and the
-    # double close this release removes was the one thing only this datapath did.
-    "unix.Close(" not in _t2s_go
-    and "device.Close()" not in _t2s_go
+    "V224 the second datapath stops before it lets go, and only ever closes its own dup",
+    # The descriptor belongs to the VpnService and is only lent to the wrapper. This check used
+    # to forbid `unix.Close(` in the wrapper outright (V223) — and the crash came back anyway,
+    # because the close was never in the wrapper: gVisor's Stack.Wait() removes each NIC with
+    # closeLinkEndpoint=true, which runs the pinned tun2socks FD.Close() = unix.Close(fd) on the
+    # borrowed number, and the service's fdsan-tagged adoptFd close then aborted the process
+    # ("fdsan: double-close of file descriptor 148 detected"). Forbidding close *text* in the
+    # wrapper cannot see a close inside Wait(); what makes any present or future stack close
+    # harmless is that the device is opened on a dup the wrapper owns. So that is what is
+    # asserted now: the dup exists, the device is opened on it, the borrowed number is never
+    # opened on and never closed, and the only raw close left is of the dup (the fdbased.Open
+    # failure path, where neither tun2socks nor gVisor closes anything).
+    "MARBLE_FDSAN_DOUBLE_CLOSE_V224" in files["t2sWrapper"]
+    and "unix.F_DUPFD_CLOEXEC" in _t2s_go
+    and "fdbased.Open(strconv.Itoa(ownedFd)" in _t2s_go
+    and "fdbased.Open(strconv.Itoa(fd)" not in _t2s_go
+    and "unix.Close(fd)" not in _t2s_go
+    and "unix.Close(ownedFd)" in _t2s_go
     # ... and the datapath is stopped the only way the endpoint allows: the stopfd, then the wait.
     and "func stopLinkEndpoint(" in _t2s_go
     and "dev.Attach(nil)" in _t2s_go
@@ -1895,6 +1916,11 @@ check(
     # The fan-in is closed after the stack: closing it first would leave the stack's forwarders
     # blocked on an unbuffered channel nobody drains.
     and _t2s_teardown.index("st.Wait()") < _t2s_teardown.index("transport.Close()")
+    # The device close belongs between the wait and the fan-in: Wait() normally already ran it
+    # (through the NIC removal), the pinned FD.Close() is closed-flag guarded, so this call is
+    # the fallback that keeps the dup from leaking if a future stack stops closing endpoints —
+    # and it may only run once every dispatcher has left the number, which is after Wait().
+    and _t2s_teardown.index("st.Wait()") < _t2s_teardown.index("dev.Close()") < _t2s_teardown.index("transport.Close()")
     # A reconnect may not open a second stack over one descriptor.
     and "stateStopping" in _t2s_go
     and "codeStopping       = -7" in _t2s_go
@@ -1940,6 +1966,30 @@ check(
     and "class Tun2SocksShutdownV223Test" in files["shutdownTest"]
     and "TUN2SOCKS_SHUTDOWN_V223.md" in files["readme"]
     and "MARBLE_TUN2SOCKS_SHUTDOWN_V223" in files["shutdownDoc"],
+)
+# MARBLE_FDSAN_DOUBLE_CLOSE_V224 — one TUN device, two numbers, one owner and one close per
+# number. The Go half of this rule is asserted in the V224 datapath check above (and again, on
+# the staged release source, by scripts/prepare-native.sh); what belongs here is everything
+# around it: the HEV bridge applying the same borrowed-descriptor rule before an auto-bumped
+# HEV can reopen the class on the default datapath, the policy marker the Kotlin side reads,
+# and the test + chapter that keep the reasoning attached to the code.
+check(
+    "V224 both datapaths borrow the TUN descriptor and close only their own dup",
+    "MARBLE_FDSAN_DOUBLE_CLOSE_V224" in files["hevJni"]
+    and "F_DUPFD_CLOEXEC" in files["hevJni"]
+    and "hev_socks5_tunnel_main_from_str((const unsigned char*)s,n,owned_fd)" in files["hevJni"]
+    and "close(owned_fd)" in files["hevJni"]
+    and "MARBLE_FDSAN_DOUBLE_CLOSE_V224" in files["t2sJni"]
+    and "FD_OWNERSHIP_MARKER" in files["shutdownPolicy"]
+    and "MARBLE_FDSAN_DOUBLE_CLOSE_V224" in files["shutdownPolicy"]
+    and "fdsan double-close" in files["shutdownPolicy"]
+    # The release build re-asserts the dup on the source it actually compiles, so a wrapper
+    # regression fails the native build instead of a user's disconnect.
+    and "MARBLE_FDSAN_DOUBLE_CLOSE_V224" in files["native"]
+    and "fdbased.Open(strconv.Itoa(ownedFd)" in files["native"]
+    and "class FdsanDoubleCloseV224Test" in files["fdsanTest"]
+    and "FDSAN_DOUBLE_CLOSE_V224.md" in files["readme"]
+    and "MARBLE_FDSAN_DOUBLE_CLOSE_V224" in files["fdsanDoc"],
 )
 check(
     "a crashed core is classified as a core fault, never as a config refusal",
