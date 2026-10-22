@@ -10,7 +10,9 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -126,6 +128,28 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // MARBLE_AURORA_SURFACE_V219 — the app is the window.
+        //
+        // Until now every page was laid out inside the system bars: the status bar owned a solid
+        // strip of the palette and the gesture bar owned a strip of its own, so the backdrop that
+        // V190 promised "runs edge to edge" was only ever seen between two system rectangles. The
+        // activity now asks Android for the whole display — content is laid out behind both bars,
+        // the page backdrop paints under them, and the navigation dock is the only thing that
+        // keeps a (deliberate) distance from the gesture line.
+        //
+        // Both scrims are transparent in both modes; AetherFlowTheme owns the bar icon appearance
+        // from the live palette, so a light theme never gets white-on-white status icons even when
+        // the phone is in dark mode.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        )
         savedInstanceState?.getString(KEY_PENDING_PROFILE)?.let { id ->
             val sourceId = savedInstanceState.getString(KEY_PENDING_PROFILE_SOURCE)
             pending = app.repo.profile(id, sourceId)

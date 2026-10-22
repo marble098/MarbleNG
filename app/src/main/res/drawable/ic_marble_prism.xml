@@ -1,21 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- MARBLE_AURORA_SURFACE_V219 — the prism mark, drawn on a 28-unit grid.
+
+     One orbit (the tunnel), one folded "M" (the product), one translucent facet where the two
+     strokes cross (the marble). The strokes are round-capped and share a single weight, so the mark
+     holds together at 18 dp in a notification and at 40 dp in the header. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="28dp"
     android:height="28dp"
     android:viewportWidth="28"
     android:viewportHeight="28">
+
     <path
-        android:fillColor="@android:color/transparent"
+        android:fillColor="#00000000"
+        android:pathData="M3.2,14 a10.8,4.2 0 1,0 21.6,0 a10.8,4.2 0 1,0 -21.6,0"
+        android:strokeColor="#8FD8FF"
+        android:strokeAlpha="0.55"
+        android:strokeWidth="1.5" />
+
+    <path
+        android:pathData="M14,6.4 L20,21 L14,17.2 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="14"
+                android:startY="6.4"
+                android:endX="20"
+                android:endY="21"
+                android:type="linear">
+                <item android:offset="0" android:color="#66FFFFFF" />
+                <item android:offset="1" android:color="#00FFFFFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M6.4,22 L9.6,6.2 L14,14.6 L18.4,6.2 L21.6,22"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M14,2.5 C7.65,2.5 2.5,7.65 2.5,14 C2.5,20.35 7.65,25.5 14,25.5 C20.35,25.5 25.5,20.35 25.5,14 C25.5,7.65 20.35,2.5 14,2.5 Z" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2.2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M7.2,19.2 L9.2,8.6 L14,16.1 L18.8,8.6 L20.8,19.2" />
+        android:strokeWidth="2.2" />
 </vector>

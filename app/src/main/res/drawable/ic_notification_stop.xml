@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- MARBLE_AURORA_SURFACE_V219 — the status-bar mark while a tunnel is being torn down.
+
+     The same 2.1-unit weight as the running mark, drawn as a closed square with round joins: the
+     pair reads as "on" and "on, stopping" rather than as two unrelated glyphs. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -6,6 +10,16 @@
     android:viewportHeight="24">
 
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M7.4,7.4 L16.6,7.4 L16.6,16.6 L7.4,16.6 Z" />
+        android:fillColor="#00000000"
+        android:pathData="M8.2,8.2 L15.8,8.2 L15.8,15.8 L8.2,15.8 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2.1" />
+
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M3.4,12 a8.6,3.3 0 1,0 17.2,0 a8.6,3.3 0 1,0 -17.2,0"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeAlpha="0.45"
+        android:strokeWidth="1.2" />
 </vector>

@@ -1,11 +1,23 @@
 <resources>
+    <!-- MARBLE_AURORA_SURFACE_V219 — the window is the app.
+
+         The activity calls enableEdgeToEdge(), so both system bars are transparent, their contrast
+         enforcement is off, and the display cutout is allowed to bleed into the layout. Compose
+         pads its own content (status bar at the top of the page stack, the floating dock above the
+         gesture line), which is why nothing here reserves a strip of the screen: the page backdrop
+         is what the user sees under the clock and under the home indicator. -->
     <style name="Theme.MarbleNG" parent="android:style/Theme.Material.Light.NoActionBar">
-                <item name="android:fontFamily">@font/vazirmatn_medium</item>
+        <item name="android:fontFamily">@font/vazirmatn_medium</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
-                <item name="android:statusBarColor">#F4F8FD</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:navigationBarDividerColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
         <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
     </style>
 </resources>

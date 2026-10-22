@@ -839,12 +839,12 @@ private fun ConnectButtonSlide(
     val motion = MarbleMotion.current
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
-    val trackHeight = 66.dp
-    val knobSize = 54.dp
-    val padding = 6.dp
+    val trackHeight = MarbleSlideSpec.TrackHeight
+    val knobSize = MarbleSlideSpec.ThumbSize
+    val padding = MarbleSlideSpec.Inset
     val travelDp = width - knobSize - padding * 2
     val travelPx = with(density) { travelDp.toPx() }.coerceAtLeast(1f)
-    val shape = RoundedCornerShape(trackHeight / 2)
+    val shape = marbleSlideShape(trackHeight)
     val busy = evidence.connecting || evidence.disconnecting
     val label = homeActionLabel(evidence)
     val controlDescription = "${trx(label)} ${trx("slider")}"
@@ -884,17 +884,13 @@ private fun ConnectButtonSlide(
                 modifier = Modifier
                     .width(width)
                     .height(trackHeight)
-                    .clip(shape)
-                    .background(homeCloudCardFill())
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                animatedTone.copy(alpha = .20f + .18f * progress),
-                                animatedTone.copy(alpha = .06f)
-                            )
-                        )
+                    .marbleSlideTrack(
+                        shape = shape,
+                        tone = animatedTone,
+                        progress = progress,
+                        busy = busy,
+                        engaged = evidence.connected || evidence.connecting
                     )
-                    .border(1.4.dp, animatedTone.copy(alpha = .38f), shape)
                     .semantics {
                         contentDescription = controlDescription
                         onClick(label = controlDescription) {
@@ -904,67 +900,39 @@ private fun ConnectButtonSlide(
                     },
                 contentAlignment = Alignment.CenterStart
             ) {
-                if (busy) {
-                    Canvas(Modifier.matchParentSize()) {
-                        val x = size.width * (if (busy) motion.loop(1_400) else 0f)
-                        drawRect(
-                            brush = Brush.horizontalGradient(
-                                listOf(Color.Transparent, animatedTone.copy(alpha = .22f), Color.Transparent),
-                                startX = x - size.width * .22f,
-                                endX = x + size.width * .22f
-                            )
-                        )
-                    }
-                }
+                MarbleSlideEnergyBed(
+                    tone = animatedTone,
+                    progress = progress,
+                    busy = busy,
+                    modifier = Modifier.matchParentSize()
+                )
+                MarbleSlideGuideMarks(
+                    tone = animatedTone,
+                    fade = if (evidence.connected) progress else 1f - progress,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 18.dp)
+                        .size(width = 58.dp, height = 22.dp)
+                )
                 Text(
                     label,
-                    color = animatedTone.copy(alpha = .92f),
+                    color = marbleSlideLabelTone(animatedTone, evidence.connected),
                     style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = .2.sp,
                     maxLines = 1,
                     softWrap = false,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = knobSize, end = 44.dp)
+                        .padding(start = knobSize + padding, end = 52.dp)
                 )
-
-                Canvas(
-                    Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 14.dp)
-                        .size(width = 22.dp, height = 18.dp)
-                ) {
-                    val chevronTone = animatedTone.copy(
-                        alpha = if (thresholdReached) .95f else .35f
-                    )
-                    val stroke = Stroke(
-                        width = 2.4.dp.toPx(),
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round
-                    )
-                    val midY = size.height / 2f
-                    val arm = size.height * .32f
-                    listOf(size.width * .30f, size.width * .62f).forEach { x ->
-                        drawPath(
-                            path = Path().apply {
-                                moveTo(x - arm * .55f, midY - arm)
-                                lineTo(x + arm * .55f, midY)
-                                lineTo(x - arm * .55f, midY + arm)
-                            },
-                            color = chevronTone,
-                            style = stroke
-                        )
-                    }
-                }
                 Box(
                     modifier = Modifier
                         .padding(horizontal = padding)
                         .offset { IntOffset(knob.value.toInt(), 0) }
-                        .size(knobSize)
-                        .clip(CircleShape)
-                        .background(animatedTone.copy(alpha = .92f))
+                        .then(Modifier.marbleSlideThumb(animatedTone, knobSize, dragging))
                         .pointerInput(armed, evidence.connected, travelPx) {
                             if (!armed) return@pointerInput
                             detectHorizontalDragGestures(
@@ -1035,7 +1003,7 @@ private fun ConnectButtonSlide(
                     ) {
                         HomeGlyphIcon(
                             connectButtonGlyph(evidence),
-                            Aether.Void,
+                            prismOnColor(animatedTone),
                             Modifier.size(knobSize * .42f)
                         )
                     }
@@ -1045,8 +1013,9 @@ private fun ConnectButtonSlide(
 
             Text(
                 if (evidence.connected) trx("Slide left to disconnect") else trx("Slide right to connect"),
-                color = Aether.InkFaint,
+                color = Aether.InkMuted,
                 style = MaterialTheme.typography.labelSmall,
+                letterSpacing = .2.sp,
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis
@@ -1252,185 +1221,37 @@ internal enum class HomeGlyph {
 
 @Composable
 internal fun HomeGlyphIcon(glyph: HomeGlyph, color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-
-        val stroke = (size.minDimension * .102f).coerceIn(1.45f, 3.5f)
-        val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        when (glyph) {
-            HomeGlyph.POWER -> {
-                drawArc(
-                    color = color,
-                    startAngle = -62f,
-                    sweepAngle = 304f,
-                    useCenter = false,
-                    topLeft = Offset(w * .18f, h * .18f),
-                    size = Size(w * .64f, h * .64f),
-                    style = line
-                )
-                drawLine(color, Offset(w * .5f, h * .12f), Offset(w * .5f, h * .48f), stroke, StrokeCap.Round)
-            }
-            HomeGlyph.CHECK -> {
-                val p = Path().apply {
-                    moveTo(w * .20f, h * .52f)
-                    lineTo(w * .42f, h * .74f)
-                    lineTo(w * .80f, h * .28f)
-                }
-                drawPath(p, color, style = line)
-            }
-            HomeGlyph.RESET -> {
-                drawArc(
-                    color = color,
-                    startAngle = 45f,
-                    sweepAngle = 270f,
-                    useCenter = false,
-                    topLeft = Offset(w * .18f, h * .18f),
-                    size = Size(w * .64f, h * .64f),
-                    style = line
-                )
-                drawLine(color, Offset(w * .78f, h * .40f), Offset(w * .78f, h * .62f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w * .78f, h * .62f), Offset(w * .56f, h * .62f), stroke, StrokeCap.Round)
-            }
-            HomeGlyph.COPY -> {
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(w * .30f, h * .30f),
-                    size = Size(w * .54f, h * .54f),
-                    cornerRadius = CornerRadius(w * .10f, h * .10f),
-                    style = line
-                )
-                val p = Path().apply {
-                    moveTo(w * .30f, h * .64f)
-                    lineTo(w * .18f, h * .64f)
-                    lineTo(w * .18f, h * .18f)
-                    lineTo(w * .64f, h * .18f)
-                    lineTo(w * .64f, h * .30f)
-                }
-                drawPath(p, color, style = line)
-            }
-            HomeGlyph.REFRESH -> {
-                drawArc(
-                    color = color,
-                    startAngle = 30f,
-                    sweepAngle = 300f,
-                    useCenter = false,
-                    topLeft = Offset(w * .16f, h * .16f),
-                    size = Size(w * .68f, h * .68f),
-                    style = line
-                )
-                drawLine(color, Offset(w * .72f, h * .20f), Offset(w * .86f, h * .20f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w * .86f, h * .20f), Offset(w * .86f, h * .34f), stroke, StrokeCap.Round)
-            }
-            HomeGlyph.MORE -> {
-                drawCircle(color, stroke * .9f, Offset(w * .5f, h * .26f))
-                drawCircle(color, stroke * .9f, Offset(w * .5f, h * .50f))
-                drawCircle(color, stroke * .9f, Offset(w * .5f, h * .74f))
-            }
-            HomeGlyph.PULSE -> {
-                val p = Path().apply {
-                    moveTo(w * .14f, h * .50f)
-                    lineTo(w * .34f, h * .50f)
-                    lineTo(w * .44f, h * .22f)
-                    lineTo(w * .56f, h * .78f)
-                    lineTo(w * .66f, h * .50f)
-                    lineTo(w * .86f, h * .50f)
-                }
-                drawPath(p, color, style = line)
-            }
-            HomeGlyph.DOWNLOAD, HomeGlyph.UPLOAD -> {
-                val down = glyph == HomeGlyph.DOWNLOAD
-                val startY = if (down) h * .18f else h * .82f
-                val endY = if (down) h * .64f else h * .36f
-                drawLine(color, Offset(w * .5f, startY), Offset(w * .5f, endY), stroke, StrokeCap.Round)
-                val arrow = Path().apply {
-                    if (down) {
-                        moveTo(w * .30f, h * .48f)
-                        lineTo(w * .50f, h * .68f)
-                        lineTo(w * .70f, h * .48f)
-                        moveTo(w * .24f, h * .82f)
-                        lineTo(w * .76f, h * .82f)
-                    } else {
-                        moveTo(w * .30f, h * .52f)
-                        lineTo(w * .50f, h * .32f)
-                        lineTo(w * .70f, h * .52f)
-                        moveTo(w * .24f, h * .18f)
-                        lineTo(w * .76f, h * .18f)
-                    }
-                }
-                drawPath(arrow, color, style = line)
-            }
-            HomeGlyph.CLOCK -> {
-                drawCircle(color = color, radius = w * .38f, center = Offset(w * .5f, h * .5f), style = line)
-                drawLine(color, Offset(w * .5f, h * .5f), Offset(w * .5f, h * .24f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w * .5f, h * .5f), Offset(w * .70f, h * .5f), stroke, StrokeCap.Round)
-            }
-            HomeGlyph.LIBRARY -> {
-                drawRoundRect(color, Offset(w * .16f, h * .22f), Size(w * .20f, h * .56f), CornerRadius(3f), line)
-                drawRoundRect(color, Offset(w * .40f, h * .22f), Size(w * .20f, h * .56f), CornerRadius(3f), line)
-                drawRoundRect(color, Offset(w * .64f, h * .22f), Size(w * .20f, h * .56f), CornerRadius(3f), line)
-            }
-            HomeGlyph.PLUS -> {
-                drawLine(color, Offset(w * .5f, h * .20f), Offset(w * .5f, h * .80f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w * .20f, h * .5f), Offset(w * .80f, h * .5f), stroke, StrokeCap.Round)
-            }
-            HomeGlyph.BOLT -> {
-                val p = Path().apply {
-                    moveTo(w * .54f, h * .14f)
-                    lineTo(w * .30f, h * .52f)
-                    lineTo(w * .50f, h * .52f)
-                    lineTo(w * .46f, h * .86f)
-                    lineTo(w * .70f, h * .46f)
-                    lineTo(w * .50f, h * .46f)
-                    close()
-                }
-                drawPath(p, color, style = line)
-            }
-            HomeGlyph.PASTE -> {
-                drawRoundRect(color, Offset(w * .26f, h * .26f), Size(w * .52f, h * .58f), CornerRadius(4f), line)
-                drawRoundRect(color, Offset(w * .38f, h * .14f), Size(w * .24f, h * .20f), CornerRadius(2f), line)
-            }
-            HomeGlyph.QR -> {
-                drawRoundRect(color, Offset(w * .18f, h * .18f), Size(w * .28f, h * .28f), CornerRadius(3f), line)
-                drawRoundRect(color, Offset(w * .54f, h * .18f), Size(w * .28f, h * .28f), CornerRadius(3f), line)
-                drawRoundRect(color, Offset(w * .18f, h * .54f), Size(w * .28f, h * .28f), CornerRadius(3f), line)
-                drawCircle(color, stroke * 1.1f, Offset(w * .68f, h * .68f))
-            }
-            HomeGlyph.INFO -> {
-                drawCircle(color = color, radius = w * .38f, center = Offset(w * .5f, h * .5f), style = line)
-                drawCircle(color = color, radius = stroke * .7f, center = Offset(w * .5f, h * .32f))
-                drawLine(color, Offset(w * .5f, h * .44f), Offset(w * .5f, h * .68f), stroke, StrokeCap.Round)
-            }
-            HomeGlyph.STOP -> {
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(w * .22f, h * .22f),
-                    size = Size(w * .56f, h * .56f),
-                    cornerRadius = CornerRadius(w * .12f, h * .12f)
-                )
-            }
-            HomeGlyph.DATA -> {
-                drawOval(
-                    color = color,
-                    topLeft = Offset(w * .22f, h * .18f),
-                    size = Size(w * .56f, h * .22f),
-                    style = line
-                )
-                drawLine(color, Offset(w * .22f, h * .29f), Offset(w * .22f, h * .71f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w * .78f, h * .29f), Offset(w * .78f, h * .71f), stroke, StrokeCap.Round)
-                drawArc(
-                    color = color,
-                    startAngle = 0f,
-                    sweepAngle = 180f,
-                    useCenter = false,
-                    topLeft = Offset(w * .22f, h * .59f),
-                    size = Size(w * .56f, h * .22f),
-                    style = line
-                )
-            }
-        }
-    }
+    // MARBLE_AURORA_SURFACE_V219 — the connect control's glyphs moved onto the product's one grid.
+    //
+    // This used to be an eighteen-branch hand-drawn set whose stroke was computed per glyph and
+    // which shared no proportions with the Settings icons. It is now a mapping: same grid, same
+    // 1.75-unit weight, same round joins, and the thumb's power glyph is drawn by the same code as
+    // the power glyph in a Settings row.
+    MarbleGlyphIcon(glyph.marbleGlyph, color, modifier)
 }
+
+/** MARBLE_AURORA_SURFACE_V219 — `HomeGlyph` on the shared grid. */
+internal val HomeGlyph.marbleGlyph: MarbleGlyph
+    get() = when (this) {
+        HomeGlyph.POWER -> MarbleGlyph.POWER
+        HomeGlyph.CHECK -> MarbleGlyph.CHECK
+        HomeGlyph.RESET -> MarbleGlyph.REFRESH
+        HomeGlyph.COPY -> MarbleGlyph.FOLDER
+        HomeGlyph.REFRESH -> MarbleGlyph.REFRESH
+        HomeGlyph.MORE -> MarbleGlyph.MORE
+        HomeGlyph.PULSE -> MarbleGlyph.RADAR
+        HomeGlyph.CLOCK -> MarbleGlyph.REFRESH
+        HomeGlyph.LIBRARY -> MarbleGlyph.VAULT
+        HomeGlyph.PLUS -> MarbleGlyph.PLUS
+        HomeGlyph.BOLT -> MarbleGlyph.SPARK
+        HomeGlyph.PASTE -> MarbleGlyph.FOLDER
+        HomeGlyph.QR -> MarbleGlyph.QR
+        HomeGlyph.INFO -> MarbleGlyph.INFO
+        HomeGlyph.DOWNLOAD -> MarbleGlyph.DOWNLOAD
+        HomeGlyph.UPLOAD -> MarbleGlyph.UPLOAD
+        HomeGlyph.DATA -> MarbleGlyph.GAUGE
+        HomeGlyph.STOP -> MarbleGlyph.STOP
+    }
 
 @Composable
 internal fun HomeStatValueText(
@@ -2177,8 +1998,13 @@ internal fun HomeTopActionBar(
         ) {
         Row(
             modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // MARBLE_AURORA_SURFACE_V219 — the Home header carries the mark itself, not only its
+            // name: a 34 dp prism beside the gradient wordmark, so the first screen of the product
+            // has an object at its leading edge instead of a line of text floating on the backdrop.
+            MarbleBrandMark(markSize = 34.dp)
             MarbleWordmark()
         }
 
@@ -2894,7 +2720,8 @@ internal fun IosSlideToConnect(
     val haptic = LocalHapticFeedback.current
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val motion = MarbleMotion.current
-    val trackShape = RoundedCornerShape(30.dp)
+    val trackHeight = MarbleSlideSpec.TrackHeight
+    val trackShape = marbleSlideShape(trackHeight)
     val t = Tr.now
 
     val busy = evidence.connecting || evidence.disconnecting
@@ -2909,7 +2736,7 @@ internal fun IosSlideToConnect(
     )
 
     var trackWidthPx by remember { mutableFloatStateOf(0f) }
-    val thumbSizeDp = 52.dp
+    val thumbSizeDp = MarbleSlideSpec.ThumbSize
     val density = LocalDensity.current
     val thumbSizePx = with(density) { thumbSizeDp.toPx() }
 
@@ -2927,25 +2754,23 @@ internal fun IosSlideToConnect(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(62.dp)
-            .shadow(
-                elevation = 3.dp,
+            .height(trackHeight)
+            .marbleSlideTrack(
                 shape = trackShape,
-                clip = false,
-                ambientColor = Color(0xFF0A2540).copy(alpha = .18f),
-                spotColor = tone.copy(alpha = .26f)
+                tone = tone,
+                progress = (dragOffset.value / max(1f, trackWidthPx - thumbSizePx - 12f))
+                    .coerceIn(0f, 1f),
+                busy = busy,
+                engaged = evidence.connected || evidence.connecting
             )
-            .clip(trackShape)
-            .background(homeCloudCardFill())
-            .border(1.5.dp, tone.copy(alpha = 0.40f), trackShape)
             .onSizeChanged { trackWidthPx = it.width.toFloat() },
         contentAlignment = Alignment.CenterStart
     ) {
-        val maxDragPx = max(1f, trackWidthPx - thumbSizePx - 8f)
+        val maxDragPx = max(1f, trackWidthPx - thumbSizePx - 12f)
         val progress = (dragOffset.value / maxDragPx).coerceIn(0f, 1f)
 
         // MARBLE_SLIDE_PARK_V146 — the thumb parks on the side it was dragged to, instead of
-
+        // springing back to the start the moment the tunnel answers.
         val restOffset = if (evidence.connected || evidence.connecting) maxDragPx else 0f
         LaunchedEffect(evidence.connected, evidence.connecting, maxDragPx) {
             if (!dragging) {
@@ -2953,34 +2778,20 @@ internal fun IosSlideToConnect(
             }
         }
 
-        val sheenTint = if (homeCloudDark()) Color.White else tone
-        Canvas(modifier = Modifier.matchParentSize()) {
-            val sheenPhase = motion.loop(if (busy) 1100 else 3000)
-            val sheenAlpha = (if (busy) 0.30f else 0.20f) * (1f - progress)
-            if (sheenAlpha > 0.01f) {
-                val band = size.width * ExpressiveMath.wavyValue(motion.loop(1900), 0.22f, 0.42f)
-                val x = sheenPhase * (size.width + band) - band
-                drawRect(
-                    topLeft = Offset(x, 0f),
-                    size = Size(band, size.height),
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            sheenTint.copy(alpha = 0f),
-                            sheenTint.copy(alpha = sheenAlpha),
-                            sheenTint.copy(alpha = 0f)
-                        ),
-                        startX = x,
-                        endX = x + band
-                    )
-                )
-            }
-        }
+        MarbleSlideEnergyBed(
+            tone = tone,
+            progress = progress,
+            busy = busy,
+            modifier = Modifier.matchParentSize()
+        )
 
-        Box(
+        MarbleSlideGuideMarks(
+            tone = tone,
+            fade = if (evidence.connected) progress else 1f - progress,
             modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(fraction = progress.coerceAtLeast(0.04f))
-                .background(tone.copy(alpha = 0.16f))
+                .align(Alignment.CenterEnd)
+                .padding(end = 20.dp)
+                .size(width = 62.dp, height = 24.dp)
         )
 
         Box(
@@ -2989,40 +2800,35 @@ internal fun IosSlideToConnect(
         ) {
             Text(
                 text = labelText,
-                color = Aether.Ink.copy(alpha = 0.85f),
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = marbleSlideLabelTone(tone, evidence.connected),
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = .2.sp
+                ),
                 textAlign = TextAlign.Center,
-                maxLines = 1
+                maxLines = 1,
+                modifier = Modifier.padding(start = thumbSizeDp + 8.dp, end = 58.dp)
             )
         }
 
         Box(
             modifier = Modifier
-                .padding(start = 5.dp, end = 5.dp)
+                .padding(start = 6.dp, end = 6.dp)
                 .offset { IntOffset(dragOffset.value.roundToInt(), 0) }
-                .size(thumbSizeDp)
                 .graphicsLayer {
-                    val lift = 1f + 0.06f * (dragOffset.value / max(1f, maxDragPx))
+                    val lift = 1f + 0.03f * progress
                     scaleX = lift
                     scaleY = lift
                 }
-
-                .shadow(
-                    elevation = 6.dp,
-                    shape = CircleShape,
-                    clip = false,
-                    ambientColor = tone.copy(alpha = .22f),
-                    spotColor = tone.copy(alpha = .40f)
-                )
-                .clip(CircleShape)
-                .background(tone)
+                .then(Modifier.marbleSlideThumb(tone, thumbSizeDp, dragging))
                 .pointerInput(evidence.connected, busy, maxDragPx) {
                     detectHorizontalDragGestures(
                         onDragStart = { dragging = true },
                         onDragEnd = {
                             dragging = false
-                            // MARBLE_SLIDE_PARK_V146 — the commit direction follows the route
-
+                            // MARBLE_SLIDE_PARK_V146 — the commit direction follows the route:
+                            // a live tunnel is closed by pulling back, a quiet one is opened by
+                            // pushing forward.
                             val completed = if (evidence.connected) {
                                 dragOffset.value <= maxDragPx * 0.35f
                             } else {
@@ -3064,7 +2870,11 @@ internal fun IosSlideToConnect(
                 },
             contentAlignment = Alignment.Center
         ) {
-            HomeGlyphIcon(HomeGlyph.POWER, marbleOnColor(tone), Modifier.size(26.dp))
+            HomeGlyphIcon(
+                HomeGlyph.POWER,
+                prismOnColor(tone),
+                Modifier.size(thumbSizeDp * .44f)
+            )
         }
     }
 }

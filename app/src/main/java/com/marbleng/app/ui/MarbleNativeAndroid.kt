@@ -191,6 +191,58 @@ internal fun marbleNativeShape(radius: Dp): Shape = RoundedCornerShape(radius)
 internal fun marbleNativePill(): Shape = RoundedCornerShape(percent = 50)
 
 /**
+ * MARBLE_AURORA_SURFACE_V219 — the one row/surface skin of the product.
+ *
+ * A Marble surface is three things stacked in the order light arrives: the fill (opaque on any
+ * page), one specular wash at the top edge so the top of the box catches the key light, and a rim
+ * that is lit above and settles into the platform outline below. Every hand-written row used to
+ * spell those three out — or, worse, spell out only the border — which is exactly why some rows
+ * read as cards and others read as table cells.
+ *
+ * [fill] defaults to the platform card fill; [tone] tints the wash and the top of the rim when the
+ * surface belongs to a category (a group's colour, a server's state).
+ */
+@Composable
+internal fun Modifier.marbleLitSurface(
+    shape: Shape,
+    fill: Color? = null,
+    tone: Color? = null,
+    washAlpha: Float = 1f
+): Modifier {
+    val dark = homeCloudDark()
+    val body = fill ?: marbleNativeCardFill()
+    val outline = marbleNativeOutline()
+    val wash = tone ?: Color.White
+    val topAlpha = (if (tone == null) (if (dark) .045f else .30f) else (if (dark) .10f else .06f)) * washAlpha
+    val litRim = if (tone == null) {
+        lerp(outline, Color.White, if (dark) .18f else .55f)
+    } else {
+        lerp(tone, Color.White, if (dark) .30f else .45f)
+    }
+
+    return this
+        .clip(shape)
+        .background(body)
+        .background(
+            Brush.verticalGradient(
+                colors = listOf(wash.copy(alpha = topAlpha), wash.copy(alpha = 0f)),
+                startY = 0f,
+                endY = 44f
+            )
+        )
+        .border(
+            width = 1.dp,
+            brush = Brush.verticalGradient(
+                listOf(
+                    litRim.copy(alpha = if (tone == null) .90f else .55f),
+                    if (tone == null) outline else tone.copy(alpha = .30f)
+                )
+            ),
+            shape = shape
+        )
+}
+
+/**
  * MARBLE_NATIVE_ANDROID_V213 — one card, drawn the way the platform draws one.
  *
  * Fill: an opaque container step. Edge: one gradient hairline that catches the light at the top
@@ -256,9 +308,24 @@ internal fun MarbleNativeCard(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        tone.copy(alpha = if (dark) .06f else .035f),
-                        Color.Transparent
-                    )
+                        tone.copy(alpha = if (dark) .07f else .040f),
+                        tone.copy(alpha = 0f)
+                    ),
+                    startY = 0f,
+                    endY = 150f
+                )
+            )
+            // MARBLE_AURORA_SURFACE_V219 — one specular plane at the top edge. A card that only
+            // has a border and a tint reads as a filled rectangle; the wash is what makes the top
+            // edge catch light and the box sit in the page instead of on it.
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = if (dark) .045f else .34f),
+                        Color.White.copy(alpha = 0f)
+                    ),
+                    startY = 0f,
+                    endY = 44f
                 )
             )
             .then(
@@ -326,7 +393,24 @@ internal fun MarbleNativeListItem(
             .heightIn(min = height)
             .clip(shape)
             .background(fill)
-            .border(1.dp, if (selected) tone.copy(alpha = .34f) else outline, shape)
+            .border(
+                1.dp,
+                Brush.verticalGradient(
+                    if (selected) {
+                        listOf(
+                            lerp(tone, Color.White, .35f).copy(alpha = .60f),
+                            tone.copy(alpha = .40f)
+                        )
+                    } else {
+                        listOf(
+                            lerp(outline, Color.White, if (homeCloudDark()) .18f else .55f)
+                                .copy(alpha = .90f),
+                            outline
+                        )
+                    }
+                ),
+                shape
+            )
             .then(
                 if (onClick == null) {
                     Modifier
@@ -348,13 +432,33 @@ internal fun MarbleNativeListItem(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (leading != null) {
+            // MARBLE_AURORA_SURFACE_V219 — the leading container is a squircle with the tone's own
+            // gradient and a lit rim, at the same 40 dp the platform reserves for it. A flat circle
+            // of 12 % tone was the single most repeated "weak icon" surface in Settings.
+            val leadingShape = RoundedCornerShape(MarbleNativeSpec.LeadingContainerDp.dp * .34f)
+            val leadingBase = if (homeCloudDark()) .22f else .12f
             Box(
                 modifier = Modifier
                     .size(MarbleNativeSpec.LeadingContainerDp.dp)
-                    .clip(CircleShape)
+                    .clip(leadingShape)
                     .background(
-
-                        tone.copy(alpha = if (homeCloudDark()) .22f else .12f).compositeOver(fill)
+                        Brush.verticalGradient(
+                            listOf(
+                                tone.copy(alpha = leadingBase * 1.45f).compositeOver(fill),
+                                tone.copy(alpha = leadingBase * .75f).compositeOver(fill)
+                            )
+                        )
+                    )
+                    .border(
+                        1.dp,
+                        Brush.verticalGradient(
+                            listOf(
+                                lerp(tone, Color.White, if (homeCloudDark()) .30f else .45f)
+                                    .copy(alpha = .50f),
+                                tone.copy(alpha = .22f)
+                            )
+                        ),
+                        leadingShape
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -407,12 +511,55 @@ internal fun MarbleNativeDivider(
     modifier: Modifier = Modifier,
     hasLeading: Boolean = false
 ) {
+    // MARBLE_AURORA_SURFACE_V219 — one hairline, weighted so it is strongest at the inset and
+    // gone by the trailing edge. A flat 1 dp rule is what makes a list look like a spreadsheet.
+    val outline = marbleNativeOutline()
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = MarbleNativeSpec.dividerInsetDp(hasLeading).dp)
             .height(MarbleNativeSpec.DividerThicknessDp.dp)
-            .background(marbleNativeOutline())
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        outline.copy(alpha = .90f),
+                        outline.copy(alpha = .55f),
+                        Color.Transparent
+                    )
+                )
+            )
+    )
+}
+
+/**
+ * MARBLE_AURORA_SURFACE_V219 — the product's dividing line.
+ *
+ * A 1 dp flat rule is the single most "unfinished" mark on a modern surface: it draws a box edge that
+ * the eye reads as a table cell. This one is a light-weight gradient that is strongest where the
+ * content starts and gone before it reaches the far edge, so a divider separates two things without
+ * drawing a container around them.
+ */
+@Composable
+internal fun MarbleFadeDivider(
+    modifier: Modifier = Modifier,
+    tone: Color? = null,
+    leadingInset: Dp = 0.dp
+) {
+    val edge = tone ?: marbleNativeOutline()
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = leadingInset)
+            .height(1.dp)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        edge.copy(alpha = .92f),
+                        edge.copy(alpha = .45f),
+                        edge.copy(alpha = 0f)
+                    )
+                )
+            )
     )
 }
 
@@ -692,25 +839,17 @@ internal fun MarbleNativeChevron(
     modifier: Modifier = Modifier,
     mirror: Boolean = false
 ) {
-    Canvas(modifier.size(14.dp)) {
-        val w = size.width
-        val h = size.height
-        val stroke = 1.8.dp.toPx()
-        val near = if (mirror) w * .72f else w * .28f
-        val far = if (mirror) w * .28f else w * .72f
-        drawLine(
-            color = color,
-            start = Offset(near, h * .22f),
-            end = Offset(far, h * .50f),
-            strokeWidth = stroke,
-            cap = StrokeCap.Round
-        )
-        drawLine(
-            color = color,
-            start = Offset(far, h * .50f),
-            end = Offset(near, h * .78f),
-            strokeWidth = stroke,
-            cap = StrokeCap.Round
+    // MARBLE_AURORA_SURFACE_V219 — the native chevron is the grid chevron.
+    //
+    // It used to be two hand-placed strokes at a 1.8 dp weight, so a disclosure chevron beside a
+    // 19 dp glyph looked like it came from a different product. It now draws the same 24-unit
+    // CHEVRON every other surface draws, mirrored on request, at a weight that scales with size.
+    Canvas(modifier.size(16.dp)) {
+        drawMarbleGlyph(
+            glyph = MarbleGlyph.CHEVRON,
+            tint = color,
+            weight = .92f,
+            mirror = mirror
         )
     }
 }

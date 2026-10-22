@@ -15,7 +15,10 @@ internal data class SettingsHubGroupSpec(
     val subtitle: String,
     val tone: Color,
     val sections: List<SettingsHubSectionSpec>,
-    val icon: @Composable (tone: Color) -> Unit
+    // MARBLE_AURORA_SURFACE_V219 — the group carries a glyph from the product's one icon grid
+    // instead of a composable lambda. A lambda was how five different line weights ended up on
+    // five Settings headers; a glyph cannot disagree with the tile that mounts it.
+    val glyph: MarbleGlyph = MarbleGlyph.SPARK
 )
 
 internal object SettingsHubGroups {

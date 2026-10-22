@@ -585,7 +585,19 @@ fun AetherFlowTheme(
             controller.isAppearanceLightStatusBars=light
             controller.isAppearanceLightNavigationBars=light
 
-            window.statusBarColor=palette.void.toArgb()
+            // MARBLE_AURORA_SURFACE_V219 — the bars are the page.
+            //
+            // enableEdgeToEdge() in the activity has already laid the app out behind both bars;
+            // this side effect makes the *paint* agree in every theme tier. From Q the status bar
+            // is transparent, so the backdrop's own top gradient is what the clock sits on and the
+            // bar can never disagree with the page behind it. Below Q the platform forces a
+            // contrast scrim on an edge-to-edge layout, so those tiers paint the palette floor
+            // instead of letting a system grey seam appear above an ice-blue page.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.statusBarColor = Color.Transparent.toArgb()
+            } else {
+                window.statusBarColor=palette.void.toArgb()
+            }
 
             window.navigationBarColor=Color.Transparent.toArgb()
             if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -595,6 +607,12 @@ fun AetherFlowTheme(
                 window.isStatusBarContrastEnforced=false
                 window.isNavigationBarContrastEnforced=false
             }
+
+            // Compose owns every inset in the product (a page's own contentPadding, the dock's
+            // navigationBarsPadding, the settings pages' imePadding). If the decor ever measured
+            // system windows itself again, that ownership would double-count and the dock would
+            // float one gesture-bar too high.
+            WindowCompat.setDecorFitsSystemWindows(window, false)
         }
     }
 
