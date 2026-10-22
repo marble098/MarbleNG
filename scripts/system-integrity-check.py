@@ -324,6 +324,17 @@ files = {
     "manifest": read("app/src/main/AndroidManifest.xml"),
     "security": read("app/src/main/res/xml/network_security_config.xml"),
     "native": read("scripts/prepare-native.sh"),
+    # MARBLE_TUN2SOCKS_SHUTDOWN_V223 — the second datapath's teardown: the Go wrapper (which is
+    # copied into the pinned tree), the JNI shim that owns the stop, the Kotlin bridge, the policy
+    # the service asks, the test that pins it and the chapter that explains it.
+    "t2sWrapper": read("native/tun2socks/main.go"),
+    "t2sJni": read("app/src/main/jni/tun2socks_jni.c"),
+    "t2sBridge": read("app/src/main/java/com/marbleng/app/nativebridge/Tun2SocksTunnel.kt"),
+    "shutdownPolicy": read("app/src/main/java/com/marbleng/app/core/TunnelShutdownPolicy.kt"),
+    "shutdownTest": read(
+        "app/src/test/java/com/marbleng/app/core/Tun2SocksShutdownV223Test.kt"
+    ),
+    "shutdownDoc": read("docs/TUN2SOCKS_SHUTDOWN_V223.md"),
     "build": workflow("build.yml"),
     "gradle": read("app/build.gradle.kts"),
     # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — one version file, read by the settings script, the module
@@ -1854,6 +1865,81 @@ check(
     and "tun2SocksUdpTimeoutSec" in files["store"]
     and "TunnelEngineOptions(" in files["ui"]
     and "prepareTunnelSession(" in files["diag"],
+)
+# MARBLE_TUN2SOCKS_SHUTDOWN_V223 — the disconnect abort. Three rules, and every file that has to
+# hold one of them is asserted here, because the Kotlin compiler cannot see the Go library and the
+# Go library cannot see the service.
+def _without_go_comments(text: str) -> str:
+    """The wrapper with `//` comments stripped, so an invariant can forbid *code*, not prose."""
+    return "\n".join(line.split("//", 1)[0] for line in text.splitlines())
+
+
+_t2s_go = _without_go_comments(files["t2sWrapper"])
+# The teardown function on its own: "close the transport last" is a statement about this order,
+# not about the file (start() closes a half-built transport earlier, on the CreateStack failure).
+_t2s_teardown = _t2s_go[_t2s_go.index("func teardown("):]
+_t2s_teardown = _t2s_teardown[: _t2s_teardown.index("\n}\n") + 3]
+
+check(
+    "V223 the second datapath stops before it lets go, and never closes a descriptor it does not own",
+    # The descriptor belongs to the VpnService. gVisor says so, HEV behaves that way, and the
+    # double close this release removes was the one thing only this datapath did.
+    "unix.Close(" not in _t2s_go
+    and "device.Close()" not in _t2s_go
+    # ... and the datapath is stopped the only way the endpoint allows: the stopfd, then the wait.
+    and "func stopLinkEndpoint(" in _t2s_go
+    and "dev.Attach(nil)" in _t2s_go
+    and "st.Close()" in _t2s_go
+    and "st.Wait()" in _t2s_go
+    and "transport.Close()" in _t2s_go
+    # The fan-in is closed after the stack: closing it first would leave the stack's forwarders
+    # blocked on an unbuffered channel nobody drains.
+    and _t2s_teardown.index("st.Wait()") < _t2s_teardown.index("transport.Close()")
+    # A reconnect may not open a second stack over one descriptor.
+    and "stateStopping" in _t2s_go
+    and "codeStopping       = -7" in _t2s_go
+    # The join the service needs before it closes anything.
+    and "func marble_t2s_stop(" in _t2s_go
+    and "marble_t2s_stop" in files["t2sJni"]
+    and "nativeStop" in files["t2sJni"]
+    and "fun stopAndWait(" in files["t2sBridge"]
+    and "nativeStop(waitMs: Int): Int" in files["t2sBridge"]
+    and "const val CODE_STOPPING: Int = -7" in files["t2sBridge"]
+    and "const val STOP_TIMEOUT_MS: Int = 1_500" in files["t2sBridge"]
+    # The error string a JNI thread may be reading is never freed underneath it.
+    and "func currentError()" in _t2s_go
+    and "errorSlots" in _t2s_go,
+)
+check(
+    "V223 a cleanup stops its own datapath, closes the descriptor once, and reads a forced exit",
+    # The decision lives in one testable place ...
+    "object TunnelShutdownPolicy" in files["shutdownPolicy"]
+    and "fun stopPlan(core: TunnelCore, datapathActive: Boolean): DatapathStop" in files["shutdownPolicy"]
+    and "fun mayCloseDescriptor(datapathOwnsFd: Boolean): Boolean" in files["shutdownPolicy"]
+    and "const val REASON_SIGNALED: Int = 2" in files["shutdownPolicy"]
+    # ... and the service asks it instead of poking both cores.
+    and "TunnelShutdownPolicy.stopPlan(core, live)" in files["vpn"]
+    and "DatapathStop.QUIT_AND_JOIN" in files["vpn"]
+    and "Tun2SocksTunnel.stopAndWait()" in files["vpn"]
+    and "runCatching { HevTunnel.quit() }\n        runCatching { Tun2SocksTunnel.quit() }" not in files["vpn"]
+    # One owner for the duplicated descriptor: adopted by the worker, released by it on every
+    # path out, closed exactly once under a lock, deferred while the datapath still holds it.
+    and "adoptDatapathFd(dupFd)" in files["vpn"]
+    and "releaseDatapathFd(tunnelCore)" in files["vpn"]
+    and "synchronized(hevFdLock)" in files["vpn"]
+    and "TunnelShutdownPolicy.mayCloseDescriptor(datapathOwnsFd.get())" in files["vpn"]
+    and 'diag.event(\n            "TUN", "fd-close",' in files["vpn"]
+    # Stopping a HEV that never ran is what arms its sticky stop bit (and its abort()).
+    and "if (hevActive) stopDatapath()" not in files["vpn"]
+    # The forced exit is decoded in both reports, and the second datapath is on the timeline.
+    and "TunnelShutdownPolicy.forcedExitReading(exit.reason, exit.status)" in files["bug"]
+    and "TunnelShutdownPolicy.forcedExitReading(exit.reason, exit.status)" in files["diag"]
+    and '"TUN2SOCKS |", "TUNNEL |"' in files["bug"]
+    and "problems(tun2socksLog)" in files["bug"]
+    # The rules are pinned by a device-free test and written down in a chapter.
+    and "class Tun2SocksShutdownV223Test" in files["shutdownTest"]
+    and "TUN2SOCKS_SHUTDOWN_V223.md" in files["readme"]
+    and "MARBLE_TUN2SOCKS_SHUTDOWN_V223" in files["shutdownDoc"],
 )
 check(
     "a crashed core is classified as a core fault, never as a config refusal",

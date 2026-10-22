@@ -280,6 +280,12 @@ class RuntimeDiagnostics(private val context: Context) {
                             "pssKb=${exit.pss} | rssKb=${exit.rss} | " +
                             "description=${redact(exit.description.orEmpty()).take(1_000)}"
                     )
+                    // MARBLE_TUN2SOCKS_SHUTDOWN_V223 — a SIGNALED status is a signal number, and a
+                    // SIGABRT here is a native abort(), never a Java exception: say so in the
+                    // report instead of leaving a bare `status=6` for the reader to guess at.
+                    TunnelShutdownPolicy.forcedExitReading(exit.reason, exit.status)
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { add("  reading=$it") }
                     if (index < 8 && (exit.reason == ApplicationExitInfo.REASON_CRASH ||
                             exit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
                             exit.reason == ApplicationExitInfo.REASON_ANR)

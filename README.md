@@ -582,6 +582,27 @@ pinned files Xray already trusts into a real `source` rule set, extracted in one
 registered for both route and DNS rules. A tag that is genuinely absent is still reported, never
 invented.
 
+### The V223 pass — the disconnect abort, and a descriptor with one owner
+
+`docs/TUN2SOCKS_SHUTDOWN_V223.md` is the chapter. The report was a process exit with
+`reason=SIGNALED status=6` about 400 ms after `shutdown-begin`, with `TUN2SOCKS | run-exit code=0`
+two milliseconds in and **no** Java exception, tombstone or `fatal-crash-pending.txt` — which is what
+a native `abort()` looks like from inside the app, and why `status=6` (SIGABRT) had to be read as a
+signal number rather than as a mystery code. It only ever happened on the tun2socks datapath, and
+that narrowed it down: on the HEV path the service is the only closer of the duplicated TUN
+descriptor, while on the tun2socks path the Go core closed the same number too — two closes, 300–400
+ms apart, in a process that is opening and closing descriptors throughout that window. The Go
+wrapper now never closes a descriptor it does not own, stops the datapath the way gVisor documents
+(`Attach(nil)` fires the stopfd and waits for every dispatch loop) before releasing the stack, runs a
+real `idle → running → stopping → idle` state machine so a reconnect cannot open a second stack over
+one descriptor, and gains `marble_t2s_stop(wait_ms)` — the join the service needs before it closes
+anything. In the service, exactly one owner holds the descriptor, the close happens once under a
+lock, and a cleanup stops **its own** datapath instead of both: calling HEV's quit from a tun2socks
+session armed a sticky `SYNC_STOP` whose `assert()` on a closed event socketpair is itself an
+`abort()`. The report reads a forced exit properly now (`SIGABRT(6) • native abort()…`, plus the
+`TUN2SOCKS |`/`TUNNEL |` lifecycle lines that were missing from the timeline), and
+`Tun2SocksShutdownV223Test` pins all three rules without a device.
+
 ### The V221 pass — Meridian: flat surfaces, an accent the user owns, and a Censorship Lab
 
 `docs/MERIDIAN_V221.md` is the chapter. The interface gains a second material — **flat**, now the

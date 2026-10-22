@@ -2,6 +2,7 @@ package com.marbleng.app.nativebridge
 
 /**
  * MARBLE_TUN2SOCKS_CORE_V222 — the second TUN datapath.
+ * MARBLE_TUN2SOCKS_SHUTDOWN_V223 — stop with a budget, and never close the descriptor here.
  *
  * `hev-socks5-tunnel` is the datapath Marble has always shipped, and it stays the default.
  * This is the alternative the Settings → Tunnel engine page lets a user choose: the pinned
@@ -16,10 +17,33 @@ package com.marbleng.app.nativebridge
  *    (`available() == false`), never a class-initialisation crash;
  *  - the tunnel core can be switched at runtime, with both libraries loaded side by side,
  *    without a second process and without handing a raw descriptor to one.
+ *
+ * Descriptor ownership: the descriptor passed to [run] belongs to [MarbleVpnService]. The core
+ * reads it, [stopAndWait] proves it has stopped reading it, and the service closes it — once,
+ * in `closeHevFd()`. The library must never close it: closing it on both sides is a double close
+ * of a number the app may already have recycled, and that is the failure this file's V223 marker
+ * exists to keep out.
  */
 object Tun2SocksTunnel {
     /** The core could not be loaded, so Settings must explain that instead of offering it. */
     const val CODE_UNAVAILABLE: Int = -1000
+
+    /** The library loaded but a symbol is missing — a packaging bug, reported, never fatal. */
+    const val CODE_NO_SYMBOL: Int = -1001
+
+    /** The JNI shim could not hand the strings to the core (out of memory), not a core fault. */
+    const val CODE_JNI: Int = -1002
+
+    /** The core is still tearing down a previous datapath; this connect must retry later. */
+    const val CODE_STOPPING: Int = -7
+
+    /**
+     * How long `stopAndWait` may hold the caller while the datapath releases its descriptor.
+     * The teardown itself is microseconds (it writes a stopfd and joins the dispatch loops);
+     * the budget only bounds the worst case, so a wedged core degrades to "the fd is closed
+     * anyway, with a logged timeout" instead of an ANR.
+     */
+    const val STOP_TIMEOUT_MS: Int = 1_500
 
     private val loadError: String? = runCatching {
         System.loadLibrary("marbleng")
@@ -58,8 +82,21 @@ object Tun2SocksTunnel {
         CODE_UNAVAILABLE
     }
 
+    /** Signals the datapath and returns immediately. Prefer [stopAndWait] before closing the fd. */
     fun quit() {
         if (available()) runCatching { nativeQuit() }
+    }
+
+    /**
+     * Signals the datapath and waits up to [timeoutMs] for its teardown to finish.
+     *
+     * `true` means nothing is running and the caller owns the descriptor again, so it may close
+     * it. `false` means the budget expired; the caller closes it anyway and logs the timeout,
+     * because leaving a descriptor open over a wedged core is the worse of the two failures.
+     */
+    fun stopAndWait(timeoutMs: Int = STOP_TIMEOUT_MS): Boolean {
+        if (!available()) return true
+        return runCatching { nativeStop(timeoutMs) != 0 }.getOrDefault(false)
     }
 
     fun stats(): LongArray? =
@@ -84,6 +121,8 @@ object Tun2SocksTunnel {
     ): Int
 
     private external fun nativeQuit()
+
+    private external fun nativeStop(waitMs: Int): Int
 
     private external fun nativeStats(): LongArray?
 

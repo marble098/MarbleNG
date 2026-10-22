@@ -43,9 +43,11 @@ import com.marbleng.app.core.TransportTelemetry
 import com.marbleng.app.core.TcpStressMonitor
 import com.marbleng.app.core.TcpStressTelemetryPolicy
 import com.marbleng.app.core.TurboBackoffPolicy
+import com.marbleng.app.core.DatapathStop
 import com.marbleng.app.core.Tun2SocksPolicy
 import com.marbleng.app.core.TunnelCore
 import com.marbleng.app.core.TunnelCoreInfo
+import com.marbleng.app.core.TunnelShutdownPolicy
 import com.marbleng.app.core.parseTunnelCore
 import com.marbleng.app.core.tunnelCore
 import com.marbleng.app.core.CoreEngine
@@ -161,7 +163,21 @@ class MarbleVpnService : VpnService() {
     }
 
     private var tun: ParcelFileDescriptor? = null
-    private var hevFd = -1
+
+    /**
+     * MARBLE_TUN2SOCKS_SHUTDOWN_V223 — the duplicated TUN descriptor, and the one rule about it:
+     * exactly one close, by whoever holds it.
+     *
+     * [hevFd] is written only under [hevFdLock] and only cleared by the close that actually
+     * happens, so a service-side cleanup and the datapath worker can never both close the same
+     * number. [datapathOwnsFd] is set the moment the worker takes the descriptor and cleared when
+     * its native run has returned: while it is set, a service-side close is refused, because
+     * closing a descriptor under a datapath that is still polling it is what makes the process
+     * abort on disconnect.
+     */
+    @Volatile private var hevFd = -1
+    private val hevFdLock = Any()
+    private val datapathOwnsFd = AtomicBoolean(false)
 
     /**
      * MARBLE_TUN2SOCKS_CORE_V222 — the datapath this session actually runs. It is resolved once
@@ -976,7 +992,34 @@ class MarbleVpnService : VpnService() {
             handleFailure(session, "TUN fd duplication failed")
             return
         }
-        hevFd = dupFd
+        // MARBLE_TUN2SOCKS_SHUTDOWN_V223 — from here to the end of the run the descriptor has one
+        // owner: this worker. Cleanup on any other thread may ask for it to be closed, and the ask
+        // is deferred (logged) until the native run has returned, because a number closed under a
+        // datapath that is still polling it is the disconnect abort this release fixes.
+        adoptDatapathFd(dupFd)
+        try {
+            runDatapath(profile, session, socksPort, settings, recovering, generation, tunnelCore)
+        } finally {
+            releaseDatapathFd(tunnelCore)
+        }
+    }
+
+    /**
+     * MARBLE_TUN2SOCKS_SHUTDOWN_V223 — the datapath body, unchanged apart from its parameters: it
+     * runs with the duplicated descriptor already adopted by the caller, so every path out of it
+     * (a refusal, a lost session, a core that stopped) closes the descriptor exactly once, in the
+     * caller's `finally`.
+     */
+    private fun runDatapath(
+        profile: ProxyProfile,
+        session: String,
+        socksPort: Int,
+        settings: AppSettings,
+        recovering: Boolean,
+        generation: Int,
+        tunnelCore: TunnelCore
+    ) {
+        if (!isRouteCurrent(session, generation)) return
 
         val datapath = (application as MarbleApplication).repo.intelligence
             .tunnelTuning(profile.id, settings)
@@ -1035,7 +1078,7 @@ class MarbleVpnService : VpnService() {
             "tun2socks" to tun2socks?.summary()
         )
         if (!isCurrent(session)) {
-            closeHevFd()
+            closeHevFd("datapath-session-lost")
             return
         }
 
@@ -1593,9 +1636,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             settings,
             minIntervalOverrideMs = 60_000L
         )
-        if (hevActive) stopDatapath()
+        stopDatapath()
         coreStop()
-        closeHevFd()
+        closeHevFd("autopilot-switch")
         repo.resetTelemetry()
         updateSentinel(killSwitch = holdTun)
         connectionWorker.execute {
@@ -2897,12 +2940,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     .take(12)
         )
 
-        if (hevActive) stopDatapath()
+        stopDatapath()
 
         hevActive =
             false
         coreStop()
-        closeHevFd()
+        closeHevFd("handle-failure")
         repo.resetTelemetry()
 
         if (recordProfileFailure) runCatching {
@@ -3559,11 +3602,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         optimizerScanRequested.set(false)
         dataStallGuard.reset()
         if (::routeOptimizer.isInitialized) routeOptimizer.reset(System.currentTimeMillis())
-        if (hevActive) stopDatapath()
+        stopDatapath()
         hevActive = false
         releaseLowLatencyWifiLock()
         coreStop()
-        closeHevFd()
+        closeHevFd("runtime-cleanup")
         if (!preserveTun) closeTun()
 
         val repo = (application as MarbleApplication).repo
@@ -3600,20 +3643,120 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     /**
-     * MARBLE_TUN2SOCKS_CORE_V222 — stops whichever datapath this session started. Both calls are
-     * safe when their core is idle, so a fallback mid-session and an operator-driven switch take
-     * the same path. tun2socks' quit only releases its blocking run; the descriptor is closed
-     * below, once, by [closeHevFd].
+     * MARBLE_TUN2SOCKS_SHUTDOWN_V223 — stops the datapath this session actually started, and
+     * nothing else.
+     *
+     * V222 called both quits on every cleanup, on the belief that the idle one is a no-op. It is
+     * not: `hev_socks5_tunnel_stop()` ORs a sticky `SYNC_STOP` bit into HEV's `tsync`, so a
+     * tun2socks disconnect left HEV armed to fall out of its own run loop the next time it was
+     * used in this process — and, when the bit was set while HEV still owned `SYNC_SEND` but its
+     * event socketpair had already been closed, the `assert()` on `write(event_fds[1], …)` inside
+     * that function aborts the whole process. That abort is a SIGABRT, which is exactly the
+     * `reason=SIGNALED status=6` record with no Java stack and no tombstone.
+     *
+     * The tun2socks stop is joined ([Tun2SocksTunnel.stopAndWait]) because gVisor keeps polling
+     * the descriptor until its stopfd fires: the caller closes the descriptor next, and it may
+     * only do that once the core has said it stopped. HEV blocks in its own loop and owns no
+     * descriptor it did not open, so it is only signalled, exactly as before.
      */
     private fun stopDatapath() {
-        runCatching { HevTunnel.quit() }
-        runCatching { Tun2SocksTunnel.quit() }
+        val core = activeTunnelCore
+        // The datapath is live if its flag says so, or if its worker still holds the descriptor —
+        // the window between adopting the descriptor and entering the native run is real, and a
+        // cleanup that lands inside it has to stop the run rather than walk past it.
+        val live = hevActive || datapathOwnsFd.get()
+        when (TunnelShutdownPolicy.stopPlan(core, live)) {
+            DatapathStop.NONE ->
+                diag.event(
+                    "TUNNEL", "datapath-stop-skipped",
+                    "session" to activeSession, "tunnelCore" to core.id,
+                    "hevActive" to hevActive, "datapathOwnsFd" to datapathOwnsFd.get(),
+                    "hevFd" to hevFd
+                )
+            DatapathStop.QUIT -> {
+                diag.event(
+                    "TUNNEL", "datapath-stop",
+                    "session" to activeSession, "tunnelCore" to core.id,
+                    "hevFd" to hevFd, "join" to false
+                )
+                runCatching { HevTunnel.quit() }
+                    .onFailure { diag.error("HEV", "quit-failed", it, "session" to activeSession) }
+            }
+            DatapathStop.QUIT_AND_JOIN -> {
+                val joined = runCatching { Tun2SocksTunnel.stopAndWait() }.getOrDefault(false)
+                diag.event(
+                    "TUN2SOCKS", if (joined) "datapath-stop-ack" else "datapath-stop-timeout",
+                    "session" to activeSession,
+                    "hevFd" to hevFd,
+                    "timeoutMs" to Tun2SocksTunnel.STOP_TIMEOUT_MS
+                )
+            }
+        }
     }
 
-    private fun closeHevFd() {
-        val fd = hevFd
-        hevFd = -1
-        if (fd >= 0) runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
+    /**
+     * MARBLE_TUN2SOCKS_SHUTDOWN_V223 — takes the duplicated TUN descriptor for this datapath run.
+     * Recorded before any native call so a concurrent cleanup defers to this worker instead of
+     * closing the number underneath it.
+     */
+    private fun adoptDatapathFd(dupFd: Int) {
+        synchronized(hevFdLock) { hevFd = dupFd }
+        datapathOwnsFd.set(true)
+        diag.event(
+            "TUN", "fd-owned-by-datapath",
+            "hevFd" to dupFd, "tunnelCore" to activeTunnelCore.id
+        )
+    }
+
+    /**
+     * MARBLE_TUN2SOCKS_SHUTDOWN_V223 — the native run is over, so the descriptor is this worker's
+     * to close. This is the one place a datapath-owned descriptor leaves the process, and it runs
+     * on every exit path of the run (see [runTun]'s `finally`).
+     */
+    private fun releaseDatapathFd(core: TunnelCore) {
+        datapathOwnsFd.set(false)
+        diag.event(
+            "TUN", "datapath-released-fd",
+            "hevFd" to hevFd, "tunnelCore" to core.id
+        )
+        closeHevFd("datapath-worker")
+    }
+
+    /**
+     * MARBLE_TUN2SOCKS_SHUTDOWN_V223 — closes the duplicated TUN descriptor exactly once.
+     *
+     * Two guarantees, both new in V223:
+     *
+     *  - **at most one close.** The number is taken out of [hevFd] under [hevFdLock], so the
+     *    datapath worker and any cleanup thread asking at the same time cannot both close it.
+     *    V222 closed it here *and* the Go core closed it in `marble_t2s_run`, which is a double
+     *    close of a number the app may already have recycled — the disconnect abort.
+     *  - **never under a live datapath.** While [datapathOwnsFd] is set the close is deferred to
+     *    [releaseDatapathFd] and logged. gVisor's fdbased dispatcher polls this number until its
+     *    stopfd fires; closing it first would let the netstack read whatever descriptor inherits
+     *    the number next.
+     */
+    private fun closeHevFd(owner: String) {
+        if (!TunnelShutdownPolicy.mayCloseDescriptor(datapathOwnsFd.get())) {
+            diag.event(
+                "TUN", "fd-close-deferred",
+                "hevFd" to hevFd, "owner" to owner, "tunnelCore" to activeTunnelCore.id,
+                "reason" to "the datapath still owns the descriptor and closes it when its run returns"
+            )
+            return
+        }
+        val fd = synchronized(hevFdLock) {
+            val current = hevFd
+            hevFd = -1
+            current
+        }
+        if (fd < 0) return
+        diag.event(
+            "TUN", "fd-close",
+            "hevFd" to fd, "owner" to owner, "tunnelCore" to activeTunnelCore.id
+        )
+        runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
+            .onFailure { diag.error("TUN", "fd-close-failed", it, "hevFd" to fd, "owner" to owner) }
     }
 
     private fun closeTun() {
@@ -3648,6 +3791,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         monitorWorker.shutdownNow()
         controlWorker.shutdownNow()
         connectionWorker.shutdownNow()
+        // MARBLE_TUN2SOCKS_SHUTDOWN_V223 — last chance for the descriptor: a datapath run that
+        // already returned has closed it in [releaseDatapathFd], and one that never returns is
+        // left to the process teardown rather than closed under a live dispatcher.
+        closeHevFd("service-destroy")
         super.onDestroy()
     }
 
