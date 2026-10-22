@@ -452,6 +452,92 @@ fun parseDarkOutlineStyle(raw: String): DarkOutlineStyle =
     DarkOutlineStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: DarkOutlineStyle.SUBTLE
 
+// MARBLE_FLAT_ACCENT_V221 — the product's accent is a choice, not a constant.
+//
+// Every colour the interface painted in "Marble blue" was one accent wearing one hue: the selected
+// tab, the connected ring, the slider's trail, a selected server's rim. V221 lifts that single hue
+// into a named palette the user owns. OCEAN is byte-identical to the V220 brand blue, so an install
+// that never opens the new page keeps the face it had; every other value re-tints the same roles
+// through AetherFlowTheme's accent pass, which is why one setting reaches every page at once.
+enum class FlatAccent(val id: String, val label: String) {
+    OCEAN("ocean", "Ocean"),
+    VIOLET("violet", "Violet"),
+    EMERALD("emerald", "Emerald"),
+    AMBER("amber", "Amber"),
+    ROSE("rose", "Rose"),
+    GRAPHITE("graphite", "Graphite");
+
+    companion object {
+        val DEFAULT: FlatAccent get() = OCEAN
+    }
+}
+
+fun parseFlatAccent(raw: String): FlatAccent =
+    FlatAccent.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().lowercase()) {
+            "blue", "azure", "cyan", "default" -> FlatAccent.OCEAN
+            "purple", "amethyst", "indigo" -> FlatAccent.VIOLET
+            "green", "mint", "teal" -> FlatAccent.EMERALD
+            "gold", "yellow", "orange" -> FlatAccent.AMBER
+            "pink", "red", "crimson" -> FlatAccent.ROSE
+            "gray", "grey", "mono", "slate" -> FlatAccent.GRAPHITE
+            else -> FlatAccent.DEFAULT
+        }
+
+// MARBLE_CORE_POWER_V221 — one dial for the whole tuning surface.
+//
+// The product had twenty expert knobs and no answer to "make it faster". A profile is that answer:
+// it projects the device's own core count and memory onto the settings the two cores actually read
+// (multiplexing, TCP fast open, socket buffers, measurement concurrency) without touching anything
+// that changes identity, DNS fail-closed behaviour or route selection.
+enum class PowerProfile(val id: String, val label: String) {
+    EFFICIENT("efficient", "Efficient"),
+    BALANCED("balanced", "Balanced"),
+    TURBO("turbo", "Turbo"),
+    EXTREME("extreme", "Extreme");
+
+    companion object {
+        val DEFAULT: PowerProfile get() = BALANCED
+    }
+}
+
+fun parsePowerProfile(raw: String): PowerProfile =
+    PowerProfile.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().lowercase()) {
+            "battery", "saver", "low", "eco" -> PowerProfile.EFFICIENT
+            "normal", "default", "auto" -> PowerProfile.BALANCED
+            "fast", "boost" -> PowerProfile.TURBO
+            "max", "beast", "insane" -> PowerProfile.EXTREME
+            else -> PowerProfile.DEFAULT
+        }
+
+// MARBLE_CENSORSHIP_LAB_V221 — how the TLS handshake is broken up.
+//
+// The pinned extended core fragments TLS in two ways, and they are not equivalent: `record_fragment`
+// splits the ClientHello across several TLS records (cheap, first choice), while `fragment` splits
+// the raw handshake across TCP segments with a fallback delay (heavier, for a name that is already
+// known to be blocked). Both are client-side and need no root; the fork's `spoof` does need raw
+// sockets, so the product never emits it.
+enum class FragmentStrategy(val id: String, val label: String) {
+    OFF("off", "Off"),
+    AUTO("auto", "Automatic"),
+    RECORD("record", "TLS records"),
+    FULL("full", "Full handshake");
+
+    companion object {
+        val DEFAULT: FragmentStrategy get() = AUTO
+    }
+}
+
+fun parseFragmentStrategy(raw: String): FragmentStrategy =
+    FragmentStrategy.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: when (raw.trim().lowercase()) {
+            "none", "disabled", "false" -> FragmentStrategy.OFF
+            "record_fragment", "records", "sni" -> FragmentStrategy.RECORD
+            "fragment", "tls", "aggressive" -> FragmentStrategy.FULL
+            else -> FragmentStrategy.DEFAULT
+        }
+
 enum class ConnectionPingState { IDLE, MEASURING, MEASURED, FAILED }
 
 enum class ProbeState { IDLE, QUEUED, TESTING }
@@ -1216,6 +1302,25 @@ data class AppSettings(
     val autoServerOnFailure: Boolean = true,
     val autoServerScope: String = AutoServerScope.SOURCE.id,
     val autoServerSwitchMarginPercent: Int = 15,
+
+    // MARBLE_MERIDIAN_V221 — the flat chapter's four decisions.
+    //
+    // flatInterface: the product's boxes lose their material and keep their structure — one tonal
+    // fill, one hairline, no shadow, no specular wash. It is on by default because a flat surface
+    // is cheaper to draw *and* easier to read; the switch exists so a user who liked the older
+    // lifted cards can have them back.
+    val flatInterface: Boolean = true,
+    val accentTheme: String = FlatAccent.DEFAULT.id,
+    // powerProfile projects the device onto the cores' own knobs (see core/CorePower.kt).
+    val powerProfile: String = PowerProfile.DEFAULT.id,
+    // fragmentStrategy is the TLS-handshake treatment the extended core applies on the wire.
+    val fragmentStrategy: String = FragmentStrategy.DEFAULT.id,
+    // warmupOnLaunch pre-resolves the active route so the first ping and the first connection do
+    // not pay for DNS.
+    val warmupOnLaunch: Boolean = true,
+    // censorshipAutoApply lets the Censorship Lab's prescription land without a second tap when a
+    // scan finds a decisive block.
+    val censorshipAutoApply: Boolean = false,
 
     val debugModeEnabled: Boolean = false
 )

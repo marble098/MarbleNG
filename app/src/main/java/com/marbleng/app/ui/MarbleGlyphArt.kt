@@ -635,7 +635,7 @@ internal fun MarbleGlyphTile(
             .size(tileSize)
             .then(
                 if (shadow) {
-                    Modifier.shadow(
+                    Modifier.marbleShadow(
                         elevation = if (selected) 9.dp else 6.dp,
                         shape = shape,
                         clip = false,
@@ -720,7 +720,7 @@ internal fun MarbleBrandMark(
     Box(
         modifier = modifier
             .size(markSize)
-            .shadow(
+            .marbleShadow(
                 elevation = if (glow) 12.dp else 0.dp,
                 shape = shape,
                 clip = false,

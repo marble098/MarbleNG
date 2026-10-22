@@ -98,6 +98,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private val io = Executors.newFixedThreadPool(3)
 
     private val statusWorker = Executors.newSingleThreadExecutor()
+
+    private val warmupWorker = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "marble-connect-warmup").apply { isDaemon = true }
+    }
     private val statusRefreshInFlight = AtomicBoolean(false)
 
     private val taskInFlight = AtomicBoolean(false)
@@ -1018,6 +1022,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
             scanIranMode(force = true, deep = false)
 
             ensureServerInsights()
+            warmRoutes()
         }
         refreshIntelligenceStatus()
 
@@ -1034,6 +1039,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         }
 
         ensureGeoAssetsInBackground()
+        warmRoutes()
     }
 
     private fun installUrlTestHook() {
@@ -1766,11 +1772,53 @@ fun resetTelemetry() {
             )
         }
 
-        return IdentityGuard.apply(tuned)
+        // MARBLE_FRAGMENT_POLICY_V221 — `Automatic` is a decision about the *network*, not about the
+        // document: it becomes the cheap record split only once the app's own evidence says this
+        // path filters TLS, and it stays OFF everywhere else. Storage is untouched, so a phone that
+        // travels from a filtered network to an open one goes back to writing nothing.
+        val censored = iranMode.active && iranMode.policy != IranModePolicy.OFF
+        val fragment = FragmentPolicy.effectiveStrategyId(tuned.fragmentStrategy, censored)
+
+        // MARBLE_CORE_POWER_V221 — the power profile is a projection over the *effective* settings,
+        // never over storage. Balanced is the identity function, so an install that never touches
+        // the new page produces exactly the settings it always did; Turbo and Extreme are bounded by
+        // the same ranges the config builders clamp to (CorePowerV221Test pins both).
+        return CorePower.tune(
+            IdentityGuard.apply(tuned.copy(fragmentStrategy = fragment)),
+            settings.powerProfile,
+            CorePower.Device(deviceCores, deviceMemoryMb),
+            CorePower.muxSafeFor(profile)
+        )
     }
 
     fun tuningBaseFor(profile: ProxyProfile): AppSettings =
         effectiveSettingsFor(profile, withAcceleration = false)
+
+    // MARBLE_CONNECT_WARMUP_V221 — resolve the road before the user has to drive it.
+    //
+    // The network listener and the first paint both call this, so the active route's host (and the
+    // handful of nodes the user is most likely to tap next) is already in the warm cache by the
+    // time a ping or a connect asks for it. The warmup runs on its own daemon thread, never blocks a
+    // caller, and is a no-op when the setting is off.
+    fun warmRoutes() {
+        if (!settings.warmupOnLaunch) return
+        val candidates = buildList {
+            profile(activeProfileId, activeProfileSourceId)?.let { add(it) }
+            profile(selectedProfileId, selectedProfileSourceId)?.let { add(it) }
+            addAll(profiles.asSequence().filter { it.host.isNotBlank() }.take(12).toList())
+        }
+            .map { it.host }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        if (candidates.isEmpty()) return
+        warmupWorker.execute {
+            runCatching {
+                ConnectWarmup.warm(candidates, settings)
+                diagnostics.event("NETWORK", "warmup", "hosts" to candidates.size)
+            }
+        }
+    }
 
     private fun geoIpReady(): Boolean =
         runCatching { xray.routingAssetStatus().geoIpReady }.getOrDefault(false)
@@ -3378,6 +3426,9 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun startVpn(p: ProxyProfile) {
+        if (settings.warmupOnLaunch && p.host.isNotBlank()) {
+            warmupWorker.execute { runCatching { ConnectWarmup.warm(listOf(p.host), settings) } }
+        }
         privacy = null
         runCatching { scanIranMode() }
         ensureIpFamilyEvidence(p)

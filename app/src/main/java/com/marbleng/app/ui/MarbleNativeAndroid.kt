@@ -34,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
@@ -127,6 +128,33 @@ internal fun marbleNativeCardFill(): Color = if (homeCloudDark()) {
     MaterialTheme.colorScheme.surfaceContainerLowest
 }
 
+/**
+ * MARBLE_FLATLINE_V221 — the one place a cast shadow asks permission.
+ *
+ * Every surface in the product reaches `Modifier.shadow` through this function. On a flat surface it
+ * is a no-op, so the switch is not a per-page decision any more: a card V221 never touched loses its
+ * shadow the same frame the Home page does. The elevation is still accepted (and still animated by
+ * the caller) so switching back to the classic material restores the exact depth it had.
+ */
+@Composable
+internal fun Modifier.marbleShadow(
+    elevation: Dp,
+    shape: Shape = RectangleShape,
+    clip: Boolean = elevation > 0.dp,
+    ambientColor: Color = Color.Black,
+    spotColor: Color = Color.Black
+): Modifier = if (marbleFlatSurfaces() || elevation <= 0.dp) {
+    this
+} else {
+    this.shadow(
+        elevation = elevation,
+        shape = shape,
+        clip = clip,
+        ambientColor = ambientColor,
+        spotColor = spotColor
+    )
+}
+
 @Composable
 internal fun marbleNativeOutline(): Color {
     val scheme = MaterialTheme.colorScheme
@@ -171,6 +199,12 @@ internal data class MarbleNativeShadow(
 internal fun marbleNativeShadow(tone: Color): MarbleNativeShadow {
     // MARBLE_SHADOW_CALM_V220 — the platform pair is quieter in both themes: a shadow that reads
     // as weather under every card is not depth, it is dirt.
+    // MARBLE_FLATLINE_V221 — and in flat mode there is no pair at all. Returning transparent
+    // colours here (rather than editing forty `.marbleShadow(...)` call sites) is what makes every
+    // platform surface — rows, tiles, sheets, the dock — obey the switch together.
+    if (marbleFlatSurfaces()) {
+        return MarbleNativeShadow(Color.Transparent, Color.Transparent, Color.Transparent)
+    }
     val dark = homeCloudDark()
     val scheme = MaterialTheme.colorScheme
     return if (dark) {
@@ -222,14 +256,17 @@ internal fun Modifier.marbleLitSurface(
         lerp(tone, Color.White, if (dark) .30f else .45f)
     }
 
+    val flat = marbleFlatSurfaces()
     return this
         .clip(shape)
         .background(body)
-        .background(
-            Brush.verticalGradient(
-                colors = listOf(wash.copy(alpha = topAlpha), wash.copy(alpha = 0f)),
-                startY = 0f,
-                endY = 44f
+        .then(
+            if (flat) Modifier else Modifier.background(
+                Brush.verticalGradient(
+                    colors = listOf(wash.copy(alpha = topAlpha), wash.copy(alpha = 0f)),
+                    startY = 0f,
+                    endY = 44f
+                )
             )
         )
         .border(
@@ -290,7 +327,7 @@ internal fun MarbleNativeCard(
     val rim = Brush.verticalGradient(listOf(litRim, outline))
     Box(
         modifier = modifier
-            .shadow(
+            .marbleShadow(
                 elevation = elevation,
                 shape = shape,
                 clip = false,
@@ -298,7 +335,7 @@ internal fun MarbleNativeCard(
                 spotColor = shadow.spot
             )
 
-            .shadow(
+            .marbleShadow(
                 elevation = MarbleNativeSpec.ContactElevationDp.dp,
                 shape = shape,
                 clip = false,

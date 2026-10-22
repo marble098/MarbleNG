@@ -1366,7 +1366,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             ),
 
             "storm" to if (repo.intelligence.dnsStormActive()) {
-                "armed:${"%.2f".format(repo.intelligence.dnsStormRatePerMinute())}/min"
+                "armed:${"%.2f".format(java.util.Locale.US, repo.intelligence.dnsStormRatePerMinute())}/min"
             } else {
                 "calm"
             },

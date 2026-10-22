@@ -561,6 +561,23 @@ mark across the header, the notifications and all three launcher icons, shared l
 rows, buttons, dock and sheets, and a drag-to-connect control rebuilt as a tinted well with an energy
 bed and a lit sphere — with the V146 parking and V207 commit ordering untouched.
 
+### The V221 pass — Meridian: flat surfaces, an accent the user owns, and a Censorship Lab
+
+`docs/MERIDIAN_V221.md` is the chapter. The interface gains a second material — **flat**, now the
+default: one tonal fill, one plain hairline and no shadow, gradient or specular wash — driven by a
+single switch (`flatInterface`) that every card, row, tile, sheet, dock and dialog reads through one
+composition local. Six accent palettes (Ocean is the V220 brand, byte-identical) re-tint the tab, the
+connected ring, the slider and every selected row from one setting. **Power profiles** project the
+device's own cores and memory onto the cores' real knobs (multiplex, TCP fast open, socket buffers,
+measurement pools) with a hard, tested bound and a Balanced profile that is the identity function.
+The **Censorship Lab** is a new tool page: five parallel probes on the live path, a pure diagnosis
+that names the technique (DNS interference, name filtering, injected reset, address block, port
+filter, shaping) and a one-tap prescription that only moves the knobs it owns — TLS record
+fragmentation and handshake fragmentation on the extended core, fake-IP DNS, address family — and
+never identity, routing or certificate policy. Under it: a bounded 90-second warm DNS cache that the
+first ping and the first connect reuse, Happy Eyeballs obeying its own setting instead of a hard-coded
+200 ms stagger, and locale-correct byte/speed formatting everywhere.
+
 ## Main navigation
 
 MarbleNG uses three primary tabs: **Home**, **Servers**, and **Settings**.

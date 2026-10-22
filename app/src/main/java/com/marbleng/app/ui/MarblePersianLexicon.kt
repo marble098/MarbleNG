@@ -29,6 +29,105 @@ internal fun faTranslate(text: String): String {
 
 private val FaLexicon: Map<String, String> = mapOf(
 
+    // MARBLE_MERIDIAN_V221 — the flat chapter speaks Persian too.
+    "Interface" to "رابط کاربری",
+    "Surfaces, accent and how hard the cores work" to "ظاهر، رنگ و توان هسته‌ها",
+    "Surfaces" to "ظاهر سطوح",
+    "Flat surfaces" to "سطوح تخت",
+    "No shadows, no gradients: each box is a tonal step of the page" to "بدون سایه و گرادیان؛ هر باکس یک پله رنگی از صفحه است",
+    "Flat is one tone and one hairline; classic keeps the lifted cards" to "تخت یعنی یک رنگ و یک خط؛ کلاسیک همان کارت‌های برجسته است",
+    "Flat" to "تخت",
+    "Accent" to "رنگ تأکیدی",
+    "One colour reaches the tab, the ring, the slider and every selected row" to "یک رنگ به تب، حلقه، اسلایدر و هر ردیف انتخاب‌شده می‌رسد",
+    "Power" to "توان",
+    "Efficient" to "کم‌مصرف",
+    "Balanced" to "متعادل",
+    "Turbo" to "توربو",
+    "Apply now" to "همین حالا اعمال کن",
+    "Takes effect on the next connect" to "در اتصال بعدی اعمال می‌شود",
+    "Sized for this device" to "تنظیم‌شده برای همین دستگاه",
+    "Connection warmup" to "گرم‌کردن اتصال",
+    "Warm the route on launch" to "گرم‌کردن مسیر در شروع",
+    "One resolver round trip saved on the first connect and every ping" to "یک رفت‌وبرگشت رزولور در اولین اتصال و هر پینگ صرفه‌جویی می‌شود",
+    "Warm now" to "همین حالا گرم کن",
+    "Clear and refill the cached resolutions" to "پاک و دوباره پر کردن نشانی‌های ذخیره‌شده",
+    "Censorship Lab" to "آزمایشگاه سانسور",
+    "Censorship" to "سانسور",
+    "What is blocking this path, and the one switch that gets around it" to
+        "چه چیزی این مسیر را بسته، و کدام یک تنظیم آن را دور می‌زند",
+    "Block scan, handshake fragmentation and a one-tap shield" to
+        "اسکن مسدودسازی، تکه‌تکه‌سازی دست‌دهی و سپر یک‌ضربه‌ای",
+    "Measure what is blocking this path, then treat exactly that" to "اندازه‌گیری کن چه چیزی این مسیر را بسته، سپس همان را درمان کن",
+    "Block scan" to "اسکن مسدودسازی",
+    "Five targets: names, literal addresses, two ports and the resolver" to "پنج هدف: نام‌ها، آدرس مستقیم، دو پورت و رزولور",
+    "Scan again" to "اسکن دوباره",
+    "Verdict" to "نتیجه",
+    "Evidence" to "شواهد",
+    "Handshake treatment" to "درمان دست‌دهی TLS",
+    "Automatic treatment" to "درمان خودکار",
+    "Auto-apply a decisive verdict" to "اعمال خودکار نتیجه قطعی",
+    "Apply the prescribed shield" to "اعمال سپر تجویز‌شده",
+    "Nothing to treat: this path answered every probe." to "چیزی برای درمان نیست: این مسیر به همه پرسش‌ها پاسخ داد.",
+    "No interference was measured on this path." to "هیچ دخالتی روی این مسیر اندازه‌گیری نشد.",
+    "Automatic" to "خودکار",
+    "TLS records" to "رکوردهای TLS",
+    "Full handshake" to "دست‌دهی کامل",
+    "DNS interference" to "دخالت در DNS",
+    "TLS name filtering" to "فیلتر نام در TLS",
+    "Injected TLS reset" to "ریست تزریق‌شده در TLS",
+    "Address blocking" to "مسدودسازی آدرس",
+    "Port filtering" to "فیلتر پورت",
+    "Traffic shaping" to "شکل‌دهی ترافیک",
+    // The sentences the engines themselves produce. These are content, not labels: a Persian UI
+    // that transliterates them is worse than one that shows nothing, so each is translated whole.
+    "Fewest sockets, no multiplexing, measurements capped to the phone's own cores." to
+        "کمترین سوکت، بدون مولتی‌پلکس، اندازه‌گیری محدود به هسته‌های همین گوشی.",
+    "Your settings exactly as configured." to "دقیقاً همان تنظیمات خودتان.",
+    "Multiplexing, TCP fast open and larger socket buffers, sized to this device." to
+        "مولتی‌پلکس، TCP fast open و بافرهای بزرگ‌تر، اندازه‌گیری‌شده برای همین دستگاه.",
+    "Every acceleration at once, including the largest buffers this device can hold." to
+        "همهٔ شتاب‌دهنده‌ها با هم، همراه با بزرگ‌ترین بافری که این دستگاه تحمل می‌کند.",
+    "The handshake leaves the phone in one piece." to "دست‌دهی بدون تغییر و یک‌تکه از گوشی خارج می‌شود.",
+    "Split only when this network is measured as filtering; quiet everywhere else." to
+        "فقط وقتی این شبکه فیلترکننده تشخیص داده شود تکه‌تکه می‌شود؛ در بقیهٔ شبکه‌ها ساکت است.",
+    "The ClientHello is split across TLS records." to "ClientHello بین چند رکورد TLS تقسیم می‌شود.",
+    "The whole handshake is split across TCP segments, with a fallback delay." to
+        "کل دست‌دهی بین سگمنت‌های TCP تقسیم می‌شود، با یک تأخیر پشتیبان.",
+    "Split the whole TLS handshake across TCP segments; the extended core is required." to
+        "کل دست‌دهی TLS بین سگمنت‌های TCP تقسیم می‌شود؛ هستهٔ گسترده لازم است.",
+    "Split the ClientHello across TLS records; the extended core is required." to
+        "ClientHello بین رکوردهای TLS تقسیم می‌شود؛ هستهٔ گسترده لازم است.",
+    "Keep name resolution inside encrypted DNS with a fake-IP pool." to
+        "حل نام داخل DNS رمزنگاری‌شده و با استخر fake-IP بماند.",
+    "Retry over the other address family: a literal address that never answered is usually a route, not a name." to
+        "با خانوادهٔ آدرس دیگر تلاش کن: آدرس مستقیمی که هرگز پاسخ نداد معمولاً مسئلهٔ مسیر است، نه نام.",
+    "Alternate ports are filtered; keep the node on 443 or a CDN-fronted port." to
+        "پورت‌های جایگزین فیلتر شده‌اند؛ گره را روی 443 یا پورت پشت CDN نگه دار.",
+    "The path is shaped rather than blocked: larger buffers and multiplexing help more than fragmentation." to
+        "مسیر شکل‌دهی شده است نه مسدود؛ بافر بزرگ‌تر و مولتی‌پلکس بیشتر از تکه‌تکه‌کردن کمک می‌کند.",
+    "Fragmentation stays off because it is switched off in Settings." to
+        "تکه‌تکه‌سازی خاموش می‌ماند، چون در تنظیمات خاموش شده است.",
+    "Takes effect on the next connect." to "در اتصال بعدی اعمال می‌شود.",
+    "Probing this path…" to "در حال بررسی این مسیر…",
+    "The scan takes a few seconds and never changes a setting by itself." to
+        "اسکن چند ثانیه طول می‌کشد و به‌خودی‌خود هیچ تنظیمی را تغییر نمی‌دهد.",
+    "TCP, TLS and DNS on the live path" to "TCP، TLS و DNS روی مسیر زنده",
+    "Resolve the active route before the first ping asks for it" to
+        "مسیر فعال را پیش از اولین پینگ حل کن",
+    "Let a decisive scan apply its own prescription" to "بگذار اسکن قطعی نسخهٔ خودش را اعمال کند",
+    "Only when the scan names a blocking technique, never on a clean path" to
+        "فقط وقتی اسکن یک تکنیک مسدودسازی را نام می‌برد، هرگز روی مسیر پاک",
+    "Apply the prescribed shield" to "اعمال سپر تجویز‌شده",
+    "One tap, reversible" to "یک ضربه، قابل بازگشت",
+    "Fragmentation runs on sing-box extended; Xray keeps its own socket treatment." to
+        "تکه‌تکه‌سازی روی sing-box extended اجرا می‌شود؛ Xray روش سوکت خودش را دارد.",
+    "Warming…" to "در حال گرم‌کردن…",
+    "The active engine is Xray: this treatment reaches the wire only after you switch to sing-box extended." to
+        "موتور فعال Xray است: این درمان فقط پس از تغییر به sing-box extended روی مسیر اعمال می‌شود.",
+    "Applied" to "اعمال شد",
+    "switch the engine to sing-box extended to use handshake fragmentation" to
+        "برای استفاده از تکه‌تکه‌سازی دست‌دهی، موتور را به sing-box extended تغییر بده",
+
     "Theme 1 (Slider)" to "تم شماره ۱ (اسلایدر)",
     "Theme 2 (Floating)" to "تم شماره ۲ (شناور)",
     "Theme 3 (Embossed)" to "تم شماره ۳ (برجسته)",

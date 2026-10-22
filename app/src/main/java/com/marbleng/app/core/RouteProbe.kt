@@ -194,7 +194,17 @@ object RouteProbe {
 
         try {
             dial(candidates[0], budgetMs)
-            val happyEyeballsDelayMs = 200L
+            // MARBLE_MERIDIAN_V221 — the stagger is the user's setting, not a constant.
+            //
+            // Happy Eyeballs has always been armed with a 200 ms head start here while the stored
+            // `happyEyeballsTryDelayMs` (default 60 ms) was read only by the core's own dialer. On a
+            // censored path, where the first family is often the blocked one, that constant was the
+            // difference between "connected" and a visible pause on every single connect.
+            val happyEyeballsDelayMs = settings.happyEyeballsTryDelayMs
+                .takeIf { settings.adaptiveHappyEyeballsEnabled }
+                ?.coerceIn(0, 500)
+                ?.toLong()
+                ?: 200L
             var dialedCount = 1
 
             while (dialedCount < candidates.size && fastest >= UNREACHABLE) {
@@ -305,11 +315,21 @@ object RouteProbe {
         settings: AppSettings
     ): List<InetAddress>? {
         val plan = AddressFamilyPolicy.plan(settings = settings)
+        // MARBLE_CONNECT_WARMUP_V221 — a warm name costs no resolver round trip.
+        //
+        // The cache holds raw addresses, so family planning still runs on every call: a user who
+        // switches to IPv4-only gets IPv4 even for a name that was warmed a second earlier.
+        val warm = ConnectWarmup.cached(host)
+        if (warm != null) {
+            val ordered = AddressFamilyPolicy.orderAddresses(warm, plan)
+            if (ordered.isNotEmpty()) return ordered
+        }
         val candidates = AddressFamilyPolicy.resolveCandidates(
             host,
             plan,
             (timeoutMs / 2).coerceIn(500, 2_500)
         )
+        if (candidates.isNotEmpty()) ConnectWarmup.remember(host, candidates)
         return candidates.ifEmpty { null }
     }
 

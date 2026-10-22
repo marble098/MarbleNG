@@ -421,7 +421,7 @@ jobs:
               return any(needle in source for needle in needles)
 
           required = {
-              "product UI marker": "Marble Product UI v9.1.0" in ui,
+              "product UI marker": "Marble Product UI v9.2.0" in ui,
               "modern Canvas icons": "MarbleTabIcon(" in ui,
               "official Material 3 switch": (
                   "Switch(" in ui

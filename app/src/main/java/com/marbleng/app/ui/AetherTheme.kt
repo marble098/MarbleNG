@@ -29,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import com.marbleng.app.R
 import com.marbleng.app.model.AppFont
+import com.marbleng.app.model.FlatAccent
+import com.marbleng.app.model.parseFlatAccent
 import com.marbleng.app.model.DarkOutlineStyle
 import com.marbleng.app.model.parseAppFont
 import com.marbleng.app.model.parseDarkOutlineStyle
@@ -213,6 +215,65 @@ private fun dynamicPhonePalette(scheme: androidx.compose.material3.ColorScheme, 
 }
 
 private val LocalAetherPalette = staticCompositionLocalOf { LightPalette }
+
+// MARBLE_FLATLINE_V221 — the surface mode and the accent are read by components, not by pages.
+//
+// The two values live in composition locals for the same reason the palette does: a card that
+// wanted to know whether it is allowed to cast a shadow should not have to be handed the settings
+// object through six layers of composables. `true` is the default because a composition that is
+// rendered outside AetherFlowTheme (a preview, a test) should still draw the product's current
+// surface, not the retired one.
+internal val LocalMarbleFlat = staticCompositionLocalOf { true }
+internal val LocalMarbleAccent = staticCompositionLocalOf { FlatAccent.OCEAN }
+
+@Composable
+internal fun marbleFlatSurfaces(): Boolean = LocalMarbleFlat.current
+
+@Composable
+internal fun marbleAccent(): FlatAccent = LocalMarbleAccent.current
+
+/**
+ * MARBLE_FLAT_ACCENT_V221 — one accent, every role.
+ *
+ * The palette has exactly two "brand" slots (`cyan` for primary state, `amethyst` for emphasis) and
+ * a rim colour derived from the primary. Re-tinting those three is what makes the choice visible on
+ * every page at once — the selected tab, the connected ring, the slider trail, a chosen server's
+ * rim and the Settings selection wash all read the same slots.
+ *
+ * OCEAN returns the palette untouched, byte for byte: it *is* the V220 brand, and a user who never
+ * opens the new page must not be able to tell that the feature exists.
+ */
+private fun accentPalette(palette: AetherPalette, accent: FlatAccent, light: Boolean): AetherPalette {
+    if (accent == FlatAccent.OCEAN || palette.dynamic) return palette
+
+    data class Tones(val light: Long, val lightBright: Long, val dark: Long, val darkBright: Long,
+                     val deepLight: Long, val deepBrightLight: Long)
+
+    val tones = when (accent) {
+        FlatAccent.OCEAN -> Tones(0xFF0066CC, 0xFF3399FF, 0xFF3399FF, 0xFFADD8E6, 0xFF001144, 0xFF0066CC)
+        FlatAccent.VIOLET -> Tones(0xFF6D47D9, 0xFF8B5CF6, 0xFFB79CFF, 0xFFD3C4FF, 0xFF5533B3, 0xFF7C5CE6)
+        FlatAccent.EMERALD -> Tones(0xFF00875F, 0xFF10B981, 0xFF4FE3B0, 0xFF86F5CE, 0xFF0F766E, 0xFF14B8A6)
+        FlatAccent.AMBER -> Tones(0xFFB45309, 0xFFF59E0B, 0xFFFFC46B, 0xFFFFD79A, 0xFF92400E, 0xFFD97706)
+        FlatAccent.ROSE -> Tones(0xFFC2255C, 0xFFF43F5E, 0xFFFF8FB1, 0xFFFFB3C8, 0xFF9D174D, 0xFFDB2777)
+        FlatAccent.GRAPHITE -> Tones(0xFF334155, 0xFF64748B, 0xFFCBD5E1, 0xFFE2E8F0, 0xFF1E293B, 0xFF475569)
+    }
+
+    val primary = Color(if (light) tones.light else tones.dark)
+    val primaryBright = Color(if (light) tones.lightBright else tones.darkBright)
+    val deep = Color(if (light) tones.deepLight else tones.darkBright)
+    val deepBright = Color(if (light) tones.deepBrightLight else tones.dark)
+    val rimSurface = if (light) palette.voidElevated else palette.glass
+
+    return palette.copy(
+        cyan = primary,
+        cyanBright = primaryBright,
+        amethyst = deep,
+        amethystBright = deepBright,
+        glassBorder = primary.copy(alpha = if (light) .24f else .30f).compositeOver(rimSurface),
+        barGlassBorder = primary.copy(alpha = if (light) .18f else .22f).compositeOver(rimSurface),
+        floatBorder = primary.copy(alpha = if (light) .16f else .20f).compositeOver(rimSurface)
+    )
+}
 
 object Aether {
     val Void: Color @Composable get() = LocalAetherPalette.current.void
@@ -457,6 +518,9 @@ fun AetherFlowTheme(
 
     fontId: String = AppFont.DEFAULT.id,
     outlineStyleId: String = DarkOutlineStyle.SUBTLE.id,
+    // MARBLE_MERIDIAN_V221 — the flat chapter's two inputs.
+    accentId: String = FlatAccent.DEFAULT.id,
+    flatSurfaces: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val requested=parseAppTheme(themeId)
@@ -491,7 +555,9 @@ fun AetherFlowTheme(
 
     val systemDynamicColor = false
 
-    val palette=dynamicPalette ?: if(light) LightPalette else applyNightOutline(DarkPalette, outlineStyleId)
+    val basePalette=dynamicPalette ?: if(light) LightPalette else applyNightOutline(DarkPalette, outlineStyleId)
+    val activeAccent=parseFlatAccent(accentId)
+    val palette=accentPalette(basePalette, activeAccent, light)
 
     val fallback=if(light) {
         lightColorScheme(
@@ -616,7 +682,11 @@ fun AetherFlowTheme(
         }
     }
 
-    CompositionLocalProvider(LocalAetherPalette provides palette) {
+    CompositionLocalProvider(
+        LocalAetherPalette provides palette,
+        LocalMarbleFlat provides flatSurfaces,
+        LocalMarbleAccent provides activeAccent
+    ) {
         val persianActive = LocalMarbleStrings.current.language == MarbleLanguage.FA
         MaterialTheme(
             colorScheme=scheme,

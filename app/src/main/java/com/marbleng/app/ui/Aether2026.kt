@@ -5,7 +5,7 @@
 
 package com.marbleng.app.ui
 
-// Compatibility baseline retained for CI: Marble Product UI v9.1.0
+// Compatibility baseline retained for CI: Marble Product UI v9.2.0
 
 // MARBLE_M3_EXPRESSIVE_UI_V53
 // MARBLE_PRISM_UI_V54
@@ -1109,7 +1109,7 @@ private fun FloatingSpatialDock(
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()
                 .height(metrics.barHeight)
-                .shadow(
+                .marbleShadow(
                     elevation = dockElevation,
                     shape = barShape,
 
@@ -1790,13 +1790,13 @@ private fun MarbleMenuPanel(
                     .padding(start = 16.dp, end = 16.dp, top = 60.dp)
                     .widthIn(max = 360.dp)
                     .fillMaxWidth()
-                    .shadow(
+                    .marbleShadow(
                         elevation = MarbleNativeSpec.CardLiftedElevationDp.dp,
                         shape = panelShape,
                         ambientColor = chrome.shadow.copy(alpha = .26f),
                         spotColor = chrome.shadow.copy(alpha = .34f)
                     )
-                    .shadow(
+                    .marbleShadow(
                         elevation = MarbleNativeSpec.ContactElevationDp.dp,
                         shape = panelShape,
                         clip = false,
@@ -1975,7 +1975,7 @@ internal fun NationalEventBanner(repo: AppRepository, modifier: Modifier = Modif
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(
+                .marbleShadow(
                     elevation = 4.dp,
                     shape = shape,
                     clip = false,
@@ -2157,7 +2157,7 @@ private fun HomeQuickSettingRow(
         modifier=Modifier
             .fillMaxWidth()
             .heightIn(min=MarbleNativeSpec.RowTwoLineHeightDp.dp)
-            .shadow(
+            .marbleShadow(
                 elevation = MarbleNativeSpec.ContactElevationDp.dp,
                 shape = shape,
                 clip = false,
@@ -4026,7 +4026,7 @@ private fun ServersRoundButton(
     Box(
         modifier = Modifier
             .size(42.dp)
-            .shadow(
+            .marbleShadow(
                 elevation = 2.dp,
                 shape = CircleShape,
                 clip = false,
@@ -4735,14 +4735,14 @@ private fun ServersProbeStrip(repo: AppRepository) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(
+            .marbleShadow(
                 elevation = MarbleNativeSpec.CardElevationDp.dp,
                 shape = ServersCardShape,
                 clip = false,
                 ambientColor = stripShadow.ambient,
                 spotColor = stripShadow.spot
             )
-            .shadow(
+            .marbleShadow(
                 elevation = MarbleNativeSpec.ContactElevationDp.dp,
                 shape = ServersCardShape,
                 clip = false,
@@ -7976,14 +7976,14 @@ private fun DockSlotCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(
+            .marbleShadow(
                 elevation = MarbleNativeSpec.CardElevationDp.dp,
                 shape = ServersCardShape,
                 clip = false,
                 ambientColor = slotShadow.ambient,
                 spotColor = slotShadow.spot
             )
-            .shadow(
+            .marbleShadow(
                 elevation = MarbleNativeSpec.ContactElevationDp.dp,
                 shape = ServersCardShape,
                 clip = false,
@@ -9010,6 +9010,9 @@ private fun SettingsThemeGrid(repo: AppRepository) {
 private object SettingsPages {
     const val HUB = "hub"
     const val THEME = "theme"
+    // MARBLE_MERIDIAN_V221 — the flat chapter's two pages.
+    const val INTERFACE = "interface"
+    const val SHIELD = "censorship-lab"
     const val HOME_STYLE = "home-style"
     const val TYPEFACE = "typeface"
     const val LANGUAGE = "language"
@@ -9070,7 +9073,7 @@ private fun openExternal(context: android.content.Context, url: String) {
 }
 
 @Composable
-private fun SettingsSubPage(
+internal fun SettingsSubPage(
     title: String,
     subtitle: String,
     onBack: () -> Unit,
@@ -9142,7 +9145,7 @@ private val LocalSettingsSectionTone = compositionLocalOf { HomeCloud.BrandAccen
 private fun settingsSectionTone(): Color = LocalSettingsSectionTone.current
 
 @Composable
-private fun SettingsHubCard(
+internal fun SettingsHubCard(
     title: String,
     tone: Color,
     modifier: Modifier = Modifier,
@@ -9159,7 +9162,7 @@ private fun SettingsHubCard(
             .fillMaxWidth()
             // MARBLE_SETTINGS_FACELIFT_V220 — sub-page cards wear the same single contact shadow
             // as the hub groups.
-            .shadow(
+            .marbleShadow(
                 elevation = MarbleNativeSpec.ContactElevationDp.dp,
                 shape = shape,
                 clip = false,
@@ -9919,6 +9922,18 @@ private fun settingsHubGroups(
                     ) { SettingsRoutingPreview(Aether.Emerald) }
                 },
                 section(
+                    title = trx("Censorship"),
+                    subtitle = "What is blocking this path, and the one switch that gets around it"
+                ) {
+                    SettingsHubRow(
+                        title = "Censorship Lab",
+                        subtitle = "Block scan, handshake fragmentation and a one-tap shield",
+                        tone = Aether.Danger,
+                        badge = parseFragmentStrategy(settings.fragmentStrategy).label,
+                        onClick = { onNavigate(SettingsPages.SHIELD) }
+                    ) { SettingsRowGlyphPreview(HomeIcon.SHIELD, Aether.Danger) }
+                },
+                section(
                     title = trx("Automatic connect"),
                     subtitle = "When MarbleNG connects without being asked"
                 ) {
@@ -10025,6 +10040,19 @@ private fun settingsHubGroups(
             tone = Aether.Amethyst,
             glyph = MarbleGlyph.PALETTE,
             sections = listOf(
+                section(
+                    title = trx("Interface"),
+                    subtitle = "Surfaces, accent and how hard the cores work"
+                ) {
+                    SettingsHubRow(
+                        title = "Interface",
+                        subtitle = "${parseFlatAccent(settings.accentTheme).label} • " +
+                            (if (settings.flatInterface) "Flat" else "Classic") + " • " +
+                            parsePowerProfile(settings.powerProfile).label,
+                        tone = Aether.Cyan,
+                        onClick = { onNavigate(SettingsPages.INTERFACE) }
+                    ) { SettingsRowGlyphPreview(HomeIcon.PALETTE, Aether.Cyan) }
+                },
                 section(
                     title = trx("Theme"),
                     subtitle = "Colours, and where they come from"
@@ -10181,7 +10209,7 @@ private fun SettingsHubGroupCard(
             .fillMaxWidth()
             // MARBLE_SETTINGS_FACELIFT_V220 — one contact shadow tacks the group to the page; the
             // old stacked pair is what ringed every group with weather.
-            .shadow(
+            .marbleShadow(
                 elevation = MarbleNativeSpec.ContactElevationDp.dp,
                 shape = shape,
                 clip = false,
@@ -11565,7 +11593,7 @@ private fun SettingsBrandHeader() {
             modifier = Modifier
                 .size(48.dp)
                 // MARBLE_SHADOW_CALM_V220 — the brand tile glows; it no longer casts a tinted slab.
-                .shadow(
+                .marbleShadow(
                     elevation = 6.dp,
                     shape = RoundedCornerShape(16.dp),
                     clip = false,
@@ -11863,6 +11891,9 @@ private fun SpatialSettings(
     val informationListState = rememberLazyListState()
     val routingListState = rememberLazyListState()
 
+    val interfaceListState = rememberLazyListState()
+    val shieldListState = rememberLazyListState()
+
     val dockSlotListState = rememberLazyListState()
 
     val workspaceListStates = remember {
@@ -11983,6 +12014,21 @@ private fun SpatialSettings(
                 SettingsRoutingPage(
                     repo = repo,
                     listState = routingListState,
+                    onBack = { page = SettingsPages.HUB }
+                )
+
+            // MARBLE_MERIDIAN_V221 — Interface (surfaces, accent, power) and the Censorship Lab.
+            target == SettingsPages.INTERFACE ->
+                MeridianInterfacePage(
+                    repo = repo,
+                    listState = interfaceListState,
+                    onBack = { page = SettingsPages.HUB }
+                )
+
+            target == SettingsPages.SHIELD ->
+                MeridianShieldPage(
+                    repo = repo,
+                    listState = shieldListState,
                     onBack = { page = SettingsPages.HUB }
                 )
 
@@ -16820,7 +16866,7 @@ private fun CyberChoiceChip(
 }
 
 @Composable
-private fun CyberSegment(
+internal fun CyberSegment(
     label: String,
     detail: String,
     selected: Boolean,
@@ -16899,7 +16945,7 @@ private fun CyberSegment(
 }
 
 @Composable
-private fun SettingSwitch(
+internal fun SettingSwitch(
     title: String,
     subtitle: String,
     checked: Boolean,
@@ -17073,21 +17119,21 @@ private fun routeEvidenceLine(result: BenchmarkResult): String = listOfNotNull(
 ).joinToString(" • ")
 
 private fun rate(bytes: Long): String = when {
-    bytes >= 1024L * 1024L -> "%.1f MB/s".format(bytes / (1024.0 * 1024.0))
-    bytes >= 1024L -> "%.0f KB/s".format(bytes / 1024.0)
+    bytes >= 1024L * 1024L -> "%.1f MB/s".format(java.util.Locale.US, bytes / (1024.0 * 1024.0))
+    bytes >= 1024L -> "%.0f KB/s".format(java.util.Locale.US, bytes / 1024.0)
     else -> "$bytes B/s"
 }
 
 private fun compactRate(bytes: Long): String = when {
-    bytes >= 1024L * 1024L -> "%.1fM".format(bytes / (1024.0 * 1024.0))
-    bytes >= 1024L -> "%.0fK".format(bytes / 1024.0)
+    bytes >= 1024L * 1024L -> "%.1fM".format(java.util.Locale.US, bytes / (1024.0 * 1024.0))
+    bytes >= 1024L -> "%.0fK".format(java.util.Locale.US, bytes / 1024.0)
     else -> bytes.toString()
 }
 
 private fun formatBytes(bytes: Long): String = when {
-    bytes >= 1024L * 1024L * 1024L -> "%.2f GiB".format(bytes / (1024.0 * 1024.0 * 1024.0))
-    bytes >= 1024L * 1024L -> "%.1f MiB".format(bytes / (1024.0 * 1024.0))
-    bytes >= 1024L -> "%.0f KiB".format(bytes / 1024.0)
+    bytes >= 1024L * 1024L * 1024L -> "%.2f GiB".format(java.util.Locale.US, bytes / (1024.0 * 1024.0 * 1024.0))
+    bytes >= 1024L * 1024L -> "%.1f MiB".format(java.util.Locale.US, bytes / (1024.0 * 1024.0))
+    bytes >= 1024L -> "%.0f KiB".format(java.util.Locale.US, bytes / 1024.0)
     else -> "$bytes B"
 }
 

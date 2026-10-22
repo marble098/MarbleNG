@@ -684,7 +684,24 @@ class AppStore(context: Context) {
             prefs.getString("autoServerScope", AutoServerScope.DEFAULT.id) ?: AutoServerScope.DEFAULT.id
         ).id,
         autoServerSwitchMarginPercent = prefs.getInt("autoServerSwitchMarginPercent", 15)
-            .coerceIn(0, 100)
+            .coerceIn(0, 100),
+
+        // MARBLE_MERIDIAN_V221 — the flat chapter's decisions. Every value is parsed through its
+        // own normaliser, so a backup written by another build (or a hand-edited preference) can
+        // never put an unknown id into the settings object.
+        flatInterface = prefs.getBoolean("flatInterface", true),
+        accentTheme = parseFlatAccent(
+            prefs.getString("accentTheme", FlatAccent.DEFAULT.id) ?: FlatAccent.DEFAULT.id
+        ).id,
+        powerProfile = parsePowerProfile(
+            prefs.getString("powerProfile", PowerProfile.DEFAULT.id) ?: PowerProfile.DEFAULT.id
+        ).id,
+        fragmentStrategy = parseFragmentStrategy(
+            prefs.getString("fragmentStrategy", FragmentStrategy.DEFAULT.id)
+                ?: FragmentStrategy.DEFAULT.id
+        ).id,
+        warmupOnLaunch = prefs.getBoolean("warmupOnLaunch", true),
+        censorshipAutoApply = prefs.getBoolean("censorshipAutoApply", false)
         )
     }
 
@@ -872,6 +889,14 @@ class AppStore(context: Context) {
         .putBoolean("autoServerOnFailure", s.autoServerOnFailure)
         .putString("autoServerScope", s.autoServerScopeEnum.id)
         .putInt("autoServerSwitchMarginPercent", s.autoServerSwitchMarginPercent.coerceIn(0, 100))
+        // MARBLE_MERIDIAN_V221 — the flat chapter writes what it reads, through the same
+        // normalisers, so the preference file can never hold an id the model does not know.
+        .putBoolean("flatInterface", s.flatInterface)
+        .putString("accentTheme", parseFlatAccent(s.accentTheme).id)
+        .putString("powerProfile", parsePowerProfile(s.powerProfile).id)
+        .putString("fragmentStrategy", parseFragmentStrategy(s.fragmentStrategy).id)
+        .putBoolean("warmupOnLaunch", s.warmupOnLaunch)
+        .putBoolean("censorshipAutoApply", s.censorshipAutoApply)
         .apply()
 
     private fun storedFontFamily(): AppFont {

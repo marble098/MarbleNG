@@ -92,15 +92,19 @@ internal fun Modifier.marbleSurfaceDepth(
         dark -> Color.Black.copy(alpha = MarbleDepthPolicy.ContactAlphaDark)
         else -> Color(0xFF0A2540).copy(alpha = MarbleDepthPolicy.ContactAlphaLight)
     }
+    // MARBLE_FLATLINE_V221 — in flat mode this contract keeps its anatomy and loses its material:
+    // the fill, the rim and the corners stay, the two shadows and the top wash go. That is what
+    // makes one switch reach every Home presentation instead of only the cards V221 rebuilt.
+    val flat = marbleFlatSurfaces()
     return this
-        .shadow(
+        .marbleShadow(
             elevation = lift,
             shape = shape,
             clip = false,
             ambientColor = shadowAmbient,
             spotColor = shadowSpot
         )
-        .shadow(
+        .marbleShadow(
             elevation = MarbleDepthPolicy.ContactElevation,
             shape = shape,
             clip = false,
@@ -109,11 +113,13 @@ internal fun Modifier.marbleSurfaceDepth(
         )
         .clip(shape)
         .background(fill)
-        .background(
-            Brush.verticalGradient(
-                colors = listOf(washTop, Color.Transparent),
-                startY = 0f,
-                endY = washEndPx
+        .then(
+            if (flat) Modifier else Modifier.background(
+                Brush.verticalGradient(
+                    colors = listOf(washTop, Color.Transparent),
+                    startY = 0f,
+                    endY = washEndPx
+                )
             )
         )
         .border(1.dp, rimBrush, shape)
