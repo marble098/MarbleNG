@@ -111,7 +111,10 @@ class MarbleNativeAndroidV213Test {
     fun theSettingsRowsAndSwitchesAreThePlatforms() {
         val ui = sourceFile("src/main/java/com/marbleng/app/ui/Aether2026.kt")
 
-        assertTrue(ui.contains("private fun SettingSwitch("))
+        // MARBLE_MERIDIAN_V221 — the primitive is module-internal now so the new Interface and
+        // Censorship pages reuse it instead of growing a second row; the invariant is that the
+        // settings still *go through* it, not that it is file-private.
+        assertTrue(ui.contains("fun SettingSwitch("))
         assertTrue(ui.contains("MarbleNativeListItem("))
         assertTrue(ui.contains("MarbleNativeSwitch("))
 
