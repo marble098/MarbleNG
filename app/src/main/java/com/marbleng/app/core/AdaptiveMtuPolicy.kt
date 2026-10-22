@@ -84,7 +84,7 @@ object AdaptiveMtuPolicy {
             val mssDrivenCeiling = (hardCeiling * input.mssRatio).toInt().coerceIn(1280, 1500)
             if (mssDrivenCeiling < ceiling) {
                 ceiling = mssDrivenCeiling
-                reasons += "pmtu-blackhole-${String.format("%.0f%%", input.mssRatio * 100)}"
+                reasons += "pmtu-blackhole-${String.format(java.util.Locale.US, "%.0f%%", input.mssRatio * 100)}"
                 isReactive = true
                 action = Recommendation.Action.REDUCE
             }

@@ -298,7 +298,7 @@ internal fun HomeCloudCard(
     val washEndPx = with(LocalDensity.current) { 130.dp.toPx() }
     Box(
         modifier = modifier
-            .shadow(
+            .marbleShadow(
                 elevation = lift,
                 shape = shape,
                 clip = false,
@@ -477,8 +477,11 @@ internal fun Modifier.prismElevated(
     fill: Color = Aether.VoidElevated,
     tint: Brush? = null
 ): Modifier {
+    val flat = marbleFlatSurfaces()
     val elevation by animateDpAsState(
-        targetValue=if (selected) PrismSurface.RaisedElevation else PrismSurface.RestingElevation,
+        targetValue=if (flat) 0.dp else {
+            if (selected) PrismSurface.RaisedElevation else PrismSurface.RestingElevation
+        },
         animationSpec=MarbleMotionSpecs.Dp,
         label="prism-elevation"
     )
@@ -493,14 +496,16 @@ internal fun Modifier.prismElevated(
     val contactHue=if(homeCloudDark()) Color.Black else Color(0xFF0A2540)
     val contactAlpha=if(homeCloudDark()) MarbleDepthPolicy.ContactAlphaDark else MarbleDepthPolicy.ContactAlphaLight
     return this
-        .shadow(
+        // MARBLE_FLATLINE_V221 — the two lifts go through `marbleShadow`, which is a no-op on a
+        // flat surface; the material is decided in one place instead of at each call site.
+        .marbleShadow(
             elevation=elevation,
             shape=shape,
             clip=false,
             ambientColor=nativeShadow.ambient,
             spotColor=nativeShadow.spot
         )
-        .shadow(
+        .marbleShadow(
             elevation=MarbleDepthPolicy.ContactElevation,
             shape=shape,
             clip=false,
@@ -557,17 +562,27 @@ internal fun PrismPanel(
         animationSpec=MarbleMotionSpecs.ResponseFloat,
         label="prism-selected-energy"
     )
+    // MARBLE_FLATLINE_V221 — the flat chapter.
+    //
+    // A flat panel is not a shadowless version of the old card; it is a different material with the
+    // same anatomy. The fill is a *tonal step* of the page (not the page's own white), the edge is
+    // one plain hairline that only takes the accent when the panel is selected, and there is no
+    // specular plane and no cast shadow at all — the separation is the tone, which is how a modern
+    // flat surface stays readable in both themes without inventing a light source.
+    val flat = marbleFlatSurfaces()
     val elevation by animateDpAsState(
-        targetValue=PrismSurface.RestingElevation +
-            (PrismSurface.RaisedElevation - PrismSurface.RestingElevation) * selectedProgress,
+        targetValue=if (flat) 0.dp else {
+            PrismSurface.RestingElevation +
+                (PrismSurface.RaisedElevation - PrismSurface.RestingElevation) * selectedProgress
+        },
         animationSpec=MarbleMotionSpecs.Dp,
         label="prism-panel-elevation"
     )
     val shape=RoundedCornerShape(radius)
-    val surface=Aether.VoidElevated
+    val surface=if (flat) Aether.Glass else Aether.VoidElevated
     val violet=Aether.Amethyst
 
-    val glowAlpha=.045f + .055f*selectedProgress
+    val glowAlpha=if (flat) .018f + .022f*selectedProgress else .045f + .055f*selectedProgress
 
     // MARBLE_NATIVE_ANDROID_V213 — the rim is a *light*, not a border.
 
@@ -576,16 +591,27 @@ internal fun PrismPanel(
     // MARBLE_AURORA_SURFACE_V219 — the rim is a light source, so it is brightest at the top edge
     // and settles into the platform outline at the bottom. On a light page the lit stop is white,
     // not the accent: a blue hairline around a blue-tinted card is a border, a white one is a light.
+    // One hairline either way: a flat edge is a rule (two identical stops), a lifted edge is a
+    // light (a directional gradient). Same anatomy, different material — that is the whole switch.
+    val flatEdge = when {
+        selectedProgress > .5f -> accent.copy(alpha = .46f)
+        darkPanel -> outline
+        else -> lerp(outline, Color.White, .30f)
+    }
     val borderBrush=Brush.verticalGradient(
-        listOf(
-            if (darkPanel) {
-                lerp(outline, accent, .34f + .40f*selectedProgress)
-            } else {
-                lerp(outline, Color.White, .62f + .22f*selectedProgress)
-            },
-            lerp(outline, accent, .16f + .22f*selectedProgress),
-            lerp(outline, violet, .06f + .10f*selectedProgress)
-        )
+        if (flat) {
+            listOf(flatEdge, flatEdge)
+        } else {
+            listOf(
+                if (darkPanel) {
+                    lerp(outline, accent, .34f + .40f*selectedProgress)
+                } else {
+                    lerp(outline, Color.White, .62f + .22f*selectedProgress)
+                },
+                lerp(outline, accent, .16f + .22f*selectedProgress),
+                lerp(outline, violet, .06f + .10f*selectedProgress)
+            )
+        }
     )
     val nativeShadow=marbleNativeShadow(accent)
     val contactHue=if(homeCloudDark()) Color.Black else Color(0xFF0A2540)
@@ -595,15 +621,14 @@ internal fun PrismPanel(
         modifier=modifier
 
             .then(if (entranceIndex >= 0) Modifier.marbleStaggerIn(entranceIndex) else Modifier)
-            .shadow(
+            .marbleShadow(
                 elevation=elevation,
                 shape=shape,
                 clip=false,
                 ambientColor=nativeShadow.ambient,
                 spotColor=nativeShadow.spot
             )
-
-            .shadow(
+            .marbleShadow(
                 elevation=MarbleDepthPolicy.ContactElevation,
                 shape=shape,
                 clip=false,
@@ -621,14 +646,18 @@ internal fun PrismPanel(
             .then(if (tint == null) Modifier else Modifier.background(tint))
             // MARBLE_AURORA_SURFACE_V219 — the specular plane every card now carries, on top of
             // its own fill so the surface stays exactly the box.
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = if (homeCloudDark()) .045f else .32f),
-                        Color.White.copy(alpha = 0f)
-                    ),
-                    startY = 0f,
-                    endY = 46f
+            // MARBLE_FLATLINE_V221 — unless the surface is flat, in which case the tone alone is
+            // the material and a specular sheen would be the one gradient a flat system cannot have.
+            .then(
+                if (flat) Modifier else Modifier.background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = if (homeCloudDark()) .045f else .32f),
+                            Color.White.copy(alpha = 0f)
+                        ),
+                        startY = 0f,
+                        endY = 46f
+                    )
                 )
             )
     ) {
@@ -783,7 +812,7 @@ internal fun PrismButton(
                 .widthIn(min=if (compact) 64.dp else 88.dp)
                 .then(
                     if (filled) {
-                        Modifier.shadow(
+                        Modifier.marbleShadow(
                             elevation = PrismSurface.ControlElevation,
                             shape = shape,
                             clip = false,

@@ -52,7 +52,7 @@ internal fun MarbleSheetGrabber(
         Box(
             modifier = Modifier
                 .size(width = 46.dp, height = 5.dp)
-                .shadow(
+                .marbleShadow(
                     elevation = 5.dp,
                     shape = shape,
                     clip = false,

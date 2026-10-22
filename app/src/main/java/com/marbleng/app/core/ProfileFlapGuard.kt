@@ -126,7 +126,7 @@ class ProfileFlapGuard(
             if (gain < minGain) {
                 return SwitchDecision(
                     false,
-                    "insufficient-gain: ${String.format("%.1f", gain)} < ${String.format("%.1f", minGain)} required"
+                    "insufficient-gain: ${String.format(java.util.Locale.US, "%.1f", gain)} < ${String.format(java.util.Locale.US, "%.1f", minGain)} required"
                 )
             }
         } else {
@@ -134,13 +134,13 @@ class ProfileFlapGuard(
             if (gain < 20.0) {
                 return SwitchDecision(
                     false,
-                    "incomplete-evidence-high-bar: gain ${String.format("%.1f", gain)} < 20.0"
+                    "incomplete-evidence-high-bar: gain ${String.format(java.util.Locale.US, "%.1f", gain)} < 20.0"
                 )
             }
         }
 
         recordSwitch(nowMs)
-        return SwitchDecision(true, "switch-approved: gain ${String.format("%.1f", targetQuality - currentQuality)}")
+        return SwitchDecision(true, "switch-approved: gain ${String.format(java.util.Locale.US, "%.1f", targetQuality - currentQuality)}")
     }
 
     @Synchronized

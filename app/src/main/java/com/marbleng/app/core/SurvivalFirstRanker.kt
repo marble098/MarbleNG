@@ -354,7 +354,7 @@ object SurvivalFirstRanker {
             append("|history=").append(historyState)
             if (connectedMs > 0) append("|connectedMs=").append(connectedMs)
             if (reconnectCount > 0) append("|reconnects=").append(reconnectCount)
-            if (resolverSuccessRatio < 1.0) append("|resolverRate=").append(String.format("%.2f", resolverSuccessRatio))
+            if (resolverSuccessRatio < 1.0) append("|resolverRate=").append(String.format(java.util.Locale.US, "%.2f", resolverSuccessRatio))
             if (!mssStable) append("|mss=unstable")
         }
     }

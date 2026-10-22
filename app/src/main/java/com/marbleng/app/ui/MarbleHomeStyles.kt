@@ -641,7 +641,7 @@ private fun ConnectButtonRound(
                 .marblePopWhen(evidence.connected, peak = MarbleConnectMotion.statePopPeak)
                 // MARBLE_SHADOW_CALM_V220 — the round shutter floats instead of looming: half the
                 // lift, half the tint.
-                .shadow(
+                .marbleShadow(
                     elevation = 10.dp,
                     shape = CircleShape,
                     clip = false,
@@ -1052,7 +1052,7 @@ private fun ConnectButtonClassic(
                 .height(84.dp)
                 // MARBLE_SHADOW_CALM_V220 — the slide rail sits on the page instead of hovering
                 // over it.
-                .shadow(
+                .marbleShadow(
                     elevation = 6.dp,
                     shape = shape,
                     clip = false,
@@ -3001,7 +3001,7 @@ private fun FloatingConnectFab(
                 .marblePopWhen(busy, peak = 1.05f)
                 // MARBLE_SHADOW_CALM_V220 — the floating disc keeps its ring of light and loses its
                 // slab of shadow.
-                .shadow(
+                .marbleShadow(
                     elevation = 8.dp,
                     shape = CircleShape,
                     clip = false,
@@ -3041,7 +3041,7 @@ private fun FloatingSplitAction(
         modifier = Modifier
             .size(52.dp)
             // MARBLE_SHADOW_CALM_V220 — the split discs are small; their shadows are small too.
-            .shadow(
+            .marbleShadow(
                 elevation = 5.dp,
                 shape = CircleShape,
                 clip = false,
@@ -3297,7 +3297,7 @@ internal fun OrbitalConnectControl(
                 .marblePopWhen(connected, peak = 1.05f)
                 // MARBLE_SHADOW_CALM_V220 — the orbital disc keeps its 5 dp lift but loses the
                 // heavy tinted cast around it.
-                .shadow(
+                .marbleShadow(
                     elevation = 5.dp,
                     shape = CircleShape,
                     clip = false,
@@ -3562,7 +3562,7 @@ private fun ModularPingAction(
     Box(
         modifier = Modifier
             .size(54.dp)
-            .shadow(3.dp, CircleShape, spotColor = Aether.Emerald)
+            .marbleShadow(3.dp, CircleShape, spotColor = Aether.Emerald)
             .clip(CircleShape)
             .background(Aether.Emerald)
             .kineticClickable(

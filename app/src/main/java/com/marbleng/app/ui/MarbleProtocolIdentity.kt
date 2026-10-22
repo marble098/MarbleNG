@@ -158,7 +158,7 @@ fun ProtocolTile(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .shadow(
+                .marbleShadow(
                     elevation = if (lifted || stateTone != null) 6.dp else 0.dp,
                     shape = CircleShape,
                     clip = false,

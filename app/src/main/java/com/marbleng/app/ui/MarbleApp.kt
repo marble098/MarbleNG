@@ -17,7 +17,12 @@ fun MarbleApp(
                 themeId = repo.settings.theme,
                 fontId = repo.settings.fontFamily,
 
-                outlineStyleId = repo.settings.darkOutlineStyle
+                outlineStyleId = repo.settings.darkOutlineStyle,
+                // MARBLE_MERIDIAN_V221 — the flat chapter's two decisions reach the whole tree from
+                // here: every page, sheet and dialog reads the accent and the surface mode through
+                // the theme's composition locals, so no screen has to be told individually.
+                accentId = repo.settings.accentTheme,
+                flatSurfaces = repo.settings.flatInterface
             ) {
                 Aether2026App(
                     repo = repo,

@@ -831,9 +831,18 @@ private fun removeKeys(
 
         SingBoxTransportTranslator.transport(stream, settings, notes)?.let { result.put("transport", it) }
         SingBoxTransportTranslator.tls(stream, settings, notes)?.let { tls ->
-            if (result.optString("type") in setOf("hysteria", "hysteria2") || result.optJSONObject("transport")?.optString("type") == "quic") {
+            val quicTransport = result.optString("type") in setOf("hysteria", "hysteria2") ||
+                result.optJSONObject("transport")?.optString("type") == "quic"
+            if (quicTransport) {
                 if (tls.has("reality")) throw ConfigTranslationException("realitySettings", "REALITY cannot be applied to a QUIC transport")
                 tls.remove("utls")
+            }
+            // MARBLE_FRAGMENT_POLICY_V221 — the handshake treatment the user (or the Censorship
+            // Lab) asked for. REALITY is excluded on purpose: its ClientHello *is* the camouflage,
+            // and a fragmented record stream is a different fingerprint from the one the node was
+            // built to present. QUIC transports are excluded because their TLS is inside QUIC.
+            if (tls.optJSONObject("reality") == null) {
+                FragmentPolicy.applyTo(tls, settings, quic = quicTransport, notes = notes)
             }
             result.put("tls", tls)
         }

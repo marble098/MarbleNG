@@ -128,8 +128,8 @@ class TcpStressMonitor {
                 shouldReduceMtu = true,
                 shouldIncreaseMtu = false,
                 recommendedLevel = currentLevel,
-                reason = "severe-stress-confirmed: retrans=${String.format("%.1f%%", avgRetransmit * 100)}, " +
-                    "loss=${String.format("%.1f%%", avgLoss * 100)}",
+                reason = "severe-stress-confirmed: retrans=${String.format(java.util.Locale.US, "%.1f%%", avgRetransmit * 100)}, " +
+                    "loss=${String.format(java.util.Locale.US, "%.1f%%", avgLoss * 100)}",
                 urgency = TuningDecision.Urgency.CRITICAL
             )
         }
@@ -148,8 +148,8 @@ class TcpStressMonitor {
                     shouldReduceMtu = true,
                     shouldIncreaseMtu = false,
                     recommendedLevel = currentLevel,
-                    reason = "stress-confirmed: retrans=${String.format("%.1f%%", avgRetransmit * 100)}, " +
-                        "loss=${String.format("%.1f%%", avgLoss * 100)}, mss=${String.format("%.0f%%", avgMssRatio * 100)}",
+                    reason = "stress-confirmed: retrans=${String.format(java.util.Locale.US, "%.1f%%", avgRetransmit * 100)}, " +
+                        "loss=${String.format(java.util.Locale.US, "%.1f%%", avgLoss * 100)}, mss=${String.format(java.util.Locale.US, "%.0f%%", avgMssRatio * 100)}",
                     urgency = TuningDecision.Urgency.HIGH
                 )
             }

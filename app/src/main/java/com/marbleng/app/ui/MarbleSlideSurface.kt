@@ -75,7 +75,7 @@ internal fun Modifier.marbleSlideTrack(
     val baseRim = lerp(fill, tone, if (dark) .30f else .18f)
 
     return this
-        .shadow(
+        .marbleShadow(
             elevation = 12.dp,
             shape = shape,
             clip = false,
@@ -228,7 +228,7 @@ internal fun Modifier.marbleSlideThumb(
 
     return this
         .size(thumbSize)
-        .shadow(
+        .marbleShadow(
             elevation = if (lifted) 14.dp else 10.dp,
             shape = shape,
             clip = false,

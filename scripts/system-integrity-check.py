@@ -236,6 +236,21 @@ files = {
     # MARBLE_FLOATING_ACTIONS_V210 — the per-theme colours of a floating action, and the chrome
     # that scores the ink on top of them.
     "floatingChrome": read("app/src/main/java/com/marbleng/app/ui/MarbleFloatingChrome.kt"),
+    # MARBLE_MERIDIAN_V221 — the flat chapter: the surface switch, the accent, the power
+    # projection, the Censorship Lab, the warm cache and the pages that expose them.
+    "meridian": read("app/src/main/java/com/marbleng/app/ui/MarbleMeridian.kt"),
+    "censorshipLab": read("app/src/main/java/com/marbleng/app/core/CensorshipLab.kt"),
+    "corePower": read("app/src/main/java/com/marbleng/app/core/CorePower.kt"),
+    "fragmentPolicy": read("app/src/main/java/com/marbleng/app/core/FragmentPolicy.kt"),
+    "connectWarmup": read("app/src/main/java/com/marbleng/app/core/ConnectWarmup.kt"),
+    "flapGuard": read("app/src/main/java/com/marbleng/app/core/ProfileFlapGuard.kt"),
+    "stressMonitor": read("app/src/main/java/com/marbleng/app/core/TcpStressMonitor.kt"),
+    "meridianDoc": read("docs/MERIDIAN_V221.md"),
+    "meridianTest": read("app/src/test/java/com/marbleng/app/core/MeridianV221Test.kt"),
+    "censorshipTest": read(
+        "app/src/test/java/com/marbleng/app/core/CensorshipLabV221Test.kt"
+    ),
+    "corePowerTest": read("app/src/test/java/com/marbleng/app/core/CorePowerV221Test.kt"),
     "floatingActionsTest": read(
         "app/src/test/java/com/marbleng/app/ui/MarbleFloatingActionsV210Test.kt"
     ),
@@ -4054,10 +4069,171 @@ check(
     and "APPEARANCE_CRITIQUE_V213.md" in files["readme"],
 )
 
+
+# ---------------------------------------------------------------------------
+# MARBLE_MERIDIAN_V221 — the flat chapter
+# ---------------------------------------------------------------------------
+# One switch has to reach every material. The failure this guards is not "flat looks wrong"; it is
+# a build in which the new page toggles a local that only the cards V221 rebuilt happen to read,
+# leaving half the product lifted while the other half is flat.
+check(
+    "V221 the flat switch is one composition local every material reads",
+    "internal val LocalMarbleFlat = staticCompositionLocalOf { true }" in files["theme"]
+    and "internal fun marbleFlatSurfaces(): Boolean = LocalMarbleFlat.current" in files["theme"]
+    and "val flat = marbleFlatSurfaces()" in files["design"]
+    and "val flat = marbleFlatSurfaces()" in files["surfaceDepth"]
+    and "if (marbleFlatSurfaces())" in files["nativeUi"]
+    and "LocalMarbleFlat provides flatSurfaces" in files["theme"]
+    and "flatSurfaces = repo.settings.flatInterface" in files["marbleApp"],
+)
+
+check(
+    "V221 the flat surface is a tone and a hairline, not a missing shadow",
+    # The panel keeps one border call and drops both shadows and the specular plane when flat.
+    "val surface=if (flat) Aether.Glass else Aether.VoidElevated" in files["design"]
+    and "if (flat) 0.dp else {" in files["design"]
+    and "if (flat) Modifier else Modifier" in files["design"]
+    and "listOf(flatEdge, flatEdge)" in files["design"]
+    and "if (marbleFlatSurfaces())" in files["nativeUi"]
+    # The depth contract keeps its anatomy (fill, rim, corners) and loses only its material.
+    and "if (flat) Modifier else Modifier" in files["surfaceDepth"]
+    and "MarbleNativeShadow(Color.Transparent, Color.Transparent, Color.Transparent)" in files["nativeUi"],
+)
+
+check(
+    "V221 the accent is one setting with six palettes and Ocean is byte-identical",
+    "enum class FlatAccent" in files["models"]
+    and "fun parseFlatAccent(" in files["models"]
+    and "private fun accentPalette(" in files["theme"]
+    and "if (accent == FlatAccent.OCEAN || palette.dynamic) return palette" in files["theme"]
+    and "LocalMarbleAccent provides activeAccent" in files["theme"]
+    and "accentId = repo.settings.accentTheme" in files["marbleApp"]
+    and "FlatAccent.entries.chunked(3)" in files["meridian"],
+)
+
+check(
+    "V221 the power profiles are a bounded projection over the effective settings",
+    "object CorePower" in files["corePower"]
+    and "fun tune(" in files["corePower"]
+    and "if (profile == PowerProfile.BALANCED) return base" in files["corePower"]
+    and "fun muxSafeFor(" in files["corePower"]
+    and "CorePower.tune(" in files["repo"]
+    and "CorePower.muxSafeFor(profile)" in files["repo"]
+    and "class CorePowerV221Test" in files["corePowerTest"]
+    # No profile may touch identity: the projection reads them, never writes them.
+    and "routingMode = " not in files["corePower"]
+    and "dnsHijackEnabled = " not in files["corePower"]
+    and "strictAddressFamily = " not in files["corePower"],
+)
+
+check(
+    "V221 the Censorship Lab measures, names and prescribes without a second network stack",
+    "object CensorshipLab" in files["censorshipLab"]
+    and "object CensorshipProbe" in files["censorshipLab"]
+    and "MultiVectorReachability.probe(" in files["censorshipLab"]
+    and "fun diagnose(observations: List<Observation>): Diagnosis" in files["censorshipLab"]
+    and "fun prescribe(diagnosis: Diagnosis, base: AppSettings): Prescription" in files["censorshipLab"]
+    and "class CensorshipLabV221Test" in files["censorshipTest"]
+    and "MeridianShieldPage(" in files["meridian"]
+    and "CensorshipProbe.scan(" in files["meridian"]
+    and "SettingsPages.SHIELD" in files["ui"],
+)
+
+check(
+    "V221 handshake fragmentation emits only the fork's client-side keys and never spoof",
+    "const val RECORD_KEY: String = \"record_fragment\"" in files["fragmentPolicy"]
+    and "const val FRAGMENT_KEY: String = \"fragment\"" in files["fragmentPolicy"]
+    and "const val FALLBACK_KEY: String = \"fragment_fallback_delay\"" in files["fragmentPolicy"]
+    and "FragmentPolicy.applyTo(tls, settings, quic = quicTransport, notes = notes)"
+    in files["singBoxBuilder"]
+    and "spoof" not in files["fragmentPolicy"].replace("`spoof`", "").replace("spoof_method", "")
+    # REALITY is excluded because its ClientHello is the camouflage.
+    and 'if (tls.optJSONObject("reality") == null)' in files["singBoxBuilder"],
+)
+
+check(
+    "V221 the warm cache is bounded, expires and never caches a failure",
+    "object ConnectWarmup" in files["connectWarmup"]
+    and "const val TTL_MS: Long = 90_000L" in files["connectWarmup"]
+    and "const val MAX_HOSTS: Int = 64" in files["connectWarmup"]
+    and "if (resolved.isNotEmpty()) {" in files["connectWarmup"]
+    and "if (key.isBlank() || addresses.isEmpty()) return" in files["connectWarmup"]
+    and "ConnectWarmup.cached(host)" in files["probe"]
+    and "ConnectWarmup.remember(host, candidates)" in files["probe"]
+    and "warmRoutes()" in files["repo"]
+    and "class MeridianV221Test" in files["meridianTest"],
+)
+
+check(
+    "V221 Happy Eyeballs obeys its own setting instead of a hard-coded stagger",
+    'val happyEyeballsDelayMs = settings.happyEyeballsTryDelayMs' in files["probe"]
+    and "settings.adaptiveHappyEyeballsEnabled" in files["probe"]
+    and "happyEyeballsDelayMs" in files["probe"],
+)
+
+check(
+    "V221 the new options are persisted through the same normalisers that read them",
+    'prefs.getString("accentTheme"' in files["store"]
+    and 'prefs.getString("powerProfile"' in files["store"]
+    and 'prefs.getString("fragmentStrategy"' in files["store"]
+    and 'putString("accentTheme", parseFlatAccent(s.accentTheme).id)' in files["store"]
+    and 'putString("powerProfile", parsePowerProfile(s.powerProfile).id)' in files["store"]
+    and 'putString("fragmentStrategy", parseFragmentStrategy(s.fragmentStrategy).id)' in files["store"]
+    and 'putBoolean("flatInterface", s.flatInterface)' in files["store"]
+    and 'putBoolean("warmupOnLaunch", s.warmupOnLaunch)' in files["store"]
+    and 'putBoolean("censorshipAutoApply", s.censorshipAutoApply)' in files["store"],
+)
+
+check(
+    "V221 the new pages are reachable from the Settings hub",
+    'const val INTERFACE = "interface"' in files["ui"]
+    and 'const val SHIELD = "censorship-lab"' in files["ui"]
+    and "onNavigate(SettingsPages.INTERFACE)" in files["ui"]
+    and "onNavigate(SettingsPages.SHIELD)" in files["ui"]
+    and "MeridianInterfacePage(" in files["ui"],
+)
+
+check(
+    "V221 the chapter is written down and the new strings speak Persian",
+    "MARBLE_MERIDIAN_V221" in files["meridianDoc"]
+    and "MERIDIAN_V221.md" in files["readme"]
+    and '"Censorship Lab" to "' in files["persianLexicon"]
+    and '"Flat surfaces" to "' in files["persianLexicon"]
+    and '"Accent" to "' in files["persianLexicon"]
+    and '"Power" to "' in files["persianLexicon"],
+)
+
+check(
+    "V221 machine-readable numbers ignore the device locale",
+    "String.format(java.util.Locale.US" in files["mtuPolicy"]
+    and "String.format(java.util.Locale.US" in files["flapGuard"]
+    and "String.format(java.util.Locale.US" in files["stressMonitor"]
+    and '\"%.1f MB/s\".format(java.util.Locale.US' in files["ui"]
+    and '\"%.2f\".format(java.util.Locale.US' in files["vpn"],
+)
+
 production = "\n".join(
     value for key, value in files.items()
     if key not in {"build", "verify", "native"}
 )
+check(
+    "V221 every cast shadow asks the flat switch",
+    "internal fun Modifier.marbleShadow(" in files["nativeUi"]
+    and "if (marbleFlatSurfaces() || elevation <= 0.dp)" in files["nativeUi"]
+    and ".marbleShadow(" in files["ui"]
+    and ".marbleShadow(" in files["design"]
+    and ".shadow(" not in files["meridian"]
+    and ".shadow(" not in production.replace("this.shadow(", ""),
+)
+
+check(
+    "V221 Automatic fragmentation is a network decision, not a document key",
+    "fun effectiveStrategyId(storedStrategyId: String, censored: Boolean): String"
+    in files["fragmentPolicy"]
+    and "FragmentStrategy.AUTO -> Spec()" in files["fragmentPolicy"]
+    and "FragmentPolicy.effectiveStrategyId(tuned.fragmentStrategy, censored)" in files["repo"],
+)
+
 check("no GlobalScope in production", "GlobalScope" not in production)
 
 failed = [name for name, passed in checks if not passed]
