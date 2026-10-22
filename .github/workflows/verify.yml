@@ -54,6 +54,7 @@ jobs:
           jq -e '.xray.tag and .xray.repo' core-lock.json
           jq -e '.hev.tag and .hev.repo' core-lock.json
           jq -e '.singbox.tag and .singbox.repo' core-lock.json
+          jq -e '.tun2socks.tag and .tun2socks.repo and .tun2socks.commit' core-lock.json
 
       - name: Core versions agree everywhere
         shell: bash
@@ -66,8 +67,9 @@ jobs:
           XRAY_TAG="$(jq -r '.xray.tag' core-lock.json)"
           HEV_TAG="$(jq -r '.hev.tag' core-lock.json)"
           SINGBOX_TAG="$(jq -r '.singbox.tag' core-lock.json)"
+          TUN2SOCKS_TAG="$(jq -r '.tun2socks.tag' core-lock.json)"
 
-          for pair in "xray:$XRAY_TAG" "hev:$HEV_TAG" "singbox:$SINGBOX_TAG"; do
+          for pair in "xray:$XRAY_TAG" "hev:$HEV_TAG" "singbox:$SINGBOX_TAG" "tun2socks:$TUN2SOCKS_TAG"; do
             component="${pair%%:*}"
             tag="${pair#*:}"
             [[ -n "$tag" && "$tag" != "null" ]] || { echo "empty tag for $component"; exit 1; }
@@ -77,20 +79,32 @@ jobs:
           grep -q 'coreLockField("hev", "tag")' app/build.gradle.kts
           grep -q 'coreLockField("singbox", "tag")' app/build.gradle.kts
           grep -q 'SINGBOX_CORE_TAG' app/build.gradle.kts
+          grep -q 'coreLockField("tun2socks", "tag")' app/build.gradle.kts
+          grep -q 'TUN2SOCKS_CORE_TAG' app/build.gradle.kts
 
           grep -q ".xray.tag" scripts/prepare-native.sh
           grep -q ".hev.tag" scripts/prepare-native.sh
           grep -q ".singbox.tag" scripts/prepare-native.sh
           grep -q "libsingbox.so" scripts/prepare-native.sh
+          grep -q ".tun2socks.tag" scripts/prepare-native.sh
+          grep -q "libtun2socks.so" scripts/prepare-native.sh
+          grep -q "libtun2socks.so" app/build.gradle.kts
 
           # The sing-box pin tracks the extended beta line, which is what the product ships.
           [[ "$(jq -r '.singbox.channel' core-lock.json)" == "beta" ]]
           [[ "$(jq -r '.singbox.repo' core-lock.json)" == "shtorm-7/sing-box-extended" ]]
+
+          # MARBLE_TUN2SOCKS_CORE_V222 — the second datapath tracks the newest tun2socks
+          # release of any kind, and the pin is a commit, not a movable tag.
+          [[ "$(jq -r '.tun2socks.channel' core-lock.json)" == "beta" ]]
+          [[ "$(jq -r '.tun2socks.repo' core-lock.json)" == "xjasonlyu/tun2socks" ]]
+          [[ "$(jq -r '.tun2socks.commit' core-lock.json)" =~ ^[0-9a-f]{40}$ ]]
           grep -q "beta" scripts/update-core-lock.sh
 
           # A hard-coded version string anywhere outside the lock is drift waiting to happen.
           ! grep -RnoE "v26\.[0-9]+\.[0-9]+" app/build.gradle.kts scripts/prepare-native.sh
           ! grep -RnoE "1\.14\.0-extended" app/build.gradle.kts scripts/prepare-native.sh
+          ! grep -RnoE "v2\.[0-9]+\.[0-9]+" app/build.gradle.kts scripts/prepare-native.sh
 
       - name: Realtime Xray native smoke
         shell: bash
@@ -298,6 +312,86 @@ jobs:
 
           test -s "$RUNNER_TEMP/singbox-link-smoke-bin"
           echo "[OK] pinned sing-box links under the pinned Xray's toolchain with the release tags"
+
+      # ======================================================================
+      # tun2socks pinned-source smoke — MARBLE_TUN2SOCKS_CORE_V222
+      # ======================================================================
+      # The second datapath is a Go c-shared library, so the Kotlin compiler
+      # never sees it and the release build is the first thing that would. This
+      # smoke compiles the exact wrapper the release build copies into the
+      # pinned tree, then calls its exported ABI through ctypes: a rejected
+      # descriptor and an unsupported proxy scheme have to come back as error
+      # codes. If the wrapper ever falls back to engine.Start()/log.Fatalf(),
+      # the process dies here instead of inside a user's VPN process.
+      - name: tun2socks pinned-source smoke (wrapper ABI and error path)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TUN2SOCKS_REPO="$(jq -r '.tun2socks.repo' core-lock.json)"
+          TUN2SOCKS_TAG="$(jq -r '.tun2socks.tag' core-lock.json)"
+          TUN2SOCKS_COMMIT="$(jq -r '.tun2socks.commit' core-lock.json)"
+
+          SRC="$RUNNER_TEMP/tun2socks-src"
+          rm -rf "$SRC"
+          git clone --quiet --depth 1 --branch "$TUN2SOCKS_TAG" \
+            "https://github.com/${TUN2SOCKS_REPO}.git" "$SRC"
+
+          [[ "$(git -C "$SRC" rev-parse HEAD)" == "$TUN2SOCKS_COMMIT" ]] || {
+            echo "::error::Pinned tun2socks tag $TUN2SOCKS_TAG is not commit $TUN2SOCKS_COMMIT."
+            exit 1
+          }
+
+          mkdir -p "$SRC/cmd/libmarble"
+          cp native/tun2socks/main.go "$SRC/cmd/libmarble/main.go"
+
+          (
+            cd "$SRC"
+            env GOTOOLCHAIN=auto CGO_ENABLED=1 go vet ./cmd/libmarble
+            env GOTOOLCHAIN=auto CGO_ENABLED=1 go build \
+              -buildmode=c-shared \
+              -trimpath \
+              -buildvcs=false \
+              -ldflags "-X main.buildVersion=${TUN2SOCKS_TAG} -checklinkname=0" \
+              -o "$RUNNER_TEMP/libtun2socks-smoke.so" \
+              ./cmd/libmarble
+          )
+
+          python3 - "$RUNNER_TEMP/libtun2socks-smoke.so" "$TUN2SOCKS_TAG" <<'PYT2S'
+          import ctypes
+          import os
+          import sys
+
+          library = ctypes.CDLL(sys.argv[1])
+          expected_version = sys.argv[2].encode()
+
+          library.marble_t2s_version.restype = ctypes.c_char_p
+          assert library.marble_t2s_version() == expected_version, "version marker"
+
+          library.marble_t2s_run.restype = ctypes.c_int
+          library.marble_t2s_run.argtypes = [
+              ctypes.c_char_p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+              ctypes.c_longlong, ctypes.c_longlong, ctypes.c_int,
+              ctypes.c_char_p, ctypes.c_char_p,
+          ]
+
+          rejected_descriptor = library.marble_t2s_run(
+              b"socks5://127.0.0.1:1080", 1500, -1, 60, 0, 0, 0, b"error", b"")
+          assert rejected_descriptor == -5, f"invalid fd returned {rejected_descriptor}"
+
+          devnull = os.open(os.devnull, os.O_RDWR)
+          try:
+              rejected_proxy = library.marble_t2s_run(
+                  b"http://127.0.0.1:1080", 1500, devnull, 60, 0, 0, 0, b"error", b"")
+              assert rejected_proxy == -2, f"unsupported proxy returned {rejected_proxy}"
+          finally:
+              os.close(devnull)
+
+          library.marble_t2s_error.restype = ctypes.c_char_p
+          assert b"proxy" in library.marble_t2s_error().lower(), "error text"
+
+          print("[OK] tun2socks c-shared ABI rejects bad input without exiting")
+          PYT2S
 
       - name: Reject malformed Compose function types
         shell: bash

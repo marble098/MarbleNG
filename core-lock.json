@@ -19,5 +19,14 @@
       "sing-box-1.14.3-extended-2.7.3-linux-amd64.tar.gz": "c9fd27564d55b6abc7b21c9fdd1e29dee4834e034aeb6b7b8255055bff46a3f5"
     }
   },
+  "tun2socks": {
+    "repo": "xjasonlyu/tun2socks",
+    "tag": "v2.7.0",
+    "commit": "8dda19e8e4613e014f0b12f3e624fdff5e5f23b3",
+    "channel": "beta",
+    "sha256": {
+      "tun2socks-linux-amd64.zip": "a612baa287a3b6de6221f74fd02b442a50888508227ecf51e1288a5ccbb77381"
+    }
+  },
   "updated": "2026-10-22"
 }

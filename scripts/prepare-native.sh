@@ -2160,6 +2160,298 @@ build_singbox \
 ok "sing-box extended built and installed for every ABI"
 
 
+# ==============================================================================
+# 6/6 - tun2socks (MARBLE_TUN2SOCKS_CORE_V222)
+# ==============================================================================
+#
+# The second TUN datapath. Unlike Xray and sing-box, this core is a LIBRARY, not
+# a binary: the tunnel has to read the descriptor the VpnService created, and a
+# child process cannot inherit that. It is built as a Go c-shared library for
+# every ABI and loaded in-process by Tun2SocksTunnel, whose JNI shim lives in
+# libmarbleng.so (jni/tun2socks_jni.c) and resolves these symbols with dlopen.
+#
+# The wrapper in native/tun2socks/main.go is copied into the pinned source tree
+# as cmd/libmarble, so the build uses the pinned tag's own go.mod/go.sum. It
+# composes the same public packages the upstream CLI does but returns error
+# codes instead of calling log.Fatalf, because a library inside the VPN process
+# must not abort the app when a proxy address is wrong.
+
+TUN2SOCKS_TAG="$(jq -r '.tun2socks.tag // empty' "$LOCK")"
+TUN2SOCKS_REPO="$(jq -r '.tun2socks.repo // "xjasonlyu/tun2socks"' "$LOCK")"
+TUN2SOCKS_COMMIT="$(jq -r '.tun2socks.commit // empty' "$LOCK")"
+
+[[ -n "$TUN2SOCKS_TAG" ]] || {
+    die "core-lock.json has no .tun2socks.tag"
+}
+
+[[ "$TUN2SOCKS_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+    die "Unsafe tun2socks release tag in core-lock.json: $TUN2SOCKS_TAG"
+}
+
+[[ "$TUN2SOCKS_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+    die "Unsafe tun2socks repository in core-lock.json: $TUN2SOCKS_REPO"
+}
+
+[[ "$TUN2SOCKS_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+    die "Invalid .tun2socks.commit in core-lock.json: $TUN2SOCKS_COMMIT"
+}
+
+TUN2SOCKS_SRC="$CORE/tun2socks-src"
+TUN2SOCKS_STAGE="$CORE/tun2socks"
+
+rm -rf "$TUN2SOCKS_SRC" "$TUN2SOCKS_STAGE"
+mkdir -p "$TUN2SOCKS_STAGE"
+
+log "[6/6] Building tun2socks $TUN2SOCKS_TAG"
+
+clone_tun2socks_source() {
+    rm -rf "$TUN2SOCKS_SRC"
+    git clone \
+        --quiet \
+        --depth 1 \
+        --branch "$TUN2SOCKS_TAG" \
+        "https://github.com/${TUN2SOCKS_REPO}.git" \
+        "$TUN2SOCKS_SRC"
+}
+
+retry 3 5 clone_tun2socks_source || {
+    die "tun2socks source clone failed after retries: ${TUN2SOCKS_REPO} ${TUN2SOCKS_TAG}"
+}
+
+[[ -f "$TUN2SOCKS_SRC/go.mod" ]] || {
+    die "tun2socks go.mod missing after clone"
+}
+
+TUN2SOCKS_HEAD="$(git -C "$TUN2SOCKS_SRC" rev-parse HEAD)"
+
+[[ "$TUN2SOCKS_HEAD" == "$TUN2SOCKS_COMMIT" ]] || {
+    die "tun2socks source is not the pinned commit: $TUN2SOCKS_HEAD != $TUN2SOCKS_COMMIT"
+}
+
+mkdir -p "$TUN2SOCKS_SRC/cmd/libmarble"
+cp -f "$ROOT/native/tun2socks/main.go" "$TUN2SOCKS_SRC/cmd/libmarble/main.go"
+
+echo "tun2socks source : $TUN2SOCKS_REPO $TUN2SOCKS_TAG"
+echo "tun2socks commit : $TUN2SOCKS_HEAD"
+
+log "Downloading tun2socks Go modules"
+
+TUN2SOCKS_MODULE_LOG="$CORE/tun2socks-module-download.log"
+LAST_BUILD_LOG="$TUN2SOCKS_MODULE_LOG"
+
+tun2socks_download_modules() {
+    (
+        cd "$TUN2SOCKS_SRC"
+        env GOTOOLCHAIN=auto go mod download
+    ) 2>&1 | tee "$TUN2SOCKS_MODULE_LOG"
+}
+
+retry 4 5 tun2socks_download_modules || {
+    die "tun2socks go mod download failed after retries: last output in $TUN2SOCKS_MODULE_LOG"
+}
+
+ok "tun2socks dependencies prepared"
+
+# Resolve each ABI's package graph before compiling a single one: a tag whose
+# gVisor or x/sys version does not support android/$GOARCH fails here in
+# seconds, not four minutes into the job.
+tun2socks_resolve_graph() {
+    local goarch="$1"
+    local cc_name="$2"
+    local goarm="${3:-}"
+
+    (
+        cd "$TUN2SOCKS_SRC"
+
+        env \
+            GOTOOLCHAIN=auto \
+            GOOS=android \
+            GOARCH="$goarch" \
+            ${goarm:+GOARM="$goarm"} \
+            CGO_ENABLED=1 \
+            CC="$NDK_BIN/$cc_name" \
+            go list \
+                -deps \
+                ./cmd/libmarble \
+                >/dev/null
+    )
+}
+
+tun2socks_resolve_graph "arm64" "aarch64-linux-android${ANDROID_NATIVE_API}-clang" || {
+    die "tun2socks Android package graph does not resolve (arm64)"
+}
+
+tun2socks_resolve_graph "arm" "armv7a-linux-androideabi${ANDROID_NATIVE_API}-clang" "7" || {
+    die "tun2socks Android package graph does not resolve (arm)"
+}
+
+tun2socks_resolve_graph "amd64" "x86_64-linux-android${ANDROID_NATIVE_API}-clang" || {
+    die "tun2socks Android package graph does not resolve (amd64)"
+}
+
+tun2socks_resolve_graph "386" "i686-linux-android${ANDROID_NATIVE_API}-clang" || {
+    die "tun2socks Android package graph does not resolve (386)"
+}
+
+ok "tun2socks Android package graph resolves for every ABI"
+
+tun2socks_assert_machine() {
+    local file="$1" expected="$2"
+
+    "$LLVM_READELF" -h "$file" 2>/dev/null |
+        grep -q "Machine:.*$expected" || {
+            die "tun2socks library is not $expected: $file"
+        }
+}
+
+build_tun2socks() {
+    local abi="$1"
+    local goarch="$2"
+    local cc_name="$3"
+    local machine="$4"
+    local goarm="${5:-}"
+
+    MILESTONE="Building tun2socks for $abi"
+
+    local out_dir="$TUN2SOCKS_STAGE/$abi"
+    local output="$out_dir/libtun2socks.so"
+    local cc="$NDK_BIN/$cc_name"
+
+    mkdir -p "$out_dir"
+
+    [[ -x "$cc" ]] || {
+        die "Android compiler for $abi does not exist: $cc"
+    }
+
+    echo
+    echo "================================================================"
+    echo " Building tun2socks for Android"
+    echo "================================================================"
+    echo "ABI          : $abi"
+    echo "GOOS         : android"
+    echo "GOARCH       : $goarch"
+    if [[ -n "$goarm" ]]; then
+        echo "GOARM        : $goarm"
+    fi
+    echo "Android API  : $ANDROID_NATIVE_API"
+    echo "Build mode   : c-shared (loaded in-process, reads the VpnService fd)"
+    echo "Version      : $TUN2SOCKS_TAG"
+    echo "Stage output : $output"
+    echo "================================================================"
+    echo
+
+    local build_log="$CORE/tun2socks-build-$abi.log"
+    LAST_BUILD_LOG="$build_log"
+
+    if [[ -n "$goarm" ]]; then
+
+        (
+            cd "$TUN2SOCKS_SRC"
+
+            env \
+                GOTOOLCHAIN=auto \
+                GOOS=android \
+                GOARCH="$goarch" \
+                GOARM="$goarm" \
+                CGO_ENABLED=1 \
+                CGO_LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384" \
+                CC="$cc" \
+                CXX="$cc" \
+                go build \
+                    -buildmode=c-shared \
+                    -trimpath \
+                    -buildvcs=false \
+                    -ldflags "-X main.buildVersion=${TUN2SOCKS_TAG} -s -w -buildid= -checklinkname=0" \
+                    -o "$output" \
+                    ./cmd/libmarble
+        ) 2>&1 | tee "$build_log"
+
+    else
+
+        (
+            cd "$TUN2SOCKS_SRC"
+
+            env \
+                GOTOOLCHAIN=auto \
+                GOOS=android \
+                GOARCH="$goarch" \
+                CGO_ENABLED=1 \
+                CGO_LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384" \
+                CC="$cc" \
+                CXX="$cc" \
+                go build \
+                    -buildmode=c-shared \
+                    -trimpath \
+                    -buildvcs=false \
+                    -ldflags "-X main.buildVersion=${TUN2SOCKS_TAG} -s -w -buildid= -checklinkname=0" \
+                    -o "$output" \
+                    ./cmd/libmarble
+        ) 2>&1 | tee "$build_log"
+
+    fi
+
+    [[ -s "$output" ]] || {
+        tail -n 20 "$build_log" >&2 || true
+        die "tun2socks Android build produced no library for $abi"
+    }
+
+    chmod 755 "$output"
+
+    tun2socks_assert_machine "$output" "$machine"
+
+    grep -a -F "$TUN2SOCKS_TAG" "$output" >/dev/null || {
+        die "tun2socks version marker missing from the $abi library"
+    }
+
+    local size
+    local hash
+
+    size="$(wc -c < "$output" | tr -d ' ')"
+    hash="$(sha256sum "$output" | awk '{print $1}')"
+
+    ok "tun2socks staged: $abi"
+    echo "     size   : $size bytes"
+    echo "     sha256 : $hash"
+
+    mkdir -p "$JNILIBS/$abi"
+    cp -f "$output" "$JNILIBS/$abi/libtun2socks.so"
+    chmod 755 "$JNILIBS/$abi/libtun2socks.so"
+
+    [[ -s "$JNILIBS/$abi/libtun2socks.so" ]] || {
+        die "Could not install tun2socks into jniLibs for $abi"
+    }
+
+    ok "Installed tun2socks $TUN2SOCKS_TAG -> $abi"
+}
+
+build_tun2socks \
+    "arm64-v8a" \
+    "arm64" \
+    "aarch64-linux-android${ANDROID_NATIVE_API}-clang" \
+    "AArch64"
+
+build_tun2socks \
+    "armeabi-v7a" \
+    "arm" \
+    "armv7a-linux-androideabi${ANDROID_NATIVE_API}-clang" \
+    "ARM" \
+    "7"
+
+build_tun2socks \
+    "x86_64" \
+    "amd64" \
+    "x86_64-linux-android${ANDROID_NATIVE_API}-clang" \
+    "Advanced Micro Devices X86-64"
+
+build_tun2socks \
+    "x86" \
+    "386" \
+    "i686-linux-android${ANDROID_NATIVE_API}-clang" \
+    "Intel 80386"
+
+ok "tun2socks built and installed for every ABI"
+
+
 
 # ==============================================================================
 # Final native verification
@@ -2223,6 +2515,7 @@ do
     HEV_FILE="$JNILIBS/$abi/libhev-socks5-tunnel.so"
     BRIDGE_FILE="$JNILIBS/$abi/libmarbleng.so"
     SINGBOX_FILE="$JNILIBS/$abi/libsingbox.so"
+    TUN2SOCKS_FILE="$JNILIBS/$abi/libtun2socks.so"
 
 
     # --------------------------------------------------------------------------
@@ -2235,7 +2528,8 @@ do
         "$XRAY_FILE" \
         "$HEV_FILE" \
         "$BRIDGE_FILE" \
-        "$SINGBOX_FILE"
+        "$SINGBOX_FILE" \
+        "$TUN2SOCKS_FILE"
     do
         if [[ -s "$staged_lib" ]]; then
             assert_elf_page_alignment "$abi" "$staged_lib"
@@ -2268,6 +2562,30 @@ do
 
     fi
 
+
+
+    # --------------------------------------------------------------------------
+    # tun2socks (MARBLE_TUN2SOCKS_CORE_V222)
+    # --------------------------------------------------------------------------
+
+    if [[ -s "$TUN2SOCKS_FILE" ]]; then
+
+        TUN2SOCKS_SIZE="$(
+            wc -c < "$TUN2SOCKS_FILE" |
+            tr -d ' '
+        )"
+
+        echo "[OK] $abi / tun2socks"
+        echo "     $TUN2SOCKS_SIZE bytes"
+
+    else
+
+        echo "[FAIL] $abi / tun2socks missing:"
+        echo "       $TUN2SOCKS_FILE"
+
+        FAILED=1
+
+    fi
 
 
     # --------------------------------------------------------------------------

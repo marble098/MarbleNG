@@ -1012,6 +1012,17 @@ data class AppSettings(
 
     val coreEngineId: String = "xray",
 
+    // MARBLE_TUN2SOCKS_CORE_V222 — the datapath that carries the TUN device's packets to the
+    // proxy core's SOCKS inbound. "hev" is the historical default; "tun2socks" is the pinned
+    // alternative, with its own options below.
+    val tunnelCoreId: String = "hev",
+    val tun2SocksMtu: Int = 0,
+    val tun2SocksUdpTimeoutSec: Int = 60,
+    val tun2SocksTcpSendBufferKb: Int = 0,
+    val tun2SocksTcpReceiveBufferKb: Int = 0,
+    val tun2SocksModerateReceiveBuffer: Boolean = false,
+    val tun2SocksLogLevel: String = "warn",
+
     val singBoxUnifiedDelay: Boolean = true,
 
     val singBoxConnectTimeoutSec: Int = 10,

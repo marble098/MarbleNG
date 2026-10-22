@@ -39,7 +39,15 @@ class SingBoxRuleSetStore(private val context: Context) {
                     check(staging.renameTo(target)) { "Cannot install bundled rule set: $name" }
                 } finally { staging.delete() }
             }
-            paths[entry.getString("tag")] = target.absolutePath
+            val tag = entry.getString("tag")
+            paths[tag] = target.absolutePath
+            // MARBLE_SINGBOX_GEO_ROUTING_V222 — the builder names a rule set after the geo tag it
+            // carries ("geosite-" + tag), so the ads bundle has to answer to the name the tag
+            // maps to as well as to the historical "geosite-ads" alias.
+            when (tag) {
+                "geosite-ads" -> paths[SingBoxGeoRuleSets.idFor(GeoAssetIndex.Kind.GEOSITE, "category-ads-all")] =
+                    target.absolutePath
+            }
         }
         return paths
     }

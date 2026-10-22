@@ -3,7 +3,10 @@ package com.marbleng.app.data
 import android.content.Context
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.IpFamilyScan
+import com.marbleng.app.core.Tun2SocksPolicy
+import com.marbleng.app.core.TunnelCore
 import com.marbleng.app.core.parseCoreEngine
+import com.marbleng.app.core.parseTunnelCore
 import com.marbleng.app.model.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -400,6 +403,13 @@ class AppStore(context: Context) {
 
         delayTestUrl = DelayTest.url(prefs.getString("delayTestUrl", DelayTest.URL) ?: DelayTest.URL),
         coreEngineId = parseCoreEngine(prefs.getString("coreEngineId", CoreEngine.XRAY.id) ?: CoreEngine.XRAY.id).id,
+        tunnelCoreId = parseTunnelCore(prefs.getString("tunnelCoreId", TunnelCore.HEV.id) ?: TunnelCore.HEV.id).id,
+        tun2SocksMtu = prefs.getInt("tun2SocksMtu", 0).let { if (it == 0) 0 else it.coerceIn(Tun2SocksPolicy.MIN_MTU, Tun2SocksPolicy.MAX_MTU) },
+        tun2SocksUdpTimeoutSec = Tun2SocksPolicy.normalizeUdpTimeout(prefs.getInt("tun2SocksUdpTimeoutSec", Tun2SocksPolicy.DEFAULT_UDP_TIMEOUT_SEC)),
+        tun2SocksTcpSendBufferKb = Tun2SocksPolicy.normalizeBufferKb(prefs.getInt("tun2SocksTcpSendBufferKb", 0)),
+        tun2SocksTcpReceiveBufferKb = Tun2SocksPolicy.normalizeBufferKb(prefs.getInt("tun2SocksTcpReceiveBufferKb", 0)),
+        tun2SocksModerateReceiveBuffer = prefs.getBoolean("tun2SocksModerateReceiveBuffer", false),
+        tun2SocksLogLevel = Tun2SocksPolicy.normalizeLogLevel(prefs.getString("tun2SocksLogLevel", "warn") ?: "warn"),
         singBoxUnifiedDelay = prefs.getBoolean("singBoxUnifiedDelay", true),
         singBoxConnectTimeoutSec = prefs.getInt("singBoxConnectTimeoutSec", 10).coerceIn(3, 60),
         singBoxCacheFile = prefs.getBoolean("singBoxCacheFile", true),
@@ -712,6 +722,13 @@ class AppStore(context: Context) {
         .putString("probeMethod", s.probeMethod.name)
         .putString("delayTestUrl", DelayTest.url(s.delayTestUrl))
         .putString("coreEngineId", parseCoreEngine(s.coreEngineId).id)
+        .putString("tunnelCoreId", parseTunnelCore(s.tunnelCoreId).id)
+        .putInt("tun2SocksMtu", s.tun2SocksMtu.let { if (it == 0) 0 else it.coerceIn(Tun2SocksPolicy.MIN_MTU, Tun2SocksPolicy.MAX_MTU) })
+        .putInt("tun2SocksUdpTimeoutSec", Tun2SocksPolicy.normalizeUdpTimeout(s.tun2SocksUdpTimeoutSec))
+        .putInt("tun2SocksTcpSendBufferKb", Tun2SocksPolicy.normalizeBufferKb(s.tun2SocksTcpSendBufferKb))
+        .putInt("tun2SocksTcpReceiveBufferKb", Tun2SocksPolicy.normalizeBufferKb(s.tun2SocksTcpReceiveBufferKb))
+        .putBoolean("tun2SocksModerateReceiveBuffer", s.tun2SocksModerateReceiveBuffer)
+        .putString("tun2SocksLogLevel", Tun2SocksPolicy.normalizeLogLevel(s.tun2SocksLogLevel))
         .putBoolean("singBoxUnifiedDelay", s.singBoxUnifiedDelay)
         .putInt("singBoxConnectTimeoutSec", s.singBoxConnectTimeoutSec.coerceIn(3, 60))
         .putBoolean("singBoxCacheFile", s.singBoxCacheFile)

@@ -129,6 +129,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         val runtime1 = tail(File(context.filesDir, "logs/runtime-debug.log.1"), 350_000)
         val runtime2 = tail(File(context.filesDir, "logs/runtime-debug.log.2"), 250_000)
         val hevLog = tail(File(context.filesDir, "logs/hev-native.log"), 250_000)
+        val tun2socksLog = tail(File(context.filesDir, "logs/tun2socks.log"), 250_000)
         val xrayLog = tail(xray.logFile, 300_000)
         val singboxLog = if (singbox != null) tail(singbox.logFile, 250_000) else "SingBox manager not provided"
         val singboxUrlTestLog = if (singbox != null) tail(File(context.cacheDir, "singbox-urltest.log"), 80_000) else "Not available"
@@ -150,6 +151,18 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             BugCheck("HEV JNI bridge", BugSeverity.PASS, "${jni.length()} bytes present")
         } else {
             BugCheck("HEV JNI bridge", BugSeverity.FAIL, "libmarbleng.so is missing", "Rebuild native HEV")
+        }
+
+        val t2s = File(context.applicationInfo.nativeLibraryDir, "libtun2socks.so")
+        checks += if (t2s.isFile && t2s.length() > 0L) {
+            BugCheck("tun2socks datapath", BugSeverity.PASS, "libtun2socks.so ${t2s.length()} bytes")
+        } else {
+            BugCheck(
+                "tun2socks datapath",
+                BugSeverity.INFO,
+                "libtun2socks.so is missing; the HEV datapath still works",
+                "Rebuild the native bundle to enable the second tunnel engine"
+            )
         }
 
         val sbin = File(context.applicationInfo.nativeLibraryDir, "libsingbox.so")
@@ -323,7 +336,10 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             allRuntime.lastIndexOf("XRAY | socks-ready"),
             allRuntime.lastIndexOf("SINGBOX | socks-ready")
         )
-        val latestHevReady = allRuntime.lastIndexOf("HEV | ready")
+        val latestHevReady = maxOf(
+            allRuntime.lastIndexOf("HEV | ready"),
+            allRuntime.lastIndexOf("TUN2SOCKS | ready")
+        )
         val latestReady = maxOf(latestSocksReady, latestHevReady)
         val latestVerifiedLatencySample = allRuntime.lastIndexOf(
             "method=verified-https-ttfb-rolling-ipdv-loss-p90"
@@ -471,8 +487,14 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         if (fullTun && connected) {
             val connect = allRuntime.lastIndexOf("VPN | connect-request")
             val tun = allRuntime.lastIndexOf("TUN | established")
-            val hevEnter = allRuntime.lastIndexOf("HEV | run-enter")
-            val hevExit = allRuntime.lastIndexOf("HEV | run-exit")
+            val hevEnter = maxOf(
+                allRuntime.lastIndexOf("HEV | run-enter"),
+                allRuntime.lastIndexOf("TUN2SOCKS | run-enter")
+            )
+            val hevExit = maxOf(
+                allRuntime.lastIndexOf("HEV | run-exit"),
+                allRuntime.lastIndexOf("TUN2SOCKS | run-exit")
+            )
             val blocked = allRuntime.lastIndexOf("VPN | blocked")
 
             checks += when {
@@ -788,6 +810,7 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         sections += BugSection("IN-MEMORY EVENT RING", RuntimeDiagnostics.recentEvents(700).joinToString("\n"))
         sections += BugSection("RUNTIME LOG RETAINED TAIL", sanitize(allRuntime))
         sections += BugSection("HEV NATIVE RETAINED TAIL", sanitize(hevLog))
+        sections += BugSection("TUN2SOCKS RETAINED TAIL", sanitize(tun2socksLog))
         sections += BugSection("XRAY RETAINED TAIL", sanitize(xrayLog))
         if (crashPending.isNotBlank() && !crashPending.startsWith("No log file yet:")) {
             sections += BugSection("PENDING FATAL CRASH TOMBSTONE", sanitize(crashPending))

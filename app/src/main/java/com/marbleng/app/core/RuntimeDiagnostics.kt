@@ -325,6 +325,7 @@ class RuntimeDiagnostics(private val context: Context) {
             val logs = File(ctx.filesDir, "logs")
             mirrorFile(File(logs, "xray.log"), "XRAY_RAW")
             mirrorFile(File(logs, "hev-native.log"), "HEV_NATIVE_RAW")
+            mirrorFile(File(logs, "tun2socks.log"), "TUN2SOCKS_RAW")
         }
 
         private fun mirrorFile(file: File, tag: String) {
@@ -621,6 +622,9 @@ class RuntimeDiagnostics(private val context: Context) {
     val runtimeLog: File = File(logDir, "runtime-debug.log")
     val hevLog: File = File(logDir, "hev-native.log")
 
+    /** MARBLE_TUN2SOCKS_CORE_V222 — the Go core's own log, rotated by the same rule as HEV's. */
+    val tun2SocksLog: File = File(logDir, "tun2socks.log")
+
     fun systemSnapshot(): String {
         val packageInfo = runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
         val versionName = packageInfo?.versionName.orEmpty()
@@ -655,6 +659,33 @@ class RuntimeDiagnostics(private val context: Context) {
             }
         }
         event("DIAG", "hev-log-prepared", "path" to hevLog.absolutePath, "bytes" to hevLog.length())
+    }
+
+    /**
+     * Rotates and prepares the log file of the datapath that is about to start. A single entry
+     * point so the Settings page, the diagnostics bundle and the core start agree on both names.
+     */
+    fun prepareTunnelSession(core: TunnelCore) {
+        if (core == TunnelCore.HEV) {
+            prepareHevSession()
+            return
+        }
+        runCatching {
+            synchronized(fileLock) {
+                logDir.mkdirs()
+                if (tun2SocksLog.isFile && tun2SocksLog.length() > 3_000_000L) {
+                    val previous = File(logDir, "tun2socks.log.1")
+                    previous.delete()
+                    if (!tun2SocksLog.renameTo(previous)) tun2SocksLog.writeText("")
+                }
+                if (!tun2SocksLog.exists()) tun2SocksLog.createNewFile()
+            }
+        }
+        event(
+            "TUN2SOCKS", "log-prepared",
+            "path" to tun2SocksLog.absolutePath,
+            "bytes" to tun2SocksLog.length()
+        )
     }
 
     fun event(component: String, event: String, vararg fields: Pair<String, Any?>) {

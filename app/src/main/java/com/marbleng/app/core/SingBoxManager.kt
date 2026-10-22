@@ -11,9 +11,13 @@ import java.util.UUID
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 
-class SingBoxManager(private val context: Context) {
+class SingBoxManager(
+    private val context: Context,
+    private val geoAssets: (() -> GeoAssetIndex.Snapshot?)? = null
+) {
     @Volatile private var session: SingBoxProcessSession? = null
     private val rules = SingBoxRuleSetStore(context)
+    private val geoDir = File(context.filesDir, "singbox-geo")
     @Volatile var lastStartError: String = ""
         private set
     @Volatile var lastStartPhase: String = "idle"
@@ -188,9 +192,30 @@ class SingBoxManager(private val context: Context) {
     private fun candidates(profile: ProxyProfile, settings: AppSettings, port: Int, controller: Int,
                            secret: String, forTest: Boolean): List<SingBoxConfigBuilder.Build> {
         val runtimeSettings = if (forTest) measurementSettings(settings) else settings
-        val paths = if (forTest) emptyMap() else try { rules.prepare() } catch (error: Exception) {
+        val bundled = if (forTest) emptyMap() else try { rules.prepare() } catch (error: Exception) {
             throw IllegalStateException("core-assets: bundled sing-box rule sets are missing/corrupt; rebuild the APK", error)
         }
+        // MARBLE_SINGBOX_GEO_ROUTING_V222 — every geo tag this configuration names is materialised
+        // from the same pinned .dat files the Xray engine routes with, so `geoip:cn`,
+        // `geosite:category-bank-ir` and a tag from a custom source are applied instead of dropped.
+        // A failure here is never a reason to refuse the profile: the bundled sets still work and
+        // the builder reports whatever could not be generated.
+        val geo = if (forTest) SingBoxGeoRuleSets.Plan() else runCatching {
+            SingBoxGeoRuleSets.plan(
+                requests = SingBoxGeoRuleSets.requests(runtimeSettings),
+                bundled = bundled,
+                snapshot = geoAssets?.invoke(),
+                outputDir = geoDir
+            )
+        }.getOrElse {
+            lastSelfHealNotes = lastSelfHealNotes + listOf(
+                "geo routing: the local geo assets could not be prepared (${it.message ?: it.javaClass.simpleName})"
+            )
+            SingBoxGeoRuleSets.Plan()
+        }
+        val paths = LinkedHashMap<String, String>()
+        paths.putAll(bundled)
+        paths.putAll(geo.paths)
         return SingBoxConfigBuilder.candidateBuilds(profile, runtimeSettings, port, controller, secret,
             "", File(context.filesDir, "singbox-cache.db").absolutePath,
             resolverPool = intelligence?.singBoxResolverPool(settings).orEmpty(),
@@ -199,7 +224,10 @@ class SingBoxManager(private val context: Context) {
                 ?.takeIf { it.transport != "unknown" }?.hasIpv6 ?: AddressFamilyPolicy.underlayHasIpv6())
             .map { built ->
                 val hardened = SingBoxConfigDoctor.hardenForAndroid(built.json)
-                built.copy(json = hardened.json, notes = (built.notes + hardened.notes).distinct())
+                built.copy(
+                    json = hardened.json,
+                    notes = (built.notes + hardened.notes + geo.notes).distinct()
+                )
             }
     }
 

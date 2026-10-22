@@ -63,7 +63,11 @@ data class ServerIntelInfo(
 internal const val PROVISIONAL_PING_FLOOR_MS = 1
 
 class AppRepository(private val context: Context, val xray: XrayManager) {
-    val singBox: SingBoxManager = SingBoxManager(context).also { xray.singBox = it }
+    // MARBLE_SINGBOX_GEO_ROUTING_V222 — the sing-box manager materialises geo rule sets from the
+    // same .dat snapshot the Xray engine indexes, so both engines route the same tags.
+    val singBox: SingBoxManager = SingBoxManager(context) {
+        xray.refreshGeoAssetIndex(settings)
+    }.also { xray.singBox = it }
 
     val activeCoreEngine: CoreEngine get() = parseCoreEngine(settings.coreEngineId)
 
@@ -2083,6 +2087,27 @@ private fun postToMain(block: () -> Unit) {
         }
     }
 
+    val activeTunnelCore: TunnelCore get() = parseTunnelCore(settings.tunnelCoreId)
+
+    /**
+     * MARBLE_TUN2SOCKS_CORE_V222 — switches the datapath that carries packets between the TUN
+     * device and the proxy core. A core the APK cannot load is refused here with the reason the
+     * loader gave, so Settings never stores a choice the next connection would silently ignore.
+     */
+    fun setTunnelCore(core: TunnelCore) {
+        val previous = parseTunnelCore(settings.tunnelCoreId)
+        if (previous == core) return
+        if (!TunnelCoreInfo.isAvailable(core)) {
+            message = TunnelCoreInfo.unavailableReason(core)
+            return
+        }
+        val next = settings.copy(tunnelCoreId = core.id)
+        if (state == "CONNECTED" || state == "CONNECTING" || state == "BLOCKED") stopVpn()
+        updateSettings(next)
+        diagnostics.event("TUNNEL", "datapath-switch", "from" to previous.id, "to" to core.id)
+        message = "Tunnel engine set to ${TunnelCoreInfo.displayName(core)}. Reconnect to run it."
+    }
+
     fun setCoreEngine(engine: CoreEngine) {
         val previous = parseCoreEngine(settings.coreEngineId)
         if (previous == engine) return
@@ -2090,7 +2115,7 @@ private fun postToMain(block: () -> Unit) {
         if (state == "CONNECTED" || state == "CONNECTING" || state == "BLOCKED") stopVpn()
         updateSettings(next)
         diagnostics.event("CORE", "engine-switch", "from" to previous.id, "to" to engine.id)
-        message = "Tunnel core set to ${CoreEngineInfo.displayName(engine)}. Reconnect to run it."
+        message = "Proxy core set to ${CoreEngineInfo.displayName(engine)}. Reconnect to run it."
     }
 
     fun setDelayTestUrl(url: String) {

@@ -1833,6 +1833,28 @@ check(
     and not any("android" in key for key in _core_lock["singbox"]["sha256"])
     and "resolve_singbox_commit" in files["coreUpdater"],
 )
+# MARBLE_TUN2SOCKS_CORE_V222 — the second datapath is a product surface exactly like the second
+# proxy engine: a pin, a packaged library, a persisted choice, a start path, a stop path, and a
+# page that offers its own options. Any one of those missing makes the choice cosmetic.
+check(
+    "the second datapath is pinned, packaged, selectable and stopped on switch",
+    len(_core_lock.get("tun2socks", {}).get("commit", "")) == 40
+    and _core_lock.get("tun2socks", {}).get("repo") == "xjasonlyu/tun2socks"
+    and len(_core_lock.get("tun2socks", {}).get("sha256", {})) == 1
+    and "libtun2socks.so" in files["native"]
+    and "buildmode=c-shared" in files["native"]
+    and "TUN2SOCKS_CORE_TAG" in files["gradle"]
+    and '"**/libtun2socks.so"' in files["gradle"]
+    and "tunnelCoreId" in files["models"]
+    and "tunnelCoreId" in files["store"]
+    and "fun setTunnelCore(" in files["repo"]
+    and "TunnelCoreInfo.isAvailable(" in files["vpn"]
+    and "Tun2SocksPolicy.buildConfig(" in files["vpn"]
+    and "stopDatapath()" in files["vpn"]
+    and "tun2SocksUdpTimeoutSec" in files["store"]
+    and "TunnelEngineOptions(" in files["ui"]
+    and "prepareTunnelSession(" in files["diag"],
+)
 check(
     "a crashed core is classified as a core fault, never as a config refusal",
     "fun isCoreCrash(" in files["androidRuntime"]

@@ -307,6 +307,10 @@ object SingBoxConfigBuilder {
         underlayHasIpv6: Boolean
     ): Build {
         val notes = candidate.notes.toMutableList()
+        // MARBLE_SINGBOX_GEO_ROUTING_V222 — one registry for every rule set the finished document
+        // references. DNS rules are written before route rules, and a set referenced only by a DNS
+        // rule still has to exist in `route.rule_set` or the core refuses to start.
+        val usedRuleSets = linkedSetOf<String>()
         val outbounds = JSONArray()
         candidate.outbounds.forEach { outbounds.put(it) }
 
@@ -323,7 +327,10 @@ object SingBoxConfigBuilder {
                     .put("output", logPath)
                     .put("timestamp", settings.singBoxLogTimestamp)
             )
-            .put("dns", dnsConfig(settings, profile, resolverPool, underlayHasIpv6))
+            .put(
+                "dns",
+                dnsConfig(settings, profile, resolverPool, underlayHasIpv6, ruleSetPaths, usedRuleSets)
+            )
             .put("inbounds", inboundConfig(settings, socksPort))
             .put("outbounds", outbounds)
             .put(
@@ -335,7 +342,10 @@ object SingBoxConfigBuilder {
                         .put("detour", DIRECT_TAG)
                 )
             )
-            .put("route", routeConfig(settings, notes, ruleSetPaths, underlayHasIpv6))
+            .put(
+                "route",
+                routeConfig(settings, notes, ruleSetPaths, usedRuleSets, underlayHasIpv6)
+            )
             .put(
                 "experimental",
                 JSONObject()
@@ -919,7 +929,9 @@ private fun removeKeys(
         settings: AppSettings,
         profile: ProxyProfile,
         resolverPool: List<String>,
-        underlayHasIpv6: Boolean
+        underlayHasIpv6: Boolean,
+        ruleSetPaths: Map<String, String>,
+        usedRuleSets: MutableSet<String>
     ): JSONObject {
         val servers = JSONArray()
         val timeout = "${settings.singBoxConnectTimeoutSec.coerceIn(3, 20)}s"
@@ -984,8 +996,11 @@ private fun removeKeys(
         }
         val implicit = RoutingEngine.implicitRules(settings)
         val directSites = implicit.directSiteTags.filter { settings.iranDomesticDirect || it != "ir" }
-        if (directSites.isNotEmpty()) {
-            rules.put(JSONObject().put("rule_set", JSONArray(directSites.map { geoTag(false, it) }))
+        val directSiteSets = directSites.mapNotNull { tag ->
+            geoTag(false, tag, ruleSetPaths)?.also { usedRuleSets += it }
+        }
+        if (directSiteSets.isNotEmpty()) {
+            rules.put(JSONObject().put("rule_set", JSONArray(directSiteSets))
                 .put("action", "route").put("server", DNS_DIRECT_TAG))
         }
 
@@ -1129,6 +1144,7 @@ private fun removeKeys(
         settings: AppSettings,
         notes: MutableList<String>,
         ruleSetPaths: Map<String, String>,
+        usedRuleSets: MutableSet<String>,
         underlayHasIpv6: Boolean
     ): JSONObject {
         val rules = JSONArray()
@@ -1158,10 +1174,33 @@ private fun removeKeys(
         if (settings.iranModePolicy != IranModePolicy.OFF && settings.iranModeCountermeasures) {
             rules.put(JSONObject().put("ip_cidr", JSONArray(IRAN_POISON_BLOCK_IPS)).put("action", "reject"))
         }
-        val usedSets = linkedSetOf<String>()
+        fun geoRule(ip: Boolean, tag: String, outbound: RoutingOutbound) {
+            if (ip && tag.removePrefix("geoip:") == "private") {
+                rules.put(action(JSONObject().put("ip_is_private", true), outbound))
+            } else {
+                val mapped = geoTag(ip, tag, ruleSetPaths)
+                if (mapped == null) {
+                    notes += unroutedGeoNote(ip, tag)
+                    return
+                }
+                usedRuleSets += mapped
+                rules.put(action(JSONObject().put("rule_set", JSONArray().put(mapped)), outbound))
+            }
+        }
         fun domainRules(raw: String, outbound: RoutingOutbound) {
             val fields = linkedMapOf<String, JSONArray>()
             splitTokens(raw).forEach { token ->
+                // MARBLE_SINGBOX_GEO_ROUTING_V222 — the domain lists accept `geosite:` tokens on
+                // Xray, so they have to mean the same thing here instead of becoming a domain
+                // literally named "geosite:cn".
+                when {
+                    token.startsWith("geosite:", true) ||
+                        token.startsWith("ext-site:", true) ||
+                        token.startsWith("ext-domain:", true) -> {
+                        geoRule(false, token, outbound)
+                        return@forEach
+                    }
+                }
                 val field = when {
                     token.startsWith("full:") -> "domain"
                     token.startsWith("regexp:") -> "domain_regex"
@@ -1174,21 +1213,14 @@ private fun removeKeys(
             fields.forEach { (field, values) -> rules.put(action(JSONObject().put(field, values), outbound)) }
         }
         fun ipRule(raw: String, outbound: RoutingOutbound) {
-            val values = splitTokens(raw)
-            if (values.isNotEmpty()) rules.put(action(JSONObject().put("ip_cidr", JSONArray(values)), outbound))
-        }
-        fun geoRule(ip: Boolean, tag: String, outbound: RoutingOutbound) {
-            if (ip && tag.removePrefix("geoip:") == "private") {
-                rules.put(action(JSONObject().put("ip_is_private", true), outbound))
-            } else {
-                val mapped = geoTag(ip, tag)
-                if (mapped == null) {
-                    notes += unroutedGeoNote(ip, tag)
-                    return
-                }
-                usedSets += mapped
-                rules.put(action(JSONObject().put("rule_set", JSONArray().put(mapped)), outbound))
+            val values = splitTokens(raw).filterNot {
+                it.startsWith("geoip:", true) ||
+                    it.startsWith("ext-ip:", true)
             }
+            splitTokens(raw)
+                .filter { it.startsWith("geoip:", true) || it.startsWith("ext-ip:", true) }
+                .forEach { geoRule(true, it, outbound) }
+            if (values.isNotEmpty()) rules.put(action(JSONObject().put("ip_cidr", JSONArray(values)), outbound))
         }
         domainRules(settings.routeBlockDomains, RoutingOutbound.BLOCK)
         ipRule(settings.routeBlockIps, RoutingOutbound.BLOCK)
@@ -1215,7 +1247,11 @@ private fun removeKeys(
                     if (user.kind == RoutingRuleKind.GEOIP && user.matcher.removePrefix("geoip:") == "private") {
                         rule.put("ip_is_private", true)
                     } else {
-                        val mapped = geoTag(user.kind == RoutingRuleKind.GEOIP, user.matcher)
+                        val mapped = geoTag(
+                            user.kind == RoutingRuleKind.GEOIP,
+                            user.matcher,
+                            ruleSetPaths
+                        )
                         if (mapped == null) {
                             notes += unroutedGeoNote(
                                 user.kind == RoutingRuleKind.GEOIP,
@@ -1223,7 +1259,7 @@ private fun removeKeys(
                             )
                             return@forEach
                         }
-                        usedSets += mapped
+                        usedRuleSets += mapped
                         rule.put("rule_set", JSONArray().put(mapped))
                     }
                 }
@@ -1250,16 +1286,47 @@ private fun removeKeys(
         domainRules(settings.routeDirectDomains, RoutingOutbound.DIRECT)
         ipRule(settings.routeDirectIps, RoutingOutbound.DIRECT)
         val ruleSets = JSONArray()
-        usedSets.forEach { tag ->
-            ruleSets.put(JSONObject().put("type", "local").put("tag", tag).put("format", "binary")
-                .put("path", ruleSetPaths[tag] ?: "singbox-rules/$tag.srs"))
+        usedRuleSets.sorted().forEach { tag ->
+            val path = ruleSetPaths[tag]
+            ruleSets.put(
+                JSONObject()
+                    .put("type", "local")
+                    .put("tag", tag)
+                    .put("format", path?.let(SingBoxGeoRuleSets::formatOf) ?: "binary")
+                    .put("path", path ?: "singbox-rules/$tag.srs")
+            )
         }
         return JSONObject().put("rules", rules).put("rule_set", ruleSets).put("final", PROXY_TAG)
             .put("default_domain_resolver", physicalDomainResolver(settings, underlayHasIpv6))
             .put("default_http_client", HTTP_CLIENT_DIRECT_TAG)
     }
 
-    internal fun geoTag(ip: Boolean, raw: String): String? {
+    /**
+     * MARBLE_SINGBOX_GEO_ROUTING_V222 — resolves any geo tag that the prepared rule-set map holds.
+     *
+     * The map is the bundled set (`geoip-ir`, `geosite-ir`, the ads bundle) plus every tag
+     * `SingBoxGeoRuleSets` generated from the pinned .dat files for this configuration. A tag the
+     * user can pick in Routing — `cn`, `ru`, `category-bank-ir`, `category-gov-ir`, or one from a
+     * custom source — therefore resolves here instead of being dropped with a note.
+     */
+    internal fun geoTag(ip: Boolean, raw: String): String? = bundledGeoTag(ip, raw)
+
+    internal fun geoTag(ip: Boolean, raw: String, ruleSetPaths: Map<String, String>): String? {
+        if (ip && SingBoxGeoRuleSets.canonicalTag(raw) == "private") return RULE_SET_GEOIP_PRIVATE
+        val kind = if (ip) GeoAssetIndex.Kind.GEOIP else GeoAssetIndex.Kind.GEOSITE
+        val canonical = SingBoxGeoRuleSets.idFor(kind, raw)
+        if (ruleSetPaths.containsKey(canonical)) return canonical
+        // A generated set exists only when the tag was in the local .dat files; when the caller
+        // holds no map at all the historical bundled mapping still applies unchanged.
+        val bundled = bundledGeoTag(ip, raw)
+        return when {
+            bundled == null -> null
+            ruleSetPaths.isEmpty() || ruleSetPaths.containsKey(bundled) -> bundled
+            else -> null
+        }
+    }
+
+    private fun bundledGeoTag(ip: Boolean, raw: String): String? {
         val tag = raw.trim().lowercase().removePrefix("geoip:").removePrefix("geosite:")
         return when {
             ip && tag == "private" -> RULE_SET_GEOIP_PRIVATE
@@ -1300,8 +1367,9 @@ private fun removeKeys(
 
     private fun unroutedGeoNote(ip: Boolean, raw: String): String {
         val typed = if (raw.contains(":")) raw else if (ip) "geoip:$raw" else "geosite:$raw"
-        return "routing: '$typed' has no bundled sing-box rule set, so this one rule is not " +
-            "applied on the sing-box engine (the same profile is routed in full on Xray)."
+        return "routing: '$typed' is not in the local geo assets and has no bundled sing-box rule " +
+            "set, so this one rule is not applied on the sing-box engine (download the geo assets " +
+            "in Routing, or the same profile is routed in full on Xray)."
     }
 
     private fun putPorts(rule: JSONObject, raw: String) {

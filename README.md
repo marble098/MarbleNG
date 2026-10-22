@@ -561,6 +561,27 @@ mark across the header, the notifications and all three launcher icons, shared l
 rows, buttons, dock and sheets, and a drag-to-connect control rebuilt as a tinted well with an energy
 bed and a lit sphere — with the V146 parking and V207 commit ordering untouched.
 
+### The V222 pass — a second tunnel engine, and geo routing that stops dropping tags
+
+`docs/TUN2SOCKS_CORE_AND_GEO_ROUTING_V222.md` is the chapter. The tunnel is now a **choice**: beside
+the proxy core (Xray / sing-box), Settings → *Tunnel engine* offers `hev-socks5-tunnel` — the
+datapath Marble has always shipped, still the default — and `tun2socks`, the pinned
+`xjasonlyu/tun2socks` release built into `libtun2socks.so` and loaded **in this process**, because
+only this process holds the descriptor `VpnService` created. It never terminates the app: the
+upstream engine package calls `log.Fatalf` on failure, so Marble composes the same public packages
+and returns a code and a sentence instead — `-5` for a revoked descriptor, `-2` for a proxy the
+tunnel cannot use, and a fallback to HEV with the loader's own reason on an APK that does not carry
+the library for this ABI. It has its own full option set (MTU cap, UDP timeout, TCP buffers,
+moderate receive window, log level), its own log file in the diagnostics bundle, and its own pin in
+`core-lock.json` — with `update-cores.yml` proving the newly resolved tag still compiles the mobile
+wrapper before a bump can land. In the same pass, **sing-box geo routing became complete**: the
+builder used to map four geo tags and silently drop every other one with a note, so the same profile
+routed correctly on Xray and wrongly on sing-box. Now every tag the Routing page accepts —
+`geoip:cn`, `geosite:category-bank-ir`, a tag from a custom `.dat` — is materialised from the same
+pinned files Xray already trusts into a real `source` rule set, extracted in one pass per file, and
+registered for both route and DNS rules. A tag that is genuinely absent is still reported, never
+invented.
+
 ### The V221 pass — Meridian: flat surfaces, an accent the user owns, and a Censorship Lab
 
 `docs/MERIDIAN_V221.md` is the chapter. The interface gains a second material — **flat**, now the

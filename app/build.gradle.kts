@@ -102,6 +102,10 @@ val hevCoreRepo = coreLockField("hev", "repo")
 
 val singBoxCoreTag = coreLockField("singbox", "tag")
 val singBoxCoreRepo = coreLockField("singbox", "repo")
+
+// MARBLE_TUN2SOCKS_CORE_V222 — the second TUN datapath, pinned beside the others.
+val tun2SocksCoreTag = coreLockField("tun2socks", "tag")
+val tun2SocksCoreRepo = coreLockField("tun2socks", "repo")
 val marbleSourceUrl = "https://github.com/marble098/MarbleNG"
 
 fun signingValue(name: String): String {
@@ -149,6 +153,8 @@ android {
         buildConfigField("String", "HEV_CORE_REPO", "\"$hevCoreRepo\"")
         buildConfigField("String", "SINGBOX_CORE_TAG", "\"$singBoxCoreTag\"")
         buildConfigField("String", "SINGBOX_CORE_REPO", "\"$singBoxCoreRepo\"")
+        buildConfigField("String", "TUN2SOCKS_CORE_TAG", "\"$tun2SocksCoreTag\"")
+        buildConfigField("String", "TUN2SOCKS_CORE_REPO", "\"$tun2SocksCoreRepo\"")
         buildConfigField("String", "SOURCE_URL", "\"$marbleSourceUrl\"")
     }
 
@@ -240,6 +246,7 @@ android {
                 "**/libmarbleng.so",
                 "**/libhev-socks5-tunnel.so",
                 "**/libsingbox.so",
+                "**/libtun2socks.so",
 
                 "**/libxray.so"
             )

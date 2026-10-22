@@ -547,6 +547,340 @@ object GeoAssetIndex {
         return reader.isComplete() && prefixValue in 0L..maxPrefix
     }
 
+    /**
+     * MARBLE_SINGBOX_GEO_ROUTING_V222 — the payload of one dat tag, not just its size.
+     *
+     * The index above answers "does this tag exist and how big is it", because that is what the
+     * Xray config and the routing editor need: Xray reads the .dat files itself, so Marble never
+     * has to materialise a domain list. sing-box cannot read .dat at all — it only understands
+     * its own rule sets — so geo routing on the sing-box engine needs the actual contents of the
+     * tag the user chose. This is the one place that decodes them, from the same pinned files the
+     * Xray engine already trusts, with the same defensive parser.
+     */
+    data class GeoPayload(
+        val kind: Kind,
+        val tag: String,
+        val full: List<String>,
+        val suffix: List<String>,
+        val keywords: List<String>,
+        val regexes: List<String>,
+        val cidrs: List<String>,
+        val truncated: Boolean = false,
+        val reverseMatch: Boolean = false
+    ) {
+        val isEmpty: Boolean
+            get() = full.isEmpty() && suffix.isEmpty() && keywords.isEmpty() &&
+                regexes.isEmpty() && cidrs.isEmpty()
+
+        val size: Int get() = full.size + suffix.size + keywords.size + regexes.size + cidrs.size
+    }
+
+    /** Upper bound on the items one tag may contribute, so a hostile .dat cannot exhaust the heap. */
+    const val MAX_PAYLOAD_ITEMS: Int = 400_000
+
+    /**
+     * Extracts [tag] of [kind] from the given .dat [files] (already ordered by the caller's geo
+     * source priority). Every readable file is merged into one payload, which is what makes
+     * multi-source geo routing work on sing-box the same way it works on Xray.
+     *
+     * Returns null when no file could be read; an empty payload when the tag is simply absent.
+     */
+    fun extractPayload(
+        kind: Kind,
+        tag: String,
+        files: List<File>,
+        limit: Int = MAX_PAYLOAD_ITEMS
+    ): GeoPayload? {
+        val clean = normalizeToken(tag).substringAfterLast(':').trim()
+        if (clean.isEmpty()) return null
+        return extractPayloads(kind, listOf(clean), files, limit)?.get(clean)
+    }
+
+    /**
+     * MARBLE_SINGBOX_GEO_ROUTING_V222 — the batched form of [extractPayload].
+     *
+     * One configuration can name twenty geo tags, and a geosite.dat is several megabytes. Reading
+     * and parsing the file once per tag would be twenty identical passes over the same bytes on the
+     * thread that is holding up the connect. This walks each file once, reads the tag code of every
+     * entry, and only fully decodes the entries somebody asked for.
+     *
+     * Returns null when no file could be read at all; otherwise one payload per requested tag,
+     * empty for a tag the files do not contain.
+     */
+    fun extractPayloads(
+        kind: Kind,
+        tags: Collection<String>,
+        files: List<File>,
+        limit: Int = MAX_PAYLOAD_ITEMS
+    ): Map<String, GeoPayload>? {
+        val wanted = LinkedHashMap<String, PayloadAccumulator>()
+        tags.forEach { raw ->
+            val clean = normalizeToken(raw).substringAfterLast(':').trim()
+            if (clean.isNotEmpty() && !wanted.containsKey(clean)) {
+                wanted[clean] = PayloadAccumulator()
+            }
+        }
+        if (wanted.isEmpty() || files.isEmpty()) return null
+
+        var readable = false
+        for (file in files) {
+            val bytes = readFileBounded(file) ?: continue
+            readable = true
+            val reader = ProtobufReader(bytes)
+            while (reader.next()) {
+                if (reader.fieldNumber != 1 || reader.wireType != 2) continue
+                val entry = reader.messageBytes() ?: break
+                val code = entryCode(entry) ?: continue
+                val accumulator = wanted[code] ?: continue
+                if (kind == Kind.GEOSITE) {
+                    readSitePayloadInto(entry, accumulator, limit)
+                } else {
+                    readIpPayloadInto(entry, accumulator, limit)
+                }
+                if (wanted.values.all { it.saturated(limit) }) break
+            }
+        }
+        if (!readable) return null
+        return wanted.mapValues { (tag, accumulator) -> accumulator.toPayload(kind, tag) }
+    }
+
+    private class PayloadAccumulator {
+        val full = LinkedHashSet<String>()
+        val suffix = LinkedHashSet<String>()
+        val keywords = LinkedHashSet<String>()
+        val regexes = LinkedHashSet<String>()
+        val cidrs = LinkedHashSet<String>()
+        var reverse = false
+        var truncated = false
+
+        fun saturates(): Int = full.size + suffix.size + keywords.size + regexes.size + cidrs.size
+
+        /**
+         * A tag is done when it has all it is allowed to have. Only geosite payloads can be cut;
+         * an IP list is a fixed set of ranges and is never truncated in practice.
+         */
+        fun saturated(limit: Int): Boolean = cidrs.size >= limit || saturates() >= limit
+
+        fun toPayload(kind: Kind, tag: String) = GeoPayload(
+            kind = kind,
+            tag = tag,
+            full = full.toList(),
+            suffix = suffix.toList(),
+            keywords = keywords.toList(),
+            regexes = regexes.toList(),
+            cidrs = cidrs.toList(),
+            truncated = truncated,
+            reverseMatch = reverse
+        )
+    }
+
+    /** The tag code of one entry, read without decoding the entry's payload. */
+    private fun entryCode(entry: ByteArray): String? {
+        val reader = ProtobufReader(entry)
+        while (reader.next()) {
+            if (reader.fieldNumber == 1 && reader.wireType == 2) {
+                return reader.stringBytes().trim().lowercase().takeIf { it.isNotEmpty() }
+            }
+            reader.skip()
+        }
+        return null
+    }
+
+    /**
+     * Decodes one geosite entry into [accumulator]. The entry's code has already been matched by
+     * the caller, so this only has to walk the domains.
+     */
+    private fun readSitePayloadInto(
+        entry: ByteArray,
+        accumulator: PayloadAccumulator,
+        limit: Int
+    ) {
+        val reader = ProtobufReader(entry)
+        val domains = ArrayList<Pair<Long, String>>(64)
+        while (reader.next()) {
+            when (reader.fieldNumber) {
+                1 -> {
+                    if (reader.wireType != 2) return
+                    reader.stringBytes()
+                }
+                2 -> {
+                    if (reader.wireType != 2) return
+                    val domain = reader.messageBytes() ?: return
+                    readDomainPayload(domain)?.let { domains += it }
+                }
+                else -> reader.skip()
+            }
+        }
+        if (!reader.isComplete()) return
+        var total = accumulator.saturates()
+        for ((type, value) in domains) {
+            val target = when (type) {
+                DOMAIN_PLAIN -> accumulator.keywords
+                DOMAIN_REGEX -> accumulator.regexes
+                DOMAIN_ROOT -> accumulator.suffix
+                DOMAIN_FULL -> accumulator.full
+                else -> continue
+            }
+            if (total >= limit) {
+                accumulator.truncated = true
+                break
+            }
+            if (target.add(value)) total++
+        }
+    }
+
+    private const val DOMAIN_PLAIN = 0L
+
+    private const val DOMAIN_REGEX = 1L
+
+    /** Returns type to value, or null for an entry no matcher can use. */
+    private fun readDomainPayload(domain: ByteArray): Pair<Long, String>? {
+        val reader = ProtobufReader(domain)
+        var type = -1L
+        var value: String? = null
+        while (reader.next()) {
+            when (reader.fieldNumber) {
+                1 -> {
+                    if (reader.wireType != 0) return null
+                    type = reader.varint()
+                }
+                2 -> {
+                    if (reader.wireType != 2) return null
+                    value = reader.stringBytes()
+                }
+                3 -> {
+                    if (reader.wireType != 2 || !reader.enterMessage()) return null
+                    val validAttribute = validDomainAttribute(reader)
+                    val leftAttribute = reader.leaveMessage()
+                    if (!validAttribute || !leftAttribute) return null
+                }
+                else -> reader.skip()
+            }
+        }
+        if (!reader.isComplete() || type !in 0L..3L) return null
+        val raw = value?.trim().orEmpty()
+        if (raw.isEmpty() || raw.length > 512) return null
+        val clean = raw.lowercase()
+        return when (type) {
+            DOMAIN_PLAIN, DOMAIN_REGEX -> type to clean
+            else -> {
+                val host = clean.trimStart('.').trimEnd('.')
+                if (host.isEmpty() || !isDomainPayloadValue(host)) return null
+                type to host
+            }
+        }
+    }
+
+    /** A rule-set entry must be a hostname; a path or a port would make sing-box refuse the file. */
+    private fun isDomainPayloadValue(value: String): Boolean =
+        value.isNotEmpty() && value.length <= 253 &&
+            value.none { it.isWhitespace() || it == '/' || it == ':' || it == '\\' } &&
+            value.any { it.isLetterOrDigit() }
+
+    /** Decodes one geoip entry into [accumulator]; the code has already been matched. */
+    private fun readIpPayloadInto(
+        entry: ByteArray,
+        accumulator: PayloadAccumulator,
+        limit: Int
+    ) {
+        val reader = ProtobufReader(entry)
+        var reverse = false
+        val ranges = ArrayList<String>(64)
+        while (reader.next()) {
+            when (reader.fieldNumber) {
+                1 -> {
+                    if (reader.wireType != 2) return
+                    reader.stringBytes()
+                }
+                2 -> {
+                    if (reader.wireType != 2) return
+                    val range = reader.messageBytes() ?: return
+                    readCidrPayload(range)?.let { ranges += it }
+                }
+                3 -> {
+                    if (reader.wireType != 0) return
+                    reverse = reader.varint() != 0L
+                }
+                else -> reader.skip()
+            }
+        }
+        if (!reader.isComplete()) return
+        if (reverse) accumulator.reverse = true
+        for (range in ranges) {
+            if (accumulator.cidrs.size >= limit) {
+                accumulator.truncated = true
+                break
+            }
+            accumulator.cidrs += range
+        }
+    }
+
+    private fun readCidrPayload(range: ByteArray): String? {
+        val reader = ProtobufReader(range)
+        var ip: ByteArray? = null
+        var prefix: Long? = null
+        while (reader.next()) {
+            when (reader.fieldNumber) {
+                1 -> {
+                    if (reader.wireType != 2) return null
+                    ip = reader.valueBytes()
+                }
+                2 -> {
+                    if (reader.wireType != 0) return null
+                    prefix = reader.varint()
+                }
+                else -> reader.skip()
+            }
+        }
+        if (!reader.isComplete()) return null
+        val address = ip ?: return null
+        val bits = prefix ?: return null
+        val max = when (address.size) {
+            4 -> 32L
+            16 -> 128L
+            else -> return null
+        }
+        if (bits !in 0L..max) return null
+        return "${formatAddress(address)}/$bits"
+    }
+
+    internal fun formatAddress(bytes: ByteArray): String {
+        if (bytes.size == 4) return bytes.joinToString(".") { (it.toInt() and 0xFF).toString() }
+        if (bytes.size != 16) return ""
+        val groups = IntArray(8) { index ->
+            ((bytes[index * 2].toInt() and 0xFF) shl 8) or (bytes[index * 2 + 1].toInt() and 0xFF)
+        }
+        var bestStart = -1
+        var bestLength = 0
+        var index = 0
+        while (index < 8) {
+            if (groups[index] != 0) {
+                index++
+                continue
+            }
+            var end = index
+            while (end < 8 && groups[end] == 0) end++
+            if (end - index > bestLength) {
+                bestStart = index
+                bestLength = end - index
+            }
+            index = end
+        }
+        val builder = StringBuilder()
+        index = 0
+        while (index < 8) {
+            if (index == bestStart && bestLength > 1) {
+                builder.append("::")
+                index += bestLength
+                continue
+            }
+            if (builder.isNotEmpty() && !builder.endsWith(":")) builder.append(':')
+            builder.append(Integer.toHexString(groups[index]))
+            index++
+        }
+        return builder.toString()
+    }
+
     private fun entriesSorted(counters: Map<String, Int>, kind: Kind): List<GeoEntry> =
         counters.entries
             .map { GeoEntry(kind, it.key, it.value) }
@@ -672,6 +1006,13 @@ object GeoAssetIndex {
         fun isComplete(): Boolean = !malformed && pos == limit
 
         fun valueLength(): Int = if (wireType == 2) valueEnd - valueStart else 0
+
+        fun valueBytes(): ByteArray =
+            if (wireType == 2) bytes.copyOfRange(valueStart, valueEnd) else ByteArray(0)
+
+        /** A copy of the current length-delimited field, so it can be parsed on its own. */
+        fun messageBytes(): ByteArray? =
+            if (wireType == 2 && !malformed) bytes.copyOfRange(valueStart, valueEnd) else null
 
         fun stringBytes(): String {
             if (wireType != 2 || !validUtf8(valueStart, valueEnd)) {
