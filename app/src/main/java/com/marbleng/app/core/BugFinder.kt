@@ -796,6 +796,10 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
         val problemEvidence = (
             problems(allRuntime).takeLast(220) +
                 problems(hevLog).takeLast(120) +
+                // MARBLE_TUN2SOCKS_SHUTDOWN_V223 — the core's own log was read into a section and
+                // then never indexed, so a tun2socks refusal or teardown warning could sit in the
+                // report as "no evidence". It is evidence now.
+                problems(tun2socksLog).takeLast(120) +
                 problems(xrayLog).takeLast(160) +
                 problems(singboxLog).takeLast(120) +
                 problems(singboxUrlTestLog).takeLast(60) +
@@ -1051,6 +1055,12 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
                 appendLine("process=${sanitize(exit.processName.orEmpty())}")
                 appendLine("reason=$reason (${exit.reason})")
                 appendLine("status=${exit.status}")
+                // MARBLE_TUN2SOCKS_SHUTDOWN_V223 — `status` alone says nothing: for a SIGNALED
+                // record it is the signal number, and the crash reports this app can reach carry
+                // no Java stack and no tombstone because nothing in the JVM ever ran. Decode it.
+                TunnelShutdownPolicy.forcedExitReading(exit.reason, exit.status)
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { appendLine("reading=$it") }
                 appendLine("importance=${exit.importance}")
                 appendLine("pssKb=${exit.pss} rssKb=${exit.rss}")
                 appendLine("description=${sanitize(exit.description.orEmpty())}")
@@ -1092,9 +1102,13 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
 
     private fun connectionTimeline(text: String): String {
         if (text.isBlank()) return "No retained runtime timeline"
+        // MARBLE_TUN2SOCKS_SHUTDOWN_V223 — `TUN2SOCKS |` and `TUNNEL |` were missing from this
+        // list, so the second datapath's lifecycle lines never reached the timeline the reader
+        // actually looks at: the tun2socks path looked like it had produced no evidence at all.
         val tags = listOf(
-            "APP |", "VPN |", "TUN |", "HEV |", "XRAY |", "SINGBOX |", "EGRESS |", "DNS |",
-            "IDENTITY |", "TURBO |", "AUTOPILOT |", "PRIVACY |", "NETWORK |"
+            "APP |", "VPN |", "TUN |", "HEV |", "TUN2SOCKS |", "TUNNEL |", "XRAY |",
+            "SINGBOX |", "EGRESS |", "DNS |", "IDENTITY |", "TURBO |", "AUTOPILOT |",
+            "PRIVACY |", "NETWORK |"
         )
         val lines = text.lineSequence()
             .filter { line -> tags.any(line::contains) }
