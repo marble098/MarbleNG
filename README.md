@@ -45,9 +45,42 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A living, layered surface** — a slowly breathing brand aurora behind every page, and one cool-shadow depth system above it, so nothing floats on a dead flat field.
 - **A Servers page that shows its hierarchy** — subscription cards with a real usage bar, and their servers nested inside them, smaller in every dimension.
 
+## The surface, the icons, and the whole window
+
+`docs/AURORA_SURFACE_V219.md` is the newest chapter.
+
+**The app is the window.** The activity now enters true edge-to-edge, both bars are transparent in
+every theme tier, and Compose owns every inset in one pass each: the page stack pads the status bar,
+the floating dock pads the gesture bar, the editors pad the keyboard. A page backdrop paints under
+the clock and under the home indicator, and one 168 dp shelf gives the dock a floor, so the bottom of
+the phone belongs to the app instead of to a system strip.
+
+**One glyph grid replaced the Settings doodles.** Every point of every icon is placed on a 24-unit
+grid with one stroke rule — 1.75 units, round-capped, rendering between 1.3 dp and 2.1 dp across the
+product's icon sizes — plus filled accents for a duotone read. Glyphs mount on `MarbleGlyphTile`: the
+card fill, the tone's own gradient, a specular wash and a lit rim. The six Settings groups, every
+section card, every row preview, the back control, the disclosures and all three navigation tabs
+speak that vocabulary; the fourth tab keeps its own glyph choice.
+
+**Cards catch light and lines fade.** Every card wears one specular plane at its top edge on top of
+its wash, its rim is white-lit at the top on a light page, the corner ramp moved onto the platform's
+24/20/16 steps, dividers fade out toward their trailing edge, and the 40 dp tone circles behind row
+icons became squircle containers. The mark itself is drawn now — a lit tile, one orbit and one folded
+"M" with a translucent facet — in the Home header, the custom page and all three launcher icons.
+
+**The drag-to-connect bar was rebuilt.** A tinted well with a lit rim, a gradient energy bed that
+grows under the thumb instead of snapping to it, three chevrons that fade as you approach, and a lit
+sphere for the knob. The gesture and its commit ordering are unchanged: only the material is new.
+
+**The small surfaces were rebuilt with it.** One shared row skin (`marbleLitSurface`) replaces three
+hand-written modifiers on every switch tile, stepper, information row and flag chip; buttons are
+gradient-lit objects rather than flat accent rectangles; the dock is milled, with a lit active pill;
+bottom sheets open on a lit grabber instead of a grey capsule; and the status-bar, Quick Settings and
+themed launcher icons are all the same prism, one silhouette each.
+
 ## Corners that close, type that fits
 
-`docs/VISUAL_POLISH_V218.md` is the newest chapter.
+`docs/VISUAL_POLISH_V218.md` is the previous chapter.
 
 **A subscription card now closes through every corner instead of snapping across them.** One
 animated fraction drives the header's clip, its outline's bottom edge, its padding and its ripple
@@ -518,6 +551,15 @@ window on a dead node costs 1.5× rather than 2× the timeout, the Real-delay ba
 samples its own callback already published instead of printing FAILED beside a live number, and
 the core-measured methods deduplicate the sweep by configuration — byte-identical documents
 share one throwaway core while different accounts on one endpoint never share a verdict.
+
+### The V219 pass — the aurora surface
+
+`docs/AURORA_SURFACE_V219.md` is the critique and rebuild of the surface layer: true edge-to-edge
+with Compose owning every inset, one 24-unit glyph grid and one lit tile for every icon in Settings
+and the navigation dock, cards that catch light at their top edge, dividers that fade, a drawn prism
+mark across the header, the notifications and all three launcher icons, shared lit materials for
+rows, buttons, dock and sheets, and a drag-to-connect control rebuilt as a tinted well with an energy
+bed and a lit sphere — with the V146 parking and V207 commit ordering untouched.
 
 ## Main navigation
 

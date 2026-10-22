@@ -41,6 +41,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ScrollState
@@ -78,6 +79,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.graphics.PathEffect
@@ -464,13 +466,42 @@ fun Aether2026App(
         Modifier.matchParentSize(),
         flavor = homeFlavorFor(parseHomeStyle(repo.settings.homeStyle))
     )
+
+    // MARBLE_AURORA_SURFACE_V219 — the home-indicator shelf.
+    //
+    // The bottom of a full-screen app is the app: a page that simply ends at the gesture line
+    // reads as a window that stopped early. This fade lifts the page colour off the backdrop under
+    // the floating dock, so the dock has a floor to sit on and the gesture bar sits on the same
+    // material as the page above it instead of on a raw gradient.
+    Box(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .height(168.dp)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Aether.Void.copy(alpha = 0f),
+                        Aether.Void.copy(alpha = .34f),
+                        Aether.Void.copy(alpha = .62f)
+                    )
+                )
+            )
+    )
+
     Scaffold(
-        containerColor = Color.Transparent
+        containerColor = Color.Transparent,
+        // MARBLE_AURORA_SURFACE_V219 — the Scaffold paints the page, not the window. Every inset
+        // is consumed here by a component that knows what it is laying out (the page stack pads
+        // the status bar, the dock pads the gesture bar), so the template must not add a second
+        // pass on top of them.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .statusBarsPadding()
         ) {
             // marble-page-transition-fast — MARBLE_STABLE_NAVIGATION_V202 uses the pager's native
 
@@ -1071,6 +1102,8 @@ private fun FloatingSpatialDock(
         val chrome = rememberMarbleFloatChrome()
         val dockSurface = chrome.surface
         val dockElevation = 14.dp
+        val dockIsDark = homeCloudDark()
+        val dockLit = lerp(dockSurface, Color.White, if (dockIsDark) .10f else .55f)
 
         Row(
             modifier = Modifier
@@ -1089,11 +1122,30 @@ private fun FloatingSpatialDock(
                     )
                 )
                 .clip(barShape)
-                .background(dockSurface)
+                // MARBLE_AURORA_SURFACE_V219 — the dock is a milled object, not a filled rect:
+                // a vertical body gradient, one specular plane at the top edge, and a rim that is
+                // lit at the top and quiet at the bottom. Every tab pill rides on top of it.
+                .background(Brush.verticalGradient(listOf(dockLit, dockSurface)))
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = if (dockIsDark) .06f else .38f),
+                            Color.White.copy(alpha = 0f)
+                        ),
+                        startY = 0f,
+                        endY = 30f
+                    )
+                )
                 .border(
                     1.dp,
 
-                    chrome.border,
+                    Brush.verticalGradient(
+                        listOf(
+                            lerp(chrome.border, Color.White, if (dockIsDark) .22f else .55f)
+                                .copy(alpha = .85f),
+                            chrome.border
+                        )
+                    ),
                     barShape
                 )
                 .padding(horizontal = 8.dp, vertical = metrics.innerPadding),
@@ -1151,8 +1203,50 @@ private fun FloatingSpatialDock(
                         .weight(1f)
                         .fillMaxHeight()
                         .clip(glassShape)
-                        .background(pillBg)
-                        .border(1.dp, indicatorTone, glassShape)
+                        .background(
+                            if (active) {
+                                Brush.verticalGradient(
+                                    listOf(
+                                        pillFill.copy(
+                                            alpha = (pillFill.alpha * 1.12f).coerceAtMost(1f)
+                                        ),
+                                        pillFill
+                                    )
+                                )
+                            } else {
+                                SolidColor(pillBg)
+                            }
+                        )
+                        // MARBLE_AURORA_SURFACE_V219 — the active pill is a lit lens: its own fill
+                        // gradient, a specular plane at the top edge, and a rim that is the accent
+                        // lit above and the accent quiet below. An inactive tab keeps the same
+                        // geometry with zero alpha, so the dock never re-lays-out on selection.
+                        .background(
+                            if (active) {
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = if (dockDark) .10f else .45f),
+                                        Color.White.copy(alpha = 0f)
+                                    ),
+                                    startY = 0f,
+                                    endY = 28f
+                                )
+                            } else {
+                                SolidColor(Color.Transparent)
+                            }
+                        )
+                        .border(
+                            1.dp,
+                            Brush.verticalGradient(
+                                listOf(
+                                    indicatorTone.copy(
+                                        alpha = (indicatorTone.alpha * 1.15f).coerceAtMost(1f)
+                                    ),
+                                    indicatorTone.copy(alpha = indicatorTone.alpha * .55f)
+                                )
+                            ),
+                            glassShape
+                        )
                         .kineticClickable(
                             boundedShape = glassShape,
                             role = Role.Tab,
@@ -1240,123 +1334,29 @@ private fun MarbleTabIcon(
     slotIcon: DockSlotIcon = DockSlotIcon.DEFAULT,
     modifier: Modifier = Modifier
 ) {
-    Canvas(modifier) {
-        val w=size.width
-        val h=size.height
-
-        val stroke=if(active) 2.3f.dp.toPx() else 1.9f.dp.toPx()
-        val line=Stroke(width=stroke,cap=StrokeCap.Round)
-
-        when(tab) {
-            SpatialTab.DECK -> {
-                val roof=Path().apply {
-                    moveTo(w*.18f,h*.47f)
-                    lineTo(w*.50f,h*.20f)
-                    lineTo(w*.82f,h*.47f)
-                }
-                drawPath(roof,color,style=line)
-                drawLine(color,Offset(w*.27f,h*.43f),Offset(w*.27f,h*.79f),stroke,StrokeCap.Round)
-                drawLine(color,Offset(w*.73f,h*.43f),Offset(w*.73f,h*.79f),stroke,StrokeCap.Round)
-                drawLine(color,Offset(w*.27f,h*.79f),Offset(w*.73f,h*.79f),stroke,StrokeCap.Round)
-                drawLine(color,Offset(w*.49f,h*.79f),Offset(w*.49f,h*.61f),stroke,StrokeCap.Round)
-            }
-
-            SpatialTab.LIBRARY -> {
-                listOf(.28f,.50f,.72f).forEachIndexed { index,y ->
-                    drawLine(
-                        color=color,
-                        start=Offset(w*.22f,h*y),
-                        end=Offset(w*.78f,h*y),
-                        strokeWidth=stroke,
-                        cap=StrokeCap.Round
-                    )
-                    drawCircle(
-                        color=color,
-                        radius=if(active) w*.045f else w*.038f,
-                        center=Offset(
-                            if(index%2==0) w*.30f else w*.70f,
-                            h*y
-                        )
-                    )
-                }
-            }
-
-            SpatialTab.SETTINGS -> {
-                val rows=listOf(
-                    .30f to .38f,
-                    .50f to .64f,
-                    .70f to .45f
-                )
-                rows.forEach { (y,knobX) ->
-                    drawLine(
-                        color=color,
-                        start=Offset(w*.20f,h*y),
-                        end=Offset(w*.80f,h*y),
-                        strokeWidth=stroke,
-                        cap=StrokeCap.Round
-                    )
-                    drawCircle(
-                        color=color,
-                        radius=w*.075f,
-                        center=Offset(w*knobX,h*y),
-                        style=Stroke(width=stroke,cap=StrokeCap.Round)
-                    )
-                }
-            }
-
-            SpatialTab.CUSTOM -> when(slotIcon) {
-                DockSlotIcon.PULSE -> {
-                    val trace=Path().apply {
-                        moveTo(w*.14f,h*.52f)
-                        lineTo(w*.32f,h*.52f)
-                        lineTo(w*.42f,h*.26f)
-                        lineTo(w*.56f,h*.76f)
-                        lineTo(w*.66f,h*.44f)
-                        lineTo(w*.86f,h*.44f)
-                    }
-                    drawPath(trace,color,style=line)
-                }
-
-                DockSlotIcon.SPARK -> {
-                    val bolt=Path().apply {
-                        moveTo(w*.58f,h*.12f)
-                        lineTo(w*.28f,h*.54f)
-                        lineTo(w*.48f,h*.54f)
-                        lineTo(w*.40f,h*.88f)
-                        lineTo(w*.72f,h*.44f)
-                        lineTo(w*.52f,h*.44f)
-                        close()
-                    }
-                    drawPath(bolt,color,style=line)
-                }
-
-                DockSlotIcon.LAYERS -> {
-                    listOf(.30f,.50f,.70f).forEachIndexed { index,y ->
-                        val inset=if(index==1) .16f else .22f
-                        drawLine(
-                            color=color,
-                            start=Offset(w*inset,h*y),
-                            end=Offset(w*(1f-inset),h*y),
-                            strokeWidth=stroke,
-                            cap=StrokeCap.Round
-                        )
-                    }
-                    drawCircle(color,radius=w*.055f,center=Offset(w*.5f,h*.50f))
-                }
-
-                DockSlotIcon.BEARING -> {
-                    drawCircle(
-                        color=color,
-                        radius=w*.32f,
-                        center=Offset(w*.5f,h*.5f),
-                        style=Stroke(width=stroke,cap=StrokeCap.Round)
-                    )
-
-                    drawLine(color,Offset(w*.5f,h*.5f),Offset(w*.70f,h*.30f),stroke,StrokeCap.Round)
-                    drawLine(color,Offset(w*.5f,h*.5f),Offset(w*.38f,h*.62f),stroke,StrokeCap.Round)
-                }
-            }
+    // MARBLE_AURORA_SURFACE_V219 — navigation speaks the same glyph language as Settings.
+    //
+    // The dock used to draw its own four hand-measured shapes (a house, three lines with dots, three
+    // slider rows, a bearing), at a stroke that changed with the active state. The tab marks are now
+    // the product's glyphs on the product's grid, weighted 8 % heavier when selected so the active
+    // tab gains *presence* rather than a second decoration.
+    val glyph = when (tab) {
+        SpatialTab.DECK -> MarbleGlyph.HOME
+        SpatialTab.LIBRARY -> MarbleGlyph.VAULT
+        SpatialTab.SETTINGS -> MarbleGlyph.TUNERS
+        SpatialTab.CUSTOM -> when (slotIcon) {
+            DockSlotIcon.PULSE -> MarbleGlyph.RADAR
+            DockSlotIcon.SPARK -> MarbleGlyph.SPARK
+            DockSlotIcon.LAYERS -> MarbleGlyph.LAYERS
+            DockSlotIcon.BEARING -> MarbleGlyph.DOCK
         }
+    }
+    Canvas(modifier) {
+        drawMarbleGlyph(
+            glyph = glyph,
+            tint = color,
+            weight = if (active) 1.14f else 1f
+        )
     }
 }
 
@@ -1530,555 +1530,135 @@ private enum class HomeIcon {
     PLUS, SEARCH, SORT, FILTER, SHARE, QR, FOLDER, PENCIL, ACTIVE, CAMERA
 }
 
+/**
+ * MARBLE_AURORA_SURFACE_V219 — every `HomeIcon` answered on the one grid.
+ *
+ * The old `HomeVectorIcon` was a 500-line `when` in which each shape had invented its own margins and
+ * several were not round at 19 dp. This mapping is deliberately many-to-one — a product needs a
+ * vocabulary of about thirty forms, not fifty sketches — and because it is exhaustive, a new
+ * `HomeIcon` cannot be added without a glyph being chosen for it.
+ */
+private fun marbleGlyphFor(icon: HomeIcon): MarbleGlyph = when (icon) {
+    HomeIcon.BRAND -> MarbleGlyph.SPARK
+    HomeIcon.POWER -> MarbleGlyph.POWER
+    HomeIcon.STOP -> MarbleGlyph.STOP
+    HomeIcon.CANCEL -> MarbleGlyph.CLOSE
+    HomeIcon.RESET -> MarbleGlyph.REFRESH
+    HomeIcon.SHIELD -> MarbleGlyph.SHIELD
+    HomeIcon.TUNNEL -> MarbleGlyph.TUNNEL
+    HomeIcon.ROUTE -> MarbleGlyph.ROUTE
+    HomeIcon.PING -> MarbleGlyph.RADAR
+    HomeIcon.JITTER -> MarbleGlyph.GAUGE
+    HomeIcon.QUALITY -> MarbleGlyph.GAUGE
+    HomeIcon.NODES -> MarbleGlyph.LAYERS
+    HomeIcon.VERIFIED -> MarbleGlyph.CHECK
+    HomeIcon.CHECK -> MarbleGlyph.CHECK
+    HomeIcon.MODE -> MarbleGlyph.TUNERS
+    HomeIcon.BENCHMARK -> MarbleGlyph.GAUGE
+    HomeIcon.RANK -> MarbleGlyph.GAUGE
+    HomeIcon.LIBRARY -> MarbleGlyph.VAULT
+    HomeIcon.PRIVACY -> MarbleGlyph.SHIELD
+    HomeIcon.ROUTING -> MarbleGlyph.ROUTE
+    HomeIcon.NETWORK -> MarbleGlyph.GLOBE
+    HomeIcon.SERVER -> MarbleGlyph.SERVER
+    HomeIcon.DOWNLOAD -> MarbleGlyph.DOWNLOAD
+    HomeIcon.UPLOAD -> MarbleGlyph.UPLOAD
+    HomeIcon.DETAILS -> MarbleGlyph.INFO
+    HomeIcon.SPARK -> MarbleGlyph.SPARK
+    HomeIcon.STATUS -> MarbleGlyph.GAUGE
+    HomeIcon.MORE -> MarbleGlyph.MORE
+    HomeIcon.MENU -> MarbleGlyph.MENU
+    HomeIcon.CLIPBOARD -> MarbleGlyph.FOLDER
+    HomeIcon.INFO -> MarbleGlyph.INFO
+    HomeIcon.PALETTE -> MarbleGlyph.PALETTE
+    HomeIcon.GLOBE -> MarbleGlyph.GLOBE
+    HomeIcon.CHEVRON -> MarbleGlyph.CHEVRON
+    HomeIcon.BACK -> MarbleGlyph.ARROW_BACK
+    HomeIcon.FONT -> MarbleGlyph.FONT
+    HomeIcon.TRASH -> MarbleGlyph.TRASH
+    HomeIcon.PLUS -> MarbleGlyph.PLUS
+    HomeIcon.SEARCH -> MarbleGlyph.SEARCH
+    HomeIcon.SORT -> MarbleGlyph.FILTER
+    HomeIcon.FILTER -> MarbleGlyph.FILTER
+    HomeIcon.SHARE -> MarbleGlyph.LINK
+    HomeIcon.QR -> MarbleGlyph.QR
+    HomeIcon.FOLDER -> MarbleGlyph.FOLDER
+    HomeIcon.PENCIL -> MarbleGlyph.PENCIL
+    HomeIcon.ACTIVE -> MarbleGlyph.SPARK
+    HomeIcon.CAMERA -> MarbleGlyph.QR
+}
+
+/**
+ * MARBLE_AURORA_SURFACE_V219 — the small glyph chip a Settings row shows on its trailing edge.
+ *
+ * A row used to end on a 22 dp naked outline beside a two-line label, which left the eye with no
+ * shape to land on. The chip is a 30 dp squircle in the row's own tone — the same three layers as
+ * [MarbleGlyphTile] (tone wash, lit rim, one glyph) at the size a row can afford, and no shadow,
+ * because a 30 dp chip that casts one is noise.
+ */
+@Composable
+private fun SettingsRowGlyphPreview(icon: HomeIcon, tone: Color) {
+    val shape = RoundedCornerShape(10.dp)
+    val dark = homeCloudDark()
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .clip(shape)
+            .background(tone.copy(alpha = if (dark) .22f else .12f))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = if (dark) .14f else .30f),
+                        Color.Transparent
+                    ),
+                    start = Offset.Zero,
+                    end = Offset(48f, 48f)
+                )
+            )
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    listOf(
+                        lerp(tone, Color.White, if (dark) .32f else .46f).copy(alpha = .60f),
+                        tone.copy(alpha = if (dark) .28f else .16f)
+                    )
+                ),
+                shape = shape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        MarbleGlyphIcon(marbleGlyphFor(icon), tone, Modifier.size(17.dp))
+    }
+}
+
+/**
+ * MARBLE_AURORA_SURFACE_V219 — the legacy entry point, now a thin alias.
+ *
+ * Every call site in the app (page headers, rows, chips, the deck) goes through this, so the whole
+ * product moved onto the new grid without a single call site changing. It is kept as a named
+ * composable rather than deleted so the migration is visible in the file's history.
+ */
 @Composable
 private fun HomeVectorIcon(
     icon: HomeIcon,
     color: Color,
     modifier: Modifier = Modifier
 ) {
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val m = size.minDimension
-
-        val stroke = (m * .094f).coerceIn(1.5f, 3.8f)
-        val fine = (stroke * .80f).coerceIn(1.3f, 2.9f)
-
-        val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        val fineLine = Stroke(width = fine, cap = StrokeCap.Round, join = StrokeJoin.Round)
-
-        when (icon) {
-            HomeIcon.BRAND -> {
-                drawCircle(color, radius = m * .40f, center = Offset(w * .50f, h * .50f), style = fineLine)
-                val marble = Path().apply {
-                    moveTo(w * .27f, h * .67f)
-                    lineTo(w * .34f, h * .34f)
-                    lineTo(w * .50f, h * .55f)
-                    lineTo(w * .66f, h * .34f)
-                    lineTo(w * .73f, h * .67f)
-                }
-                drawPath(marble, color, style = line)
-            }
-
-            HomeIcon.POWER -> {
-                drawArc(
-                    color = color,
-                    startAngle = -42f,
-                    sweepAngle = 264f,
-                    useCenter = false,
-                    topLeft = Offset(w * .18f, h * .18f),
-                    size = Size(w * .64f, h * .64f),
-                    style = line
-                )
-                drawLine(color, Offset(w*.50f,h*.13f), Offset(w*.50f,h*.51f), stroke, StrokeCap.Round)
-            }
-
-            HomeIcon.STOP -> {
-                val p = Path().apply {
-                    moveTo(w*.29f,h*.29f); lineTo(w*.71f,h*.29f)
-                    lineTo(w*.71f,h*.71f); lineTo(w*.29f,h*.71f); close()
-                }
-                drawPath(p, color, style = line)
-            }
-
-            HomeIcon.CANCEL -> {
-                drawLine(color, Offset(w*.28f,h*.28f), Offset(w*.72f,h*.72f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.72f,h*.28f), Offset(w*.28f,h*.72f), stroke, StrokeCap.Round)
-            }
-
-            HomeIcon.TRASH -> {
-                drawLine(color, Offset(w*.27f, h*.31f), Offset(w*.73f, h*.31f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.43f, h*.24f), Offset(w*.57f, h*.24f), fine, StrokeCap.Round)
-                val bin = Path().apply {
-                    moveTo(w*.32f, h*.34f)
-                    lineTo(w*.355f, h*.76f)
-                    quadraticBezierTo(w*.37f, h*.84f, w*.45f, h*.84f)
-                    lineTo(w*.55f, h*.84f)
-                    quadraticBezierTo(w*.63f, h*.84f, w*.645f, h*.76f)
-                    lineTo(w*.68f, h*.34f)
-                    close()
-                }
-                drawPath(bin, color, style = fineLine)
-            }
-
-            HomeIcon.PLUS -> {
-                drawLine(color, Offset(w*.5f, h*.24f), Offset(w*.5f, h*.76f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.24f, h*.5f), Offset(w*.76f, h*.5f), stroke, StrokeCap.Round)
-            }
-
-            HomeIcon.SEARCH -> {
-                drawCircle(color, radius = m*.27f, center = Offset(w*.43f, h*.43f), style = line)
-                drawLine(color, Offset(w*.62f, h*.62f), Offset(w*.8f, h*.8f), stroke, StrokeCap.Round)
-            }
-
-            HomeIcon.SORT -> {
-                drawLine(color, Offset(w*.24f, h*.29f), Offset(w*.76f, h*.29f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.24f, h*.5f), Offset(w*.62f, h*.5f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.24f, h*.71f), Offset(w*.48f, h*.71f), stroke, StrokeCap.Round)
-            }
-
-            HomeIcon.FILTER -> {
-                val funnel = Path().apply {
-                    moveTo(w*.2f, h*.26f)
-                    lineTo(w*.8f, h*.26f)
-                    lineTo(w*.56f, h*.55f)
-                    lineTo(w*.56f, h*.78f)
-                    lineTo(w*.44f, h*.78f)
-                    lineTo(w*.44f, h*.55f)
-                    close()
-                }
-                drawPath(funnel, color, style = line)
-            }
-
-            HomeIcon.SHARE -> {
-                val tray = Path().apply {
-                    moveTo(w*.27f, h*.56f)
-                    lineTo(w*.27f, h*.71f)
-                    quadraticBezierTo(w*.27f, h*.79f, w*.35f, h*.79f)
-                    lineTo(w*.65f, h*.79f)
-                    quadraticBezierTo(w*.73f, h*.79f, w*.73f, h*.71f)
-                    lineTo(w*.73f, h*.56f)
-                }
-                drawPath(tray, color, style = fineLine)
-                drawLine(color, Offset(w*.5f, h*.62f), Offset(w*.5f, h*.23f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.37f, h*.36f), Offset(w*.5f, h*.23f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.63f, h*.36f), Offset(w*.5f, h*.23f), stroke, StrokeCap.Round)
-            }
-
-            HomeIcon.QR -> {
-                listOf(
-                    Offset(w*.18f, h*.18f) to Offset(w*.38f, h*.38f),
-                    Offset(w*.62f, h*.18f) to Offset(w*.82f, h*.38f),
-                    Offset(w*.18f, h*.62f) to Offset(w*.38f, h*.82f)
-                ).forEach { (top, bottom) ->
-                    drawRect(
-                        color = color,
-                        topLeft = top,
-                        size = Size(bottom.x - top.x, bottom.y - top.y),
-                        style = fineLine
-                    )
-                }
-                drawRect(
-                    color = color,
-                    topLeft = Offset(w*.62f, h*.62f),
-                    size = Size(w*.2f, h*.2f)
-                )
-            }
-
-            HomeIcon.FOLDER -> {
-                val folder = Path().apply {
-                    moveTo(w*.18f, h*.36f)
-                    lineTo(w*.18f, h*.28f)
-                    quadraticBezierTo(w*.18f, h*.22f, w*.26f, h*.22f)
-                    lineTo(w*.42f, h*.22f)
-                    lineTo(w*.5f, h*.3f)
-                    lineTo(w*.74f, h*.3f)
-                    quadraticBezierTo(w*.82f, h*.3f, w*.82f, h*.38f)
-                    lineTo(w*.82f, h*.7f)
-                    quadraticBezierTo(w*.82f, h*.78f, w*.74f, h*.78f)
-                    lineTo(w*.26f, h*.78f)
-                    quadraticBezierTo(w*.18f, h*.78f, w*.18f, h*.7f)
-                    close()
-                }
-                drawPath(folder, color, style = fineLine)
-            }
-
-            HomeIcon.PENCIL -> {
-                drawLine(color, Offset(w*.27f, h*.73f), Offset(w*.66f, h*.34f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.66f, h*.34f), Offset(w*.76f, h*.24f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.22f, h*.78f), Offset(w*.35f, h*.75f), fine, StrokeCap.Round)
-            }
-
-            HomeIcon.ACTIVE -> {
-                drawLine(color, Offset(w*.26f, h*.53f), Offset(w*.43f, h*.7f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.43f, h*.7f), Offset(w*.76f, h*.3f), stroke, StrokeCap.Round)
-            }
-
-            HomeIcon.RESET -> {
-                drawArc(
-                    color = color, startAngle = -65f, sweepAngle = 286f, useCenter = false,
-                    topLeft = Offset(w*.19f,h*.19f), size = Size(w*.62f,h*.62f), style = line
-                )
-                val arrow = Path().apply {
-                    moveTo(w*.29f,h*.22f); lineTo(w*.17f,h*.39f); lineTo(w*.38f,h*.40f)
-                }
-                drawPath(arrow, color, style = line)
-            }
-
-            HomeIcon.MENU -> {
-                drawLine(color, Offset(w*.20f, h*.30f), Offset(w*.80f, h*.30f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.20f, h*.50f), Offset(w*.80f, h*.50f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w*.20f, h*.70f), Offset(w*.80f, h*.70f), stroke, StrokeCap.Round)
-            }
-
-            HomeIcon.SHIELD, HomeIcon.PRIVACY -> {
-                val shield = Path().apply {
-                    moveTo(w*.50f,h*.14f); lineTo(w*.78f,h*.26f); lineTo(w*.73f,h*.61f)
-                    quadraticBezierTo(w*.68f,h*.78f,w*.50f,h*.87f)
-                    quadraticBezierTo(w*.32f,h*.78f,w*.27f,h*.61f)
-                    lineTo(w*.22f,h*.26f); close()
-                }
-                drawPath(shield, color, style = fineLine)
-                if (icon == HomeIcon.PRIVACY) {
-                    drawCircle(color, m*.075f, Offset(w*.50f,h*.44f), style = fineLine)
-                    drawLine(color, Offset(w*.50f,h*.52f), Offset(w*.50f,h*.64f), fine, StrokeCap.Round)
-                } else {
-                    val check = Path().apply {
-                        moveTo(w*.36f,h*.50f); lineTo(w*.46f,h*.60f); lineTo(w*.66f,h*.39f)
-                    }
-                    drawPath(check, color, style = line)
-                }
-            }
-
-            HomeIcon.TUNNEL -> {
-                val outerArch = Path().apply {
-                    moveTo(w * .18f, h * .80f)
-                    lineTo(w * .18f, h * .48f)
-                    cubicTo(w * .18f, h * .20f, w * .82f, h * .20f, w * .82f, h * .48f)
-                    lineTo(w * .82f, h * .80f)
-                }
-                drawPath(outerArch, color, style = line)
-                val innerArch = Path().apply {
-                    moveTo(w * .34f, h * .80f)
-                    lineTo(w * .34f, h * .54f)
-                    cubicTo(w * .34f, h * .36f, w * .66f, h * .36f, w * .66f, h * .54f)
-                    lineTo(w * .66f, h * .80f)
-                }
-                drawPath(innerArch, color, style = fineLine)
-                drawLine(color, Offset(w * .10f, h * .80f), Offset(w * .90f, h * .80f), stroke, StrokeCap.Round)
-            }
-
-            HomeIcon.ROUTE, HomeIcon.ROUTING, HomeIcon.DETAILS -> {
-                drawCircle(color, m*.075f, Offset(w*.24f,h*.70f), style = fineLine)
-                drawCircle(color, m*.075f, Offset(w*.50f,h*.34f), style = fineLine)
-                drawCircle(color, m*.075f, Offset(w*.77f,h*.62f), style = fineLine)
-                val route = Path().apply {
-                    moveTo(w*.30f,h*.66f)
-                    cubicTo(w*.38f,h*.60f,w*.39f,h*.41f,w*.46f,h*.37f)
-                    cubicTo(w*.56f,h*.30f,w*.64f,h*.57f,w*.71f,h*.59f)
-                }
-                drawPath(route, color, style = fineLine)
-            }
-
-            HomeIcon.PING -> {
-                val pivotX = w * .40f
-                val pivotY = h * .66f
-                drawArc(color,205f,130f,false,Offset(pivotX-m*.14f,pivotY-m*.14f),Size(m*.28f,m*.28f),style=line)
-                drawArc(color,205f,130f,false,Offset(pivotX-m*.26f,pivotY-m*.26f),Size(m*.52f,m*.52f),style=line)
-                drawArc(color,205f,130f,false,Offset(pivotX-m*.37f,pivotY-m*.37f),Size(m*.74f,m*.74f),style=line)
-                drawCircle(color, m*.085f, Offset(pivotX,pivotY))
-
-                drawLine(color, Offset(w*.62f, h*.88f), Offset(w*.82f, h*.62f), stroke, StrokeCap.Round)
-                drawCircle(color, (stroke * .62f).coerceAtLeast(1.2f), Offset(w*.62f, h*.88f))
-            }
-
-            HomeIcon.CAMERA -> {
-                val bump = Path().apply {
-                    moveTo(w*.36f, h*.32f)
-                    lineTo(w*.41f, h*.23f)
-                    lineTo(w*.59f, h*.23f)
-                    lineTo(w*.64f, h*.32f)
-                }
-                drawPath(bump, color, style = fineLine)
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(w*.16f, h*.32f),
-                    size = Size(w*.68f, h*.46f),
-                    cornerRadius = CornerRadius(m*.09f, m*.09f),
-                    style = fineLine
-                )
-                drawCircle(color, m*.11f, Offset(w*.50f, h*.55f), style = line)
-            }
-
-            HomeIcon.JITTER -> {
-                val p = Path().apply {
-                    moveTo(w*.16f,h*.58f); lineTo(w*.30f,h*.58f); lineTo(w*.39f,h*.31f)
-                    lineTo(w*.52f,h*.72f); lineTo(w*.62f,h*.43f); lineTo(w*.84f,h*.43f)
-                }
-                drawPath(p, color, style = line)
-            }
-
-            HomeIcon.QUALITY -> {
-                drawArc(color,150f,240f,false,Offset(w*.18f,h*.20f),Size(w*.64f,h*.64f),style=fineLine)
-                drawLine(color, Offset(w*.50f,h*.56f), Offset(w*.68f,h*.38f), stroke, StrokeCap.Round)
-                drawCircle(color, m*.055f, Offset(w*.50f,h*.56f))
-            }
-
-            HomeIcon.NODES -> {
-                val a = Offset(w*.25f,h*.68f); val b = Offset(w*.50f,h*.28f); val c = Offset(w*.77f,h*.67f)
-                drawLine(color,a,b,fine,StrokeCap.Round); drawLine(color,b,c,fine,StrokeCap.Round)
-                drawLine(color,a,c,fine,StrokeCap.Round)
-                drawCircle(color,m*.075f,a,style=fineLine); drawCircle(color,m*.075f,b,style=fineLine)
-                drawCircle(color,m*.075f,c,style=fineLine)
-            }
-
-            HomeIcon.VERIFIED -> {
-                drawCircle(color,m*.34f,Offset(w*.50f,h*.50f),style=fineLine)
-                val check = Path().apply {
-                    moveTo(w*.34f,h*.51f); lineTo(w*.45f,h*.62f); lineTo(w*.67f,h*.39f)
-                }
-                drawPath(check,color,style=line)
-            }
-
-            HomeIcon.CHECK -> {
-                val tick = Path().apply {
-                    moveTo(w*.22f,h*.53f); lineTo(w*.42f,h*.72f); lineTo(w*.78f,h*.29f)
-                }
-                drawPath(tick,color,style=Stroke(width=(m*.16f).coerceAtLeast(1.5f),cap=StrokeCap.Round))
-            }
-
-            HomeIcon.MODE -> {
-                val roof = Path().apply {
-                    moveTo(w * .16f, h * .48f)
-                    lineTo(w * .50f, h * .20f)
-                    lineTo(w * .84f, h * .48f)
-                }
-                drawPath(roof, color, style = line)
-                val body = Path().apply {
-                    moveTo(w * .24f, h * .44f)
-                    lineTo(w * .24f, h * .78f)
-                    quadraticBezierTo(w * .24f, h * .82f, w * .28f, h * .82f)
-                    lineTo(w * .42f, h * .82f)
-                    lineTo(w * .42f, h * .58f)
-                    quadraticBezierTo(w * .42f, h * .54f, w * .50f, h * .54f)
-                    quadraticBezierTo(w * .58f, h * .54f, w * .58f, h * .58f)
-                    lineTo(w * .58f, h * .82f)
-                    lineTo(w * .72f, h * .82f)
-                    quadraticBezierTo(w * .76f, h * .82f, w * .76f, h * .78f)
-                    lineTo(w * .76f, h * .44f)
-                }
-                drawPath(body, color, style = fineLine)
-            }
-
-            HomeIcon.BENCHMARK, HomeIcon.RANK -> {
-                drawArc(
-                    color = color,
-                    startAngle = 145f,
-                    sweepAngle = 250f,
-                    useCenter = false,
-                    topLeft = Offset(w * .18f, h * .18f),
-                    size = Size(w * .64f, h * .64f),
-                    style = line
-                )
-                drawCircle(color, m * .065f, Offset(w * .50f, h * .58f))
-                val needle = Path().apply {
-                    moveTo(w * .47f, h * .56f)
-                    lineTo(w * .70f, h * .34f)
-                    lineTo(w * .53f, h * .60f)
-                    close()
-                }
-                drawPath(needle, color)
-                drawLine(color, Offset(w * .48f, h * .58f), Offset(w * .72f, h * .32f), stroke, StrokeCap.Round)
-            }
-
-            HomeIcon.LIBRARY -> {
-                drawOval(
-                    color = color,
-                    topLeft = Offset(w * .20f, h * .18f),
-                    size = Size(w * .60f, h * .20f),
-                    style = line
-                )
-                val mid = Path().apply {
-                    moveTo(w * .20f, h * .44f)
-                    cubicTo(w * .20f, h * .56f, w * .80f, h * .56f, w * .80f, h * .44f)
-                }
-                drawPath(mid, color, style = fineLine)
-                val bottom = Path().apply {
-                    moveTo(w * .20f, h * .28f)
-                    lineTo(w * .20f, h * .70f)
-                    cubicTo(w * .20f, h * .82f, w * .80f, h * .82f, w * .80f, h * .70f)
-                    lineTo(w * .80f, h * .28f)
-                }
-                drawPath(bottom, color, style = fineLine)
-            }
-
-            HomeIcon.NETWORK -> {
-                val xs = listOf(.24f,.42f,.60f,.78f)
-                val tops = listOf(.66f,.54f,.40f,.25f)
-                for (i in xs.indices) {
-                    drawLine(color,Offset(w*xs[i],h*.75f),Offset(w*xs[i],h*tops[i]),stroke*1.35f,StrokeCap.Round)
-                }
-            }
-
-            HomeIcon.SERVER -> {
-                val r = m * .06f
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(w * .18f, h * .22f),
-                    size = Size(w * .64f, h * .24f),
-                    cornerRadius = CornerRadius(r, r),
-                    style = line
-                )
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(w * .18f, h * .54f),
-                    size = Size(w * .64f, h * .24f),
-                    cornerRadius = CornerRadius(r, r),
-                    style = line
-                )
-                drawCircle(color, m * .035f, Offset(w * .30f, h * .34f))
-                drawCircle(color, m * .035f, Offset(w * .30f, h * .66f))
-                drawLine(color, Offset(w * .44f, h * .34f), Offset(w * .70f, h * .34f), fine, StrokeCap.Round)
-                drawLine(color, Offset(w * .44f, h * .66f), Offset(w * .70f, h * .66f), fine, StrokeCap.Round)
-            }
-
-            HomeIcon.DOWNLOAD, HomeIcon.UPLOAD -> {
-                val down = icon == HomeIcon.DOWNLOAD
-                val y1 = if (down) h*.22f else h*.76f
-                val y2 = if (down) h*.69f else h*.29f
-                drawLine(color,Offset(w*.50f,y1),Offset(w*.50f,y2),stroke,StrokeCap.Round)
-                val p = Path().apply {
-                    if (down) {
-                        moveTo(w*.31f,h*.53f); lineTo(w*.50f,h*.72f); lineTo(w*.69f,h*.53f)
-                    } else {
-                        moveTo(w*.31f,h*.45f); lineTo(w*.50f,h*.26f); lineTo(w*.69f,h*.45f)
-                    }
-                }
-                drawPath(p,color,style=line)
-            }
-
-            HomeIcon.SPARK -> {
-                drawLine(color,Offset(w*.50f,h*.16f),Offset(w*.50f,h*.84f),fine,StrokeCap.Round)
-                drawLine(color,Offset(w*.16f,h*.50f),Offset(w*.84f,h*.50f),fine,StrokeCap.Round)
-                drawLine(color,Offset(w*.27f,h*.27f),Offset(w*.73f,h*.73f),fine,StrokeCap.Round)
-                drawLine(color,Offset(w*.73f,h*.27f),Offset(w*.27f,h*.73f),fine,StrokeCap.Round)
-                drawCircle(color,m*.08f,Offset(w*.50f,h*.50f))
-            }
-
-            HomeIcon.STATUS -> {
-                drawCircle(color, m * .14f, Offset(w * .50f, h * .50f), style = line)
-                for (i in 0 until 6) {
-                    val angle = (i * 60.0) * Math.PI / 180.0
-                    val cos = Math.cos(angle).toFloat()
-                    val sin = Math.sin(angle).toFloat()
-                    val r1 = m * .22f
-                    val r2 = m * .34f
-                    drawLine(
-                        color,
-                        Offset(w * .50f + cos * r1, h * .50f + sin * r1),
-                        Offset(w * .50f + cos * r2, h * .50f + sin * r2),
-                        stroke * 1.5f,
-                        StrokeCap.Round
-                    )
-                }
-            }
-
-            HomeIcon.MORE -> {
-                drawCircle(color, m*.075f, Offset(w*.25f,h*.50f))
-                drawCircle(color, m*.075f, Offset(w*.50f,h*.50f))
-                drawCircle(color, m*.075f, Offset(w*.75f,h*.50f))
-            }
-
-            HomeIcon.CLIPBOARD -> {
-                val board = Path().apply {
-                    moveTo(w*.28f,h*.24f)
-                    lineTo(w*.28f,h*.82f)
-                    lineTo(w*.72f,h*.82f)
-                    lineTo(w*.72f,h*.24f)
-                }
-                drawPath(board,color,style=fineLine)
-                drawPath(
-                    Path().apply {
-                        moveTo(w*.40f,h*.24f); lineTo(w*.40f,h*.17f)
-                        lineTo(w*.60f,h*.17f); lineTo(w*.60f,h*.24f)
-                    },
-                    color,style=line
-                )
-                drawLine(color,Offset(w*.38f,h*.44f),Offset(w*.62f,h*.44f),fine,StrokeCap.Round)
-                drawLine(color,Offset(w*.38f,h*.58f),Offset(w*.62f,h*.58f),fine,StrokeCap.Round)
-                drawLine(color,Offset(w*.38f,h*.71f),Offset(w*.54f,h*.71f),fine,StrokeCap.Round)
-            }
-
-            HomeIcon.INFO -> {
-                drawCircle(color,m*.38f,Offset(w*.50f,h*.50f),style=fineLine)
-                drawCircle(color,m*.055f,Offset(w*.50f,h*.32f))
-                drawLine(color,Offset(w*.50f,h*.45f),Offset(w*.50f,h*.70f),stroke,StrokeCap.Round)
-            }
-
-            HomeIcon.PALETTE -> {
-                val palette = Path().apply {
-                    moveTo(w * .50f, h * .18f)
-                    cubicTo(w * .22f, h * .18f, w * .16f, h * .46f, w * .22f, h * .66f)
-                    cubicTo(w * .26f, h * .80f, w * .40f, h * .82f, w * .48f, h * .74f)
-                    cubicTo(w * .54f, h * .68f, w * .58f, h * .64f, w * .66f, h * .66f)
-                    cubicTo(w * .78f, h * .70f, w * .84f, h * .60f, w * .84f, h * .48f)
-                    cubicTo(w * .84f, h * .28f, w * .70f, h * .18f, w * .50f, h * .18f)
-                    close()
-                }
-                drawPath(palette, color, style = line)
-                drawCircle(color, m * .045f, Offset(w * .36f, h * .36f))
-                drawCircle(color, m * .045f, Offset(w * .52f, h * .30f))
-                drawCircle(color, m * .045f, Offset(w * .68f, h * .36f))
-                drawCircle(color, m * .055f, Offset(w * .68f, h * .54f), style = fineLine)
-            }
-
-            HomeIcon.GLOBE -> {
-                drawCircle(color,m*.38f,Offset(w*.50f,h*.50f),style=fineLine)
-                drawPath(
-                    Path().apply {
-                        moveTo(w*.50f,h*.12f)
-                        cubicTo(w*.36f,h*.30f,w*.36f,h*.70f,w*.50f,h*.88f)
-                        cubicTo(w*.64f,h*.70f,w*.64f,h*.30f,w*.50f,h*.12f)
-                    },
-                    color,style=fineLine
-                )
-                drawLine(color,Offset(w*.14f,h*.50f),Offset(w*.86f,h*.50f),fine,StrokeCap.Round)
-            }
-
-            HomeIcon.CHEVRON -> {
-                drawPath(
-                    Path().apply {
-                        moveTo(w*.38f,h*.24f); lineTo(w*.64f,h*.50f); lineTo(w*.38f,h*.76f)
-                    },
-                    color,style=line
-                )
-            }
-
-            HomeIcon.BACK -> {
-                drawLine(color,Offset(w*.78f,h*.50f),Offset(w*.28f,h*.50f),stroke,StrokeCap.Round)
-                drawPath(
-                    Path().apply {
-                        moveTo(w*.46f,h*.30f); lineTo(w*.26f,h*.50f); lineTo(w*.46f,h*.70f)
-                    },
-                    color,style=line
-                )
-            }
-
-            HomeIcon.FONT -> {
-                drawLine(color,Offset(w*.20f,h*.78f),Offset(w*.80f,h*.78f),fine,StrokeCap.Round)
-                drawPath(
-                    Path().apply {
-                        moveTo(w*.32f,h*.68f); lineTo(w*.50f,h*.22f); lineTo(w*.68f,h*.68f)
-                    },
-                    color,style=line
-                )
-                drawLine(color,Offset(w*.40f,h*.54f),Offset(w*.60f,h*.54f),fine,StrokeCap.Round)
-            }
-        }
-    }
+    MarbleGlyphIcon(marbleGlyphFor(icon), color, modifier)
 }
 
 @Composable
 private fun HomeIconTile(icon: HomeIcon, color: Color, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(14.dp)
-    Box(
-        modifier
-            .size(42.dp)
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        color.copy(alpha = .18f),
-                        color.copy(alpha = .06f),
-                        color.copy(alpha = .12f)
-                    )
-                )
-            )
-            .border(1.dp, color.copy(alpha = .22f), shape),
-        contentAlignment = Alignment.Center
-    ) {
-        HomeVectorIcon(icon, color, Modifier.size(22.dp))
-    }
+    // MARBLE_AURORA_SURFACE_V219 — a page header now mounts the same tile Settings mounts, so the
+    // mark beside a page title, a Settings group and a Settings section are one object at three
+    // sizes instead of three hand-drawn boxes.
+    MarbleGlyphTile(
+        glyph = marbleGlyphFor(icon),
+        tone = color,
+        modifier = modifier,
+        tileSize = 44.dp,
+        glyphSize = 22.dp
+    )
 }
 
 @Composable
@@ -2127,29 +1707,10 @@ private fun MarbleCompactTopBar(
         horizontalArrangement=Arrangement.spacedBy(11.dp)
     ) {
         if(title == "MarbleNG") {
-            Box(
-                modifier=Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(Aether.Cyan,Aether.Amethyst)
-                        )
-                    )
-                    .border(
-                        1.dp,
-                        Color.White.copy(alpha=.22f),
-                        RoundedCornerShape(13.dp)
-                    ),
-                contentAlignment=Alignment.Center
-            ) {
-                Icon(
-                    painter=painterResource(R.drawable.ic_marble_prism),
-                    contentDescription=null,
-                    tint=Color.White,
-                    modifier=Modifier.size(24.dp)
-                )
-            }
+            // MARBLE_AURORA_SURFACE_V219 — the wordmark is the prism mark drawn in the live
+            // palette, not a flat-tinted glyph: the tile catches light and its facet is a real
+            // translucent plane, so it reads as an object at 40 dp.
+            MarbleBrandMark(markSize = 42.dp)
         } else {
             val icon=when(title) {
                 "Servers" -> HomeIcon.LIBRARY
@@ -2594,9 +2155,8 @@ private fun HomeQuickSettingRow(
                 ambientColor = nativeShadow.contact,
                 spotColor = nativeShadow.contact
             )
-            .clip(shape)
-            .background(tileFill)
-            .border(1.dp, marbleNativeOutline(), shape)
+            // MARBLE_AURORA_SURFACE_V219 — the switch tile shares the one row skin.
+            .marbleLitSurface(shape, fill = tileFill)
             .kineticClickable(
                 enabled = enabled,
                 role = Role.Switch,
@@ -2921,7 +2481,7 @@ private fun HomeRouteRibbon(repo: AppRepository) {
             )
         }
 
-        HorizontalDivider(color=Aether.GlassBorderSoft)
+        MarbleFadeDivider()
 
         Row(
             modifier=Modifier.fillMaxWidth(),
@@ -4542,7 +4102,7 @@ private fun ServersAddMenu(
                 onAction(ServersAddAction.FILE)
             }
         )
-        HorizontalDivider(color = Aether.GlassBorderSoft)
+        MarbleFadeDivider()
         ServersMenuItem(
             label = "Add manually",
             icon = HomeIcon.PENCIL,
@@ -4846,7 +4406,7 @@ private fun ServersFilterRail(
                     selected = protocol.isBlank(),
                     onClick = { onProtocolPick(ServersQuery.ALL_PROTOCOLS) }
                 )
-                if (protocolTallies.isNotEmpty()) HorizontalDivider(color = Aether.GlassBorderSoft)
+                if (protocolTallies.isNotEmpty()) MarbleFadeDivider()
                 protocolTallies.forEach { tally ->
                     ServersMenuItem(
                         label = tally.scheme,
@@ -4921,7 +4481,7 @@ private fun ServersFilterRail(
                     checked = settings.serversOnlyReachable,
                     onToggle = { onAdvancedAction(ServersAdvancedAction.ONLY_REACHABLE) }
                 )
-                HorizontalDivider(color = Aether.GlassBorderSoft)
+                MarbleFadeDivider()
                 DropdownMenuItem(
                     onClick = {},
                     enabled = false,
@@ -4976,7 +4536,7 @@ private fun ServersFilterRail(
                         }
                     }
                 }
-                HorizontalDivider(color = Aether.GlassBorderSoft)
+                MarbleFadeDivider()
                 ServersMenuItem(
                     label = "Reset filters",
                     icon = HomeIcon.RESET,
@@ -5005,7 +4565,7 @@ private fun ServersFilterRail(
                     enabled = !repo.busy && failedEverywhere > 0 && repo.state == "DISCONNECTED",
                     onClick = { onAdvancedAction(ServersAdvancedAction.PRUNE_FAILED_ALL) }
                 )
-                HorizontalDivider(color = Aether.GlassBorderSoft)
+                MarbleFadeDivider()
                 ServersMenuItem(
                     label = "All filters…",
                     icon = HomeIcon.MENU,
@@ -5163,7 +4723,6 @@ private fun ServersProbeStrip(repo: AppRepository) {
     val refreshing = repo.refreshingSources.isNotEmpty()
     val cancelling = repo.probeCancelling
     val stopLabel = trx("Cancel measuring")
-    val washEndPx = with(LocalDensity.current) { 80.dp.toPx() }
 
     val stripShadow = marbleNativeShadow(Aether.Cyan)
 
@@ -5184,16 +4743,9 @@ private fun ServersProbeStrip(repo: AppRepository) {
                 ambientColor = stripShadow.contact,
                 spotColor = stripShadow.contact
             )
-            .clip(ServersCardShape)
-            .background(marbleNativeCardFill())
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Aether.Cyan.copy(alpha = .06f), Color.Transparent),
-                    startY = 0f,
-                    endY = washEndPx
-                )
-            )
-            .border(1.dp, marbleNativeOutline(), ServersCardShape)
+            // MARBLE_AURORA_SURFACE_V219 — the strip under the servers carries the tone's own
+            // wash and the shared lit rim, so it is the same material as the cards it summarises.
+            .marbleLitSurface(ServersCardShape, tone = Aether.Cyan)
             .padding(
                 horizontal = MarbleNativeSpec.CardPaddingDp.dp,
                 vertical = 12.dp
@@ -5775,7 +5327,7 @@ private fun ServersGroupMenu(
                     onMenu(ServersGroupAction.REFRESH)
                 }
             )
-            HorizontalDivider(color = Aether.GlassBorderSoft)
+            MarbleFadeDivider()
             ServersMenuItem(
                 label = "Copy subscription URL",
                 icon = HomeIcon.SHARE,
@@ -5828,7 +5380,7 @@ private fun ServersGroupMenu(
             }
         )
         if (subscription != null) {
-            HorizontalDivider(color = Aether.GlassBorderSoft)
+            MarbleFadeDivider()
             ServersMenuItem(
                 label = "Delete source",
                 icon = HomeIcon.TRASH,
@@ -6414,7 +5966,7 @@ internal fun ServersNodeMenu(
                     onMove()
                 }
             )
-            HorizontalDivider(color = Aether.GlassBorderSoft)
+            MarbleFadeDivider()
             ServersMenuItem(
                 label = "Details",
                 icon = HomeIcon.DETAILS,
@@ -6455,7 +6007,7 @@ internal fun ServersNodeMenu(
                     repo.duplicateProfile(profile.id, profile.subscriptionId)
                 }
             )
-            HorizontalDivider(color = Aether.GlassBorderSoft)
+            MarbleFadeDivider()
             ServersMenuItem(
                 label = "Delete",
                 icon = HomeIcon.TRASH,
@@ -6912,7 +6464,7 @@ private fun ServersSubscriptionDialog(
                         )
                     }
                 }
-                HorizontalDivider(color = Aether.GlassBorderSoft)
+                MarbleFadeDivider()
                 Text(
                     trx("Clean failed tests"),
                     color = Aether.InkFaint,
@@ -7028,7 +6580,7 @@ private fun ManualBucketCleanupDialog(
                         onDismiss()
                     }
                 }
-                HorizontalDivider(color = Aether.GlassBorderSoft)
+                MarbleFadeDivider()
                 Text(
                     trx("Clean failed tests"),
                     color = Aether.InkFaint,
@@ -7971,7 +7523,7 @@ private fun ServersAddPage(
                         )
                     }
 
-                    HorizontalDivider(color = Aether.GlassBorderSoft)
+                    MarbleFadeDivider()
 
                     OutlinedTextField(
                         value = importText,
@@ -8345,16 +7897,8 @@ private fun LibraryFilterSheet(
     ModalBottomSheet(
         onDismissRequest=onDismiss,
         containerColor=Aether.VoidElevated,
-        dragHandle={
-            Box(
-                Modifier
-                    .padding(top=10.dp,bottom=6.dp)
-                    .width(42.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Aether.InkFaint.copy(alpha=.55f))
-            )
-        }
+        // MARBLE_AURORA_SURFACE_V219 — the sheet grabber is a lit object, not a grey capsule.
+        dragHandle={ MarbleSheetGrabber() }
     ) {
         Column(
             modifier=Modifier
@@ -8618,9 +8162,7 @@ private fun DockFlagTile(profile: ProxyProfile?, size: Dp = 38.dp, flagCode: Str
     Box(
         modifier = Modifier
             .size(size)
-            .clip(shape)
-            .background(marbleNativeCardFill())
-            .border(1.dp, marbleNativeOutline(), shape),
+            .marbleLitSurface(shape),
         contentAlignment = Alignment.Center
     ) {
         if (code != null) {
@@ -9209,7 +8751,7 @@ private fun DockPulseToolsCard(
             onClick = { repo.refreshAll() }
         )
 
-        HorizontalDivider(color = Aether.GlassBorderSoft)
+        MarbleFadeDivider()
 
         Text(
             trx("DIAGNOSTICS"),
@@ -9770,14 +9312,17 @@ private fun SettingsSubPage(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // MARBLE_AURORA_SURFACE_V219 — the back control is the product's one glyph on the
+                // product's one glass control, sized at the platform's 44 dp touch floor instead of
+                // a 36 dp square that the finger had to hunt for.
                 PrismIconButton(
                     onClick = onBack,
-                    size = 36.dp,
+                    size = 44.dp,
                     descriptiveLabel = "Back to settings"
                 ) {
-                    HomeVectorIcon(HomeIcon.BACK, Aether.Cyan, Modifier.size(18.dp))
+                    MarbleGlyphIcon(MarbleGlyph.ARROW_BACK, Aether.Cyan, Modifier.size(19.dp))
                 }
-                Spacer(Modifier.width(9.dp))
+                Spacer(Modifier.width(11.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         trx(title),
@@ -9973,7 +9518,18 @@ private fun SettingsHubRow(
             preview()
         }
 
-        MarbleNativeChevron(marbleNativeOutline().copy(alpha = .9f))
+        // MARBLE_AURORA_SURFACE_V219 — the row's disclosure is a 26 dp disc in the section's tone,
+        // not a naked hairline chevron on the card fill: every Settings row now ends on an object,
+        // and all of them agree.
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(tone.copy(alpha = if (homeCloudDark()) .16f else .08f)),
+            contentAlignment = Alignment.Center
+        ) {
+            MarbleGlyphIcon(MarbleGlyph.CHEVRON, tone.copy(alpha = .85f), Modifier.size(13.dp))
+        }
     }
 }
 
@@ -10445,7 +10001,7 @@ private fun settingsHubGroups(
             title = t.categoryHome,
             subtitle = "The presentation of the connection page and what it shows",
             tone = Aether.Cyan,
-            icon = { tone -> HomeVectorIcon(HomeIcon.MODE, tone, Modifier.size(19.dp)) },
+            glyph = MarbleGlyph.HOME,
             sections = listOf(
                 section(
                     title = t.homeStyleTitle,
@@ -10505,7 +10061,7 @@ private fun settingsHubGroups(
             title = t.categoryConnection,
             subtitle = "The tunnel, what it carries and when it starts",
             tone = Aether.Emerald,
-            icon = { tone -> HomeVectorIcon(HomeIcon.TUNNEL, tone, Modifier.size(19.dp)) },
+            glyph = MarbleGlyph.TUNNEL,
             sections = listOf(
                 section(
                     title = trx("Engine"),
@@ -10517,7 +10073,7 @@ private fun settingsHubGroups(
                         tone = Aether.Amber,
                         badge = CoreEngineInfo.displayName(repo.activeCoreEngine),
                         onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.ENGINE)) }
-                    ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Amber, Modifier.size(22.dp)) }
+                    ) { SettingsRowGlyphPreview(HomeIcon.TUNNEL, Aether.Amber) }
                 },
                 section(
                     title = trx("Tunnel & proxy"),
@@ -10530,7 +10086,7 @@ private fun settingsHubGroups(
                         onClick = {
                             onNavigate(SettingsPages.card(SettingsWorkspaceTab.GENERAL, "Connection"))
                         }
-                    ) { HomeVectorIcon(HomeIcon.TUNNEL, Aether.Cyan, Modifier.size(22.dp)) }
+                    ) { SettingsRowGlyphPreview(HomeIcon.TUNNEL, Aether.Cyan) }
                 },
                 section(
                     title = trx("Routing"),
@@ -10572,7 +10128,7 @@ private fun settingsHubGroups(
             title = trx("Measurement & servers"),
             subtitle = "How servers are judged and drawn",
             tone = Aether.Amber,
-            icon = { tone -> HomeVectorIcon(HomeIcon.BENCHMARK, tone, Modifier.size(19.dp)) },
+            glyph = MarbleGlyph.GAUGE,
             sections = listOf(
                 section(
                     title = trx("Ping & ranking"),
@@ -10602,7 +10158,7 @@ private fun settingsHubGroups(
                         onClick = {
                             onNavigate(SettingsPages.card(SettingsWorkspaceTab.GENERAL, "Server cards"))
                         }
-                    ) { HomeVectorIcon(HomeIcon.SERVER, Aether.Amethyst, Modifier.size(22.dp)) }
+                    ) { SettingsRowGlyphPreview(HomeIcon.SERVER, Aether.Amethyst) }
                 }
             )
         ),
@@ -10612,7 +10168,7 @@ private fun settingsHubGroups(
             title = t.categoryData,
             subtitle = "Everything MarbleNG keeps, and where it came from",
             tone = Aether.CyanBright,
-            icon = { tone -> HomeVectorIcon(HomeIcon.LIBRARY, tone, Modifier.size(19.dp)) },
+            glyph = MarbleGlyph.VAULT,
             sections = listOf(
                 section(
                     title = trx("Backup"),
@@ -10649,7 +10205,7 @@ private fun settingsHubGroups(
                         onClick = {
                             onNavigate(SettingsPages.card(SettingsWorkspaceTab.GENERAL, "Subscriptions"))
                         }
-                    ) { HomeVectorIcon(HomeIcon.LIBRARY, Aether.Emerald, Modifier.size(22.dp)) }
+                    ) { SettingsRowGlyphPreview(HomeIcon.LIBRARY, Aether.Emerald) }
                 }
             )
         ),
@@ -10659,7 +10215,7 @@ private fun settingsHubGroups(
             title = t.categoryAppearance,
             subtitle = "Theme, navigation and type",
             tone = Aether.Amethyst,
-            icon = { tone -> HomeVectorIcon(HomeIcon.PALETTE, tone, Modifier.size(19.dp)) },
+            glyph = MarbleGlyph.PALETTE,
             sections = listOf(
                 section(
                     title = trx("Theme"),
@@ -10701,7 +10257,7 @@ private fun settingsHubGroups(
                         onClick = {
                             onNavigate(SettingsPages.card(SettingsWorkspaceTab.GENERAL, "Navigation bar"))
                         }
-                    ) { HomeVectorIcon(HomeIcon.SERVER, Aether.Emerald, Modifier.size(22.dp)) }
+                    ) { SettingsRowGlyphPreview(HomeIcon.SERVER, Aether.Emerald) }
 
                     SettingsHubRow(
                         title = "Fourth tab",
@@ -10751,7 +10307,7 @@ private fun settingsHubGroups(
             title = t.categorySystem,
             subtitle = "Alerts, background access and the app itself",
             tone = Aether.SlateBright,
-            icon = { tone -> HomeVectorIcon(HomeIcon.STATUS, tone, Modifier.size(19.dp)) },
+            glyph = MarbleGlyph.TUNERS,
             sections = listOf(
                 section(
                     title = trx("Alerts"),
@@ -10766,14 +10322,14 @@ private fun settingsHubGroups(
                                 SettingsPages.workspace(SettingsWorkspaceTab.SYSTEM, "Notifications")
                             )
                         }
-                    ) { HomeVectorIcon(HomeIcon.STATUS, Aether.Cyan, Modifier.size(22.dp)) }
+                    ) { SettingsRowGlyphPreview(HomeIcon.STATUS, Aether.Cyan) }
 
                     SettingsHubRow(
                         title = "Background access",
                         subtitle = "Fixes interrupted VPN in background",
                         tone = Aether.Amber,
                         onClick = { onNavigate(SettingsPages.workspace(SettingsWorkspaceTab.SYSTEM)) }
-                    ) { HomeVectorIcon(HomeIcon.POWER, Aether.Amber, Modifier.size(22.dp)) }
+                    ) { SettingsRowGlyphPreview(HomeIcon.POWER, Aether.Amber) }
                 },
                 section(
                     title = trx("About"),
@@ -10864,18 +10420,13 @@ private fun SettingsHubGroupCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(
-                Modifier
-                    .size(MarbleNativeSpec.LeadingContainerDp.dp)
-                    .clip(CircleShape)
-                    .background(
-                        group.tone.copy(alpha = if (dark) .20f else .12f)
-                            .compositeOver(marbleNativeCardFill())
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                group.icon(group.tone)
-            }
+            MarbleGlyphTile(
+                glyph = group.glyph,
+                tone = group.tone,
+                tileSize = 46.dp,
+                glyphSize = 23.dp,
+                selected = expanded
+            )
             Column(
                 Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(1.dp)
@@ -10900,18 +10451,38 @@ private fun SettingsHubGroupCard(
 
             Text(
                 "${SettingsHubPolicy.sectionCount(group)}",
-                color = marbleNativeInkVariant(),
+                color = marbleReadableOn(group.tone, marbleNativeCardFill(), 4.5f),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 modifier = Modifier
                     .clip(ServersBadgeShape)
-                    .background(marbleNativeContainerHigh())
-                    .padding(horizontal = 7.dp, vertical = 2.dp)
+                    .background(group.tone.copy(alpha = if (dark) .20f else .11f))
+                    .border(
+                        1.dp,
+                        group.tone.copy(alpha = if (dark) .30f else .18f),
+                        ServersBadgeShape
+                    )
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
             )
 
-            Box(Modifier.rotate(chevronTurn)) {
-                MarbleNativeChevron(group.tone.copy(alpha = .80f))
+            // MARBLE_AURORA_SURFACE_V219 — the disclosure is a control, not a floating hairline:
+            // one 30 dp disc with the group's tone wash and its own rim, so it reads as something
+            // you can press at a glance instead of a chevron borrowed from a menu.
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(group.tone.copy(alpha = if (dark) .16f else .09f))
+                    .border(
+                        1.dp,
+                        group.tone.copy(alpha = if (dark) .30f else .18f),
+                        CircleShape
+                    )
+                    .rotate(chevronTurn),
+                contentAlignment = Alignment.Center
+            ) {
+                MarbleGlyphIcon(MarbleGlyph.CHEVRON, group.tone.copy(alpha = .92f), Modifier.size(15.dp))
             }
         }
 
@@ -10921,6 +10492,20 @@ private fun SettingsHubGroupCard(
             exit = expressiveCollapseVertically()
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                // MARBLE_AURORA_SURFACE_V219 — one hairline that fades out at both ends separates
+                // the group's header from its children. A full-width rule would turn the card into
+                // a table; a fading one keeps it a sheet.
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 1.dp, bottom = 2.dp)
+                        .height(1.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(Color.Transparent, group.tone.copy(alpha = .26f), Color.Transparent)
+                            )
+                        )
+                )
                 group.sections.forEach { section ->
                     SettingsHubSubSectionCard(tone = group.tone, section = section)
                 }
@@ -10956,12 +10541,26 @@ private fun SettingsHubSubSectionCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // MARBLE_AURORA_SURFACE_V219 — the section marker is a lit rail rather than a flat
+            // 3.5 dp bar: a tone gradient under a soft glow, so a sub-section heading has a light
+            // source instead of a coloured rectangle.
             Box(
                 Modifier
-                    .width(3.5.dp)
-                    .height(16.dp)
+                    .width(4.dp)
+                    .height(18.dp)
+                    .shadow(
+                        elevation = 6.dp,
+                        shape = RoundedCornerShape(999.dp),
+                        clip = false,
+                        ambientColor = tone.copy(alpha = .55f),
+                        spotColor = tone.copy(alpha = .75f)
+                    )
                     .clip(RoundedCornerShape(999.dp))
-                    .background(tone)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(lerp(tone, Color.White, .34f), tone)
+                        )
+                    )
             )
             Column(
                 Modifier.weight(1f),
@@ -11850,7 +11449,7 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
         }
     }
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    MarbleFadeDivider()
 
     Text(trx("Multiplexing"), color = Aether.Ink, style = MaterialTheme.typography.titleSmall)
     if (isXray) {
@@ -11947,7 +11546,7 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
         )
     }
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    MarbleFadeDivider()
 
     SettingSwitch(
         title = trx("TCP Fast Open"),
@@ -12012,7 +11611,7 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
         }
     }
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    MarbleFadeDivider()
 
     if (isXray) {
         Text(trx("Routing"), color = Aether.Ink, style = MaterialTheme.typography.titleSmall)
@@ -12102,7 +11701,7 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
         )
     }
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    MarbleFadeDivider()
 
     Text(
         trx("Extra JSON (advanced)"),
@@ -12146,6 +11745,79 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     )
 }
 
+/**
+ * MARBLE_AURORA_SURFACE_V219 — the About page's own header.
+ *
+ * Information used to open on a table of version strings, which read like a log file. The prism is
+ * the same drawing as the launcher icon (`ic_marble_prism`), mounted on a lit tile, so the first
+ * thing on the page is the product rather than its version number.
+ */
+@Composable
+private fun SettingsBrandHeader() {
+    val shape = marbleNativeShape(PrismSurface.CardRadius)
+    val dark = homeCloudDark()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .marbleLitSurface(shape, tone = Aether.Cyan)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .shadow(
+                    elevation = 10.dp,
+                    shape = RoundedCornerShape(16.dp),
+                    clip = false,
+                    ambientColor = Aether.Cyan.copy(alpha = .40f),
+                    spotColor = Aether.Amethyst.copy(alpha = if (dark) .55f else .35f)
+                )
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            lerp(Aether.Cyan, Color.White, .16f),
+                            Aether.Cyan,
+                            lerp(Aether.Amethyst, Color.Black, .16f)
+                        )
+                    )
+                )
+                .border(
+                    1.dp,
+                    Brush.verticalGradient(
+                        listOf(Color.White.copy(alpha = .55f), Color.White.copy(alpha = .10f))
+                    ),
+                    RoundedCornerShape(16.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_marble_prism),
+                contentDescription = null,
+                modifier = Modifier.size(32.dp)
+            )
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                "MarbleNG",
+                color = Aether.Ink,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+            Text(
+                "${BuildConfig.VERSION_NAME} · ${BuildConfig.BUILD_TYPE}",
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
 @Composable
 private fun SettingsInformationPage(
     repo: AppRepository,
@@ -12161,6 +11833,8 @@ private fun SettingsInformationPage(
         onBack = onBack,
         listState = listState
     ) {
+        SettingsBrandHeader()
+
         SettingsHubCard(title = "Versions", tone = Aether.Cyan) {
             InformationRow("App version", BuildConfig.VERSION_NAME, Aether.Cyan)
             InformationRow("Version code", BuildConfig.VERSION_CODE.toString(), Aether.InkMuted)
@@ -12263,9 +11937,7 @@ private fun InformationRow(label: String, value: String, tone: Color) {
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = MarbleNativeSpec.TouchTargetDp.dp)
-            .clip(shape)
-            .background(marbleNativeCardFill())
-            .border(1.dp, marbleNativeOutline(), shape)
+            .marbleLitSurface(shape)
             .padding(
                 horizontal = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 4.dp,
                 vertical = 7.dp
@@ -12301,13 +11973,38 @@ private fun InformationLinkRow(
     onClick: () -> Unit
 ) {
     val shape = marbleNativeShape(MarbleNativeSpec.RowCornerDp.dp)
+    val dark = homeCloudDark()
+    // MARBLE_AURORA_SURFACE_V219 — an information row is the same object as a Settings row:
+    // card fill, one specular plane at its top edge, a rim that is lit above and quiet below, and
+    // a tone disc for the disclosure. A flat outline with a naked chevron was the last place in
+    // Settings where a row still looked like a table cell.
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = MarbleNativeSpec.RowTwoLineHeightDp.dp)
             .clip(shape)
             .background(marbleNativeCardFill())
-            .border(1.dp, marbleNativeOutline(), shape)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = if (dark) .045f else .30f),
+                        Color.White.copy(alpha = 0f)
+                    ),
+                    startY = 0f,
+                    endY = 44f
+                )
+            )
+            .border(
+                1.dp,
+                Brush.verticalGradient(
+                    listOf(
+                        lerp(marbleNativeOutline(), Color.White, if (dark) .18f else .55f)
+                            .copy(alpha = .90f),
+                        marbleNativeOutline()
+                    )
+                ),
+                shape
+            )
             .kineticClickable(role = Role.Button, boundedShape = shape, showIndication = false, onClick = onClick)
             .padding(
                 horizontal = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 4.dp,
@@ -12336,7 +12033,15 @@ private fun InformationLinkRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        MarbleNativeChevron(marbleNativeOutline().copy(alpha = .9f))
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(tone.copy(alpha = if (dark) .16f else .08f)),
+            contentAlignment = Alignment.Center
+        ) {
+            MarbleGlyphIcon(MarbleGlyph.CHEVRON, tone.copy(alpha = .85f), Modifier.size(13.dp))
+        }
     }
 }
 
@@ -12870,19 +12575,12 @@ private fun SettingsSectionCard(
             verticalAlignment=Alignment.CenterVertically,
             horizontalArrangement=Arrangement.spacedBy(10.dp)
         ) {
-            Box(
-                Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(color.copy(alpha=.12f)),
-                contentAlignment=Alignment.Center
-            ) {
-                HomeVectorIcon(
-                    icon,
-                    color,
-                    Modifier.size(19.dp)
-                )
-            }
+            MarbleGlyphTile(
+                glyph = marbleGlyphFor(icon),
+                tone = color,
+                tileSize = 38.dp,
+                glyphSize = 19.dp
+            )
             Column(
                 Modifier.weight(1f),
                 verticalArrangement=Arrangement.spacedBy(1.dp)
@@ -15004,16 +14702,8 @@ private fun RoutingRuleEditorSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = Aether.VoidElevated,
-        dragHandle = {
-            Box(
-                Modifier
-                    .padding(top = 10.dp, bottom = 6.dp)
-                    .width(42.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Aether.InkFaint.copy(alpha = .55f))
-            )
-        }
+        // MARBLE_AURORA_SURFACE_V219 — one grabber for both sheets.
+        dragHandle = { MarbleSheetGrabber() }
     ) {
         Column(
             modifier = Modifier
@@ -15691,7 +15381,7 @@ private fun ProbeSettings(repo: AppRepository) {
         }
     }
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    MarbleFadeDivider()
 
     Text(
         trx("Ping speed"),
@@ -15800,7 +15490,7 @@ private fun ProbeSettings(repo: AppRepository) {
         )
     }
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    MarbleFadeDivider()
 
     SettingSwitch(
         title = "Also measure download speed",
@@ -15822,7 +15512,7 @@ private fun ProbeSettings(repo: AppRepository) {
         }
     }
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    MarbleFadeDivider()
 
     Text(
         trx("Measurement budget"),
@@ -15934,7 +15624,7 @@ private fun AutoServerSelectorSettings(repo: AppRepository) {
         repo.updateSettings(repo.settings.copy(autoServerSelectorEnabled = enabled))
     }
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    MarbleFadeDivider()
     Text(trx("Choose a strategy"), color = Aether.Ink, style = settingsRowTitleStyle())
     val strategies = listOf(
         AutoServerStrategy.SMART,
@@ -16039,7 +15729,7 @@ private fun AutoServerSelectorSettings(repo: AppRepository) {
         }
     }
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    MarbleFadeDivider()
     Text(trx("Search pool"), color = Aether.Ink, style = settingsRowTitleStyle())
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -16074,7 +15764,7 @@ private fun AutoServerSelectorSettings(repo: AppRepository) {
         checked = s.autoServerOnFailure
     ) { repo.updateSettings(repo.settings.copy(autoServerOnFailure = it)) }
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    MarbleFadeDivider()
     Text(trx("Switch margin"), color = Aether.Ink, style = settingsRowTitleStyle())
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -16096,7 +15786,7 @@ private fun AutoServerSelectorSettings(repo: AppRepository) {
         style = settingsBodyStyle()
     )
 
-    HorizontalDivider(color = Aether.GlassBorderSoft)
+    MarbleFadeDivider()
     Text(trx("Live recommendation"), color = Aether.Ink, style = settingsRowTitleStyle())
     val previewShape = RoundedCornerShape(14.dp)
     Column(
@@ -17421,9 +17111,7 @@ private fun NumberSetting(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = MarbleNativeSpec.TouchTargetDp.dp)
-            .clip(shape)
-            .background(marbleNativeCardFill())
-            .border(1.dp, marbleNativeOutline(), shape)
+            .marbleLitSurface(shape)
             .padding(
                 horizontal = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 4.dp,
                 vertical = 5.dp

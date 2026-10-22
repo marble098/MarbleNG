@@ -211,7 +211,14 @@ class MarbleNativeAndroidV213Test {
 
         assertTrue(ui.contains("val insetFill = marbleNativeContainerHigh()"))
         assertTrue(ui.contains("val slotOutline = marbleNativeOutline()"))
-        assertTrue(ui.contains("MarbleNativeChevron("))
+        // MARBLE_AURORA_SURFACE_V219 — the disclosure moved from a naked native hairline to the
+        // product's grid chevron on a tone disc, so "the whole product is on one material" is now
+        // asserted against the disc. The native chevron itself still owns the platform rows.
+        assertTrue(ui.contains("MarbleGlyphIcon(MarbleGlyph.CHEVRON"))
+        assertTrue(
+            sourceFile("src/main/java/com/marbleng/app/ui/MarbleNativeAndroid.kt")
+                .contains("fun MarbleNativeChevron(")
+        )
 
         assertTrue(ui.contains("val shape = marbleNativePill()"))
         assertTrue(ui.contains("val restingFill = marbleNativeCardFill()"))

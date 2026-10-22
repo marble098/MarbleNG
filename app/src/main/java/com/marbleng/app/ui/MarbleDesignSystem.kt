@@ -310,6 +310,19 @@ internal fun HomeCloudCard(
                     endY = washEndPx
                 )
             )
+            // MARBLE_AURORA_SURFACE_V219 — the specular plane. At 6 % it is invisible as a shape
+            // and visible as light: it is what separates a card that is *filled* from a card that
+            // is *lit*, and it costs one gradient.
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = if (dark) .06f else .34f),
+                        Color.White.copy(alpha = 0f)
+                    ),
+                    startY = 0f,
+                    endY = with(LocalDensity.current) { 26.dp.toPx() }
+                )
+            )
             .border(border.width, rimBrush, shape)
     ) {
         content()
@@ -338,6 +351,22 @@ internal fun PrismBackdrop(
         val h = size.height
 
         drawRect(brush = baseBrush)
+
+        // MARBLE_AURORA_SURFACE_V219 — a diagonal aurora band. Three radial glows at the corners
+        // gave the page depth at its edges and a flat middle; this one cheap linear pass puts a
+        // band of light across the diagonal the eye actually travels, so a long page has a
+        // horizon instead of a void.
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    glowEnd.copy(alpha = if (dark) .05f else .035f),
+                    Color.Transparent
+                ),
+                start = Offset(0f, 0f),
+                end = Offset(size.width, size.height * .78f)
+            )
+        )
         if (dark && !dynamicPalette) return@Canvas
 
         val waveA = if (motionOn) motion.coarseBreathe(11_000) else .5f
@@ -384,6 +413,21 @@ internal fun PrismBackdrop(
             radius = (w + h) * .58f,
             center = Offset(w * .5f, h * 1.16f)
         )
+
+        // MARBLE_AURORA_SURFACE_V219 — one diagonal aurora plane. Three radial glows alone give a
+        // page depth at its corners and nothing in the middle; this band crosses the page where the
+        // eye actually travels, at an alpha that is invisible as a shape and visible as light.
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    glowEnd.copy(alpha = if (dark) .055f else .030f),
+                    Color.Transparent
+                ),
+                start = Offset(0f, h * .06f),
+                end = Offset(w, h * .72f)
+            )
+        )
     }
 }
 
@@ -394,9 +438,11 @@ internal fun anchoredTextBlockHeight(style: TextStyle, lines: Int): Dp {
 }
 
 internal object PrismSurface {
-    val CardRadius = 22.dp
-    val TileRadius = 18.dp
-    val InsetRadius = 14.dp
+    // MARBLE_AURORA_SURFACE_V219 — the radii move onto the platform's own step (24 dp card,
+    // 20 dp tile, 16 dp inset) so a Marble card and an Android card describe the same silhouette.
+    val CardRadius = 24.dp
+    val TileRadius = 20.dp
+    val InsetRadius = 16.dp
 
     val ControlRadius = 15.dp
 
@@ -522,11 +568,19 @@ internal fun PrismPanel(
     // MARBLE_NATIVE_ANDROID_V213 — the rim is a *light*, not a border.
 
     val outline=marbleNativeOutline()
+    val darkPanel = homeCloudDark()
+    // MARBLE_AURORA_SURFACE_V219 — the rim is a light source, so it is brightest at the top edge
+    // and settles into the platform outline at the bottom. On a light page the lit stop is white,
+    // not the accent: a blue hairline around a blue-tinted card is a border, a white one is a light.
     val borderBrush=Brush.verticalGradient(
         listOf(
-            lerp(outline, accent, .30f + .40f*selectedProgress),
-            lerp(outline, violet, .14f + .20f*selectedProgress),
-            outline
+            if (darkPanel) {
+                lerp(outline, accent, .34f + .40f*selectedProgress)
+            } else {
+                lerp(outline, Color.White, .62f + .22f*selectedProgress)
+            },
+            lerp(outline, accent, .16f + .22f*selectedProgress),
+            lerp(outline, violet, .06f + .10f*selectedProgress)
         )
     )
     val nativeShadow=marbleNativeShadow(accent)
@@ -561,6 +615,18 @@ internal fun PrismPanel(
             )
 
             .then(if (tint == null) Modifier else Modifier.background(tint))
+            // MARBLE_AURORA_SURFACE_V219 — the specular plane every card now carries, on top of
+            // its own fill so the surface stays exactly the box.
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = if (homeCloudDark()) .045f else .32f),
+                        Color.White.copy(alpha = 0f)
+                    ),
+                    startY = 0f,
+                    endY = 46f
+                )
+            )
     ) {
         Canvas(Modifier.matchParentSize()) {
             val center=Offset(size.width*.08f,size.height*.02f)
@@ -670,9 +736,17 @@ internal fun PrismButton(
         else -> Aether.Ink
     }
 
-    val skin=when {
+    // MARBLE_AURORA_SURFACE_V219 — a filled button is a lit object, not a flat rectangle: the
+    // accent is lightened at the top and deepened at the bottom, and a specular plane sits over it.
+    val skin: Brush = when {
         !enabled -> SolidColor(Aether.GlassStrong.copy(alpha=.42f))
-        filled -> SolidColor(accent)
+        filled -> Brush.verticalGradient(
+            listOf(
+                lerp(accent, Color.White, .20f),
+                accent,
+                lerp(accent, Color.Black, .14f)
+            )
+        )
         variant == PrismButtonVariant.Quiet -> SolidColor(Color.Transparent)
         else -> SolidColor(accent.copy(alpha=.12f))
     }
@@ -716,6 +790,17 @@ internal fun PrismButton(
                 )
                 .clip(shape)
                 .background(skin)
+                .background(
+                    if (filled) {
+                        Brush.verticalGradient(
+                            colors = listOf(Color.White.copy(alpha = .20f), Color.Transparent),
+                            startY = 0f,
+                            endY = 30f
+                        )
+                    } else {
+                        SolidColor(Color.Transparent)
+                    }
+                )
                 .border(PrismSurface.Hairline, hairline, shape)
                 .kineticClickable(
                     enabled=enabled,

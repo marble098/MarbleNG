@@ -1,10 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <gradient
-        android:angle="315"
-        android:startColor="#000033"
-        android:centerColor="#001144"
-        android:endColor="#0066CC"
-        android:type="linear" />
-</shape>
+<!-- MARBLE_AURORA_SURFACE_V219 — the launcher floor: a deep navy field with one aurora lift. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="315"
+                android:startColor="#05070F"
+                android:centerColor="#0B1B3A"
+                android:endColor="#0F4FA8"
+                android:type="linear" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="315"
+                android:startColor="#3346B4FF"
+                android:centerColor="#1246B4FF"
+                android:endColor="#0046B4FF"
+                android:type="linear" />
+        </shape>
+    </item>
+</layer-list>
