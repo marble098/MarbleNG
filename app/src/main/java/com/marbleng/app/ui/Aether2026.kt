@@ -41,6 +41,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ScrollState
@@ -11702,6 +11703,79 @@ private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     )
 }
 
+/**
+ * MARBLE_AURORA_SURFACE_V219 — the About page's own header.
+ *
+ * Information used to open on a table of version strings, which read like a log file. The prism is
+ * the same drawing as the launcher icon (`ic_marble_prism`), mounted on a lit tile, so the first
+ * thing on the page is the product rather than its version number.
+ */
+@Composable
+private fun SettingsBrandHeader() {
+    val shape = marbleNativeShape(PrismSurface.CardRadius)
+    val dark = homeCloudDark()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .marbleLitSurface(shape, tone = Aether.Cyan)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .shadow(
+                    elevation = 10.dp,
+                    shape = RoundedCornerShape(16.dp),
+                    clip = false,
+                    ambientColor = Aether.Cyan.copy(alpha = .40f),
+                    spotColor = Aether.Amethyst.copy(alpha = if (dark) .55f else .35f)
+                )
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            lerp(Aether.Cyan, Color.White, .16f),
+                            Aether.Cyan,
+                            lerp(Aether.Amethyst, Color.Black, .16f)
+                        )
+                    )
+                )
+                .border(
+                    1.dp,
+                    Brush.verticalGradient(
+                        listOf(Color.White.copy(alpha = .55f), Color.White.copy(alpha = .10f))
+                    ),
+                    RoundedCornerShape(16.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_marble_prism),
+                contentDescription = null,
+                modifier = Modifier.size(32.dp)
+            )
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                "MarbleNG",
+                color = Aether.Ink,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+            Text(
+                "${BuildConfig.VERSION_NAME} · ${BuildConfig.BUILD_TYPE}",
+                color = Aether.InkMuted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
 @Composable
 private fun SettingsInformationPage(
     repo: AppRepository,
@@ -11717,6 +11791,8 @@ private fun SettingsInformationPage(
         onBack = onBack,
         listState = listState
     ) {
+        SettingsBrandHeader()
+
         SettingsHubCard(title = "Versions", tone = Aether.Cyan) {
             InformationRow("App version", BuildConfig.VERSION_NAME, Aether.Cyan)
             InformationRow("Version code", BuildConfig.VERSION_CODE.toString(), Aether.InkMuted)
