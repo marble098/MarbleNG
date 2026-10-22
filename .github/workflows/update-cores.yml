@@ -29,7 +29,7 @@ jobs:
           jq -e '.hev.tag and .hev.repo' core-lock.json
           jq -e '.singbox.tag and .singbox.repo' core-lock.json
           [[ "$(jq -r '.singbox.channel' core-lock.json)" == "beta" ]]
-          jq -r '"xray \(.xray.tag)  hev \(.hev.tag)  singbox \(.singbox.tag)"' core-lock.json
+          jq -r '"xray \(.xray.tag)  hev \(.hev.tag)  singbox \(.singbox.tag)  tun2socks \(.tun2socks.tag)"' core-lock.json
 
           # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — the Android core is compiled from source, so
           # the lock has to name the commit the tag resolved to, and MarbleNG's backport level has
@@ -37,6 +37,14 @@ jobs:
           [[ "$(jq -r '.singbox.commit' core-lock.json)" =~ ^[0-9a-f]{40}$ ]]
           [[ -n "$(jq -r '.singbox.patch // empty' core-lock.json)" ]]
           jq -e '.singbox.sha256 | length == 1' core-lock.json
+
+          # MARBLE_TUN2SOCKS_CORE_V222 — the second datapath is compiled from source in the
+          # release build, so a pushed lock without a resolved commit or host-test digest would
+          # break every release with no PR to review.
+          [[ "$(jq -r '.tun2socks.tag' core-lock.json)" =~ ^v[0-9A-Za-z._-]+$ ]]
+          [[ "$(jq -r '.tun2socks.repo' core-lock.json)" == "xjasonlyu/tun2socks" ]]
+          [[ "$(jq -r '.tun2socks.commit' core-lock.json)" =~ ^[0-9a-f]{40}$ ]]
+          jq -e '.tun2socks.sha256 | length == 1' core-lock.json
       - name: Clone resolved Xray, HEV and sing-box sources
         shell: bash
         run: |
@@ -52,6 +60,9 @@ jobs:
           SINGBOX_REPO="$(jq -r '.singbox.repo' core-lock.json)"
           SINGBOX_TAG="$(jq -r '.singbox.tag' core-lock.json)"
           SINGBOX_COMMIT="$(jq -r '.singbox.commit' core-lock.json)"
+          TUN2SOCKS_REPO="$(jq -r '.tun2socks.repo' core-lock.json)"
+          TUN2SOCKS_TAG="$(jq -r '.tun2socks.tag' core-lock.json)"
+          TUN2SOCKS_COMMIT="$(jq -r '.tun2socks.commit' core-lock.json)"
 
           git clone --quiet --depth 1 --branch "$XRAY_TAG" \
             "https://github.com/${XRAY_REPO}.git" "$WORK/xray"
@@ -59,8 +70,11 @@ jobs:
             "https://github.com/${HEV_REPO}.git" "$WORK/hev"
           git clone --quiet --depth 1 --branch "$SINGBOX_TAG" \
             "https://github.com/${SINGBOX_REPO}.git" "$WORK/singbox"
+          git clone --quiet --depth 1 --branch "$TUN2SOCKS_TAG" \
+            "https://github.com/${TUN2SOCKS_REPO}.git" "$WORK/tun2socks"
 
           test "$(git -C "$WORK/singbox" rev-parse HEAD)" = "$SINGBOX_COMMIT"
+          test "$(git -C "$WORK/tun2socks" rev-parse HEAD)" = "$TUN2SOCKS_COMMIT"
           test -s "$WORK/xray/go.mod"
 
           # Prove HEV's upstream JNI glue anchor still matches prepare-native.sh.
@@ -87,6 +101,32 @@ jobs:
         with:
           go-version-file: "${{ runner.temp }}/core-updater-smoke/xray/go.mod"
           cache: false
+      - name: Prove the resolved tun2socks still compiles MarbleNG's mobile wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          # MARBLE_TUN2SOCKS_CORE_V222 — the release build copies native/tun2socks/main.go into
+          # the pinned tree as cmd/libmarble and builds it as a c-shared library for four ABIs.
+          # A new upstream tag can move the public packages that wrapper composes (fdbased,
+          # tunnel, statistic, option), and this job pushes straight to main. Compile it here,
+          # under the same Go toolchain the release build resolves, before the lock moves.
+          WORK="$RUNNER_TEMP/core-updater-smoke"
+          mkdir -p "$WORK/tun2socks/cmd/libmarble"
+          cp native/tun2socks/main.go "$WORK/tun2socks/cmd/libmarble/main.go"
+          (
+            cd "$WORK/tun2socks"
+            env GOTOOLCHAIN=auto CGO_ENABLED=1 go vet ./cmd/libmarble
+            env GOTOOLCHAIN=auto CGO_ENABLED=1 go build \
+              -buildmode=c-shared \
+              -trimpath \
+              -buildvcs=false \
+              -ldflags "-X main.buildVersion=$(jq -r '.tun2socks.tag' core-lock.json) -checklinkname=0" \
+              -o "$WORK/libtun2socks.host.so" \
+              ./cmd/libmarble
+          )
+          test -s "$WORK/libtun2socks.host.so"
+          echo "[OK] resolved tun2socks compiles MarbleNG's mobile wrapper"
+
       - name: Prove the Android crash backport still applies
         shell: bash
         run: |

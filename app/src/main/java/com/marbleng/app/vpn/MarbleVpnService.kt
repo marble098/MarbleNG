@@ -43,6 +43,11 @@ import com.marbleng.app.core.TransportTelemetry
 import com.marbleng.app.core.TcpStressMonitor
 import com.marbleng.app.core.TcpStressTelemetryPolicy
 import com.marbleng.app.core.TurboBackoffPolicy
+import com.marbleng.app.core.Tun2SocksPolicy
+import com.marbleng.app.core.TunnelCore
+import com.marbleng.app.core.TunnelCoreInfo
+import com.marbleng.app.core.parseTunnelCore
+import com.marbleng.app.core.tunnelCore
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.SingBoxConfigBuilder
 import com.marbleng.app.core.SingBoxAndroidRuntime
@@ -55,6 +60,7 @@ import com.marbleng.app.core.coreEngine
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.nativebridge.HevTunnel
+import com.marbleng.app.nativebridge.Tun2SocksTunnel
 import java.io.Closeable
 import java.io.RandomAccessFile
 import java.util.ArrayDeque
@@ -156,6 +162,14 @@ class MarbleVpnService : VpnService() {
 
     private var tun: ParcelFileDescriptor? = null
     private var hevFd = -1
+
+    /**
+     * MARBLE_TUN2SOCKS_CORE_V222 — the datapath this session actually runs. It is resolved once
+     * per connect (Settings closes the tunnel on a switch), logged, and used for the run, the
+     * stats poll and the stop, so a setting change mid-session can never leave one core reading a
+     * descriptor the other one owns.
+     */
+    @Volatile private var activeTunnelCore: TunnelCore = TunnelCore.HEV
     private val running = AtomicBoolean(false)
     private val recoveryScheduled = AtomicBoolean(false)
     private val routeProbeRequested = AtomicBoolean(false)
@@ -942,7 +956,19 @@ class MarbleVpnService : VpnService() {
             handleFailure(session, "TUN disappeared before HEV startup")
             return
         }
-        diag.prepareHevSession()
+        val requestedTunnel = settings.tunnelCore()
+        val tunnelCore = if (TunnelCoreInfo.isAvailable(requestedTunnel)) requestedTunnel else TunnelCore.HEV
+        activeTunnelCore = tunnelCore
+        if (tunnelCore != requestedTunnel) {
+            diag.event(
+                "TUNNEL", "datapath-fallback",
+                "session" to session,
+                "requested" to requestedTunnel.id,
+                "running" to tunnelCore.id,
+                "reason" to TunnelCoreInfo.unavailableReason(requestedTunnel)
+            )
+        }
+        diag.prepareTunnelSession(tunnelCore)
         val dupFd = runCatching { ParcelFileDescriptor.dup(currentTun.fileDescriptor).detachFd() }
             .onFailure { diag.error("TUN", "dup-fd-failed", it, "session" to session) }
             .getOrNull()
@@ -955,30 +981,58 @@ class MarbleVpnService : VpnService() {
         val datapath = (application as MarbleApplication).repo.intelligence
             .tunnelTuning(profile.id, settings)
 
-        val cfg = HevTunnelPolicy.buildConfig(
-            socksPort = socksPort,
-            mtu = activeMtu,
-            ipv6 = ipv6RouteCaptured,
-            logFilePath = diag.hevLog.absolutePath,
-            datapath = datapath,
-            fastOpen = settings.tcpFastOpenEnabled
-        )
-        if (cfg.contains("\\n") || !cfg.contains('\n')) {
+        // MARBLE_TUN2SOCKS_CORE_V222 — the same descriptor, handed to whichever datapath the user
+        // chose. HEV reads it in C; tun2socks reads it in the pinned Go core loaded in-process.
+        val cfg = if (tunnelCore == TunnelCore.HEV) {
+            HevTunnelPolicy.buildConfig(
+                socksPort = socksPort,
+                mtu = activeMtu,
+                ipv6 = ipv6RouteCaptured,
+                logFilePath = diag.hevLog.absolutePath,
+                datapath = datapath,
+                fastOpen = settings.tcpFastOpenEnabled
+            )
+        } else {
+            ""
+        }
+        if (tunnelCore == TunnelCore.HEV && (cfg.contains("\\n") || !cfg.contains('\n'))) {
             handleFailure(session, "Internal HEV YAML encoding failure")
+            return
+        }
+        val tun2socks = if (tunnelCore == TunnelCore.TUN2SOCKS) {
+            Tun2SocksPolicy.buildConfig(
+                socksPort = socksPort,
+                mtu = activeMtu,
+                tunFd = hevFd,
+                udpTimeoutSec = settings.tun2SocksUdpTimeoutSec,
+                tcpSendBufferKb = settings.tun2SocksTcpSendBufferKb,
+                tcpReceiveBufferKb = settings.tun2SocksTcpReceiveBufferKb,
+                moderateReceiveBuffer = settings.tun2SocksModerateReceiveBuffer,
+                logLevel = settings.tun2SocksLogLevel,
+                logPath = diag.tun2SocksLog.absolutePath,
+                mtuCap = settings.tun2SocksMtu
+            )
+        } else {
+            null
+        }
+        if (tunnelCore == TunnelCore.TUN2SOCKS && tun2socks == null) {
+            handleFailure(session, "tun2socks rejected the datapath configuration")
             return
         }
 
         diag.event(
-            "HEV", "config-ready",
+            tunnelCore.name, "config-ready",
             "session" to session,
             "bytes" to cfg.toByteArray().size,
             "lines" to cfg.lineSequence().count(),
-            "sha256" to diag.sha256(cfg),
+            "sha256" to diag.sha256(if (tunnelCore == TunnelCore.HEV) cfg else tun2socks?.summary().orEmpty()),
             "mtu" to activeMtu,
             "sessions" to datapath.maxSessions,
             "tcpBuffer" to datapath.tcpBufferBytes,
             "udpBuffer" to datapath.udpBufferBytes,
-            "datapath" to datapath.label
+            "datapath" to datapath.label,
+            "tunnelCore" to tunnelCore.id,
+            "tun2socks" to tun2socks?.summary()
         )
         if (!isCurrent(session)) {
             closeHevFd()
@@ -1015,10 +1069,11 @@ class MarbleVpnService : VpnService() {
                     settings
                 )
                 diag.event(
-                    "HEV", "ready",
+                    tunnelCore.name, "ready",
                     "session" to session,
                     "graceMs" to HEV_READY_GRACE_MS,
-                    "proof" to "blocking-run-alive"
+                    "proof" to "blocking-run-alive",
+                    "tunnelCore" to tunnelCore.id
                 )
 
                     startTelemetry(session, socksPort, generation)
@@ -1026,20 +1081,53 @@ class MarbleVpnService : VpnService() {
             }
         }, HEV_READY_GRACE_MS, TimeUnit.MILLISECONDS)
 
-        diag.event("HEV", "run-enter", "session" to session, "hevFd" to hevFd, "xrayAlive" to coreAlive)
-        val result = runCatching { HevTunnel.run(cfg, hevFd) }
+        diag.event(
+            tunnelCore.name, "run-enter",
+            "session" to session, "hevFd" to hevFd, "xrayAlive" to coreAlive,
+            "tunnelCore" to tunnelCore.id
+        )
+        val result = runCatching {
+            when (tunnelCore) {
+                TunnelCore.HEV -> HevTunnel.run(cfg, hevFd)
+                TunnelCore.TUN2SOCKS -> {
+                    val plan = tun2socks ?: return@runCatching -10002
+                    Tun2SocksTunnel.run(
+                        proxy = plan.proxy,
+                        mtu = plan.mtu,
+                        tunFd = plan.tunFd,
+                        udpTimeoutSec = plan.udpTimeoutSec,
+                        tcpSendBuffer = plan.tcpSendBufferBytes,
+                        tcpReceiveBuffer = plan.tcpReceiveBufferBytes,
+                        moderateReceiveBuffer = plan.moderateReceiveBuffer,
+                        logLevel = plan.logLevel,
+                        logPath = plan.logPath
+                    ).also { code ->
+                        if (code != 0) {
+                            diag.event(
+                                "TUN2SOCKS", "native-refused",
+                                "session" to session, "code" to code,
+                                "reason" to Tun2SocksTunnel.lastError()
+                            )
+                        }
+                    }
+                }
+            }
+        }
         hevActive = false
         val code = result.getOrElse {
-            diag.error("HEV", "jni-run-exception", it, "session" to session, "hevFd" to hevFd)
+            diag.error(tunnelCore.name, "jni-run-exception", it, "session" to session, "hevFd" to hevFd)
             -10001
         }
-        diag.event("HEV", "run-exit", "session" to session, "code" to code, "runningFlag" to running.get(), "xrayAlive" to coreAlive)
+        diag.event(
+            tunnelCore.name, "run-exit",
+            "session" to session, "code" to code, "runningFlag" to running.get(), "xrayAlive" to coreAlive
+        )
 
         if (isCurrent(session)) {
             if (!tunReadyPublished.get()) {
-                diag.event("HEV", "exited-before-ready", "session" to session, "code" to code)
+                diag.event(tunnelCore.name, "exited-before-ready", "session" to session, "code" to code)
             }
-            if (!recoveryScheduled.get()) handleFailure(session, "HEV stopped ($code)")
+            if (!recoveryScheduled.get()) handleFailure(session, "${TunnelCoreInfo.displayName(tunnelCore)} stopped ($code)")
         }
     }
 
@@ -1107,10 +1195,15 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     continue
                 }
 
-                val stats = runCatching { HevTunnel.stats() }.getOrNull()
+                val stats = runCatching {
+                    when (activeTunnelCore) {
+                        TunnelCore.HEV -> HevTunnel.stats()
+                        TunnelCore.TUN2SOCKS -> Tun2SocksTunnel.stats() ?: LongArray(0)
+                    }
+                }.getOrNull()
                 if (stats == null || stats.size < 4) {
                     statsFailures++
-                    diag.event("HEV", "stats-unavailable", "session" to session, "count" to statsFailures)
+                    diag.event(activeTunnelCore.name, "stats-unavailable", "session" to session, "count" to statsFailures)
                     if (statsFailures >= HEV_STATS_FAILURE_LIMIT) {
                         handleFailure(session, "HEV stats unavailable $statsFailures times")
                         return@execute
@@ -1140,7 +1233,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                             if (txWithoutRxBytes >= HEV_STALL_MIN_TX_BYTES &&
                                 nowMs - txWithoutRxSince >= HEV_STALL_MIN_MS &&
                                 isRouteCurrent(session, generation)) {
-                                diag.event("HEV", "datapath-stall-suspected",
+                                diag.event(activeTunnelCore.name, "datapath-stall-suspected",
                                     "session" to session,
                                     "txWithoutRxBytes" to txWithoutRxBytes,
                                     "stallMs" to (nowMs - txWithoutRxSince),
@@ -1148,18 +1241,18 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
                                 if (confirmRouteUnavailable(session, port, generation)) {
                                     diag.event(
-                                        "HEV", "datapath-stalled-confirmed",
+                                        activeTunnelCore.name, "datapath-stalled-confirmed",
                                         "session" to session,
                                         "txWithoutRxBytes" to txWithoutRxBytes,
                                         "stallMs" to (nowMs - txWithoutRxSince)
                                     )
                                     handleFailure(session,
-                                        "HEV datapath stalled and independent HTTPS confirmation failed")
+                                        "${TunnelCoreInfo.displayName(activeTunnelCore)} datapath stalled and independent HTTPS confirmation failed")
                                     return@execute
                                 }
                                 txWithoutRxBytes = 0L
                                 txWithoutRxSince = 0L
-                                diag.event("HEV", "datapath-stall-held", "session" to session)
+                                diag.event(activeTunnelCore.name, "datapath-stall-held", "session" to session)
                             }
                         }
 
@@ -1500,7 +1593,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             settings,
             minIntervalOverrideMs = 60_000L
         )
-        if (hevActive) runCatching { HevTunnel.quit() }
+        if (hevActive) stopDatapath()
         coreStop()
         closeHevFd()
         repo.resetTelemetry()
@@ -2804,11 +2897,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     .take(12)
         )
 
-        if (hevActive) {
-            runCatching {
-                HevTunnel.quit()
-            }
-        }
+        if (hevActive) stopDatapath()
 
         hevActive =
             false
@@ -3470,7 +3559,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         optimizerScanRequested.set(false)
         dataStallGuard.reset()
         if (::routeOptimizer.isInitialized) routeOptimizer.reset(System.currentTimeMillis())
-        if (hevActive) runCatching { HevTunnel.quit() }
+        if (hevActive) stopDatapath()
         hevActive = false
         releaseLowLatencyWifiLock()
         coreStop()
@@ -3508,6 +3597,17 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }
         diag.event("VPN", "runtime-clean", "session" to oldSession,
             "setDisconnected" to setDisconnected, "tunHeld" to (tun != null))
+    }
+
+    /**
+     * MARBLE_TUN2SOCKS_CORE_V222 — stops whichever datapath this session started. Both calls are
+     * safe when their core is idle, so a fallback mid-session and an operator-driven switch take
+     * the same path. tun2socks' quit only releases its blocking run; the descriptor is closed
+     * below, once, by [closeHevFd].
+     */
+    private fun stopDatapath() {
+        runCatching { HevTunnel.quit() }
+        runCatching { Tun2SocksTunnel.quit() }
     }
 
     private fun closeHevFd() {

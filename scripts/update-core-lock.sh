@@ -22,6 +22,12 @@ set -euo pipefail
 #                                        abandoned March rc forever; "beta"
 #                                        means "the newest build of the fork".
 #   singbox.channel = "latest-release" → newest sing-box extended stable tag
+#   tun2socks.channel = "beta"         → newest tun2socks release, whether it is
+#                                        marked pre-release or not. The second
+#                                        datapath tracks that line on purpose:
+#                                        a datapath is chosen for what it fixes,
+#                                        not for a version-number convention.
+#   tun2socks.channel = "latest-release" → newest tun2socks stable tag
 #
 # When a channel entry is missing or unrecognised the script falls back to
 # "latest-release" for safety.
@@ -88,18 +94,22 @@ resolve_latest_tag() {
 xray_repo="$(jq -r '.xray.repo // "XTLS/Xray-core"' "$LOCK")"
 hev_repo="$(jq -r '.hev.repo // "heiher/hev-socks5-tunnel"' "$LOCK")"
 singbox_repo="$(jq -r '.singbox.repo // "shtorm-7/sing-box-extended"' "$LOCK")"
+tun2socks_repo="$(jq -r '.tun2socks.repo // "xjasonlyu/tun2socks"' "$LOCK")"
 xray_channel="$(jq -r '.xray.channel // "prerelease"' "$LOCK")"
 hev_channel="$(jq -r '.hev.channel // "latest-release"' "$LOCK")"
 singbox_channel="$(jq -r '.singbox.channel // "beta"' "$LOCK")"
+tun2socks_channel="$(jq -r '.tun2socks.channel // "beta"' "$LOCK")"
 
 echo "Resolving upstream cores …"
 echo "  Xray     repo=$xray_repo     channel=$xray_channel"
 echo "  HEV      repo=$hev_repo      channel=$hev_channel"
 echo "  sing-box repo=$singbox_repo  channel=$singbox_channel"
+echo "  tun2socks    repo=$tun2socks_repo channel=$tun2socks_channel"
 
 xray_tag="$(resolve_latest_tag "$xray_repo" "$xray_channel")"
 hev_tag="$(resolve_latest_tag "$hev_repo" "$hev_channel")"
 singbox_tag="$(resolve_latest_tag "$singbox_repo" "$singbox_channel")"
+tun2socks_tag="$(resolve_latest_tag "$tun2socks_repo" "$tun2socks_channel")"
 
 if [[ -z "$xray_tag" ]]; then
     echo "::error::Could not resolve Xray tag from $xray_repo (channel=$xray_channel)" >&2
@@ -111,6 +121,10 @@ if [[ -z "$hev_tag" ]]; then
 fi
 if [[ -z "$singbox_tag" ]]; then
     echo "::error::Could not resolve sing-box tag from $singbox_repo (channel=$singbox_channel)" >&2
+    exit 1
+fi
+if [[ -z "$tun2socks_tag" ]]; then
+    echo "::error::Could not resolve tun2socks tag from $tun2socks_repo (channel=$tun2socks_channel)" >&2
     exit 1
 fi
 
@@ -129,7 +143,7 @@ fi
 # exists, so it needs no patch — it only has to accept the configs the pinned
 # core is asked to accept.
 # ------------------------------------------------------------------------------
-resolve_singbox_commit() {
+resolve_tag_commit() {
     local repo="$1" tag="$2" ref object_type object_sha
 
     ref="$(curl -fsSL --retry 4 "${GITHUB_API_HEADERS[@]}" \
@@ -156,10 +170,20 @@ resolve_singbox_commit() {
     printf '%s\n' "$object_sha"
 }
 
-singbox_commit="$(resolve_singbox_commit "$singbox_repo" "$singbox_tag")"
+# Historical name, kept because system-integrity-check.py pins it and because the
+# sing-box pin is still the one that resolves through it.
+resolve_singbox_commit() { resolve_tag_commit "$@"; }
+
+singbox_commit="$(resolve_tag_commit "$singbox_repo" "$singbox_tag")"
+tun2socks_commit="$(resolve_tag_commit "$tun2socks_repo" "$tun2socks_tag")"
 
 if [[ -z "$singbox_commit" ]]; then
     echo "::error::Could not resolve the sing-box commit for $singbox_tag" >&2
+    exit 1
+fi
+
+if [[ -z "$tun2socks_commit" ]]; then
+    echo "::error::Could not resolve the tun2socks commit for $tun2socks_tag" >&2
     exit 1
 fi
 
@@ -174,6 +198,17 @@ if [[ -z "$singbox_digests" ]]; then
     exit 1
 fi
 
+tun2socks_digests="$(curl -fsSL --retry 4 "${GITHUB_API_HEADERS[@]}" \
+    "https://api.github.com/repos/${tun2socks_repo}/releases/tags/${tun2socks_tag}" | jq -ce '
+    [.assets[] | select(.name | test("-linux-amd64\\.zip$"))
+      | select(.digest | startswith("sha256:")) | {key:.name, value:(.digest | sub("^sha256:"; ""))}]
+    | from_entries | select(length == 1)')"
+
+if [[ -z "$tun2socks_digests" ]]; then
+    echo "::error::No linux-amd64 host-test archive digest for tun2socks $tun2socks_tag" >&2
+    exit 1
+fi
+
 # Preserve the channel settings and MarbleNG's own patch level; update the tags,
 # the resolved source commit and the timestamp.
 jq \
@@ -182,9 +217,14 @@ jq \
     --arg s "$singbox_tag" \
     --arg c "$singbox_commit" \
     --argjson sha "$singbox_digests" \
+    --arg t2s "$tun2socks_tag" \
+    --arg t2c "$tun2socks_commit" \
+    --argjson t2sha "$tun2socks_digests" \
     --arg d "$(date -u +%F)" \
     '.xray.tag = $x | .hev.tag = $h | .singbox.tag = $s | .singbox.commit = $c
-     | .singbox.sha256 = $sha | .updated = $d' \
+     | .singbox.sha256 = $sha
+     | .tun2socks.tag = $t2s | .tun2socks.commit = $t2c
+     | .tun2socks.sha256 = $t2sha | .updated = $d' \
     "$LOCK" > "$LOCK.tmp" && mv -f "$LOCK.tmp" "$LOCK"
 
 echo ""
@@ -193,6 +233,8 @@ echo "  Xray     = $xray_tag     ($xray_channel)"
 echo "  HEV      = $hev_tag      ($hev_channel)"
 echo "  sing-box = $singbox_tag  ($singbox_channel)"
 echo "             source commit $singbox_commit (compiled locally, crash fix backported)"
+echo "  tun2socks = $tun2socks_tag  ($tun2socks_channel)"
+echo "             source commit $tun2socks_commit (compiled locally as libtun2socks.so)"
 echo ""
 echo "NOTE: a new sing-box tag does not carry MarbleNG's backport. prepare-native.sh"
 echo "      re-applies scripts/inject-singbox-android-fix.py and fails loudly if the"

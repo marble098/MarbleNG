@@ -44,10 +44,31 @@ if [[ ! -x "${MARBLE_XRAY_BINARY:-}" ]]; then
     export MARBLE_XRAY_BINARY="$DEST/xray-$XRAY_TAG/xray"
 fi
 "$MARBLE_XRAY_BINARY" version
+
+# MARBLE_TUN2SOCKS_CORE_V222 — the second datapath's host binary. The APK ships the c-shared
+# library built from source (it must read a descriptor in this process), but the upstream
+# linux-amd64 CLI is the same engine and is the right thing to run the routing acceptance
+# tests against: it accepts the same flags and the same SOCKS5 upstream.
+TUN2SOCKS_TAG="$(jq -r '.tun2socks.tag' "$ROOT/core-lock.json")"
+TUN2SOCKS_REPO="$(jq -r '.tun2socks.repo' "$ROOT/core-lock.json")"
+[[ "$TUN2SOCKS_REPO" == "xjasonlyu/tun2socks" && "$TUN2SOCKS_TAG" =~ ^v[0-9A-Za-z._-]+$ ]]
+TUN2SOCKS_ASSET="tun2socks-linux-amd64.zip"
+if [[ ! -x "$DEST/tun2socks-$TUN2SOCKS_TAG/tun2socks" ]]; then
+    mkdir -p "$DEST/tun2socks-$TUN2SOCKS_TAG"
+    gh release download "$TUN2SOCKS_TAG" --repo "$TUN2SOCKS_REPO" \
+        --pattern "$TUN2SOCKS_ASSET" --dir "$DEST/tun2socks-$TUN2SOCKS_TAG" --clobber
+    TUN2SOCKS_EXPECTED="$(jq -er --arg asset "$TUN2SOCKS_ASSET" '.tun2socks.sha256[$asset]' "$ROOT/core-lock.json")"
+    printf '%s  %s\n' "$TUN2SOCKS_EXPECTED" "$DEST/tun2socks-$TUN2SOCKS_TAG/$TUN2SOCKS_ASSET" | sha256sum --check --status
+    unzip -oq "$DEST/tun2socks-$TUN2SOCKS_TAG/$TUN2SOCKS_ASSET" -d "$DEST/tun2socks-$TUN2SOCKS_TAG"
+    chmod +x "$DEST/tun2socks-$TUN2SOCKS_TAG/tun2socks"
+fi
+export MARBLE_TUN2SOCKS_BINARY="$DEST/tun2socks-$TUN2SOCKS_TAG/tun2socks"
+"$MARBLE_TUN2SOCKS_BINARY" -version | grep -F "${TUN2SOCKS_TAG#v}"
+
 python3 "$ROOT/scripts/prepare-singbox-rules.py"
 if [[ -n "${GITHUB_ENV:-}" ]]; then
-    printf 'MARBLE_SINGBOX_BINARY=%s\nMARBLE_XRAY_BINARY=%s\nMARBLE_NATIVE_TESTS_REQUIRED=1\n' \
-        "$MARBLE_SINGBOX_BINARY" "$MARBLE_XRAY_BINARY" >> "$GITHUB_ENV"
+    printf 'MARBLE_SINGBOX_BINARY=%s\nMARBLE_XRAY_BINARY=%s\nMARBLE_TUN2SOCKS_BINARY=%s\nMARBLE_NATIVE_TESTS_REQUIRED=1\n' \
+        "$MARBLE_SINGBOX_BINARY" "$MARBLE_XRAY_BINARY" "$MARBLE_TUN2SOCKS_BINARY" >> "$GITHUB_ENV"
 fi
-printf '\nFor local tests:\nexport MARBLE_SINGBOX_BINARY=%q\nexport MARBLE_XRAY_BINARY=%q\n' \
-    "$MARBLE_SINGBOX_BINARY" "$MARBLE_XRAY_BINARY"
+printf '\nFor local tests:\nexport MARBLE_SINGBOX_BINARY=%q\nexport MARBLE_XRAY_BINARY=%q\nexport MARBLE_TUN2SOCKS_BINARY=%q\n' \
+    "$MARBLE_SINGBOX_BINARY" "$MARBLE_XRAY_BINARY" "$MARBLE_TUN2SOCKS_BINARY"

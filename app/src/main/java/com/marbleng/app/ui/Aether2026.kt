@@ -142,6 +142,10 @@ import com.marbleng.app.core.availableOn
 import com.marbleng.app.core.coreEngine
 import com.marbleng.app.core.unavailableReason
 import com.marbleng.app.core.parseCoreEngine
+import com.marbleng.app.core.Tun2SocksPolicy
+import com.marbleng.app.core.TunnelCore
+import com.marbleng.app.core.TunnelCoreInfo
+import com.marbleng.app.core.parseTunnelCore
 // MARBLE_FAMILY_SCAN_UI_RETIRED_V220 — the scan UI is gone; the dialing policy underneath
 // (IpFamilyScanner, the fallback ladder) still serves the tunnel and keeps its own chapter.
 import com.marbleng.app.core.IranModeState
@@ -11105,6 +11109,179 @@ private fun coreEngineDetail(engine: CoreEngine): String = when (engine) {
         "The extended core: one process owns the tunnel, adds warp, masque and mieru, ships the geo rule sets, and answers URL test from its own measurements"
 }
 
+/**
+ * MARBLE_TUN2SOCKS_CORE_V222 — the second datapath, beside the proxy core picker.
+ *
+ * This is deliberately not another [CoreEngine]: a proxy core decides who speaks the protocol,
+ * this decides who moves the device's packets to that core. Both are selectable, both persist,
+ * and the page states which one the APK can actually load on this device.
+ */
+@Composable
+private fun TunnelEngineOptions(repo: AppRepository) {
+    val s = repo.settings
+    val current = parseTunnelCore(s.tunnelCoreId)
+
+    Text(
+        trx(
+            "The tunnel engine moves packets between the Android TUN device and the proxy core's " +
+                "local SOCKS port. Switching it closes the tunnel; reconnect to run the new one."
+        ),
+        color = Aether.InkMuted,
+        style = settingsBodyStyle()
+    )
+
+    TunnelCore.entries.forEach { candidate ->
+        val available = TunnelCoreInfo.isAvailable(candidate)
+        val selected = candidate == current
+        val tone = if (candidate == TunnelCore.HEV) Aether.Amber else Aether.CyanBright
+        val shape = RoundedCornerShape(14.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(marbleNativeContainerHigh())
+                .border(
+                    1.dp,
+                    if (selected) tone.copy(alpha = .58f) else marbleNativeOutline(),
+                    shape
+                )
+                .kineticClickable(role = Role.Button, boundedShape = shape) {
+                    repo.setTunnelCore(candidate)
+                }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                Text(
+                    trx(TunnelCoreInfo.displayName(candidate)),
+                    color = if (selected) tone else Aether.Ink,
+                    style = settingsRowTitleStyle(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    trx(TunnelCoreInfo.summary(candidate)),
+                    color = Aether.InkFaint,
+                    style = settingsBodyStyle(),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!available) {
+                    Text(
+                        trx(TunnelCoreInfo.unavailableReason(candidate)),
+                        color = Aether.Danger,
+                        style = settingsBodyStyle(),
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Box(
+                Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(if (selected) tone else Aether.InkFaint.copy(alpha = .30f))
+            )
+        }
+    }
+
+    InformationRow(
+        trx("Pinned datapath"),
+        "${TunnelCoreInfo.displayName(current)} ${if (current == TunnelCore.TUN2SOCKS) BuildConfig.TUN2SOCKS_CORE_TAG else BuildConfig.HEV_CORE_TAG}",
+        Aether.InkMuted
+    )
+
+    AnimatedVisibility(
+        current == TunnelCore.TUN2SOCKS,
+        enter = expressiveExpandVertically(),
+        exit = expressiveCollapseVertically()
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            NumberSetting(
+                title = trx("MTU cap"),
+                value = s.tun2SocksMtu,
+                range = 0..Tun2SocksPolicy.MAX_MTU,
+                suffix = if (s.tun2SocksMtu == 0) trx(" session") else ""
+            ) {
+                repo.updateSettings(repo.settings.copy(tun2SocksMtu = it))
+            }
+            Text(
+                trx(
+                    "0 follows the session MTU (${TunnelCoreInfo.TUN2SOCKS_DRIVER} never raises it); " +
+                        "a lower cap is useful on a path that drops large packets."
+                ),
+                color = Aether.InkFaint,
+                style = settingsBodyStyle()
+            )
+            NumberSetting(
+                title = trx("UDP session timeout"),
+                value = s.tun2SocksUdpTimeoutSec,
+                range = Tun2SocksPolicy.MIN_UDP_TIMEOUT_SEC..Tun2SocksPolicy.MAX_UDP_TIMEOUT_SEC,
+                suffix = " s"
+            ) {
+                repo.updateSettings(
+                    repo.settings.copy(tun2SocksUdpTimeoutSec = Tun2SocksPolicy.normalizeUdpTimeout(it))
+                )
+            }
+            Text(trx("Log level"), color = Aether.InkFaint, style = MaterialTheme.typography.labelSmall)
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Tun2SocksPolicy.LOG_LEVELS.forEach { level ->
+                    CyberChoiceChip(
+                        text = level.uppercase(),
+                        selected = s.tun2SocksLogLevel.equals(level, ignoreCase = true),
+                        color = Aether.CyanBright
+                    ) {
+                        repo.updateSettings(repo.settings.copy(tun2SocksLogLevel = level))
+                    }
+                }
+            }
+            NumberSetting(
+                title = trx("TCP send buffer"),
+                value = s.tun2SocksTcpSendBufferKb,
+                range = 0..Tun2SocksPolicy.MAX_BUFFER_KB,
+                suffix = if (s.tun2SocksTcpSendBufferKb == 0) trx(" kernel") else " KB"
+            ) {
+                repo.updateSettings(
+                    repo.settings.copy(tun2SocksTcpSendBufferKb = Tun2SocksPolicy.normalizeBufferKb(it))
+                )
+            }
+            NumberSetting(
+                title = trx("TCP receive buffer"),
+                value = s.tun2SocksTcpReceiveBufferKb,
+                range = 0..Tun2SocksPolicy.MAX_BUFFER_KB,
+                suffix = if (s.tun2SocksTcpReceiveBufferKb == 0) trx(" kernel") else " KB"
+            ) {
+                repo.updateSettings(
+                    repo.settings.copy(
+                        tun2SocksTcpReceiveBufferKb = Tun2SocksPolicy.normalizeBufferKb(it)
+                    )
+                )
+            }
+            SettingSwitch(
+                title = trx("Moderate receive buffer"),
+                subtitle = trx("Let the core grow the receive window instead of asking for the maximum"),
+                checked = s.tun2SocksModerateReceiveBuffer
+            ) { repo.updateSettings(repo.settings.copy(tun2SocksModerateReceiveBuffer = it)) }
+            Text(
+                trx(
+                    "The library reports bytes and live sessions; its own log is written to " +
+                        "files/logs/tun2socks.log and included in the diagnostic bundle."
+                ),
+                color = Aether.InkFaint,
+                style = settingsBodyStyle()
+            )
+        }
+    }
+}
+
 @Composable
 private fun CoreEngineOptions(repo: AppRepository, engine: CoreEngine) {
     val s = repo.settings
@@ -11666,6 +11843,7 @@ private fun SettingsInformationPage(
             InformationRow("Version code", BuildConfig.VERSION_CODE.toString(), Aether.InkMuted)
             InformationRow("Xray core", BuildConfig.XRAY_CORE_TAG, Aether.Emerald)
             InformationRow("Tunnel core", BuildConfig.HEV_CORE_TAG, Aether.Amber)
+            InformationRow("tun2socks", BuildConfig.TUN2SOCKS_CORE_TAG, Aether.CyanBright)
 
             InformationRow("sing-box core", BuildConfig.SINGBOX_CORE_TAG, Aether.CyanBright)
             InformationRow("Build type", BuildConfig.BUILD_TYPE, Aether.InkMuted)
@@ -11714,6 +11892,14 @@ private fun SettingsInformationPage(
                 }
             )
             InformationLinkRow(
+                title = "tun2socks core",
+                subtitle = "https://github.com/${BuildConfig.TUN2SOCKS_CORE_REPO}",
+                tone = Aether.CyanBright,
+                onClick = {
+                    openExternal(context, "https://github.com/${BuildConfig.TUN2SOCKS_CORE_REPO}")
+                }
+            )
+            InformationLinkRow(
                 title = "sing-box core",
                 subtitle = "https://github.com/${BuildConfig.SINGBOX_CORE_REPO}",
                 tone = Aether.CyanBright,
@@ -11739,6 +11925,7 @@ private fun SettingsInformationPage(
                             "MarbleNG ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" +
                                 "xray ${BuildConfig.XRAY_CORE_TAG}\n" +
                                 "hev-socks5-tunnel ${BuildConfig.HEV_CORE_TAG}\n" +
+                                "tun2socks ${BuildConfig.TUN2SOCKS_CORE_TAG}\n" +
                                 "sing-box ${BuildConfig.SINGBOX_CORE_TAG}"
                         )
                     )
@@ -12251,9 +12438,16 @@ private fun settingsSections(
                         }
                     }
                 },
+                card(
+                    "Tunnel engine",
+                    "HEV or tun2socks • carries the TUN device to the proxy core",
+                    HomeIcon.TUNNEL,
+                    Aether.Amber
+                ) { TunnelEngineOptions(repo) },
                 card("Pinned versions","Read from core-lock.json at build time",HomeIcon.DETAILS,Aether.Emerald) {
                     InformationRow(trx("Xray core"), BuildConfig.XRAY_CORE_TAG, Aether.Emerald)
                     InformationRow(trx("Tunnel core"), BuildConfig.HEV_CORE_TAG, Aether.Amber)
+                    InformationRow(trx("tun2socks"), BuildConfig.TUN2SOCKS_CORE_TAG, Aether.CyanBright)
                     InformationRow(trx("sing-box extended"), BuildConfig.SINGBOX_CORE_TAG, Aether.CyanBright)
                     InformationRow(
                         trx("Running engine"),
