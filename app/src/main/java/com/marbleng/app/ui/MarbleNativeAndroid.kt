@@ -169,19 +169,21 @@ internal data class MarbleNativeShadow(
 
 @Composable
 internal fun marbleNativeShadow(tone: Color): MarbleNativeShadow {
+    // MARBLE_SHADOW_CALM_V220 — the platform pair is quieter in both themes: a shadow that reads
+    // as weather under every card is not depth, it is dirt.
     val dark = homeCloudDark()
     val scheme = MaterialTheme.colorScheme
     return if (dark) {
         MarbleNativeShadow(
-            ambient = scheme.surfaceContainerLowest.copy(alpha = .55f),
-            spot = tone.copy(alpha = .28f),
-            contact = scheme.surfaceContainerLowest.copy(alpha = .70f)
+            ambient = scheme.surfaceContainerLowest.copy(alpha = .40f),
+            spot = tone.copy(alpha = .20f),
+            contact = scheme.surfaceContainerLowest.copy(alpha = .50f)
         )
     } else {
         MarbleNativeShadow(
-            ambient = Color(0xFF0A2540).copy(alpha = .16f),
-            spot = tone.copy(alpha = .24f),
-            contact = Color(0xFF0A2540).copy(alpha = .10f)
+            ambient = Color(0xFF0A2540).copy(alpha = .10f),
+            spot = tone.copy(alpha = .16f),
+            contact = Color(0xFF0A2540).copy(alpha = .07f)
         )
     }
 }
@@ -614,6 +616,11 @@ internal fun MarbleNativeSectionHeader(
  * wallpaper palette, and its off state is not the platform's. The switch now takes its four roles
  * from the live scheme (`primary` / `onPrimary` / `surfaceContainerHighest` / `outline`), so it is
  * the same switch Android draws, in the user's own colours, in every theme.
+ *
+ * MARBLE_OFF_STATE_POLISH_V220 — the off state is drawn with intent now instead of leftovers: an
+ * `onSurfaceVariant` thumb on the container track inside a real `outline` border, a check drawn in
+ * the thumb while on, and dimmed-but-legible disabled roles. Still scheme roles only, so a
+ * wallpaper palette still moves every one of them.
  */
 @Composable
 internal fun MarbleNativeSwitch(
@@ -628,11 +635,44 @@ internal fun MarbleNativeSwitch(
         onCheckedChange = onCheckedChange,
         enabled = enabled,
         modifier = modifier,
+        thumbContent = if (checked) {
+            {
+                Canvas(Modifier.size(SwitchDefaults.IconSize)) {
+                    val stroke = (size.minDimension * .13f).coerceIn(1.4f, 2.4f)
+                    drawLine(
+                        color = scheme.primary,
+                        start = Offset(size.width * .26f, size.height * .55f),
+                        end = Offset(size.width * .45f, size.height * .72f),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = scheme.primary,
+                        start = Offset(size.width * .45f, size.height * .72f),
+                        end = Offset(size.width * .74f, size.height * .30f),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+        } else {
+            null
+        },
         colors = SwitchDefaults.colors(
             checkedThumbColor = scheme.onPrimary,
             checkedTrackColor = scheme.primary,
-            uncheckedThumbColor = scheme.outline,
-            uncheckedTrackColor = scheme.surfaceContainerHighest
+            checkedBorderColor = Color.Transparent,
+            checkedIconColor = scheme.primary,
+            uncheckedThumbColor = scheme.onSurfaceVariant,
+            uncheckedTrackColor = scheme.surfaceContainerHighest,
+            uncheckedBorderColor = scheme.outline,
+            uncheckedIconColor = scheme.surfaceContainerHighest,
+            disabledCheckedThumbColor = scheme.surfaceContainerHighest,
+            disabledCheckedTrackColor = scheme.onSurface.copy(alpha = .12f),
+            disabledCheckedBorderColor = Color.Transparent,
+            disabledUncheckedThumbColor = scheme.onSurface.copy(alpha = .38f),
+            disabledUncheckedTrackColor = scheme.surfaceContainerHighest.copy(alpha = .5f),
+            disabledUncheckedBorderColor = scheme.outline.copy(alpha = .5f)
         )
     )
 }

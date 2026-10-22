@@ -142,9 +142,8 @@ import com.marbleng.app.core.availableOn
 import com.marbleng.app.core.coreEngine
 import com.marbleng.app.core.unavailableReason
 import com.marbleng.app.core.parseCoreEngine
-import com.marbleng.app.core.IpFamilyScan
-import com.marbleng.app.core.IpFamilySummary
-import com.marbleng.app.core.IpFamilyVerdict
+// MARBLE_FAMILY_SCAN_UI_RETIRED_V220 — the scan UI is gone; the dialing policy underneath
+// (IpFamilyScanner, the fallback ladder) still serves the tunnel and keeps its own chapter.
 import com.marbleng.app.core.IranModeState
 import com.marbleng.app.core.ManualConfigBuilder
 import com.marbleng.app.core.ManualConfigDraft
@@ -2117,12 +2116,22 @@ private fun HomeMetricBento(repo: AppRepository) {
     }
 }
 
+// MARBLE_OFF_STATE_POLISH_V220 — the routing switches wear the same deliberate off state as the
+// platform switch: a bordered container track with an onSurfaceVariant thumb, and dimmed-but-drawn
+// disabled roles. Scheme roles only, like V213 demands.
 @Composable
 private fun marbleSwitchColors() = SwitchDefaults.colors(
     checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
     checkedTrackColor = MaterialTheme.colorScheme.primary,
-    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+    checkedBorderColor = Color.Transparent,
+    uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    uncheckedBorderColor = MaterialTheme.colorScheme.outline,
+    disabledCheckedThumbColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    disabledCheckedTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .12f),
+    disabledUncheckedThumbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .38f),
+    disabledUncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = .5f),
+    disabledUncheckedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = .5f)
 )
 
 @Composable
@@ -3508,13 +3517,6 @@ private fun CyberLibrary(
         )
     }
 
-    repo.ipFamilyScanResult?.let { scan ->
-        IpFamilyScanDialog(scan = scan, onDismiss = { repo.dismissIpFamilyScanResult() })
-    }
-    repo.ipFamilyScanSummary?.let { summary ->
-        IpFamilyGroupDialog(summary = summary, onDismiss = { repo.dismissIpFamilyScanResult() })
-    }
-
     val tileLayout = settings.serversLayoutEnum == ServerLayout.GRID
     val tileColumns = rememberServerTileColumns()
 
@@ -3704,15 +3706,26 @@ private fun CyberLibrary(
                                 repo.setRuntimeMessage("Subscription URL copied")
                             }
                             ServersGroupAction.COPY_SERVERS -> {
-                                clipboard.setText(AnnotatedString(repo.subscriptionRawText(group.key)))
+                                // MARBLE_COPY_GROUP_SERVERS_V220 — every group copies its links:
+                                // subscriptions read their stored text, Manual and country buckets
+                                // copy the same per-profile links the row menu copies.
+                                val text = if (subscription != null) {
+                                    repo.subscriptionRawText(group.key)
+                                } else {
+                                    repo.profilesRawText(group.profiles)
+                                }
+                                val count = if (subscription != null) {
+                                    repo.subscriptionNodeCount(group.key)
+                                } else {
+                                    group.profiles.size
+                                }
+                                clipboard.setText(AnnotatedString(text))
                                 repo.setRuntimeMessage(
-                                    "${repo.subscriptionNodeCount(group.key)} server links copied"
+                                    "$count server links copied"
                                 )
                             }
                             ServersGroupAction.SHOW_ONLY -> repo.selectLibrarySource(group.key)
                             ServersGroupAction.SHOW_ALL -> repo.selectLibrarySource("all")
-                            ServersGroupAction.SCAN_FAMILY ->
-                                repo.scanIpFamilyForProfiles(group.profiles, group.title)
                             ServersGroupAction.DELETE -> deleteSubscription = subscription
                         }
                     }
@@ -3751,7 +3764,6 @@ private fun CyberLibrary(
                         ) { profile ->
                             val location = repo.serverLocation(profile)
 
-                            val familyScan = repo.ipFamilyScan(profile)
                             ServerTile(
                                 profile = profile,
                                 result = benchmarks[profile.id],
@@ -3760,8 +3772,6 @@ private fun CyberLibrary(
                                 testing = repo.probeStateOf(profile.id) == ProbeState.TESTING,
                                 locationCode = location.code,
                                 locationProvisional = repo.serverLocationIsProvisional(profile),
-                                familyChip = familyScan?.chip,
-                                familyTone = familyScan?.let { familyChipTone(it) },
                                 trailing = {
                                     ServersNodeMenu(
                                         profile = profile,
@@ -3901,7 +3911,6 @@ private enum class ServersGroupAction {
     SHOW_ONLY,
     SHOW_ALL,
 
-    SCAN_FAMILY,
     DELETE
 }
 
@@ -4012,20 +4021,17 @@ private fun ServersRoundButton(
     val tone = if (selected) Aether.Cyan else Aether.Ink
     val description = trx(label)
 
-    val buttonElevation by animateDpAsState(
-        targetValue = if (selected) 5.dp else 2.dp,
-        animationSpec = MarbleMotionSpecs.Dp,
-        label = "servers-round-button-elevation"
-    )
+    // MARBLE_SHADOW_CALM_V220 — the round control sits at one quiet lift in both states; selection
+    // reads through its tint and rim, not through a shadow that grows under the finger.
     Box(
         modifier = Modifier
             .size(42.dp)
             .shadow(
-                elevation = buttonElevation,
+                elevation = 2.dp,
                 shape = CircleShape,
                 clip = false,
-                ambientColor = Color(0xFF0A2540).copy(alpha = .16f),
-                spotColor = if (selected) Aether.Cyan.copy(alpha = .34f) else Color(0xFF1E5FAF).copy(alpha = .22f)
+                ambientColor = Color(0xFF0A2540).copy(alpha = .10f),
+                spotColor = if (selected) Aether.Cyan.copy(alpha = .20f) else Color(0xFF1E5FAF).copy(alpha = .14f)
             )
             .clip(CircleShape)
             .background(if (selected) Aether.Cyan.copy(alpha = .12f) else Aether.VoidElevated)
@@ -5338,27 +5344,19 @@ private fun ServersGroupMenu(
                     onMenu(ServersGroupAction.COPY_URL)
                 }
             )
-            ServersMenuItem(
-                label = "Copy all servers",
-                icon = HomeIcon.CLIPBOARD,
-                tone = Aether.Ink,
-                enabled = group.profiles.isNotEmpty(),
-                onClick = {
-                    onDismiss()
-                    onMenu(ServersGroupAction.COPY_SERVERS)
-                }
-            )
         }
 
+        // MARBLE_COPY_GROUP_SERVERS_V220 — copy-all belongs to every group, not just remote
+        // subscriptions: Manual and country buckets copy their visible servers' links.
         ServersMenuItem(
-            label = "Scan IPv4 / IPv6",
-            icon = HomeIcon.NETWORK,
-            tone = Aether.Cyan,
-            detail = "${group.profiles.size} servers • resolves and dials both families",
+            label = "Copy all servers",
+            icon = HomeIcon.CLIPBOARD,
+            tone = Aether.Ink,
+            detail = "${group.profiles.size} server links",
             enabled = group.profiles.isNotEmpty(),
             onClick = {
                 onDismiss()
-                onMenu(ServersGroupAction.SCAN_FAMILY)
+                onMenu(ServersGroupAction.COPY_SERVERS)
             }
         )
         ServersMenuItem(
@@ -5392,16 +5390,6 @@ private fun ServersGroupMenu(
             )
         }
     }
-}
-
-@Composable
-internal fun familyChipTone(scan: IpFamilyScan): Color = when (scan.verdict) {
-    IpFamilyVerdict.DUAL_OK -> Aether.Emerald
-    IpFamilyVerdict.IPV6_ONLY -> Aether.Cyan
-    IpFamilyVerdict.IPV4_ONLY -> Aether.Amber
-    IpFamilyVerdict.IPV6_UNPROVEN -> Aether.Amber
-    IpFamilyVerdict.UNREACHABLE -> Aether.Danger
-    IpFamilyVerdict.UNKNOWN -> Aether.InkMuted
 }
 
 @Composable
@@ -5474,7 +5462,17 @@ private fun ServersNodeCard(
         else -> null
     }
 
+    // MARBLE_SERVERS_LAST_ROW_V220 — the last row's footer used to be a bare 8 dp strip of card
+    // fill, breaking the inset list column every other row shares. The last panel now ends square
+    // and the footer below extends the inset container down to the card's tail rounding, so the
+    // group reads as one continuous inset list. The swipe-to-edit reveal keeps the old silhouette.
     val panelShape = when {
+        firstInGroup && lastInGroup -> ServersListHeadShape
+        firstInGroup -> ServersListHeadShape
+        lastInGroup -> ServersListBodyShape
+        else -> ServersListBodyShape
+    }
+    val swipeShape = when {
         firstInGroup && lastInGroup -> RoundedCornerShape(ServersHierarchy.LIST_CORNER_DP.dp)
         firstInGroup -> ServersListHeadShape
         lastInGroup -> ServersListTailShape
@@ -5535,7 +5533,7 @@ private fun ServersNodeCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = ServersHierarchy.LIST_INSET_DP.dp)
-                    .clip(panelShape)
+                    .clip(swipeShape)
                     .background(tone.copy(alpha = .12f))
                     .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -5645,10 +5643,6 @@ private fun ServersNodeCard(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
-
-                            repo.ipFamilyScan(profile)?.let { scan ->
-                                ServerStateChip(scan.chip, familyChipTone(scan))
-                            }
                         }
                     }
 
@@ -5703,7 +5697,15 @@ private fun ServersNodeCard(
                     )
                 }
             } else {
-                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = ServersHierarchy.LIST_INSET_DP.dp)
+                        .clip(ServersListTailShape)
+                        .background(marbleNativeContainerHigh())
+                        .background(rowFill)
+                        .height(8.dp)
+                )
             }
         }
     }
@@ -5812,8 +5814,6 @@ internal fun ServersNodeMenu(
         mutableStateOf(profile.configJson)
     }
     val canEditJson = !profile.scheme.equals("ssh", true)
-
-    val familyScan = repo.ipFamilyScan(profile)
 
     if (jsonOpen) {
         AlertDialog(
@@ -5944,19 +5944,6 @@ internal fun ServersNodeMenu(
                 }
             )
             ServersMenuItem(
-
-                label = "Scan IPv4 / IPv6",
-                icon = HomeIcon.NETWORK,
-                tone = familyScan?.let { familyChipTone(it) } ?: Aether.Cyan,
-                detail = familyScan?.let { "${it.chip} • ${it.headline}" }
-                    ?: "Resolve and dial both families on this server",
-                enabled = !repo.busy,
-                onClick = {
-                    open = false
-                    repo.scanIpFamily(profile)
-                }
-            )
-            ServersMenuItem(
                 label = "Move to group",
                 icon = HomeIcon.FOLDER,
                 tone = Aether.Ink,
@@ -6022,212 +6009,8 @@ internal fun ServersNodeMenu(
     }
 }
 
-@Composable
-private fun IpFamilyScanDialog(scan: IpFamilyScan, onDismiss: () -> Unit) {
-    val tone = familyChipTone(scan)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Aether.VoidElevated,
-        shape = ServersCardShape,
-        title = {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(trx("Address family scan"), color = Aether.Ink)
-                Text(
-                    scan.headline,
-                    color = tone,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpacing.XS)) {
-                IpFamilyLine(
-                    label = "IPv6",
-                    value = when {
-                        scan.ipv6Ok -> buildString {
-                            append("${scan.ipv6Address} • ${scan.ipv6LatencyMs} ms")
-                            if (scan.ipv6JitterMs >= 0) append(" ±${scan.ipv6JitterMs}ms")
-                            if (scan.ipv6SuccessRate in 0.01f..0.99f) append(" ${(scan.ipv6SuccessRate*100).toInt()}%")
-                            if (scan.nat64Detected) append(" [NAT64]")
-                        }
-                        scan.hasIpv6 -> "${scan.ipv6Address} • no answer on port${if (scan.failureReason.isNotBlank()) " (${scan.failureReason})" else ""}"
-                        else -> trx("No AAAA record") + if (scan.dnsResultKind.isNotBlank()) " (${scan.dnsResultKind})" else ""
-                    },
-                    tone = if (scan.ipv6Ok) Aether.Emerald else Aether.InkMuted
-                )
-                IpFamilyLine(
-                    label = "IPv4",
-                    value = when {
-                        scan.ipv4Ok -> buildString {
-                            append("${scan.ipv4Address} • ${scan.ipv4LatencyMs} ms")
-                            if (scan.ipv4JitterMs >= 0) append(" ±${scan.ipv4JitterMs}ms")
-                            if (scan.ipv4SuccessRate in 0.01f..0.99f) append(" ${(scan.ipv4SuccessRate*100).toInt()}%")
-                        }
-                        scan.hasIpv4 -> "${scan.ipv4Address} • no answer on port"
-                        else -> trx("No A record")
-                    },
-                    tone = if (scan.ipv4Ok) Aether.Emerald else Aether.InkMuted
-                )
-                IpFamilyLine(
-                    label = trx("This network"),
-                    value = if (scan.underlayHasIpv6) {
-                        trx("Carries IPv6") + if (scan.underlayRttMs >= 0) " • ${scan.underlayRttMs}ms" else ""
-                    } else {
-                        trx("IPv4 only • no IPv6 route")
-                    },
-                    tone = if (scan.underlayHasIpv6) Aether.Cyan else Aether.Amber
-                )
-                IpFamilyLine(
-                    label = "Confidence",
-                    value = "${scan.confidence}% • ${scan.confidenceTier.name.lowercase()}${if (scan.dnsWitnesses > 0) " • ${scan.dnsWitnesses} witnesses" else ""}",
-                    tone = when {
-                        scan.confidence >= 80 -> Aether.Emerald
-                        scan.confidence >= 50 -> Aether.Cyan
-                        else -> Aether.Amber
-                    }
-                )
-                if (scan.bogonFiltered > 0) {
-                    IpFamilyLine(
-                        label = "Filtered",
-                        value = "${scan.bogonFiltered} bogon IPs dropped",
-                        tone = Aether.Danger
-                    )
-                }
-                IpFamilyLine(
-                    label = "Mode",
-                    value = scan.scanMode.lowercase() + if (scan.scanMode == "DEEP") " • full jitter & NAT64 check" else "",
-                    tone = Aether.InkMuted
-                )
-                if (scan.fasterFamily.isNotBlank()) {
-                    IpFamilyLine(
-                        label = trx("Faster"),
-                        value = if (scan.fasterFamily == "ipv6") "IPv6" else "IPv4",
-                        tone = Aether.Emerald
-                    )
-                }
-                Text(
-                    scan.advice,
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        },
-        confirmButton = {
-            MarbleDialogAction(
-                label = "Done",
-                tone = Aether.Cyan,
-                variant = PrismButtonVariant.Primary,
-                onClick = onDismiss
-            )
-        }
-    )
-}
-
-@Composable
-private fun IpFamilyLine(label: String, value: String, tone: Color) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            trx(label),
-            color = Aether.InkFaint,
-            style = MaterialTheme.typography.bodySmall
-        )
-        Text(
-            value,
-            color = tone,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 12.dp)
-        )
-    }
-}
-
-@Composable
-private fun IpFamilyGroupDialog(summary: IpFamilySummary, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Aether.VoidElevated,
-        shape = ServersCardShape,
-        title = {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(trx("Address family scan"), color = Aether.Ink)
-                Text(
-                    "${summary.ipv6Capable}/${summary.scanned} ${trx("IPv6-capable")}",
-                    color = if (summary.ipv6Capable > 0) Aether.Emerald else Aether.Amber,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpacing.XS)) {
-                IpFamilyLine(
-                    "Dual stack",
-                    summary.dual.toString(),
-                    if (summary.dual > 0) Aether.Emerald else Aether.InkMuted
-                )
-                IpFamilyLine(
-                    "IPv6 only",
-                    summary.ipv6Only.toString(),
-                    if (summary.ipv6Only > 0) Aether.Cyan else Aether.InkMuted
-                )
-                IpFamilyLine(
-                    "IPv4 only",
-                    summary.ipv4Only.toString(),
-                    if (summary.ipv4Only > 0) Aether.Amber else Aether.InkMuted
-                )
-                if (summary.ipv6Unproven > 0) {
-                    IpFamilyLine("IPv6 unproven", summary.ipv6Unproven.toString(), Aether.Amber)
-                }
-                if (summary.unreachable > 0) {
-                    IpFamilyLine("No answer", summary.unreachable.toString(), Aether.Danger)
-                }
-                if (summary.unknown > 0) {
-                    IpFamilyLine("Unresolved", summary.unknown.toString(), Aether.InkMuted)
-                }
-                if (summary.avgConfidence > 0) {
-                    IpFamilyLine(
-                        "Avg confidence",
-                        "${summary.avgConfidence}% • ${summary.highConfidence} high-conf",
-                        if (summary.avgConfidence >= 70) Aether.Emerald else Aether.Amber
-                    )
-                }
-                if (summary.nat64Count > 0) {
-                    IpFamilyLine("NAT64", "${summary.nat64Count} synthetic", Aether.Cyan)
-                }
-                Text(
-                    if (summary.ipv6Capable == 0) {
-                        trx(
-                            "No server in this group answered over IPv6, so Force IPv6 dials " +
-                                "them over IPv4 and keeps IPv6 for destinations."
-                        )
-                    } else {
-                        trx(
-                            "Servers marked v6 or v4+v6 can carry a strict IPv6 connection on " +
-                                "an IPv6-capable network."
-                        )
-                    },
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        },
-        confirmButton = {
-            MarbleDialogAction(
-                label = "Done",
-                tone = Aether.Cyan,
-                variant = PrismButtonVariant.Primary,
-                onClick = onDismiss
-            )
-        }
-    )
-}
+// MARBLE_FAMILY_SCAN_UI_RETIRED_V220 — the scan dialogs lived here; the tunnel still
+// resolves both families through IpFamilyScanner, but no page asks for a scan any more.
 
 @Composable
 private fun ServersMoveDialog(
@@ -9374,13 +9157,8 @@ private fun SettingsHubCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(
-                elevation = MarbleNativeSpec.CardElevationDp.dp,
-                shape = shape,
-                clip = false,
-                ambientColor = nativeShadow.ambient,
-                spotColor = nativeShadow.spot
-            )
+            // MARBLE_SETTINGS_FACELIFT_V220 — sub-page cards wear the same single contact shadow
+            // as the hub groups.
             .shadow(
                 elevation = MarbleNativeSpec.ContactElevationDp.dp,
                 shape = shape,
@@ -9453,7 +9231,9 @@ private fun SettingsHubRow(
             .fillMaxWidth()
             .heightIn(min = MarbleNativeSpec.RowTwoLineHeightDp.dp)
             .clip(shape)
-            .background(if (pressed) Aether.Ink.copy(alpha = .07f) else Color.Transparent)
+            // MARBLE_SETTINGS_FACELIFT_V220 — the press answers in the section's own tone instead
+            // of a grey wash borrowed from nowhere.
+            .background(if (pressed) tone.copy(alpha = .10f) else Color.Transparent)
             .kineticClickable(
                 role = Role.Button,
                 boundedShape = shape,
@@ -9489,13 +9269,18 @@ private fun SettingsHubRow(
                 if (badge.isNotBlank()) {
                     Text(
                         trx(badge),
-                        color = marbleNativeInkVariant(),
+                        color = marbleReadableOn(tone, marbleNativeCardFill(), 4.5f),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         modifier = Modifier
                             .clip(ServersBadgeShape)
-                            .background(marbleNativeContainerHigh())
+                            .background(tone.copy(alpha = if (homeCloudDark()) .20f else .11f))
+                            .border(
+                                1.dp,
+                                tone.copy(alpha = if (homeCloudDark()) .30f else .18f),
+                                ServersBadgeShape
+                            )
                             .padding(horizontal = 6.dp, vertical = 1.dp)
                     )
                 }
@@ -9521,11 +9306,18 @@ private fun SettingsHubRow(
         // MARBLE_AURORA_SURFACE_V219 — the row's disclosure is a 26 dp disc in the section's tone,
         // not a naked hairline chevron on the card fill: every Settings row now ends on an object,
         // and all of them agree.
+        // MARBLE_SETTINGS_FACELIFT_V220 — the disc grows its own rim so it reads as a control even
+        // on the lightest fills.
         Box(
             modifier = Modifier
                 .size(26.dp)
                 .clip(CircleShape)
-                .background(tone.copy(alpha = if (homeCloudDark()) .16f else .08f)),
+                .background(tone.copy(alpha = if (homeCloudDark()) .16f else .08f))
+                .border(
+                    1.dp,
+                    tone.copy(alpha = if (homeCloudDark()) .30f else .18f),
+                    CircleShape
+                ),
             contentAlignment = Alignment.Center
         ) {
             MarbleGlyphIcon(MarbleGlyph.CHEVRON, tone.copy(alpha = .85f), Modifier.size(13.dp))
@@ -9940,25 +9732,41 @@ private fun SettingsHub(
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
-            top = 6.dp,
+            top = 8.dp,
             bottom = dockClearance() + 20.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item(key = "hub-header") {
             // MARBLE_SETTINGS_HUB_TRIM_V163 — the title stands alone; the version lives on the
 
-            MarbleCompactTopBar(
-                title = "Settings",
-                subtitle = if (allOpen) {
-                    trx("All sections open")
-                } else {
-                    "$openCount / ${groups.size} " + trx("sections open")
-                },
-                actionLabel = if (allOpen) trx("Collapse all") else trx("Expand all"),
-                actionIcon = HomeIcon.CHEVRON,
-                onAction = { if (allOpen) onCollapseAll() else onExpandAll() }
-            )
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                MarbleCompactTopBar(
+                    title = "Settings",
+                    subtitle = if (allOpen) {
+                        trx("All sections open")
+                    } else {
+                        "$openCount / ${groups.size} " + trx("sections open")
+                    },
+                    actionLabel = if (allOpen) trx("Collapse all") else trx("Expand all"),
+                    actionIcon = HomeIcon.CHEVRON,
+                    onAction = { if (allOpen) onCollapseAll() else onExpandAll() }
+                )
+                // MARBLE_SETTINGS_FACELIFT_V220 — a slim meter under the title shows how much of
+                // the tree is open, so a collapsed hub no longer hides its own state.
+                LinearProgressIndicator(
+                    progress = { openCount.toFloat() / groups.size.coerceAtLeast(1).toFloat() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(999.dp)),
+                    color = Aether.Cyan,
+                    trackColor = Aether.Cyan.copy(alpha = .14f)
+                )
+            }
         }
 
         groups.forEachIndexed { index, group ->
@@ -10371,13 +10179,8 @@ private fun SettingsHubGroupCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(
-                elevation = MarbleNativeSpec.CardElevationDp.dp,
-                shape = shape,
-                clip = false,
-                ambientColor = groupShadow.ambient,
-                spotColor = groupShadow.spot
-            )
+            // MARBLE_SETTINGS_FACELIFT_V220 — one contact shadow tacks the group to the page; the
+            // old stacked pair is what ringed every group with weather.
             .shadow(
                 elevation = MarbleNativeSpec.ContactElevationDp.dp,
                 shape = shape,
@@ -10389,7 +10192,7 @@ private fun SettingsHubGroupCard(
             .background(marbleNativeCardFill())
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(group.tone.copy(alpha = if (dark) .06f else .035f), Color.Transparent),
+                    colors = listOf(group.tone.copy(alpha = if (dark) .07f else .045f), Color.Transparent),
                     startY = 0f,
                     endY = washEndPx
                 )
@@ -10402,8 +10205,8 @@ private fun SettingsHubGroupCard(
             .padding(
                 start = MarbleNativeSpec.CardPaddingDp.dp,
                 end = MarbleNativeSpec.CardPaddingDp.dp,
-                top = 13.dp,
-                bottom = 13.dp
+                top = 14.dp,
+                bottom = 14.dp
             ),
         verticalArrangement = Arrangement.spacedBy(if (expanded) 10.dp else 0.dp)
     ) {
@@ -10526,12 +10329,14 @@ private fun SettingsHubSubSectionCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(insetFill.copy(alpha = 0.65f))
-            .border(1.dp, subOutline.copy(alpha = 0.75f), shape)
+            // MARBLE_SETTINGS_FACELIFT_V220 — sub-sections sit one quiet step above the group fill
+            // instead of floating on their own heavy slab.
+            .background(insetFill.copy(alpha = 0.55f))
+            .border(1.dp, subOutline.copy(alpha = 0.6f), shape)
             .padding(
                 start = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 4.dp,
                 end = MarbleNativeSpec.RowPaddingHorizontalDp.dp - 4.dp,
-                top = 11.dp,
+                top = 12.dp,
                 bottom = 12.dp
             ),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -10541,24 +10346,16 @@ private fun SettingsHubSubSectionCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // MARBLE_AURORA_SURFACE_V219 — the section marker is a lit rail rather than a flat
-            // 3.5 dp bar: a tone gradient under a soft glow, so a sub-section heading has a light
-            // source instead of a coloured rectangle.
+            // MARBLE_SETTINGS_FACELIFT_V220 — the section marker is a quiet gradient rail. V219's
+            // 6 dp coloured glow around a 4 dp bar is exactly the kind of shadow this pass removes.
             Box(
                 Modifier
-                    .width(4.dp)
+                    .width(3.5.dp)
                     .height(18.dp)
-                    .shadow(
-                        elevation = 6.dp,
-                        shape = RoundedCornerShape(999.dp),
-                        clip = false,
-                        ambientColor = tone.copy(alpha = .55f),
-                        spotColor = tone.copy(alpha = .75f)
-                    )
                     .clip(RoundedCornerShape(999.dp))
                     .background(
                         Brush.verticalGradient(
-                            listOf(lerp(tone, Color.White, .34f), tone)
+                            listOf(lerp(tone, Color.White, .30f), tone.copy(alpha = .85f))
                         )
                     )
             )
@@ -11767,12 +11564,13 @@ private fun SettingsBrandHeader() {
         Box(
             modifier = Modifier
                 .size(48.dp)
+                // MARBLE_SHADOW_CALM_V220 — the brand tile glows; it no longer casts a tinted slab.
                 .shadow(
-                    elevation = 10.dp,
+                    elevation = 6.dp,
                     shape = RoundedCornerShape(16.dp),
                     clip = false,
-                    ambientColor = Aether.Cyan.copy(alpha = .40f),
-                    spotColor = Aether.Amethyst.copy(alpha = if (dark) .55f else .35f)
+                    ambientColor = Aether.Cyan.copy(alpha = .20f),
+                    spotColor = Aether.Amethyst.copy(alpha = if (dark) .28f else .18f)
                 )
                 .clip(RoundedCornerShape(16.dp))
                 .background(
@@ -12073,7 +11871,9 @@ private fun SpatialSettings(
     fun workspaceListState(tab: SettingsWorkspaceTab): LazyListState =
         workspaceListStates.getValue(tab)
 
-    var hubCollapsed by remember { mutableStateOf(emptySet<String>()) }
+    // MARBLE_SETTINGS_COLLAPSE_MEMORY_V220 — the hub opens the way the user left it: the collapsed
+    // keys are seeded from storage and every toggle writes back through the repository.
+    var hubCollapsed by remember { mutableStateOf(repo.settingsCollapsedGroups) }
 
     LaunchedEffect(page) {
         repo.rememberSettingsPage(page)
@@ -12119,9 +11919,21 @@ private fun SpatialSettings(
                 onNavigate = { page = it },
                 listState = hubListState,
                 collapsed = hubCollapsed,
-                onToggleGroup = { key -> hubCollapsed = SettingsHubPolicy.toggled(hubCollapsed, key) },
-                onExpandAll = { hubCollapsed = SettingsHubPolicy.expandAll() },
-                onCollapseAll = { hubCollapsed = SettingsHubPolicy.collapseAll(SettingsHubGroups.Keys) }
+                onToggleGroup = { key ->
+                    val next = SettingsHubPolicy.toggled(hubCollapsed, key)
+                    hubCollapsed = next
+                    repo.setSettingsGroupsCollapsed(next)
+                },
+                onExpandAll = {
+                    val next = SettingsHubPolicy.expandAll()
+                    hubCollapsed = next
+                    repo.setSettingsGroupsCollapsed(next)
+                },
+                onCollapseAll = {
+                    val next = SettingsHubPolicy.collapseAll(SettingsHubGroups.Keys)
+                    hubCollapsed = next
+                    repo.setSettingsGroupsCollapsed(next)
+                }
             )
 
             SettingsPages.isCard(target) -> SettingsCardPage(
@@ -12490,6 +12302,8 @@ private fun SettingsCardPage(
 
 @Composable
 private fun TextScaleChoice(repo: AppRepository) {
+    // MARBLE_UI_CUSTOM_SIZE_V220 — size is a slider with 5 % detents from 80 % to 140 %, plus the
+    // preset ladder for one-tap jumps. The readout and the preview line both wear the live size.
     val current = TextScale.clamp(repo.settings.textScalePercent)
     val tone = Aether.Amber
     Column(
@@ -12509,42 +12323,38 @@ private fun TextScaleChoice(repo: AppRepository) {
             Text(
                 "$current%",
                 color = tone,
-                style = settingsRowTitleStyle()
+                style = settingsRowTitleStyle(),
+                fontWeight = FontWeight.Bold
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            TextScale.STEPS.forEach { step ->
-                val selected = step == current
-                val shape = RoundedCornerShape(14.dp)
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(shape)
-                        .background(
-                            if (selected) tone.copy(alpha = .18f) else Aether.Glass.copy(alpha = .42f)
-                        )
-                        .border(
-                            1.dp,
-                            if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
-                            shape
-                        )
-                        .kineticClickable(role = Role.Button, boundedShape = shape) {
-                            repo.updateSettings(repo.settings.copy(textScalePercent = step))
-                        }
-                        .padding(vertical = 10.dp)
-                        .semantics { contentDescription = "Text size $step%" },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "$step%",
-                        color = if (selected) tone else Aether.InkMuted,
-                        style = settingsBodyStyle(),
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        maxLines = 1
+        Slider(
+            value = current.toFloat(),
+            onValueChange = { repo.updateSettings(repo.settings.copy(textScalePercent = TextScale.snapped(it.roundToInt()))) },
+            valueRange = TextScale.MIN_PERCENT.toFloat()..TextScale.MAX_PERCENT.toFloat(),
+            steps = (TextScale.MAX_PERCENT - TextScale.MIN_PERCENT) / TextScale.SLIDER_STEP_PERCENT - 1,
+            colors = SliderDefaults.colors(
+                thumbColor = tone,
+                activeTrackColor = tone,
+                inactiveTrackColor = tone.copy(alpha = .20f)
+            ),
+            modifier = Modifier.semantics { contentDescription = "Text size $current%" }
+        )
+        TextScale.STEPS.chunked(4).forEach { rowSteps ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                rowSteps.forEach { step ->
+                    TextScalePresetChip(
+                        step = step,
+                        selected = step == current,
+                        tone = tone,
+                        modifier = Modifier.weight(1f),
+                        onPick = { repo.updateSettings(repo.settings.copy(textScalePercent = step)) }
                     )
+                }
+                repeat((4 - rowSteps.size).coerceAtLeast(0)) {
+                    Spacer(Modifier.weight(1f))
                 }
             }
         }
@@ -12552,6 +12362,41 @@ private fun TextScaleChoice(repo: AppRepository) {
             trx("Applies to every screen, and takes effect at once."),
             color = Aether.InkFaint,
             style = settingsBodyStyle()
+        )
+    }
+}
+
+@Composable
+private fun TextScalePresetChip(
+    step: Int,
+    selected: Boolean,
+    tone: Color,
+    modifier: Modifier = Modifier,
+    onPick: () -> Unit
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(
+                if (selected) tone.copy(alpha = .18f) else Aether.Glass.copy(alpha = .42f)
+            )
+            .border(
+                1.dp,
+                if (selected) tone.copy(alpha = .58f) else Aether.GlassBorderSoft.copy(alpha = .5f),
+                shape
+            )
+            .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onPick)
+            .padding(vertical = 10.dp)
+            .semantics { contentDescription = "Text size $step%" },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            "$step%",
+            color = if (selected) tone else Aether.InkMuted,
+            style = settingsBodyStyle(),
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1
         )
     }
 }
@@ -13666,9 +13511,8 @@ private fun DnsSettings(repo: AppRepository) {
         if (!repo.settings.strictAddressFamily) {
             Text(
                 trx(
-                    "Marble scans each server for IPv4 and IPv6 (Servers → ⋯ → Scan IPv4 / IPv6) " +
-                        "and falls back automatically, so a forced family never blocks a " +
-                        "connection on its own."
+                    "Marble resolves both families for each server and falls back automatically, " +
+                        "so a forced family never blocks a connection on its own."
                 ),
                 color = Aether.InkMuted,
                 style = MaterialTheme.typography.bodySmall

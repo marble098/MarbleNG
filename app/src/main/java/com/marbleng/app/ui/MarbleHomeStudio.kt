@@ -585,11 +585,12 @@ internal fun ConnectButtonStream(
             modifier = modifier
                 .fillMaxWidth()
                 .height(68.dp)
+                // MARBLE_SHADOW_CALM_V220 — the studio rail floats on half the shadow it had.
                 .shadow(
-                    elevation = 14.dp,
+                    elevation = 8.dp,
                     shape = shape,
-                    ambientColor = animatedTone.copy(alpha = .18f),
-                    spotColor = animatedTone.copy(alpha = .26f)
+                    ambientColor = animatedTone.copy(alpha = .10f),
+                    spotColor = animatedTone.copy(alpha = .16f)
                 )
                 .clip(shape)
                 .background(Aether.VoidElevated)
@@ -734,12 +735,14 @@ internal fun ConnectButtonFloating(
             modifier = Modifier
                 .size(76.dp)
                 .marblePopWhen(evidence.connected, peak = 1.06f)
+                // MARBLE_SHADOW_CALM_V220 — the studio disc keeps its glow ring; the 18 dp slab
+                // under it is gone.
                 .shadow(
-                    elevation = 18.dp,
+                    elevation = 10.dp,
                     shape = CircleShape,
                     clip = false,
-                    ambientColor = animatedTone.copy(alpha = .24f),
-                    spotColor = animatedTone.copy(alpha = .34f)
+                    ambientColor = animatedTone.copy(alpha = .14f),
+                    spotColor = animatedTone.copy(alpha = .20f)
                 )
                 .clip(CircleShape)
                 .background(Aether.VoidElevated)

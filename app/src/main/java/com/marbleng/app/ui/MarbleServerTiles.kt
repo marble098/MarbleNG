@@ -118,8 +118,8 @@ internal fun ServerTile(
     locationProvisional: Boolean,
     modifier: Modifier = Modifier,
 
-    familyChip: String? = null,
-    familyTone: Color? = null,
+    // MARBLE_FAMILY_SCAN_UI_RETIRED_V220 — the address-family chip is gone with the scan UI it
+    // reported: the tile answers selection, connection and latency, and nothing else.
     trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
@@ -188,7 +188,10 @@ internal fun ServerTile(
             .fillMaxWidth()
             .fillMaxHeight()
             .heightIn(min = MarbleNativeSpec.RowTwoLineHeightDp.dp + 16.dp)
-            .marbleSurfaceDepth(shape = shape, fill = fill, rim = rim, lifted = active || selected)
+            // MARBLE_SHADOW_CALM_V220 — selecting a tile re-tints it but never re-lifts it: only the
+            // tile carrying traffic stands above the page, so moving the selection does not move
+            // shadows around.
+            .marbleSurfaceDepth(shape = shape, fill = fill, rim = rim, lifted = active)
             .kineticClickable(role = Role.Button, boundedShape = shape, onClick = onClick)
             .semantics {
                 contentDescription = listOfNotNull(
@@ -255,9 +258,6 @@ internal fun ServerTile(
                 modifier = Modifier.weight(1f)
             )
 
-            if (familyChip != null && familyTone != null) {
-                ServerStateChip(trx(familyChip), familyTone)
-            }
             ServerPingStat(
                 latencyMs = latency,
                 measured = measured != null,

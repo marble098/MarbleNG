@@ -42,58 +42,62 @@ import kotlinx.coroutines.isActive
 import kotlin.math.PI
 import kotlin.math.cos
 
+// MARBLE_SMOOTH_MOTION_V220 — every spring in this table is tuned for glide, not bounce: damping
+// ratios near or at critical, stiffnesses low enough that a mid-range phone holds 60 fps while a
+// card, a switch and a stagger all move at once. Colours are critically damped on purpose — a hue
+// that overshoots its target reads as a flicker, never as physics.
 object MarbleMotionSpecs {
     val InteractionFloat: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .68f,
-        stiffness = 980f
+        dampingRatio = .80f,
+        stiffness = 850f
     )
     val ResponseFloat: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .76f,
-        stiffness = 620f
+        dampingRatio = .85f,
+        stiffness = 520f
     )
     val ExitFloat: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .92f,
-        stiffness = 820f
-    )
-    val ProgressFloat: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .82f,
-        stiffness = 520f
-    )
-    val Color: FiniteAnimationSpec<Color> = spring(
-        dampingRatio = .90f,
-        stiffness = 560f
-    )
-
-    val DockColor: FiniteAnimationSpec<Color> = tween(180)
-
-    val DockFloat: FiniteAnimationSpec<Float> = tween(180)
-    val DockDp: FiniteAnimationSpec<Dp> = tween(180)
-    val Dp: FiniteAnimationSpec<Dp> = spring(
-        dampingRatio = .74f,
-        stiffness = 650f
-    )
-    val Spatial: FiniteAnimationSpec<IntOffset> = spring(
-        dampingRatio = .79f,
-        stiffness = 520f
-    )
-    val SpatialExit: FiniteAnimationSpec<IntOffset> = spring(
-        dampingRatio = .93f,
+        dampingRatio = .95f,
         stiffness = 700f
     )
+    val ProgressFloat: FiniteAnimationSpec<Float> = spring(
+        dampingRatio = .90f,
+        stiffness = 450f
+    )
+    val Color: FiniteAnimationSpec<Color> = spring(
+        dampingRatio = 1f,
+        stiffness = 420f
+    )
+
+    val DockColor: FiniteAnimationSpec<Color> = tween(200)
+
+    val DockFloat: FiniteAnimationSpec<Float> = tween(200)
+    val DockDp: FiniteAnimationSpec<Dp> = tween(200)
+    val Dp: FiniteAnimationSpec<Dp> = spring(
+        dampingRatio = .85f,
+        stiffness = 550f
+    )
+    val Spatial: FiniteAnimationSpec<IntOffset> = spring(
+        dampingRatio = .88f,
+        stiffness = 480f
+    )
+    val SpatialExit: FiniteAnimationSpec<IntOffset> = spring(
+        dampingRatio = .95f,
+        stiffness = 620f
+    )
     val Layout: FiniteAnimationSpec<IntSize> = spring(
-        dampingRatio = .84f,
-        stiffness = 560f
+        dampingRatio = .90f,
+        stiffness = 480f
     )
     val HeroFloat: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .70f,
-        stiffness = 430f
+        dampingRatio = .82f,
+        stiffness = 380f
     )
 
     val FabLift: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .68f,
-        stiffness = 1500f
+        dampingRatio = .80f,
+        stiffness = 1200f
     )
-    val QuickReveal: FiniteAnimationSpec<Float> = tween(120)
+    val QuickReveal: FiniteAnimationSpec<Float> = tween(140)
     val QuickExit: FiniteAnimationSpec<Float> = tween(80)
 }
 
@@ -239,8 +243,10 @@ fun Modifier.kineticClickable(
         },
         label = "kinetic-press-scale"
     )
+    // MARBLE_SMOOTH_MOTION_V220 — the press answers with scale, not travel: the old 1.6 px drop
+    // read as the layout jumping under the finger on dense pages.
     val lift by animateFloatAsState(
-        targetValue = if (enabled && pressed && animates) 1.6f else 0f,
+        targetValue = if (enabled && pressed && animates) 0.6f else 0f,
         animationSpec = when {
             !animates -> snap()
             pressed -> MarbleMotionSpecs.InteractionFloat

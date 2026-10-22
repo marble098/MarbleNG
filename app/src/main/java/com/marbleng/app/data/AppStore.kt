@@ -255,6 +255,16 @@ class AppStore(context: Context) {
             .putStringSet("libraryCollapsedSources", collapsed)
             .apply()
 
+    // MARBLE_SETTINGS_COLLAPSE_MEMORY_V220 — which Settings hub groups the user closed. An
+    // untouched install reads an empty set, so every group starts open exactly as before.
+    fun settingsCollapsedGroups(): Set<String> =
+        (prefs.getStringSet("settingsCollapsedGroups", emptySet()) ?: emptySet()).toSet()
+
+    fun setSettingsCollapsedGroups(collapsed: Set<String>) =
+        prefs.edit()
+            .putStringSet("settingsCollapsedGroups", collapsed)
+            .apply()
+
     fun lastAppTab(): String = prefs.getString("lastAppTab", "DECK")
         ?.trim()
         .orEmpty()

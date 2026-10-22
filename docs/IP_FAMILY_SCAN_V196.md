@@ -198,3 +198,11 @@ Wiring: `MarbleIntelligence.effectiveSettings` / `.familyResolution` / `.ipFamil
 `MarbleVpnService.profileCompatibilityIssue`, `BugFinder` (*DNS name faults*), and the Servers
 page (`ServersNodeMenu`, `ServersGroupMenu`, row chip, `IpFamilyScanDialog`,
 `IpFamilyGroupDialog`).
+
+## 8. V220 — the scan UI is retired (`MARBLE_FAMILY_SCAN_UI_RETIRED_V220`)
+
+The measurement backend in this chapter (the scanner, the ladder, the domain-fault policy, the
+store, the repository entry points) still serves the tunnel and keeps every pin it ever had. What
+is gone is the surface: no page offers **Scan IPv4 / IPv6** any more, the scan dialogs are removed,
+and neither the server row nor the server box draws a family chip. The ladder keeps resolving both
+families for every dial — it just no longer asks the user to watch it measure.

@@ -7,35 +7,32 @@ import java.io.File
 
 class ServerTileParityV212Test {
     @Test
-    fun theCompactBoxTakesTheSameFactsAndTheSameMenuAsTheRow() {
+    fun theCompactBoxTakesTheSameMenuAsTheRowAndNoFamilyChip() {
+        // MARBLE_FAMILY_SCAN_UI_RETIRED_V220 — the address-family chip retired with the scan UI it
+        // reported: parity is now about the shared menu, and no silhouette may draw the chip.
         val tiles = sourceFile("src/main/java/com/marbleng/app/ui/MarbleServerTiles.kt")
-        assertTrue(
-            "the tile no longer has a slot for the measured address family",
-            tiles.contains("familyChip: String? = null")
-        )
         assertTrue(
             "the tile no longer has a slot for the page's own menu",
             tiles.contains("trailing: (@Composable () -> Unit)? = null")
         )
-        assertTrue(
-            "the family verdict is drawn, not just accepted",
-            tiles.contains("ServerStateChip(trx(familyChip), familyTone)")
-        )
+        assertTrue("a family chip slot survived on the tile", !tiles.contains("familyChip"))
+        assertTrue("a family tone slot survived on the tile", !tiles.contains("familyTone"))
 
         val ui = sourceFile("src/main/java/com/marbleng/app/ui/Aether2026.kt")
         val home = sourceFile("src/main/java/com/marbleng/app/ui/MarbleHomeStyles.kt")
 
-        assertTrue("the Servers grid lost the family chip", ui.contains("familyChip = familyScan?.chip"))
-        assertTrue("the Home grid lost the family chip", home.contains("familyChip = familyScan?.chip"))
+        assertTrue(!ui.contains("familyChip = familyScan?.chip"))
+        assertTrue(!home.contains("familyChip = familyScan?.chip"))
+        assertTrue("a scan menu action survived", !ui.contains("SCAN_FAMILY"))
+        assertTrue("a scan menu label survived", !ui.contains("Scan IPv4 / IPv6"))
+        assertTrue("a scan dialog survived", !ui.contains("IpFamilyScanDialog("))
+        assertTrue("a scan group dialog survived", !ui.contains("IpFamilyGroupDialog("))
+        assertTrue("a family chip tone survived", !ui.contains("familyChipTone("))
 
         assertTrue("the grid no longer composes the server menu", ui.contains("ServersNodeMenu("))
         assertTrue(
             "the menu is no longer shared, so the two layouts can drift apart again",
             ui.contains("internal fun ServersNodeMenu(")
-        )
-        assertTrue(
-            "the family colour is no longer shared between the two silhouettes",
-            ui.contains("internal fun familyChipTone(")
         )
     }
 
