@@ -54,6 +54,7 @@ class SingBoxManager(private val context: Context) {
         lastStartStrategy = ""
         lastStartReadiness = null
         lastStartPhase = "config"
+        val failStartNs = System.nanoTime()
         try {
             check(isInstalled) { "core-install: sing-box extended is missing from this APK" }
 
@@ -78,6 +79,7 @@ class SingBoxManager(private val context: Context) {
             val builds = candidates(profile, settings, port, controller, secret, false)
             lastStartPhase = "check-and-start"
 
+            val coreStartNs = System.nanoTime()
             val started = openFirst(
                 candidates = builds,
                 configFile = File(context.filesDir, "runtime-singbox.json"),
@@ -91,7 +93,8 @@ class SingBoxManager(private val context: Context) {
                 requireController = false,
                 settleMs = LIVE_SETTLE_MS
             )
-            val readiness = started.first.readiness
+            val coreStartElapsedMs = ((System.nanoTime() - coreStartNs) / 1_000_000L).coerceAtLeast(0L)
+            val readiness = started.first.readiness.copy(elapsedMs = coreStartElapsedMs)
             lastStartStrategy = started.second.strategy
             lastStartReadiness = readiness
             lastSelfHealNotes = started.second.notes + if (readiness.controllerMissing) {
@@ -121,6 +124,14 @@ class SingBoxManager(private val context: Context) {
             }
             lastStartError = explain(message)
             lastStartPhase = "failed"
+            val failElapsedMs = ((System.nanoTime() - failStartNs) / 1_000_000L).coerceAtLeast(0L)
+            lastStartReadiness = StartReadiness(
+                inboundUp = false,
+                controllerUp = false,
+                controllerAwaited = false,
+                phase = "failed",
+                elapsedMs = failElapsedMs
+            )
             return false
         }
     }
