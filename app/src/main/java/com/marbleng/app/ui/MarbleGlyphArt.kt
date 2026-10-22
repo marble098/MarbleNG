@@ -119,7 +119,8 @@ internal fun marbleGlyphStrokePx(iconSizePx: Float, weight: Float = 1f): Float =
 internal fun DrawScope.drawMarbleGlyph(
     glyph: MarbleGlyph,
     tint: Color,
-    weight: Float = 1f
+    weight: Float = 1f,
+    mirror: Boolean = false
 ) {
     val minSide = size.minDimension
     if (minSide <= 0f) return
@@ -197,10 +198,13 @@ internal fun DrawScope.drawMarbleGlyph(
 
     // Everything below is authored in grid units; the transform does the scaling and the centring.
     translate(
-        left = (size.width - minSide) / 2f,
+        // A mirrored glyph is the same drawing reflected about the grid's centre line: the scale is
+        // negated and the whole grid is shifted one side over, so a back arrow or a disclosure
+        // chevron points the way the reader reads without a second path being authored.
+        left = (size.width - minSide) / 2f + (if (mirror) minSide else 0f),
         top = (size.height - minSide) / 2f
     ) {
-        scale(unit, unit, pivot = Offset.Zero) {
+        scale(if (mirror) -unit else unit, unit, pivot = Offset.Zero) {
             when (glyph) {
                 MarbleGlyph.HOME -> {
                     drawPath(path(3f to 10.8f, 12f to 3.4f, 21f to 10.8f), tint, style = stroke)
@@ -314,19 +318,19 @@ internal fun DrawScope.drawMarbleGlyph(
 
                 MarbleGlyph.REFRESH -> {
                     arc(12f, 12.4f, 7.6f, 42f, 278f)
-                    drawPath(path(18.4f, 3.8f, 19.4f, 10.2f, 13.2f, 9.4f), tint, style = fine)
+                    drawPath(path(18.4f to 3.8f, 19.4f to 10.2f, 13.2f to 9.4f), tint, style = fine)
                 }
 
                 MarbleGlyph.ARROW_BACK -> {
                     line(20.2f, 12f, 9.8f, 12f)
-                    drawPath(path(14.8f, 5.6f, 8.4f, 12f, 14.8f, 18.4f), tint, style = stroke)
+                    drawPath(path(14.8f to 5.6f, 8.4f to 12f, 14.8f to 18.4f), tint, style = stroke)
                 }
 
                 MarbleGlyph.CHEVRON ->
-                    drawPath(path(9.4f, 5.6f, 15.8f, 12f, 9.4f, 18.4f), tint, style = stroke)
+                    drawPath(path(9.4f to 5.6f, 15.8f to 12f, 9.4f to 18.4f), tint, style = stroke)
 
                 MarbleGlyph.CHECK ->
-                    drawPath(path(4.8f, 12.4f, 9.8f, 17.4f, 19.2f, 6.8f), tint, style = stroke)
+                    drawPath(path(4.8f to 12.4f, 9.8f to 17.4f, 19.2f to 6.8f), tint, style = stroke)
 
                 MarbleGlyph.CLOSE -> {
                     line(6.6f, 6.6f, 17.4f, 17.4f)
@@ -347,7 +351,7 @@ internal fun DrawScope.drawMarbleGlyph(
                         tint,
                         style = stroke
                     )
-                    drawPath(path(8.8f, 11.8f, 11.4f, 14.2f, 15.6f, 9.4f), soft, style = fine)
+                    drawPath(path(8.8f to 11.8f, 11.4f to 14.2f, 15.6f to 9.4f), soft, style = fine)
                 }
 
                 MarbleGlyph.ROUTE -> {
@@ -442,8 +446,8 @@ internal fun DrawScope.drawMarbleGlyph(
                         tint,
                         style = stroke
                     )
-                    drawPath(path(3.6f, 12f, 12f, 16.4f, 20.4f, 12f), soft, style = fine)
-                    drawPath(path(3.6f, 16.2f, 12f, 20.6f, 20.4f, 16.2f), soft, style = fine)
+                    drawPath(path(3.6f to 12f, 12f to 16.4f, 20.4f to 12f), soft, style = fine)
+                    drawPath(path(3.6f to 16.2f, 12f to 20.6f, 20.4f to 16.2f), soft, style = fine)
                 }
 
                 MarbleGlyph.LINK -> {
@@ -468,7 +472,7 @@ internal fun DrawScope.drawMarbleGlyph(
                 }
 
                 MarbleGlyph.FONT -> {
-                    drawPath(path(5.4f, 19.6f, 11f, 4.4f, 13f, 4.4f, 18.6f, 19.6f), tint, style = stroke)
+                    drawPath(path(5.4f to 19.6f, 11f to 4.4f, 13f to 4.4f, 18.6f to 19.6f), tint, style = stroke)
                     line(8.2f, 14f, 15.8f, 14f)
                 }
 
@@ -565,13 +569,13 @@ internal fun DrawScope.drawMarbleGlyph(
 
                 MarbleGlyph.DOWNLOAD -> {
                     line(12f, 3.8f, 12f, 15.2f)
-                    drawPath(path(7.4f, 10.6f, 12f, 15.4f, 16.6f, 10.6f), tint, style = stroke)
+                    drawPath(path(7.4f to 10.6f, 12f to 15.4f, 16.6f to 10.6f), tint, style = stroke)
                     line(4.6f, 19.4f, 19.4f, 19.4f)
                 }
 
                 MarbleGlyph.UPLOAD -> {
                     line(12f, 15.6f, 12f, 4.2f)
-                    drawPath(path(7.4f, 8.8f, 12f, 4f, 16.6f, 8.8f), tint, style = stroke)
+                    drawPath(path(7.4f to 8.8f, 12f to 4f, 16.6f to 8.8f), tint, style = stroke)
                     line(4.6f, 19.4f, 19.4f, 19.4f)
                 }
             }

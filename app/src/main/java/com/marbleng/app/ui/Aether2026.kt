@@ -1590,6 +1590,49 @@ private fun marbleGlyphFor(icon: HomeIcon): MarbleGlyph = when (icon) {
 }
 
 /**
+ * MARBLE_AURORA_SURFACE_V219 — the small glyph chip a Settings row shows on its trailing edge.
+ *
+ * A row used to end on a 22 dp naked outline beside a two-line label, which left the eye with no
+ * shape to land on. The chip is a 30 dp squircle in the row's own tone — the same three layers as
+ * [MarbleGlyphTile] (tone wash, lit rim, one glyph) at the size a row can afford, and no shadow,
+ * because a 30 dp chip that casts one is noise.
+ */
+@Composable
+private fun SettingsRowGlyphPreview(icon: HomeIcon, tone: Color) {
+    val shape = RoundedCornerShape(10.dp)
+    val dark = homeCloudDark()
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .clip(shape)
+            .background(tone.copy(alpha = if (dark) .22f else .12f))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = if (dark) .14f else .30f),
+                        Color.Transparent
+                    ),
+                    start = Offset.Zero,
+                    end = Offset(48f, 48f)
+                )
+            )
+            .border(
+                width = 1.dp,
+                brush = Brush.verticalGradient(
+                    listOf(
+                        lerp(tone, Color.White, if (dark) .32f else .46f).copy(alpha = .60f),
+                        tone.copy(alpha = if (dark) .28f else .16f)
+                    )
+                ),
+                shape = shape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        MarbleGlyphIcon(marbleGlyphFor(icon), tone, Modifier.size(17.dp))
+    }
+}
+
+/**
  * MARBLE_AURORA_SURFACE_V219 — the legacy entry point, now a thin alias.
  *
  * Every call site in the app (page headers, rows, chips, the deck) goes through this, so the whole
