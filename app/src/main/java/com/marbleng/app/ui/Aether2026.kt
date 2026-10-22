@@ -11123,8 +11123,8 @@ private fun TunnelEngineOptions(repo: AppRepository) {
 
     Text(
         trx(
-            "The tunnel engine moves packets between the Android TUN device and the proxy core's " +
-                "local SOCKS port. Switching it closes the tunnel; reconnect to run the new one."
+            "The tunnel engine carries the Android TUN device to the proxy core's local SOCKS " +
+                "port, and switching it closes the tunnel — reconnect to run the new one"
         ),
         color = Aether.InkMuted,
         style = settingsBodyStyle()
