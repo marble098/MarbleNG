@@ -1840,7 +1840,8 @@ fi
         CGO_ENABLED=0 \
         go test \
             ./protocol/direct \
-            ./route &&
+            ./route \
+            ./dns/transport/dhcp &&
 
     env \
         GOTOOLCHAIN=auto \

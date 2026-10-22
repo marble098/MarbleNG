@@ -11,6 +11,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
@@ -36,39 +37,92 @@ jobs:
           [[ "$(jq -r '.singbox.commit' core-lock.json)" =~ ^[0-9a-f]{40}$ ]]
           [[ -n "$(jq -r '.singbox.patch // empty' core-lock.json)" ]]
           jq -e '.singbox.sha256 | length == 1' core-lock.json
+      - name: Clone resolved Xray, HEV and sing-box sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/core-updater-smoke"
+          rm -rf "$WORK"
+          mkdir -p "$WORK"
+
+          XRAY_REPO="$(jq -r '.xray.repo' core-lock.json)"
+          XRAY_TAG="$(jq -r '.xray.tag' core-lock.json)"
+          HEV_REPO="$(jq -r '.hev.repo' core-lock.json)"
+          HEV_TAG="$(jq -r '.hev.tag' core-lock.json)"
+          SINGBOX_REPO="$(jq -r '.singbox.repo' core-lock.json)"
+          SINGBOX_TAG="$(jq -r '.singbox.tag' core-lock.json)"
+          SINGBOX_COMMIT="$(jq -r '.singbox.commit' core-lock.json)"
+
+          git clone --quiet --depth 1 --branch "$XRAY_TAG" \
+            "https://github.com/${XRAY_REPO}.git" "$WORK/xray"
+          git clone --quiet --depth 1 --branch "$HEV_TAG" \
+            "https://github.com/${HEV_REPO}.git" "$WORK/hev"
+          git clone --quiet --depth 1 --branch "$SINGBOX_TAG" \
+            "https://github.com/${SINGBOX_REPO}.git" "$WORK/singbox"
+
+          test "$(git -C "$WORK/singbox" rev-parse HEAD)" = "$SINGBOX_COMMIT"
+          test -s "$WORK/xray/go.mod"
+
+          # Prove HEV's upstream JNI glue anchor still matches prepare-native.sh.
+          test -f "$WORK/hev/src/hev-jni.c"
+          grep -q 'JNI_OnLoad' "$WORK/hev/src/hev-jni.c"
+          grep -q 'hev/htproxy' "$WORK/hev/src/hev-jni.c"
+
+          # Prove Xray's source patches and Rank command anchor still apply.
+          cp native/rankhelper/main.go "$WORK/xray/main/marble_rank.go"
+          python3 scripts/inject-xray-realtime.py "$WORK/xray"
+          python3 scripts/inject-xray-config-superset.py "$WORK/xray"
+          python3 - "$WORK/xray/main/main.go" <<'PYXRAY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          source = path.read_text(encoding="utf-8")
+          old = "\t\t\tcmdRun,\n\t\t\tcmdVersion,\n"
+          if source.count(old) != 1:
+              raise SystemExit("Pinned Xray command anchor changed")
+          PYXRAY
+      - name: Set up the resolved Xray Go toolchain
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: "${{ runner.temp }}/core-updater-smoke/xray/go.mod"
+          cache: false
       - name: Prove the Android crash backport still applies
         shell: bash
         run: |
           set -euo pipefail
           # This job pushes straight to main. A newer sing-box tag whose source moved one of the
-          # backport anchors would make every release build die inside prepare-native.sh, minutes
-          # into a four-ABI compile. Dry-running the injector here turns that into a one-minute
-          # failure in the updater, and keeps the lock honest about what it pins.
+          # backport anchors — or changed a Go signature the injected tests call — would make every
+          # release build die inside prepare-native.sh, minutes into a four-ABI compile. Running
+          # both injectors AND compiling their Go regression tests under the resolved Xray's Go
+          # toolchain turns that into a fast failure in the updater and keeps the lock honest.
           #
-          # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161: the Go 1.27 force-close injector is dry-run
-          # here for the same reason. Its anchors are the ones a newer fork tag is most likely to
-          # move (it deletes a linkname block out of v2rayxhttp/dialer.go), and the Xray pin this
-          # same job resolves decides the toolchain that makes that block fatal — a bump of either
-          # pin can break the release build, so both injectors have to keep applying.
-          REPO="$(jq -r '.singbox.repo' core-lock.json)"
+          # MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161: the Go 1.27 force-close injector and its
+          # badlinkname link pin run here for the same reason — the Xray pin this same job resolves
+          # decides the Go toolchain that links sing-box in release builds.
           TAG="$(jq -r '.singbox.tag' core-lock.json)"
           COMMIT="$(jq -r '.singbox.commit' core-lock.json)"
-          WORK="$(mktemp -d)"
-          trap 'rm -rf "$WORK"' EXIT
-
-          git clone --quiet --depth 1 --branch "$TAG" \
-            "https://github.com/${REPO}.git" "$WORK/singbox"
-
-          test "$(git -C "$WORK/singbox" rev-parse HEAD)" = "$COMMIT"
+          WORK="$RUNNER_TEMP/core-updater-smoke"
 
           python3 scripts/inject-singbox-android-fix.py "$WORK/singbox"
           python3 scripts/inject-singbox-go127-fix.py "$WORK/singbox"
 
-          echo "Backports apply cleanly to $TAG ($COMMIT)."
-          echo "MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161: since v1.14.1-extended-2.7.2 the"
-          echo "fork ships the force-close split itself (common/force_close); the injector"
-          echo "then verifies it instead of patching, and a future tag that moves either"
-          echo "the dispatch or the variant files fails right here, in the updater."
+          # Second run proves idempotence.
+          python3 scripts/inject-singbox-android-fix.py "$WORK/singbox" | grep -E 'already patched|already verified'
+          python3 scripts/inject-singbox-go127-fix.py "$WORK/singbox" | grep -E 'already patched|already verified'
+
+          (
+            cd "$WORK/singbox"
+            env GOTOOLCHAIN=auto CGO_ENABLED=0 \
+              go test ./protocol/direct ./route ./dns/transport/dhcp
+
+            FORCE_CLOSE_PKGS=(./transport/v2rayxhttp)
+            if [[ -d common/force_close ]]; then FORCE_CLOSE_PKGS+=(./common/force_close); fi
+            env GOTOOLCHAIN=auto CGO_ENABLED=0 \
+              go test -tags badlinkname -ldflags "-checklinkname=0" "${FORCE_CLOSE_PKGS[@]}"
+          )
+
+          echo "Backports apply and Go regression/link pins pass on $TAG ($COMMIT)."
       - name: Commit only when tags changed
         run: |
           if git diff --quiet -- core-lock.json; then echo 'No core update.'; exit 0; fi

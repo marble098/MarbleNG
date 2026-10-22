@@ -258,7 +258,7 @@ jobs:
             python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-go127-fix.py" "$SB_TMP" | grep -E 'already patched|already verified'
 
             # The injected crash regression tests (nil interface monitor).
-            env GOTOOLCHAIN=auto CGO_ENABLED=0 go test ./protocol/direct ./route
+            env GOTOOLCHAIN=auto CGO_ENABLED=0 go test ./protocol/direct ./route ./dns/transport/dhcp
 
             # The MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 link pin: compiles AND links
             # the force-close variant the running toolchain selects, with the same

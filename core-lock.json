@@ -6,18 +6,18 @@
   },
   "hev": {
     "repo": "heiher/hev-socks5-tunnel",
-    "tag": "2.19.0",
+    "tag": "2.19.1",
     "channel": "beta"
   },
   "singbox": {
     "repo": "shtorm-7/sing-box-extended",
-    "tag": "v1.14.1-extended-2.7.2",
-    "commit": "55faa763f986f4ca8a492d9b2719bc6330d2bef5",
+    "tag": "v1.14.3-extended-2.7.3",
+    "commit": "d9442d14b19ddd02605bf3ee893a171947038e19",
     "channel": "beta",
     "patch": "crash-fix.1",
     "sha256": {
-      "sing-box-1.14.1-extended-2.7.2-linux-amd64.tar.gz": "c57646ac53e793559d736dce9cba12dbf6845d187b0bfd8c3aacf61a4328941d"
+      "sing-box-1.14.3-extended-2.7.3-linux-amd64.tar.gz": "c9fd27564d55b6abc7b21c9fdd1e29dee4834e034aeb6b7b8255055bff46a3f5"
     }
   },
-  "updated": "2026-10-21"
+  "updated": "2026-10-22"
 }
