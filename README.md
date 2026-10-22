@@ -363,9 +363,9 @@ and the kill switch held the old TUN, so the screen read `BLOCKED • Kill switc
 after server. A transport preference that produces an outage is a defect, so it now walks a
 ladder — **IPv6 strict → IPv6 first → IPv4 dial with IPv6 kept for destinations → an honest
 refusal that names the alternative** — decided once, inside the one function the tunnel, the delay
-test, the ranking pool and every prober share. Servers → ⋯ → **Scan IPv4 / IPv6** (per server, or
-per group from the header) measures the fact the ladder needs: encrypted DoH for A/AAAA, then a
-real bounded TCP connect per family, cached per endpoint *and* per physical network. The same
+test, the ranking pool and every prober share. The ladder measures the fact it needs itself:
+encrypted DoH for A/AAAA, then a real bounded TCP connect per family, cached per endpoint *and*
+per physical network (the manual scan buttons retired in V220; the measurement stayed). The same
 chapter covers `DnsDomainFaultPolicy`: two independent healthy resolvers timing out on one name is
 a fact about that name, not a resolver storm, and it no longer demotes providers or arms parallel
 racing.

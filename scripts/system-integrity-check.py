@@ -3044,16 +3044,25 @@ check(
     and "fun scanIpFamily(" in files["repo"]
     and "fun scanIpFamilyForProfiles(" in files["repo"],
 )
+# MARBLE_FAMILY_SCAN_UI_RETIRED_V220 — the scan UI is retired by product decision: no page may
+# offer a scan, report a verdict or draw a family chip. The measurement backend (IpFamilyScanner,
+# the ladder, the store, the repository entry points) still serves the tunnel and keeps its own
+# pins; only the surface is gone.
 check(
-    "V196 the Servers page can scan one server or a whole group and reports the verdict",
-    "ServersGroupAction.SCAN_FAMILY" in files["ui"]
-    and '"Scan IPv4 / IPv6"' in files["ui"]
-    and "repo.scanIpFamily(profile)" in files["ui"]
-    and "repo.scanIpFamilyForProfiles(group.profiles, group.title)" in files["ui"]
-    # The measurement is shown where it was asked for, not only in a transient message.
-    and "IpFamilyScanDialog(" in files["ui"]
-    and "IpFamilyGroupDialog(" in files["ui"]
-    and "repo.ipFamilyScan(profile)?.let" in files["ui"],
+    "V220 no page offers an address-family scan or draws its verdict",
+    "ServersGroupAction.SCAN_FAMILY" not in files["ui"]
+    and '"Scan IPv4 / IPv6"' not in files["ui"]
+    and "repo.scanIpFamily(profile)" not in files["ui"]
+    and "repo.scanIpFamilyForProfiles(group.profiles, group.title)" not in files["ui"]
+    and "IpFamilyScanDialog(" not in files["ui"]
+    and "IpFamilyGroupDialog(" not in files["ui"]
+    and "repo.ipFamilyScan(profile)?.let" not in files["ui"]
+    and "familyChipTone(" not in files["ui"]
+    and "familyChip" not in files["serverTiles"]
+    and "familyChip" not in files["ui"]
+    and "familyChip" not in files["homeStyles"]
+    and "familyTone" not in files["serverTiles"]
+    and "SCAN_FAMILY" not in files["ui"],
 )
 check(
     "V196 one failing name is not a failing resolver pool",
@@ -3507,7 +3516,11 @@ check(
     and "SettingsHubCard(" not in files["ui"].split("private fun SettingsHub(")[1]
     .split("\n// ---------------------------------------------------------------------------------------------")[0]
     # The collapsed state lives above the page switch, so it survives a visit to a sub-page.
-    and "var hubCollapsed by remember { mutableStateOf(emptySet<String>()) }" in files["ui"]
+    # MARBLE_SETTINGS_COLLAPSE_MEMORY_V220 — the keys are seeded from storage, so the hub reopens
+    # the way the user left it; an untouched install still reads an empty set.
+    and "var hubCollapsed by remember { mutableStateOf(repo.settingsCollapsedGroups) }" in files["ui"]
+    and "fun settingsCollapsedGroups(): Set<String>" in files["store"]
+    and "fun setSettingsGroupsCollapsed(collapsed: Set<String>)" in files["repo"]
     and "SettingsHubPolicy.toggled(hubCollapsed, key)" in files["ui"]
     and "SettingsHubPolicy.collapseAll(SettingsHubGroups.Keys)" in files["ui"],
 )
@@ -3820,19 +3833,19 @@ check(
 # it its geometry and V210 its truth; this pins the two things the row had that the box did not —
 # the measured address family and the server's own menu — because both are single lines a refactor
 # can drop without changing any type.
+# MARBLE_FAMILY_SCAN_UI_RETIRED_V220 — parity is now about the menu, not the family chip: the
+# retirement removed the chip from both silhouettes at once, so neither answers what the other
+# withholds. The shared menu slot is still the thing a refactor must not drop.
 check(
-    "V212 the compact server box answers what the row answers",
-    "familyChip: String? = null" in files["serverTiles"]
+    "V212 the compact server box shares the row's menu and draws no family chip",
+    "familyChip" not in files["serverTiles"]
     and "trailing: (@Composable () -> Unit)? = null" in files["serverTiles"]
-    and "ServerStateChip(trx(familyChip), familyTone)" in files["serverTiles"]
-    # Both layouts that draw tiles pass the measured family verdict, so the preference chooses a
-    # silhouette and not a set of answers.
-    and "familyChip = familyScan?.chip" in files["ui"]
-    and "familyChip = familyScan?.chip" in files["homeStyles"]
+    and "familyChip = familyScan?.chip" not in files["ui"]
+    and "familyChip = familyScan?.chip" not in files["homeStyles"]
     # One menu, composed by the layout that owns the actions: two smaller menus is how the grid
     # ended up with fewer verbs than the list.
     and "internal fun ServersNodeMenu(" in files["ui"]
-    and "internal fun familyChipTone(" in files["ui"]
+    and "ServersNodeMenu(" in files["ui"]
     and "class ServerTileParityV212Test" in files["tileParityTest"]
     and "MARBLE_SERVER_TILE_PARITY_V212" in files["serverTileParityDoc"]
     and "SERVER_TILE_PARITY_V212.md" in files["readme"],

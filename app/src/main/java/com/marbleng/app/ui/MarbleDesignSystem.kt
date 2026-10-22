@@ -248,7 +248,10 @@ internal fun HomeCloudCard(
     modifier: Modifier = Modifier,
     selected: Boolean = false,
     shape: Shape = HomeCloud.CardShape,
-    elevation: Dp = if (selected) HomeCloud.SelectedElevation else HomeCloud.CardElevation,
+    // MARBLE_SHADOW_CALM_V220 — selection re-tints the card (fill + rim) but never re-lifts it.
+    // The old selected-elevation jump is what made every sub change throw a moving shadow across
+    // the page; the card now sits at one resting lift in both states.
+    elevation: Dp = HomeCloud.CardElevation,
     fill: Color = if (selected) homeCloudSelectedFill() else homeCloudCardFill(),
     border: BorderStroke = BorderStroke(
         width = if (selected) HomeCloud.SelectedHairline else HomeCloud.Hairline,
@@ -265,15 +268,16 @@ internal fun HomeCloudCard(
     )
     val dark = homeCloudDark()
 
+    // MARBLE_SHADOW_CALM_V220 — one quiet cool shadow: the lift is unchanged, the ink is halved.
     val shadowAmbient = when {
-        Aether.IsDynamic -> Aether.FloatShadow.copy(alpha = if (dark) .28f else .18f)
-        dark -> Color(0xFF001144).copy(alpha = .34f)
-        else -> Color(0xFF0A2540).copy(alpha = .20f)
+        Aether.IsDynamic -> Aether.FloatShadow.copy(alpha = if (dark) .16f else .10f)
+        dark -> Color(0xFF001144).copy(alpha = .22f)
+        else -> Color(0xFF0A2540).copy(alpha = .12f)
     }
     val shadowSpot = when {
-        Aether.IsDynamic -> Aether.Cyan.copy(alpha = if (dark) .28f else .22f)
-        dark -> HomeCloud.Accent.copy(alpha = .30f)
-        else -> Color(0xFF1E5FAF).copy(alpha = .26f)
+        Aether.IsDynamic -> Aether.Cyan.copy(alpha = if (dark) .16f else .12f)
+        dark -> HomeCloud.Accent.copy(alpha = .18f)
+        else -> Color(0xFF1E5FAF).copy(alpha = .14f)
     }
 
     val rimBrush = if (selected) {
@@ -730,7 +734,9 @@ internal fun PrismButton(
 
     val accent=if (variant == PrismButtonVariant.Danger) Aether.Danger else tone
     val content=when {
-        !enabled -> Aether.InkFaint
+        // MARBLE_OFF_STATE_POLISH_V220 — a disabled button is still a button: its label stays
+        // legible (muted, not faint) and its edge stays drawn.
+        !enabled -> Aether.InkMuted
         filled -> prismOnColor(accent)
         variant == PrismButtonVariant.Quiet -> Aether.InkMuted
         else -> Aether.Ink
@@ -751,7 +757,7 @@ internal fun PrismButton(
         else -> SolidColor(accent.copy(alpha=.12f))
     }
     val hairline: Color=when {
-        !enabled -> Color.Transparent
+        !enabled -> Aether.GlassBorderSoft
         filled -> Color.Transparent
         variant == PrismButtonVariant.Quiet -> Color.Transparent
         else -> accent.copy(alpha=.26f)

@@ -105,14 +105,16 @@ internal object MarbleExpressiveSpecs {
         stiffness = 1_100f
     )
 
+    // MARBLE_SMOOTH_MOTION_V220 — releases settle instead of bouncing: one soft overshoot at most,
+    // so a fast scroll of tappable rows never shimmers.
     val SpringReleaseFloat: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .42f,
-        stiffness = 560f
+        dampingRatio = .58f,
+        stiffness = 620f
     )
 
     val SpringPopFloat: FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .34f,
-        stiffness = 780f
+        dampingRatio = .50f,
+        stiffness = 700f
     )
 
     val ProgressSettleFloat: FiniteAnimationSpec<Float> = spring(

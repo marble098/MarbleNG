@@ -38,4 +38,13 @@ class TextScaleV215Test {
         assertEquals(1.3f, TextScale.factor(130), 0.0001f)
         assertEquals(TextScale.MIN_PERCENT / 100f, TextScale.factor(1), 0.0001f)
     }
+
+    @Test
+    fun snappedLandsOnFivePercentDetents() {
+        assertEquals(100, TextScale.snapped(100))
+        assertEquals(100, TextScale.snapped(102))
+        assertEquals(105, TextScale.snapped(103))
+        assertEquals(TextScale.MIN_PERCENT, TextScale.snapped(-40))
+        assertEquals(TextScale.MAX_PERCENT, TextScale.snapped(400))
+    }
 }

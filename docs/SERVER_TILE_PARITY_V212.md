@@ -58,3 +58,12 @@ mirror image of the reported defect.
 - both grids pass the family chip; the Servers grid composes the menu — `ServerTileParityV212Test`
 - the menu and the family colour are shared, not duplicated — `ServerTileParityV212Test`
 - geometry is unchanged, so `ServerTileLayoutV208Test` and `ServerTileTruthV210Test` still pin it
+
+## V220 retirement note — `MARBLE_FAMILY_SCAN_UI_RETIRED_V220`
+
+The address-family chip this chapter gave the box is retired with the scan UI it reported: the
+product no longer offers an IPv4/IPv6 scan on any page, so there is no verdict left to draw. The
+retirement removed the chip from the row and the box in one pass, which is why parity still holds —
+neither silhouette answers what the other withholds. `ServerTile` keeps the `trailing` menu slot,
+`ServersNodeMenu` stays shared, and the dialing policy underneath (`IpFamilyScanner`, the V196
+fallback ladder) still serves the tunnel; only the surface is gone.

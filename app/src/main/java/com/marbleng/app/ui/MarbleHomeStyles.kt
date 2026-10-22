@@ -639,12 +639,14 @@ private fun ConnectButtonRound(
             modifier = Modifier
                 .size(diameter)
                 .marblePopWhen(evidence.connected, peak = MarbleConnectMotion.statePopPeak)
+                // MARBLE_SHADOW_CALM_V220 — the round shutter floats instead of looming: half the
+                // lift, half the tint.
                 .shadow(
-                    elevation = 16.dp,
+                    elevation = 10.dp,
                     shape = CircleShape,
                     clip = false,
-                    ambientColor = animatedTone.copy(alpha = .24f),
-                    spotColor = animatedTone.copy(alpha = .34f)
+                    ambientColor = animatedTone.copy(alpha = .14f),
+                    spotColor = animatedTone.copy(alpha = .20f)
                 )
                 .clip(CircleShape)
                 .background(
@@ -1048,12 +1050,14 @@ private fun ConnectButtonClassic(
             modifier = Modifier
                 .width(width)
                 .height(84.dp)
+                // MARBLE_SHADOW_CALM_V220 — the slide rail sits on the page instead of hovering
+                // over it.
                 .shadow(
-                    elevation = 10.dp,
+                    elevation = 6.dp,
                     shape = shape,
                     clip = false,
-                    ambientColor = animatedTone.copy(alpha = .20f),
-                    spotColor = animatedTone.copy(alpha = .28f)
+                    ambientColor = animatedTone.copy(alpha = .12f),
+                    spotColor = animatedTone.copy(alpha = .18f)
                 )
                 .clip(shape)
                 .background(homeCloudCardFill())
@@ -1465,8 +1469,8 @@ internal fun IosStatusWideCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -2281,14 +2285,27 @@ internal fun IosServerListBox(
                 .padding(12.dp)
         ) {
             var groupDropdownOpen by remember { mutableStateOf(false) }
+            // MARBLE_HOME_ROW_POLISH_V220 — the subscription switcher is a real control now: a
+            // kinetic press, a 48 dp floor and a rim that lights while its menu is open, instead of
+            // a bare clickable that gave no answer to the finger.
+            val switcherShape = RoundedCornerShape(14.dp)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 8.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .heightIn(min = 48.dp)
+                    .clip(switcherShape)
                     .background(homeCloudInsetFill())
-                    .border(1.dp, homeCloudInsetBorder(), RoundedCornerShape(14.dp))
-                    .clickable { groupDropdownOpen = true }
+                    .border(
+                        1.dp,
+                        if (groupDropdownOpen) homeCloudSelectedBorder() else homeCloudInsetBorder(),
+                        switcherShape
+                    )
+                    .kineticClickable(
+                        role = Role.Button,
+                        boundedShape = switcherShape,
+                        onClick = { groupDropdownOpen = true }
+                    )
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -2394,7 +2411,6 @@ internal fun IosServerListBox(
                             ServerTileRow(profiles = row, columns = tileColumns) { server ->
                                 val location = repo.serverLocation(server)
 
-                                val familyScan = repo.ipFamilyScan(server)
                                 ServerTile(
                                     profile = server,
                                     result = benchmarks[server.id],
@@ -2403,8 +2419,6 @@ internal fun IosServerListBox(
                                     testing = repo.probeStateOf(server.id) == ProbeState.TESTING,
                                     locationCode = location.code,
                                     locationProvisional = repo.serverLocationIsProvisional(server),
-                                    familyChip = familyScan?.chip,
-                                    familyTone = familyScan?.let { familyChipTone(it) },
                                     onClick = {
                                         if (repo.probeActive || repo.probeCancelling) {
                                             repo.setRuntimeMessage(
@@ -2481,6 +2495,8 @@ internal fun HomeGroupMenu(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    // MARBLE_SHADOW_CALM_V220 — the subscription switcher floats on a quiet 8 dp shadow, not the
+    // 18 dp slab that used to darken the whole server box every time a sub was changed.
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
@@ -2488,7 +2504,7 @@ internal fun HomeGroupMenu(
         shape = RoundedCornerShape(18.dp),
         containerColor = Aether.VoidElevated,
         tonalElevation = 0.dp,
-        shadowElevation = 18.dp,
+        shadowElevation = 8.dp,
         border = BorderStroke(1.dp, tone.copy(alpha = 0.24f))
     ) {
         Column(
@@ -2618,13 +2634,18 @@ private fun IosServerItemRow(
         else -> ""
     }
 
+    // MARBLE_HOME_ROW_POLISH_V220 — rows answer the finger like every other control (a kinetic
+    // press instead of a bare clickable), meet the 56 dp touch floor, and the chosen/connected row
+    // reads through a stronger rim rather than a heavier shadow.
+    val rowRimWidth = if (isConnected || isSelected) 1.5.dp else 1.dp
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 56.dp)
             .clip(rowShape)
             .background(itemBg)
-            .border(1.dp, itemBorder, rowShape)
-            .clickable(onClick = onClick)
+            .border(rowRimWidth, itemBorder, rowShape)
+            .kineticClickable(role = Role.Button, boundedShape = rowShape, onClick = onClick)
             .semantics {
                 contentDescription = listOfNotNull(
                     stripLeadingFlag(server.name),
@@ -2633,7 +2654,7 @@ private fun IosServerItemRow(
                 ).joinToString(", ")
                 stateDescription = rowStateDescription
             }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -2978,12 +2999,14 @@ private fun FloatingConnectFab(
             modifier = Modifier
                 .size(68.dp)
                 .marblePopWhen(busy, peak = 1.05f)
+                // MARBLE_SHADOW_CALM_V220 — the floating disc keeps its ring of light and loses its
+                // slab of shadow.
                 .shadow(
-                    elevation = 12.dp,
+                    elevation = 8.dp,
                     shape = CircleShape,
                     clip = false,
-                    ambientColor = tone.copy(alpha = .26f),
-                    spotColor = tone.copy(alpha = .38f)
+                    ambientColor = tone.copy(alpha = .15f),
+                    spotColor = tone.copy(alpha = .22f)
                 )
                 .clip(CircleShape)
                 .background(face)
@@ -3017,12 +3040,13 @@ private fun FloatingSplitAction(
     Box(
         modifier = Modifier
             .size(52.dp)
+            // MARBLE_SHADOW_CALM_V220 — the split discs are small; their shadows are small too.
             .shadow(
-                elevation = 8.dp,
+                elevation = 5.dp,
                 shape = CircleShape,
                 clip = false,
-                ambientColor = tone.copy(alpha = .24f),
-                spotColor = tone.copy(alpha = .34f)
+                ambientColor = tone.copy(alpha = .14f),
+                spotColor = tone.copy(alpha = .20f)
             )
             .clip(CircleShape)
             .background(if (enabled) face else face.copy(alpha = .55f))
@@ -3271,12 +3295,14 @@ internal fun OrbitalConnectControl(
             modifier = Modifier
                 .size(86.dp)
                 .marblePopWhen(connected, peak = 1.05f)
+                // MARBLE_SHADOW_CALM_V220 — the orbital disc keeps its 5 dp lift but loses the
+                // heavy tinted cast around it.
                 .shadow(
                     elevation = 5.dp,
                     shape = CircleShape,
                     clip = false,
-                    ambientColor = tone.copy(alpha = .24f),
-                    spotColor = tone.copy(alpha = .40f)
+                    ambientColor = tone.copy(alpha = .14f),
+                    spotColor = tone.copy(alpha = .22f)
                 )
                 .clip(CircleShape)
                 .background(tone)
@@ -3359,13 +3385,15 @@ internal fun HomeThemeModular(
     val entranceArmed = rememberMarbleEntranceWindow()
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // MARBLE_HOME_ROW_POLISH_V220 — the modular page breathes on the same 10 dp rhythm as the
+        // other four presentations instead of its own tighter one.
         Column(
             modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .padding(bottom = bottomClearance + (if (floatingOverlay) 104.dp else 0.dp)),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             HomeTopActionBar(evidence, actions, repo)
 
@@ -3625,7 +3653,9 @@ private fun ModularCustomizerDialog(
             shape = RoundedCornerShape(24.dp),
             color = Aether.VoidElevated,
             tonalElevation = 0.dp,
-            shadowElevation = 18.dp,
+            // MARBLE_SHADOW_CALM_V220 — a near-fullscreen dialog still floats, but on a 12 dp
+            // shadow instead of the old 18 dp slab.
+            shadowElevation = 12.dp,
             border = androidx.compose.foundation.BorderStroke(1.dp, HomeCloud.Accent.copy(alpha = 0.22f))
         ) {
             Column(

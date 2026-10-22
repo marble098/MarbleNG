@@ -205,6 +205,26 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         store.setLibraryCollapsedSources(next)
     }
 
+    // MARBLE_SETTINGS_COLLAPSE_MEMORY_V220 — the Settings hub remembers which groups are closed,
+    // per group key, across restarts. Same shape as the library's collapsed sources.
+    var settingsCollapsedGroups by mutableStateOf(store.settingsCollapsedGroups())
+        private set
+
+    fun setSettingsGroupCollapsed(groupKey: String, collapsed: Boolean) {
+        val next = settingsCollapsedGroups.toMutableSet().apply {
+            if (collapsed) add(groupKey) else remove(groupKey)
+        }
+        if (next == settingsCollapsedGroups) return
+        settingsCollapsedGroups = next
+        store.setSettingsCollapsedGroups(next)
+    }
+
+    fun setSettingsGroupsCollapsed(collapsed: Set<String>) {
+        if (collapsed == settingsCollapsedGroups) return
+        settingsCollapsedGroups = collapsed.toSet()
+        store.setSettingsCollapsedGroups(settingsCollapsedGroups)
+    }
+
     fun ensureLibrarySourceSelectionValid() {
         val normalized = normalizeLibrarySourceFilter(librarySourceFilter)
         if (normalized != librarySourceFilter) {
@@ -2781,8 +2801,13 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun subscriptionRawText(id: String): String =
-        profiles.asSequence()
-            .filter { it.subscriptionId == id }
+        profilesRawText(profiles.filter { it.subscriptionId == id })
+
+    // MARBLE_COPY_GROUP_SERVERS_V220 — the share links of any visible group (subscription, Manual
+    // or a country bucket), one per line, de-duplicated. Manual and country groups have no stored
+    // subscription text, so they copy from the same per-profile links the row menu copies.
+    fun profilesRawText(targets: List<ProxyProfile>): String =
+        targets.asSequence()
             .map { it.raw.trim().ifBlank { it.configJson.trim() } }
             .filter(String::isNotBlank)
             .distinct()

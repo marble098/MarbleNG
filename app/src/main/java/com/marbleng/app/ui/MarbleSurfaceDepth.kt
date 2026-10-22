@@ -23,8 +23,9 @@ object MarbleDepthPolicy {
     val RaisedElevation: Dp = 9.dp
 
     val ContactElevation: Dp = 2.dp
-    const val ContactAlphaLight: Float = .10f
-    const val ContactAlphaDark: Float = .55f
+    // MARBLE_SHADOW_CALM_V220 — the contact shadow tacks the card to the page; it must not ring it.
+    const val ContactAlphaLight: Float = .07f
+    const val ContactAlphaDark: Float = .40f
 
     val WashReach: Dp = 110.dp
 
@@ -58,15 +59,17 @@ internal fun Modifier.marbleSurfaceDepth(
         label = "marble-surface-depth-lift"
     )
 
+    // MARBLE_SHADOW_CALM_V220 — the depth contract keeps its lifts; the shadow ink is halved so a
+    // lifted surface reads as floating, not stained.
     val shadowAmbient = when {
-        Aether.IsDynamic -> Aether.FloatShadow.copy(alpha = if (dark) .28f else .18f)
-        dark -> Color(0xFF001144).copy(alpha = .34f)
-        else -> Color(0xFF0A2540).copy(alpha = .20f)
+        Aether.IsDynamic -> Aether.FloatShadow.copy(alpha = if (dark) .16f else .10f)
+        dark -> Color(0xFF001144).copy(alpha = .22f)
+        else -> Color(0xFF0A2540).copy(alpha = .12f)
     }
     val shadowSpot = when {
-        Aether.IsDynamic -> Aether.Cyan.copy(alpha = if (dark) .28f else .22f)
-        dark -> HomeCloud.Accent.copy(alpha = .30f)
-        else -> Color(0xFF1E5FAF).copy(alpha = .26f)
+        Aether.IsDynamic -> Aether.Cyan.copy(alpha = if (dark) .16f else .12f)
+        dark -> HomeCloud.Accent.copy(alpha = .18f)
+        else -> Color(0xFF1E5FAF).copy(alpha = .14f)
     }
 
     val litRim = if (dark) {
