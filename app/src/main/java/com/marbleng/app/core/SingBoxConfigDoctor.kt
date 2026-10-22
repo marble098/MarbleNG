@@ -240,6 +240,7 @@ object SingBoxConfigDoctor {
         val inbounds = root.optJSONArray("inbounds") ?: return
         val kept = JSONArray()
         val dropped = mutableListOf<String>()
+        var strippedSniff = 0
         for (i in 0 until inbounds.length()) {
             val inbound = inbounds.optJSONObject(i) ?: continue
             val type = inbound.optString("type").lowercase()
@@ -247,12 +248,21 @@ object SingBoxConfigDoctor {
                 dropped += type
                 continue
             }
+            if (inbound.has("sniff") || inbound.has("sniff_override_destination")) {
+                inbound.remove("sniff")
+                inbound.remove("sniff_override_destination")
+                strippedSniff++
+            }
             kept.put(inbound)
         }
         if (dropped.isNotEmpty()) {
             root.put("inbounds", kept)
             notes += "removed ${dropped.joinToString(", ")} inbound(s): the Android VpnService " +
                 "owns the tunnel, the core only serves the local mixed inbound"
+        }
+        if (strippedSniff > 0) {
+            notes += "removed legacy inbound-level sniff fields from $strippedSniff inbound(s) " +
+                "(deprecated in sing-box 1.11.0, removed in 1.13.0; route actions replace them)"
         }
     }
 

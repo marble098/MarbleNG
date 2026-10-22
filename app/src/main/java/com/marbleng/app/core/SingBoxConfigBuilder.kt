@@ -421,6 +421,11 @@ private fun sanitizeAndroidCliConfig(
                     "inbounds[$index]",
                     notes
                 )
+                if (inbound.has("sniff") || inbound.has("sniff_override_destination")) {
+                    inbound.remove("sniff")
+                    inbound.remove("sniff_override_destination")
+                    notes += "removed deprecated inbound sniff field(s) from inbounds[$index] (replaced by route action sniff)"
+                }
             }
         }
     }
@@ -1072,11 +1077,9 @@ private fun removeKeys(
     }
 
     private fun applyInboundSniff(inbound: JSONObject, settings: AppSettings) {
-        if (!settings.singBoxSniffEnabled) return
-        inbound.put("sniff", true)
-        if (settings.singBoxSniffOverrideDestination) {
-            inbound.put("sniff_override_destination", true)
-        }
+        // MARBLE_SINGBOX_SNIFF_V111 — inbound-level sniff and sniff_override_destination
+        // were deprecated in sing-box 1.11.0 and removed in 1.13.0 (decode config error on inbounds[0]).
+        // Packet sniffing is now handled via route.rules actions ("action": "sniff").
     }
 
     private fun inboundUsers(settings: AppSettings): JSONArray? {

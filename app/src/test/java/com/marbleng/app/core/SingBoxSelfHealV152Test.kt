@@ -255,6 +255,36 @@ class SingBoxSelfHealV152Test {
         assertFalse("auto_detect_interface must be removed", healed.getJSONObject("route").has("auto_detect_interface"))
     }
 
+    @Test
+    fun deprecatedInboundSniffFieldsAreRepairedAndNotGenerated() {
+        val build = SingBoxConfigBuilder.build(
+            profile = modernProfile(),
+            settings = com.marbleng.app.model.AppSettings(singBoxSniffEnabled = true, singBoxSniffOverrideDestination = true),
+            socksPort = 10808,
+            apiPort = 39090,
+            apiSecret = "secret",
+            logPath = "/data/local/tmp/singbox.log",
+            cachePath = "/data/local/tmp/singbox-cache.db"
+        )
+        val generated = JSONObject(build.json)
+        val inbounds = generated.getJSONArray("inbounds")
+        for (i in 0 until inbounds.length()) {
+            val inbound = inbounds.getJSONObject(i)
+            assertFalse("generated inbound must not contain deprecated sniff", inbound.has("sniff"))
+            assertFalse("generated inbound must not contain deprecated sniff_override_destination", inbound.has("sniff_override_destination"))
+        }
+
+        // Test repair of legacy inbound containing sniff fields
+        val legacy = JSONObject(build.json).apply {
+            getJSONArray("inbounds").getJSONObject(0).put("sniff", true).put("sniff_override_destination", true)
+        }.toString()
+        val repair = SingBoxConfigDoctor.repair(legacy)
+        assertTrue("doctor must repair legacy inbound sniff fields", repair.repaired)
+        val repairedInbound = JSONObject(repair.json).getJSONArray("inbounds").getJSONObject(0)
+        assertFalse("repaired inbound must remove sniff", repairedInbound.has("sniff"))
+        assertFalse("repaired inbound must remove sniff_override_destination", repairedInbound.has("sniff_override_destination"))
+    }
+
     private fun modernProfile() = com.marbleng.app.model.ProxyProfile(
         id = "node-1",
         name = "Node 1",
