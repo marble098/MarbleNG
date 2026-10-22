@@ -3,6 +3,7 @@ package com.marbleng.app.nativebridge
 /**
  * MARBLE_TUN2SOCKS_CORE_V222 — the second TUN datapath.
  * MARBLE_TUN2SOCKS_SHUTDOWN_V223 — stop with a budget, and never close the descriptor here.
+ * MARBLE_FDSAN_DOUBLE_CLOSE_V224 — the descriptor is borrowed; the core runs on its own dup.
  *
  * `hev-socks5-tunnel` is the datapath Marble has always shipped, and it stays the default.
  * This is the alternative the Settings → Tunnel engine page lets a user choose: the pinned
@@ -23,6 +24,16 @@ package com.marbleng.app.nativebridge
  * in `closeHevFd()`. The library must never close it: closing it on both sides is a double close
  * of a number the app may already have recycled, and that is the failure this file's V223 marker
  * exists to keep out.
+ *
+ * V224 completes that sentence, because the V223 library *did* close it without containing a
+ * close: gVisor's `Stack.Wait()` removes every NIC with `closeLinkEndpoint=true`, which runs the
+ * pinned tun2socks `FD.Close()` — an embedded-endpoint no-op wrapped around `unix.Close(fd)`.
+ * The service's adopted close then met EBADF with an fdsan owner tag and bionic aborted the
+ * process (`fdsan: double-close of file descriptor 148 detected`). So the wrapper now duplicates
+ * the borrowed descriptor (`F_DUPFD_CLOEXEC`) before opening the device, and only the dup — a
+ * number the library owns outright — is ever visible to the device, the NIC and the stack. The
+ * borrowed number stays open until the service's one close, whatever a future stack decides to
+ * close on teardown.
  */
 object Tun2SocksTunnel {
     /** The core could not be loaded, so Settings must explain that instead of offering it. */

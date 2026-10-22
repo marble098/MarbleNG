@@ -2,6 +2,7 @@
 
 // MARBLE_TUN2SOCKS_CORE_V222
 // MARBLE_TUN2SOCKS_SHUTDOWN_V223
+// MARBLE_FDSAN_DOUBLE_CLOSE_V224
 //
 // This file is not part of upstream tun2socks. It is copied into the pinned
 // tun2socks source tree as `cmd/libmarble/main.go` by scripts/prepare-native.sh
@@ -67,6 +68,36 @@
 // statistic manager between two live datapaths. States are idle -> running ->
 // stopping -> idle, and start() refuses both a live datapath (-1) and the
 // teardown of a previous one (-7).
+//
+// MARBLE_FDSAN_DOUBLE_CLOSE_V224 — V223's "this library never closes the
+// descriptor" was still wrong, and the device proved it: `fdsan: double-close
+// of file descriptor 148 detected`, SIGABRT, on the datapath worker, one line
+// after the service logged its (single, locked) `fd-close`. The close V223
+// missed is not in this file and not in gVisor's endpoint either — gVisor's
+// fdbased `Close()` really is a no-op. It is one frame up: `Stack.Wait()`
+// removes every NIC with `closeLinkEndpoint=true`, collects
+// `deferAct = ep.Close` and runs it, and `ep` is the pinned tun2socks
+// `*fdbased.FD`, whose `Close()` is `unix.Close(f.fd)` plus the embedded
+// endpoint's no-op. So `st.Wait()` in teardown() closed the service's number
+// with a raw syscall — invisible to bionic's fdsan table — and the service's
+// subsequent `ParcelFileDescriptor.adoptFd(fd).close()`, which closes *with
+// an fdsan owner tag*, got EBADF from the kernel. In bionic that combination
+// (tagged close + EBADF) is exactly `android_fdsan_close_with_tag`'s
+// "double-close of file descriptor %d detected" abort. One number, two
+// closers, again — this time with one of them inside `Wait()`.
+//
+// So the borrowed descriptor is never handed to anything that can close it.
+// start() duplicates it with F_DUPFD_CLOEXEC and everything downstream — the
+// fdbased device, the NIC, the stack — sees only the dup, which this library
+// owns outright. `Stack.Wait()` may close it (it does, at the pinned
+// versions), teardown() may close it as a guarded fallback, an early failure
+// may close it: every one of those closes lands on our number, exactly once
+// (the pinned FD.Close is guarded by its own `closed` flag), and the number
+// the VpnService lent us is still open when it takes it back and closes it —
+// once, in closeHevFd(). Two numbers for one TUN device, each with one owner
+// and one close. The same borrowed-descriptor rule is applied to the HEV JNI
+// bridge (jni/marbleng_jni.c) so a future HEV bump cannot reopen this class
+// on the default datapath. docs/FDSAN_DOUBLE_CLOSE_V224.md is the chapter.
 package main
 
 /*
@@ -229,13 +260,14 @@ func parseProxy(raw string) (*socks5.Socks5, error) {
 	return socks5.New(u.Host, user, pass)
 }
 
-// stopLinkEndpoint stops the inbound path without touching the descriptor.
+// stopLinkEndpoint stops the inbound path without closing any descriptor.
 //
 // gVisor's fdbased endpoint stops its dispatchers by writing a stopfd, and its
 // Attach(nil) waits for every dispatch loop to leave ppoll/readv before it
-// returns. That is the only safe way to take a datapath off a descriptor both
-// this library and the service know about, and it is why nothing here may call
-// device.Close(): on this build that method closes a descriptor we do not own.
+// returns. That has to happen before any close: since V224 the device was
+// opened on this library's own dup, so device.Close() is allowed to close it —
+// but only once no dispatcher is still polling the number, which is what this
+// call establishes.
 func stopLinkEndpoint(dev device.Device) {
 	if dev == nil {
 		return
@@ -285,8 +317,25 @@ func start(proxyRaw string, mtu int, fd int, udpTimeoutSec int, tcpSendBuffer, t
 		return codeProxy, nil, nil
 	}
 
-	dev, err := fdbased.Open(strconv.Itoa(fd), uint32(mtu), 0)
+	// MARBLE_FDSAN_DOUBLE_CLOSE_V224 — the descriptor in `fd` is borrowed from
+	// the VpnService, and the stack below closes the descriptor it is given
+	// (Stack.Wait() -> pinned FD.Close() -> unix.Close). So the stack is given
+	// a dup this library owns, taken here, at the last moment before the
+	// device is opened: every refusal above this line returns without having
+	// created a number it would have to close, and every close below this line
+	// lands on ownedFd, never on fd.
+	ownedFd, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 0)
 	if err != nil {
+		setError("duplicate TUN descriptor %d: %v", fd, err)
+		return codeDescriptor, nil, nil
+	}
+	t2slog.Infof("[MARBLE] datapath descriptor: borrowed fd=%d owned dup=%d", fd, ownedFd)
+
+	dev, err := fdbased.Open(strconv.Itoa(ownedFd), uint32(mtu), 0)
+	if err != nil {
+		// Neither the pinned tun2socks open() nor gVisor's fdbased.New closes
+		// the descriptor on failure, so this is the dup's one close.
+		_ = unix.Close(ownedFd)
 		setError("TUN device: %v", err)
 		return codeDevice, nil, nil
 	}
@@ -314,10 +363,13 @@ func start(proxyRaw string, mtu int, fd int, udpTimeoutSec int, tcpSendBuffer, t
 	if err != nil {
 		liveStack = nil
 		// CreateStack may fail before or after it attached the endpoint to a NIC,
-		// so the inbound path is stopped either way. The descriptor stays open: it
-		// is the service's, and closing it here is the bug this file exists to
-		// prevent.
+		// so the inbound path is stopped either way. A half-built stack is also
+		// discarded without Wait(), so nothing else will ever close the device:
+		// dev.Close() here closes this library's own dup (ownedFd) — its one
+		// close on this path — while the service's borrowed descriptor stays
+		// open for the service to close.
 		stopLinkEndpoint(dev)
+		dev.Close()
 		transport.Close()
 		setError("gVisor stack: %v", err)
 		return codeStack, nil, nil
@@ -337,15 +389,25 @@ func start(proxyRaw string, mtu int, fd int, udpTimeoutSec int, tcpSendBuffer, t
 //  1. the inbound path first, so no handler is entered any more and every
 //     dispatch loop has left the descriptor;
 //  2. the stack, which aborts the TCP/UDP endpoints the transport handlers are
-//     blocked on;
-//  3. the tunnel fan-in, which is what ends this run.
+//     blocked on — and whose Wait() removes each NIC with
+//     closeLinkEndpoint=true, i.e. it already calls the device's Close();
+//  3. the device, closing this library's own dup: after step 2 that close has
+//     normally already happened inside Wait() and the pinned FD.Close() is
+//     guarded by its `closed` flag, so this call is a no-op today and the
+//     leak-proof fallback if a future stack stops closing link endpoints —
+//     never a second close, and never of the caller's descriptor;
+//  4. the tunnel fan-in, which is what ends this run.
 //
-// The descriptor is not closed: it belongs to the caller (see the file header).
+// The caller's descriptor is not closed here: only the dup taken in start()
+// is (see the V224 note in the file header).
 func teardown(dev device.Device, transport *tunnel.Tunnel, st *stack.Stack) {
 	stopLinkEndpoint(dev)
 	if st != nil {
 		st.Close()
 		st.Wait()
+	}
+	if dev != nil {
+		dev.Close()
 	}
 	if transport != nil {
 		transport.Close()

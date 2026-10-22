@@ -174,6 +174,18 @@ class MarbleVpnService : VpnService() {
      * its native run has returned: while it is set, a service-side close is refused, because
      * closing a descriptor under a datapath that is still polling it is what makes the process
      * abort on disconnect.
+     *
+     * MARBLE_FDSAN_DOUBLE_CLOSE_V224 — one thing V223 could not see from this side: this number is
+     * only ever *lent* to a datapath. Both native bridges duplicate it at the boundary
+     * (`F_DUPFD_CLOEXEC` in `marbleng_jni.c` for HEV, in `native/tun2socks/main.go` for
+     * tun2socks) and run — and close — their own dup, so by the time [closeHevFd] runs this
+     * number is guaranteed still open. That guarantee is load-bearing, not tidy: the close below
+     * goes through `ParcelFileDescriptor.adoptFd`, which closes with an fdsan owner tag, and
+     * bionic turns a tagged close of an already-closed number into the abort
+     * `fdsan: double-close of file descriptor … detected`. gVisor's `Stack.Wait()` closing the
+     * link endpoint (`unix.Close` in the pinned tun2socks `FD.Close`) did exactly that to fd 148;
+     * no locking on this side can defend against a native close of a lent number — only never
+     * lending a number anything may close can.
      */
     @Volatile private var hevFd = -1
     private val hevFdLock = Any()
@@ -3735,6 +3747,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
      *    [releaseDatapathFd] and logged. gVisor's fdbased dispatcher polls this number until its
      *    stopfd fires; closing it first would let the netstack read whatever descriptor inherits
      *    the number next.
+     *
+     * MARBLE_FDSAN_DOUBLE_CLOSE_V224 adds the third guarantee this function silently relies on:
+     * the number is still open when it gets here. The datapaths were only lent it — each native
+     * bridge duplicates it at the boundary and closes its own dup — so the fdsan-tagged
+     * `adoptFd().close()` below can never be the second close bionic aborts on. Do not "defend"
+     * this close with an `fcntl` liveness probe instead: a recycled number would pass the probe
+     * and this would close somebody else's live descriptor. The defence is the ownership split,
+     * pinned across the Go/C boundary by `scripts/system-integrity-check.py`.
      */
     private fun closeHevFd(owner: String) {
         if (!TunnelShutdownPolicy.mayCloseDescriptor(datapathOwnsFd.get())) {

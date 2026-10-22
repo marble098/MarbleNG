@@ -41,6 +41,21 @@ enum class DatapathStop {
 object TunnelShutdownPolicy {
     const val MARKER: String = "MARBLE_TUN2SOCKS_SHUTDOWN_V223"
 
+    /**
+     * MARBLE_FDSAN_DOUBLE_CLOSE_V224 — the borrowed-descriptor rule that completes V223.
+     *
+     * V223 gave the service's duplicated TUN descriptor one owner and one close *in the service*,
+     * but the number was still lent to a stack that closed it from inside `Stack.Wait()` (the
+     * pinned tun2socks `FD.Close()` is `unix.Close(fd)`), so the service's fdsan-tagged
+     * `adoptFd().close()` aborted the process with "double-close detected". Since V224 both
+     * native datapaths duplicate the borrowed number at the JNI boundary (`F_DUPFD_CLOEXEC`)
+     * and only ever run on — and close — their own dup: one TUN device, two numbers, one owner
+     * and one close per number. The cross-language half of this rule cannot be unit-tested from
+     * the JVM; `scripts/system-integrity-check.py` and the stage-time guard in
+     * `scripts/prepare-native.sh` pin it where the Go/C sources are read.
+     */
+    const val FD_OWNERSHIP_MARKER: String = "MARBLE_FDSAN_DOUBLE_CLOSE_V224"
+
     /** `android.app.ApplicationExitInfo.REASON_SIGNALED`, duplicated so this file is JVM-testable. */
     const val REASON_SIGNALED: Int = 2
 
@@ -94,7 +109,8 @@ object TunnelShutdownPolicy {
         return when (status) {
             SIGABRT ->
                 "signal=$name($status) • native abort(), not a Java exception: an assert/abort() " +
-                    "inside a native library (HEV's socks5 tunnel write assert, a libc heap check) " +
+                    "inside a native library (HEV's socks5 tunnel write assert, a libc heap check, " +
+                    "a libc fdsan double-close of a file descriptor) " +
                     "or an ART JNI/LOG(FATAL) check. The Abort message is in logcat for this pid."
             11 ->
                 "signal=$name($status) • native fault (null/dangling pointer) — logcat carries the " +
