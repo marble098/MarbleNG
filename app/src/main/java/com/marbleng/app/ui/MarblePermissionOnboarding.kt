@@ -1,53 +1,22 @@
 package com.marbleng.app.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 enum class ConnectionPermissionStep {
     VPN,
     NOTIFICATIONS
-}
-
-private data class PermissionCopy(
-    val title: String,
-    val reason: String,
-    val detail: String,
-    val tone: Color
-)
-
-@Composable
-private fun permissionCopy(step: ConnectionPermissionStep): PermissionCopy = when (step) {
-    ConnectionPermissionStep.VPN -> PermissionCopy(
-        title = "Allow VPN access",
-        reason = "MarbleNG needs Android's VPN permission to arm its protected connection service. " +
-            "It only routes traffic through the server you choose; it cannot read your messages or files.",
-        detail = "Required before protected connections start",
-        tone = Aether.Cyan
-    )
-    ConnectionPermissionStep.NOTIFICATIONS -> PermissionCopy(
-        title = "Allow connection notifications",
-        reason = "Android requires notification access for MarbleNG to keep the active tunnel visible " +
-            "and to tell you when a connection changes while the app is in the background.",
-        detail = "Keeps tunnel status visible",
-        tone = Aether.Amethyst
-    )
 }
 
 @Composable
@@ -57,112 +26,88 @@ fun ConnectionPermissionDialog(
     onContinue: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val copy = permissionCopy(step)
+    MarbleIosTheme {
+        val colors = IosTheme.colors
+        val isVpn = step == ConnectionPermissionStep.VPN
+        val squircleColor = if (isVpn) colors.blue else colors.orange
+        val glyph = if (isVpn) MarbleGlyph.SHIELD else MarbleGlyph.BELL
+        val title = trx(if (isVpn) "Allow VPN connection" else "Allow notifications")
+        val subtitle = trx(
+            if (isVpn) {
+                "MarbleNG needs Android's VPN permission to establish a protected tunnel on this device."
+            } else {
+                "Allow status notifications so Android keeps your active VPN session visible and reliable."
+            }
+        )
+        val note = trx(
+            if (isVpn) {
+                "Your traffic stays private on-device and only leaves through the server you choose."
+            } else {
+                "You can customize or mute optional alerts anytime in Settings."
+            }
+        )
+        val continueLabel = trx("Continue")
+        val notNowLabel = trx("Not now")
 
-    val entranceArmed = rememberMarbleEntranceWindow()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Aether.VoidElevated,
-        tonalElevation = 0.dp,
-        icon = {
-            Surface(
-                modifier = Modifier
-                    .marbleStaggerIn(0, enabled = entranceArmed())
-                    .size(48.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = copy.tone.copy(alpha = .12f),
-                tonalElevation = 0.dp
-            ) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            containerColor = colors.card,
+            shape = IosCardShape,
+            title = {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    IosSquircleIcon(glyph = glyph, backgroundColor = squircleColor)
                     Text(
-                        when (step) {
-                            ConnectionPermissionStep.VPN -> "VPN"
-                            ConnectionPermissionStep.NOTIFICATIONS -> "•••"
-                        },
-                        color = copy.tone,
-                        style = MaterialTheme.typography.labelLarge
+                        text = title,
+                        color = colors.title,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                     )
                 }
-            }
-        },
-        title = {
-            Column(
-                modifier = Modifier.marbleStaggerIn(1, enabled = entranceArmed()),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(trx(copy.title), color = Aether.Ink)
-                Text(
-                    trx(copy.detail),
-                    color = copy.tone,
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier.marbleStaggerIn(2, enabled = entranceArmed()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    trx(copy.reason),
-                    color = Aether.InkMuted,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .marbleStaggerIn(3, enabled = entranceArmed())
-                        .background(
-                            copy.tone.copy(alpha = .07f),
-                            RoundedCornerShape(12.dp)
-                        )
-                        .padding(horizontal = 11.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            },
+            text = {
+                Column(
+                    modifier = Modifier.padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Spacer(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .background(copy.tone, CircleShape)
+                    Text(
+                        text = subtitle,
+                        color = colors.title,
+                        style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
-                        trx("Only requested when you tap Connect"),
-                        modifier = Modifier.padding(start = 9.dp),
-                        color = Aether.InkMuted,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
-                if (error.isNotBlank()) {
-                    Text(
-                        error,
-                        modifier = Modifier.marbleStaggerIn(4, enabled = entranceArmed()),
-                        color = Aether.Danger,
+                        text = note,
+                        color = colors.subtitle,
                         style = MaterialTheme.typography.bodySmall
                     )
+                    if (error.isNotBlank()) {
+                        Text(
+                            text = trx(error),
+                            color = colors.red,
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                    }
                 }
+            },
+            confirmButton = {
+                IosButton(
+                    label = continueLabel,
+                    onClick = onContinue,
+                    style = IosButtonStyle.PRIMARY,
+                    colorOverride = squircleColor,
+                    compact = true
+                )
+            },
+            dismissButton = {
+                IosButton(
+                    label = notNowLabel,
+                    onClick = onDismiss,
+                    style = IosButtonStyle.SECONDARY,
+                    compact = true,
+                    modifier = Modifier.fillMaxWidth(0.36f)
+                )
             }
-        },
-        confirmButton = {
-            PrismButton(
-                label = "Continue",
-                onClick = onContinue,
-                tone = copy.tone,
-                variant = PrismButtonVariant.Primary,
-                compact = true
-            )
-        },
-        dismissButton = {
-            PrismButton(
-                label = "Not now",
-                onClick = onDismiss,
-                tone = Aether.InkMuted,
-                variant = PrismButtonVariant.Quiet,
-                compact = true
-            )
-        }
-    )
+        )
+    }
 }

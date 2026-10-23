@@ -169,7 +169,7 @@ NON_COMPOSABLE = {
     "onSizeChanged", "onGloballyPositioned", "onPlaced",
     # effects and state factories
     "LaunchedEffect", "SideEffect", "DisposableEffect", "remember", "rememberSaveable",
-    "derivedStateOf", "snapshotFlow", "produceState",
+    "derivedStateOf", "snapshotFlow", "produceState", "rememberLauncherForActivityResult",
     # accessibility: `semantics { }` is a plain lambda over a SemanticsPropertyReceiver, so the
     # usual move — announcing a row with its translated title — has to be resolved BEFORE the
     # modifier chain. V208 shipped `contentDescription = "${trx(title)}…"` inside one and only CI
@@ -184,7 +184,10 @@ NON_COMPOSABLE = {
     # plain callbacks
     "onTextLayout", "onValueChange", "onClick", "onCheckedChange", "onDismissRequest",
     "onAction", "onBack", "onSelect", "onToggle", "onDismiss", "onConfirm", "onLongPress",
-    "onExpandedChange", "onNavigate", "onPressed",
+    "onExpandedChange", "onNavigate", "onPressed", "onApply", "onReset", "onClear",
+    "onOpen", "onClose", "onConnect", "onImportFile", "onOpenDetail", "onOpenServers",
+    "onOpenQrImport", "onOpenAddSheet", "onOpenExitIpSheet", "onOpenDiagnostics",
+    "onOpenSettingsPage", "onCustomizeSlot", "onOpenDestination", "onCloseDestination",
 }
 
 # Inline / @Composable lambdas: the composable context flows through them.
@@ -197,13 +200,15 @@ TRANSPARENT = {
 }
 
 BAD = [
+    (re.compile(r"\bIosTheme\s*\."), "IosTheme.<token> — @Composable get()"),
+    (re.compile(r"\bTr\s*\.\s*now\b"), "Tr.now — @Composable get()"),
     (re.compile(r"\bAether\s*\."), "Aether.<token> — @Composable get()"),
     (re.compile(r"\bMarbleTheme\s*\."), "MarbleTheme.<token> — @Composable get()"),
     (re.compile(r"\bMaterialTheme\s*\."), "MaterialTheme.<token> — @Composable get()"),
     (re.compile(r"\btrx(?:OrNull)?\s*\("), "trx() — @Composable"),
     (re.compile(r"\bLocal[A-Z]\w*\s*\.\s*current\b"), "Local*.current — @Composable"),
-    (re.compile(r"\b(settingsTitleStyle|settingsRowTitleStyle|settingsBodyStyle)\s*\("),
-     "settings*Style() — @Composable"),
+    (re.compile(r"\b(rememberUptimeLabel|protocolSquircleColor|pingBadgeColor|pingBadgeText|dockSlotIosColor)\s*\("),
+     "UI @Composable helper"),
 ]
 
 IDENT = re.compile(r"[A-Za-z_]\w*")

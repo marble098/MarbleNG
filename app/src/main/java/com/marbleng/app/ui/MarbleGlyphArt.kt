@@ -23,32 +23,19 @@ package com.marbleng.app.ui
 // the convenience wrapper.
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 
 /** The grid every glyph in the product is authored on. */
 private const val MarbleGlyphGrid = 24f
@@ -74,6 +61,8 @@ internal enum class MarbleGlyph {
     REFRESH,
     ARROW_BACK,
     CHEVRON,
+    CHEVRON_LEFT,
+    CHEVRON_DOWN,
     CHECK,
     CLOSE,
     SHIELD,
@@ -97,7 +86,12 @@ internal enum class MarbleGlyph {
     FILTER,
     PENCIL,
     DOWNLOAD,
-    UPLOAD
+    UPLOAD,
+    COPY,
+    BELL,
+    SHARE,
+    EYE,
+    EYE_OFF
 }
 
 /**
@@ -578,220 +572,133 @@ internal fun DrawScope.drawMarbleGlyph(
                     drawPath(path(7.4f to 8.8f, 12f to 4f, 16.6f to 8.8f), tint, style = stroke)
                     line(4.6f, 19.4f, 19.4f, 19.4f)
                 }
+
+                MarbleGlyph.CHEVRON_LEFT ->
+                    drawPath(path(14.6f to 5.6f, 8.2f to 12f, 14.6f to 18.4f), tint, style = stroke)
+
+                MarbleGlyph.CHEVRON_DOWN ->
+                    drawPath(path(5.6f to 9.4f, 12f to 15.8f, 18.4f to 9.4f), tint, style = stroke)
+
+                MarbleGlyph.COPY -> {
+                    drawRoundRect(
+                        color = tint,
+                        topLeft = Offset(8.4f, 7.6f),
+                        size = Size(11.2f, 12.2f),
+                        cornerRadius = CornerRadius(2.4f, 2.4f),
+                        style = stroke
+                    )
+                    drawPath(
+                        Path().apply {
+                            moveTo(15.2f, 7.2f)
+                            lineTo(15.2f, 5.8f)
+                            cubicTo(15.2f, 4.7f, 14.3f, 3.8f, 13.2f, 3.8f)
+                            lineTo(6.4f, 3.8f)
+                            cubicTo(5.3f, 3.8f, 4.4f, 4.7f, 4.4f, 5.8f)
+                            lineTo(4.4f, 14.2f)
+                            cubicTo(4.4f, 15.3f, 5.3f, 16.2f, 6.4f, 16.2f)
+                            lineTo(8.0f, 16.2f)
+                        },
+                        soft,
+                        style = fine
+                    )
+                }
+
+                MarbleGlyph.BELL -> {
+                    drawPath(
+                        Path().apply {
+                            moveTo(6.4f, 15.8f)
+                            lineTo(6.4f, 10.6f)
+                            cubicTo(6.4f, 7.2f, 8.9f, 4.8f, 12f, 4.8f)
+                            cubicTo(15.1f, 4.8f, 17.6f, 7.2f, 17.6f, 10.6f)
+                            lineTo(17.6f, 15.8f)
+                            lineTo(19.4f, 17.2f)
+                            lineTo(4.6f, 17.2f)
+                            close()
+                        },
+                        tint,
+                        style = stroke
+                    )
+                    line(12f, 3.2f, 12f, 4.8f)
+                    drawArc(
+                        color = soft,
+                        startAngle = 15f,
+                        sweepAngle = 150f,
+                        useCenter = false,
+                        topLeft = Offset(9.8f, 17.2f),
+                        size = Size(4.4f, 3.4f),
+                        style = fine
+                    )
+                }
+
+                MarbleGlyph.SHARE -> {
+                    line(12f, 14.6f, 12f, 3.8f)
+                    drawPath(path(8.0f to 7.8f, 12f to 3.8f, 16.0f to 7.8f), tint, style = stroke)
+                    drawPath(
+                        Path().apply {
+                            moveTo(7.4f, 10.6f)
+                            lineTo(5.6f, 10.6f)
+                            cubicTo(4.7f, 10.6f, 4.2f, 11.2f, 4.2f, 12.1f)
+                            lineTo(4.2f, 18.6f)
+                            cubicTo(4.2f, 19.5f, 4.7f, 20.1f, 5.6f, 20.1f)
+                            lineTo(18.4f, 20.1f)
+                            cubicTo(19.3f, 20.1f, 19.8f, 19.5f, 19.8f, 18.6f)
+                            lineTo(19.8f, 12.1f)
+                            cubicTo(19.8f, 11.2f, 19.3f, 10.6f, 18.4f, 10.6f)
+                            lineTo(16.6f, 10.6f)
+                        },
+                        tint,
+                        style = stroke
+                    )
+                }
+
+                MarbleGlyph.EYE -> {
+                    drawPath(
+                        Path().apply {
+                            moveTo(2.8f, 12f)
+                            cubicTo(5.2f, 7.2f, 8.4f, 5.4f, 12f, 5.4f)
+                            cubicTo(15.6f, 5.4f, 18.8f, 7.2f, 21.2f, 12f)
+                            cubicTo(18.8f, 16.8f, 15.6f, 18.6f, 12f, 18.6f)
+                            cubicTo(8.4f, 18.6f, 5.2f, 16.8f, 2.8f, 12f)
+                            close()
+                        },
+                        tint,
+                        style = stroke
+                    )
+                    drawCircle(tint, radius = 2.6f, center = Offset(12f, 12f), style = stroke)
+                }
+
+                MarbleGlyph.EYE_OFF -> {
+                    drawPath(
+                        Path().apply {
+                            moveTo(2.8f, 12f)
+                            cubicTo(5.2f, 7.2f, 8.4f, 5.4f, 12f, 5.4f)
+                            cubicTo(15.6f, 5.4f, 18.8f, 7.2f, 21.2f, 12f)
+                            cubicTo(18.8f, 16.8f, 15.6f, 18.6f, 12f, 18.6f)
+                            cubicTo(8.4f, 18.6f, 5.2f, 16.8f, 2.8f, 12f)
+                            close()
+                        },
+                        soft,
+                        style = fine
+                    )
+                    line(4.4f, 4.4f, 19.6f, 19.6f)
+                }
             }
         }
     }
 }
 
 /**
- * MARBLE_AURORA_SURFACE_V219 — a glyph in a colour at whatever size the caller gives it.
- *
- * The size contract is the caller's `Modifier.size(...)`; the grid centres whatever it receives, so
- * an icon that is handed a square by a 40 dp row and one that is handed a square by a 16 dp badge
- * are the same drawing.
+ * Draw [glyph] in [color] inside [modifier]'s bounds on the 24-unit grid.
  */
 @Composable
 internal fun MarbleGlyphIcon(
     glyph: MarbleGlyph,
     color: Color,
     modifier: Modifier = Modifier,
-    weight: Float = 1f
+    weight: Float = 1f,
+    mirror: Boolean = false
 ) {
     Canvas(modifier) {
-        drawMarbleGlyph(glyph, color, weight)
-    }
-}
-
-/**
- * MARBLE_AURORA_SURFACE_V219 — the tile a glyph sits on.
- *
- * This is the single container for an icon in the product: a squircle (34 % of its own size, which
- * lands on Android's own 12 → 16 → 20 dp ramp at 32 → 40 → 44 dp), an opaque tone-tinted fill, one
- * specular wash from the top-left, one rim that is the tone lit above and quiet below, and one
- * tone-cast shadow. A flat 12 % circle of colour was the weakest repeated surface in the app; this is
- * an object with a light source.
- */
-@Composable
-internal fun MarbleGlyphTile(
-    glyph: MarbleGlyph,
-    tone: Color,
-    modifier: Modifier = Modifier,
-    tileSize: Dp = 40.dp,
-    glyphSize: Dp? = null,
-    selected: Boolean = false,
-    shadow: Boolean = true
-) {
-    val dark = homeCloudDark()
-    val radius = tileSize * (if (tileSize >= 44.dp) .34f else .32f)
-    val shape = RoundedCornerShape(radius)
-    val base = marbleNativeCardFill()
-    val top = lerp(base, tone, if (dark) .30f else .17f)
-    val bottom = lerp(base, tone, if (dark) .13f else .07f)
-    val ring = lerp(tone, Color.White, if (dark) .34f else .52f)
-    val glyphTone = marbleReadableOn(tone, top, 3.2f)
-
-    Box(
-        modifier = modifier
-            .size(tileSize)
-            .then(
-                if (shadow) {
-                    Modifier.marbleShadow(
-                        elevation = if (selected) 9.dp else 6.dp,
-                        shape = shape,
-                        clip = false,
-                        ambientColor = tone.copy(alpha = if (dark) .40f else .26f),
-                        spotColor = tone.copy(alpha = if (dark) .55f else .36f)
-                    )
-                } else {
-                    Modifier
-                }
-            )
-            .clip(shape)
-            .background(Brush.verticalGradient(listOf(top, bottom)))
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(Color.White.copy(alpha = if (dark) .16f else .34f), Color.Transparent),
-                    start = Offset.Zero,
-                    end = Offset(tileSize.value * 1.6f, tileSize.value * 1.6f)
-                )
-            )
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color.White.copy(alpha = if (dark) .10f else .26f), Color.Transparent),
-                    startY = 0f,
-                    endY = tileSize.value * .55f
-                )
-            )
-            .border(
-                width = 1.dp,
-                brush = Brush.verticalGradient(
-                    listOf(
-                        ring.copy(alpha = if (dark) .45f else .70f),
-                        tone.copy(alpha = if (dark) .22f else .16f)
-                    )
-                ),
-                shape = shape
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(Modifier.size(glyphSize ?: (tileSize * .52f))) {
-            drawMarbleGlyph(glyph, glyphTone, weight = if (selected) 1.08f else 1f)
-        }
-        if (selected) {
-            Box(
-                Modifier
-                    .size(tileSize)
-                    .border(
-                        width = 1.dp,
-                        brush = Brush.verticalGradient(
-                            listOf(
-                                Color.White.copy(alpha = .55f),
-                                tone.copy(alpha = .28f)
-                            )
-                        ),
-                        shape = RoundedCornerShape(radius)
-                    )
-            )
-        }
-    }
-}
-
-/**
- * MARBLE_AURORA_SURFACE_V219 — the product's mark, drawn rather than tinted.
- *
- * A brand that is a PNG silhouette tinted with a flat colour disappears the moment the surface behind
- * it changes. This mark is a lit prism: a squircle with a two-stop diagonal fill (cyan → amethyst), a
- * specular plane, a rim, and inside it the prism itself — one orbit ellipse (the tunnel), one folded
- * "M" (the marble), and one facet fill where the two cross. It is the same drawing at 26 dp in a
- * chip and at 96 dp on a splash.
- */
-@Composable
-internal fun MarbleBrandMark(
-    modifier: Modifier = Modifier,
-    markSize: Dp = 40.dp,
-    glow: Boolean = true
-) {
-    val dark = homeCloudDark()
-    val cyan = Aether.Cyan
-    val amethyst = Aether.Amethyst
-    val shape = RoundedCornerShape(markSize * .32f)
-    val ink = if (dark) Color(0xFFF2F9FF) else Color.White
-
-    Box(
-        modifier = modifier
-            .size(markSize)
-            .marbleShadow(
-                elevation = if (glow) 12.dp else 0.dp,
-                shape = shape,
-                clip = false,
-                ambientColor = cyan.copy(alpha = .45f),
-                spotColor = amethyst.copy(alpha = .55f)
-            )
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        lerp(cyan, Color.White, .12f),
-                        cyan,
-                        lerp(amethyst, Color.Black, .18f)
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(markSize.value * 1.15f, markSize.value * 1.15f)
-                )
-            )
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color.White.copy(alpha = .30f), Color.Transparent),
-                    startY = 0f,
-                    endY = markSize.value * .62f
-                )
-            )
-            .border(
-                width = 1.dp,
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = .62f),
-                        Color.White.copy(alpha = .10f)
-                    )
-                ),
-                shape = shape
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(Modifier.size(markSize * .74f)) {
-            val unit = size.minDimension / 24f
-            val stroke = (1.9f * unit).coerceAtLeast(1.2f)
-            val line = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
-
-            // orbit
-            drawOval(
-                color = ink.copy(alpha = .55f),
-                topLeft = Offset(2.4f * unit, 8.6f * unit),
-                size = Size(19.2f * unit, 6.8f * unit),
-                style = Stroke(width = stroke * .8f)
-            )
-            // facet
-            drawPath(
-                Path().apply {
-                    moveTo(11.4f * unit, 8.2f * unit)
-                    lineTo(17.6f * unit, 18.4f * unit)
-                    lineTo(11.4f * unit, 15.4f * unit)
-                    close()
-                },
-                ink.copy(alpha = .22f)
-            )
-            // the folded M
-            drawPath(
-                Path().apply {
-                    moveTo(5.4f * unit, 18.6f * unit)
-                    lineTo(8.4f * unit, 5.4f * unit)
-                    lineTo(12f * unit, 13.2f * unit)
-                    lineTo(15.6f * unit, 5.4f * unit)
-                    lineTo(18.6f * unit, 18.6f * unit)
-                },
-                ink,
-                style = line
-            )
-        }
+        drawMarbleGlyph(glyph, color, weight = weight, mirror = mirror)
     }
 }
