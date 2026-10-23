@@ -173,9 +173,8 @@ fun IosServerAvatar(
             contentAlignment = Alignment.Center
         ) {
             CountryFlagCircle(
-                countryCode = countryCode,
-                size = size * 0.72f,
-                rimmed = false
+                code = countryCode,
+                size = size * 0.72f
             )
         }
     } else {

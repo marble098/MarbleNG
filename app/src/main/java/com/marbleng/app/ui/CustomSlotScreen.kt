@@ -131,10 +131,10 @@ fun CustomSlotScreen(
         when (slot.kind) {
             DockSlotKind.PULSE -> {
                 val connected = repo.state == "CONNECTED"
-                val uptime = rememberUptimeLabel(repo.connectedSinceMs)
                 val route = repo.homeRoute()
 
                 item(key = "pulse-live") {
+                    val uptime = rememberUptimeLabel(repo.connectedSinceMs)
                     IosCard {
                         IosListItem(
                             title = if (connected) strings.statusProtected else strings.readyToConnect,

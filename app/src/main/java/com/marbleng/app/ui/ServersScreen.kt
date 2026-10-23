@@ -233,14 +233,14 @@ fun ServersScreen(
                         )
                         protocolTallies.forEach { tally ->
                             IosPillChip(
-                                label = "${tally.label} (${tally.count})",
-                                selected = settings.serversProtocolFilter.equals(tally.key, ignoreCase = true),
+                                label = "${tally.scheme} (${tally.count})",
+                                selected = settings.serversProtocolFilter.equals(tally.scheme, ignoreCase = true),
                                 accent = colors.indigo,
                                 onClick = {
-                                    val next = if (settings.serversProtocolFilter.equals(tally.key, ignoreCase = true)) {
+                                    val next = if (settings.serversProtocolFilter.equals(tally.scheme, ignoreCase = true)) {
                                         ""
                                     } else {
-                                        tally.key
+                                        tally.scheme
                                     }
                                     repo.updateSettings(settings.copy(serversProtocolFilter = next))
                                 }

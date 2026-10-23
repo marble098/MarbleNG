@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.CoreEngine
+import com.marbleng.app.core.coreEngine
 import com.marbleng.app.model.ConnectButtonStyle
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ConnectionPingState
