@@ -477,23 +477,33 @@ jobs:
           set -o pipefail
           python3 scripts/system-integrity-check.py 2>&1 | tee integrity.log
 
-      - name: Verify Prism Product UI invariants
+      - name: Verify iOS Product UI invariants
         shell: bash
         run: |
           set -euo pipefail
+          python3 tools/kotlin-structure-check.py
+          python3 tools/compose-scope-check.py
           python3 - <<'PY'
           from pathlib import Path
 
-          ui = Path(
-              "app/src/main/java/com/marbleng/app/ui/Aether2026.kt"
+          ios_theme = Path(
+              "app/src/main/java/com/marbleng/app/ui/IosTheme.kt"
           ).read_text(encoding="utf-8")
 
-          theme = Path(
-              "app/src/main/java/com/marbleng/app/ui/AetherTheme.kt"
+          ios_components = Path(
+              "app/src/main/java/com/marbleng/app/ui/IosComponents.kt"
           ).read_text(encoding="utf-8")
 
-          design = Path(
-              "app/src/main/java/com/marbleng/app/ui/MarbleDesignSystem.kt"
+          marble_app = Path(
+              "app/src/main/java/com/marbleng/app/ui/MarbleApp.kt"
+          ).read_text(encoding="utf-8")
+
+          servers = Path(
+              "app/src/main/java/com/marbleng/app/ui/ServersScreen.kt"
+          ).read_text(encoding="utf-8")
+
+          settings = Path(
+              "app/src/main/java/com/marbleng/app/ui/SettingsScreen.kt"
           ).read_text(encoding="utf-8")
 
           repo = Path(
@@ -504,96 +514,33 @@ jobs:
               "app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt"
           ).read_text(encoding="utf-8")
 
-          # MARBLE_NATIVE_ANDROID_V213 — the manifest is part of the UI: it is where the platform
-          # is told to hand the app its own back gesture, and where the keyboard's behaviour is
-          # declared instead of worked around.
           manifest = Path(
               "app/src/main/AndroidManifest.xml"
           ).read_text(encoding="utf-8")
 
-          def any_of(source, *needles):
-              return any(needle in source for needle in needles)
-
           required = {
-              "product UI marker": "Marble Product UI v9.2.0" in ui,
-              "modern Canvas icons": "MarbleTabIcon(" in ui,
-              "official Material 3 switch": (
-                  "Switch(" in ui
-                  and "SwitchDefaults.colors(" in ui
-                  and "MarbleToggle(" not in ui
+              "iOS light canvas": "0xFFF8F9FA" in ios_theme,
+              "iOS pure white cards": "0xFFFFFFFF" in ios_theme,
+              "iOS 20dp card radius": "CARD_CORNER_DP: Int = 20" in ios_theme,
+              "iOS 12dp squircle radius": "SQUIRCLE_CORNER_DP: Int = 12" in ios_theme,
+              "iOS 1dp divider": "DIVIDER_THICKNESS_DP: Int = 1" in ios_theme,
+              "iOS RTL list row": (
+                  "fun IosListItem(" in ios_components
+                  and "MarbleGlyph.CHEVRON_LEFT" in ios_components
               ),
-              "v53 compatibility marker": (
-                  "MARBLE_M3_EXPRESSIVE_UI_V53" in ui
-              ),
-              "v54 Prism UI marker": "MARBLE_PRISM_UI_V54" in ui,
-              "v54 Prism theme marker": (
-                  "MARBLE_PRISM_THEME_V54" in theme
-              ),
-              "v54 design-system marker": (
-                  "MARBLE_PRISM_DESIGN_SYSTEM_V54" in design
-              ),
-              "v55 real-device UI marker": (
-                  "MARBLE_REAL_DEVICE_POLISH_V55" in ui
-              ),
-              "v55 design polish marker": (
-                  "MARBLE_PRISM_POLISH_V55" in design
-              ),
-              "library sort control": (
-                  "LibrarySortChoice(" in ui
-                  and 'text="Reverse"' in ui
-              ),
-              "sparkline confidence threshold": (
-                  "if(sparkline.size>=3)" in design
-                  or "if (sparkline.size >= 3)" in design
-              ),
-              "premium vector route": (
-                  "PrismConnectionStage(" in design
-              ),
-              "Prism backdrop": "PrismBackdrop(" in ui,
-              "floating spatial navigation": (
-                  "FloatingSpatialDock(" in ui
-                  and "MARBLE_BOTTOM_DOCK_UNIFIED_FLOATING_V661" in ui
-                  and "SpatialTab.entries.forEach" in ui
-              ),
-              "profile name uses profile identity": (
-                  'val activeName = active?.name ?: "Choose a route"' in ui
-              ),
-              "flag-aware node identity": (
-                  "stripLeadingFlag(profile.name)" in ui
-                  and "leadingFlagGlyph" in design
+              "MarbleApp modular tabs": (
+                  "HomeScreen(" in marble_app
+                  and "ServersScreen(" in marble_app
+                  and "CustomSlotScreen(" in marble_app
+                  and "SettingsScreen(" in marble_app
               ),
               "source-aware deletion": (
-                  "removeProfile(profile.id, profile.subscriptionId)" in ui
+                  "removeProfile(profile.id, profile.subscriptionId)" in servers
               ),
-              "brand vector": "R.drawable.ic_marble_prism" in ui,
-              "unified dock interaction": (
-                  ".kineticClickable(" in ui
-                  and "indicatorTone" in ui
-                  and "MarbleTabIcon(" in ui
-              ),
-              "layered Prism surfaces": (
-                  "PrismPanel(" in ui
-                  and "PrismPanel(" in design
-              ),
-              "visual theme previews": (
-                  "PrismThemeChoice(" in ui
-                  and "PrismThemeChoice(" in design
-              ),
-              "library filter sheet": (
-                  "ModalBottomSheet(" in ui
-                  and "LibraryFilterSheet(" in ui
-              ),
-              "library swipe actions": "SwipeToDismissBox(" in ui,
-              "home bento and sparkline": (
-                  "HomeMetricBento(" in ui
-                  and "MarbleSparkline(" in design
-              ),
-              "dynamic system colours": (
-                  "dynamicLightColorScheme(" in theme
-                  and "dynamicDarkColorScheme(" in theme
-              ),
-              "connected score prefers live data": (
-                  "repo.liveRouteScore" in ui
+              "modular settings navigation": (
+                  "enum class SettingsDestination" in settings
+                  and "SettingsConnectionModePage(" in settings
+                  and "SettingsDiagnosticsPage(" in settings
               ),
               "live-score model": "calculateLiveRouteScore" in repo,
               "live sample count": "liveRouteSamples" in repo,
@@ -601,57 +548,8 @@ jobs:
                   "The dashboard should become meaningful as soon as Xray is live"
                   in vpn
               ),
-              "fast page transition": (
-                  "marble-page-transition-fast" in ui
-              ),
-              # MARBLE_NATIVE_ANDROID_V213 — the native chapter, as three markers on the files this
-              # step already reads. The full invariant set (the measurement table, the platform
-              # roles, the notification fields, the manifest flags) lives in
-              # `scripts/system-integrity-check.py`, which ran in the step above; these are the
-              # ones that must not disappear from a merge.
-              "native tab indicator": "marbleNativePill()" in ui,
-              "native option row": "MarbleNativeListItem(" in ui,
-              "native corner ramp": "MARBLE_NATIVE_ANDROID_V213" in theme,
-              "native card skin": "MARBLE_NATIVE_ANDROID_V213" in design,
-              # The platform's own back gesture has to stay delegated: with the flag removed,
-              # Android falls back to the legacy path and the predictive-back progress the
-              # connection page animates is never delivered.
               "platform back gesture": 'enableOnBackInvokedCallback="true"' in manifest,
           }
-
-          # Settings is intentionally implementation-flexible:
-          # - Current flat architecture: dedicated Settings sub-pages and no legacy tab/rail host.
-          # - Legacy-compatible architecture: compact tabs or wide-screen navigation rail.
-          #
-          # This prevents CI from demanding mutually exclusive UI architectures
-          # while retaining a meaningful regression guard.
-          flat_settings = (
-              any_of(
-                  ui,
-                  "SettingsSubPage",
-                  "SettingsTabPage",
-                  "SettingsThemePage",
-                  "SettingsHomeStylePage",
-                  "PER_APP",
-              )
-              and "SettingsWorkspaceHost" not in ui
-              and "SettingsTabStrip" not in ui
-          )
-
-          legacy_settings = (
-              (
-                  "compactTabsState" in ui
-                  and "LazyRow(" in ui
-              )
-              or (
-                  "NavigationRail(" in ui
-                  and "maxWidth >= 700.dp" in ui
-              )
-          )
-
-          required["settings navigation architecture"] = (
-              flat_settings or legacy_settings
-          )
 
           failed = [
               name
@@ -664,7 +562,7 @@ jobs:
                   "Product UI invariant failure: " + ", ".join(failed)
               )
 
-          print("[OK] Marble Product UI invariants")
+          print("[OK] Marble iOS Product UI invariants")
           PY
 
       - name: Verify release publishing safety
