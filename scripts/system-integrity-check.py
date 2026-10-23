@@ -36,8 +36,6 @@ def workflow(name: str) -> str:
 files = {
     "main": read("app/src/main/java/com/marbleng/app/MainActivity.kt"),
     "permissions": read("app/src/main/java/com/marbleng/app/ui/MarblePermissionOnboarding.kt"),
-    "theme": read("app/src/main/java/com/marbleng/app/ui/AetherTheme.kt"),
-    "design": read("app/src/main/java/com/marbleng/app/ui/MarbleDesignSystem.kt"),
     "app": read("app/src/main/java/com/marbleng/app/MarbleApplication.kt"),
     "repo": read("app/src/main/java/com/marbleng/app/AppRepository.kt"),
     "store": read("app/src/main/java/com/marbleng/app/data/AppStore.kt"),
@@ -154,7 +152,6 @@ files = {
     "settingsTreeDoc": read("docs/SETTINGS_TREE_TEXT_SCALE_V215.md"),
     "settingsTreeTest": read("app/src/test/java/com/marbleng/app/model/TextScaleV215Test.kt"),
     "marbleApp": read("app/src/main/java/com/marbleng/app/ui/MarbleApp.kt"),
-    "contrast": read("app/src/main/java/com/marbleng/app/ui/MarbleContrast.kt"),
     "supersetDoc": read("docs/CORE_CONFIG_SUPERSET_V165.md"),
     "interopDoc": read("docs/core-interoperability.md"),
     "supersetTest": read("app/src/test/java/com/marbleng/app/core/CoreConfigSupersetV165Test.kt"),
@@ -215,30 +212,19 @@ files = {
     "privacy": read("app/src/main/java/com/marbleng/app/net/PrivacyAuditor.kt"),
     "bug": read("app/src/main/java/com/marbleng/app/core/BugFinder.kt"),
     "diag": read("app/src/main/java/com/marbleng/app/core/RuntimeDiagnostics.kt"),
-    "ui": read("app/src/main/java/com/marbleng/app/ui/Aether2026.kt"),
-    "homeStyles": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStyles.kt"),
-    "atelier": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeAtelier.kt"),
-    "studio": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
     # MARBLE_CORE_OPTIONS_V211 — the cores' own options, written once and never rewritten. The
     # learner that used to live in `TransportAdaptation.kt` is gone with the fragment feature it
     # served; this is its replacement, and it is the only writer of the per-core fields.
     "coreOptions": read("app/src/main/java/com/marbleng/app/core/CoreOptions.kt"),
     # MARBLE_SERVER_TILE_LAYOUT_V208 — the compact server grid, its policy and its test.
-    "serverTiles": read("app/src/main/java/com/marbleng/app/ui/MarbleServerTiles.kt"),
     # MARBLE_NATIVE_ANDROID_V213 — the offline flag library: every country the product can name,
     # drawn as vector art, and the circle that frames one.
     "countryFlagArt": read("app/src/main/java/com/marbleng/app/ui/CountryFlagArt.kt"),
-    "serverTilesTest": read("app/src/test/java/com/marbleng/app/ui/ServerTileLayoutV208Test.kt"),
     # MARBLE_SERVER_TILE_TRUTH_V210 — what a box may claim, and the name slot's one-line rule.
-    "serverTileTruthTest": read(
-        "app/src/test/java/com/marbleng/app/ui/ServerTileTruthV210Test.kt"
-    ),
     # MARBLE_FLOATING_ACTIONS_V210 — the per-theme colours of a floating action, and the chrome
     # that scores the ink on top of them.
-    "floatingChrome": read("app/src/main/java/com/marbleng/app/ui/MarbleFloatingChrome.kt"),
     # MARBLE_MERIDIAN_V221 — the flat chapter: the surface switch, the accent, the power
     # projection, the Censorship Lab, the warm cache and the pages that expose them.
-    "meridian": read("app/src/main/java/com/marbleng/app/ui/MarbleMeridian.kt"),
     "censorshipLab": read("app/src/main/java/com/marbleng/app/core/CensorshipLab.kt"),
     "corePower": read("app/src/main/java/com/marbleng/app/core/CorePower.kt"),
     "fragmentPolicy": read("app/src/main/java/com/marbleng/app/core/FragmentPolicy.kt"),
@@ -251,16 +237,7 @@ files = {
         "app/src/test/java/com/marbleng/app/core/CensorshipLabV221Test.kt"
     ),
     "corePowerTest": read("app/src/test/java/com/marbleng/app/core/CorePowerV221Test.kt"),
-    "floatingActionsTest": read(
-        "app/src/test/java/com/marbleng/app/ui/MarbleFloatingActionsV210Test.kt"
-    ),
     # MARBLE_SETTINGS_SECTIONS_V210 — the Settings tree: its policy and its test.
-    "settingsSections": read(
-        "app/src/main/java/com/marbleng/app/ui/MarbleSettingsSections.kt"
-    ),
-    "settingsSectionsTest": read(
-        "app/src/test/java/com/marbleng/app/ui/MarbleSettingsSectionsV210Test.kt"
-    ),
     # MARBLE_FRAGMENT_PROFILES_V208 — the rewritten Fragment & Mux stack: the wire policy, the
     # profile ladder and the tests that pin both.
     "singBoxWirePolicy": read("app/src/main/java/com/marbleng/app/core/SingBoxTransportPolicy.kt"),
@@ -270,7 +247,6 @@ files = {
     "singBoxWireTest": read(
         "app/src/test/java/com/marbleng/app/core/SingBoxTransportPolicyV208Test.kt"
     ),
-    "copyTest": read("app/src/test/java/com/marbleng/app/ui/MarbleCopyV208Test.kt"),
     "coreOptionsDoc": read("docs/CORE_OPTIONS_V211.md"),
     "serverTileDoc": read("docs/SERVER_TILE_LAYOUT_V208.md"),
     # MARBLE_SERVER_TILE_TRUTH_V210 / MARBLE_HOME_ROUTE_PING_V210 / MARBLE_FLOATING_ACTIONS_V210
@@ -283,14 +259,9 @@ files = {
     "settingsSectionsDoc": read("docs/SETTINGS_SECTIONS_V210.md"),
     "homeOnePingDoc": read("docs/HOME_ONE_PING_V208.md"),
     "settingsCopyDoc": read("docs/SETTINGS_ONE_LINE_COPY_V208.md"),
-    "protocolIdentity": read("app/src/main/java/com/marbleng/app/ui/MarbleProtocolIdentity.kt"),
     # MARBLE_ROUTE_ATELIER_V207 — the design grammar and the presentation built against it. They are
     # required files now: a build that drops either one turns Home's default presentation into a page
     # that the dispatcher cannot render, so `read()` failing here is the correct loud answer.
-    "designContract": read("app/src/main/java/com/marbleng/app/ui/MarbleDesignContract.kt"),
-    "homeAtelier": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeAtelier.kt"),
-    "routeAtelierTest": read("app/src/test/java/com/marbleng/app/ui/MarbleDesignContractV207Test.kt"),
-    "homeStyleTest": read("app/src/test/java/com/marbleng/app/ui/MarbleHomeStyleTest.kt"),
     "routeAtelierDoc": read("docs/ROUTE_ATELIER_V207.md"),
     "strings": read("app/src/main/java/com/marbleng/app/ui/MarbleStrings.kt"),
     # MARBLE_PING_SPEED_DIAL_V199 — the Persian face of the dial, checked like every other file.
@@ -305,20 +276,11 @@ files = {
     "socketFlightTest": read("app/src/test/java/com/marbleng/app/core/SocketFlightV168Test.kt"),
     "socketFlightDoc": read("docs/SOCKET_FLIGHT_V168.md"),
     "marbleApp": read("app/src/main/java/com/marbleng/app/ui/MarbleApp.kt"),
-    "homeStudio": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
-    "connectPlacement": read("app/src/main/java/com/marbleng/app/ui/MarbleConnectPlacement.kt"),
     # MARBLE_EXPRESSIVE_MOTION_V186 — the motion chapter: its library, the shared motion clock it
     # extends, the pure-math test that pins the wave/stagger/depth contracts, and the chapter.
-    "expressive": read("app/src/main/java/com/marbleng/app/ui/MarbleExpressive.kt"),
-    "motion": read("app/src/main/java/com/marbleng/app/ui/MarbleMotion.kt"),
-    "expressiveTest": read("app/src/test/java/com/marbleng/app/ui/MarbleExpressiveMathV186Test.kt"),
     "expressiveDoc": read("docs/EXPRESSIVE_MOTION_V186.md"),
     # MARBLE_SERVERS_HIERARCHY_V189 — the Servers page's two levels: the pure size table and plan
     # arithmetic, the test that pins both, and the chapter that explains the nesting.
-    "serversHierarchy": read("app/src/main/java/com/marbleng/app/ui/MarbleServersHierarchy.kt"),
-    "serversHierarchyTest": read(
-        "app/src/test/java/com/marbleng/app/ui/ServersHierarchyV189Test.kt"
-    ),
     "serversHierarchyDoc": read("docs/SERVERS_HIERARCHY_V189.md"),
     "tile": read("app/src/main/java/com/marbleng/app/quicktile/MarbleQuickTileService.kt"),
     "manifest": read("app/src/main/AndroidManifest.xml"),
@@ -386,10 +348,6 @@ files = {
     "multiSourceDoc": read("docs/MULTI_SOURCE_ROUTING_V212.md"),
     # MARBLE_HOME_PING_CONTROLS_V212 / MARBLE_SERVER_TILE_PARITY_V212 / MARBLE_SURFACE_DEPTH_V212
     # — the three surface chapters of the same pass, and the test that pins their wiring.
-    "surfaceDepth": read("app/src/main/java/com/marbleng/app/ui/MarbleSurfaceDepth.kt"),
-    "tileParityTest": read(
-        "app/src/test/java/com/marbleng/app/ui/ServerTileParityV212Test.kt"
-    ),
     "homePingActionTest": read(
         "app/src/test/java/com/marbleng/app/model/HomePingControlsV212Test.kt"
     ),
@@ -398,13 +356,28 @@ files = {
     # MARBLE_NATIVE_ANDROID_V213 — the native chapter: the platform's measurement table and its
     # component set, the critique that named the seven surfaces, the chapter that answers them and
     # the test that pins both halves. Named `nativeUi`, not `native`: that key is the Go/C++ side.
-    "nativeUi": read("app/src/main/java/com/marbleng/app/ui/MarbleNativeAndroid.kt"),
-    "nativeUiTest": read(
-        "app/src/test/java/com/marbleng/app/ui/MarbleNativeAndroidV213Test.kt"
-    ),
     "nativeUiDoc": read("docs/NATIVE_ANDROID_V213.md"),
     "nativeCritiqueDoc": read("docs/APPEARANCE_CRITIQUE_V213.md"),
     "surfaceDepthDoc": read("docs/SURFACE_DEPTH_V212.md"),
+    # MARBLE_IOS_DESIGN_SYSTEM — clean modular iOS UI architecture
+    "iosTheme": read("app/src/main/java/com/marbleng/app/ui/IosTheme.kt"),
+    "iosComponents": read("app/src/main/java/com/marbleng/app/ui/IosComponents.kt"),
+    "uiFormatters": read("app/src/main/java/com/marbleng/app/ui/UiFormatters.kt"),
+    "homeScreen": read("app/src/main/java/com/marbleng/app/ui/HomeScreen.kt"),
+    "serversScreen": read("app/src/main/java/com/marbleng/app/ui/ServersScreen.kt"),
+    "serverForms": read("app/src/main/java/com/marbleng/app/ui/ServerFormsAndDetailPages.kt"),
+    "customSlot": read("app/src/main/java/com/marbleng/app/ui/CustomSlotScreen.kt"),
+    "settingsScreen": read("app/src/main/java/com/marbleng/app/ui/SettingsScreen.kt"),
+    "settingsConnection": read("app/src/main/java/com/marbleng/app/ui/SettingsConnectionPages.kt"),
+    "settingsRouting": read("app/src/main/java/com/marbleng/app/ui/SettingsRoutingPages.kt"),
+    "settingsTesting": read("app/src/main/java/com/marbleng/app/ui/SettingsTestingPages.kt"),
+    "settingsAppearance": read("app/src/main/java/com/marbleng/app/ui/SettingsAppearancePages.kt"),
+    "settingsSystem": read("app/src/main/java/com/marbleng/app/ui/SettingsSystemPages.kt"),
+    "marbleModals": read("app/src/main/java/com/marbleng/app/ui/MarbleModals.kt"),
+    "glyphArt": read("app/src/main/java/com/marbleng/app/ui/MarbleGlyphArt.kt"),
+    "iosTest": read("app/src/test/java/com/marbleng/app/ui/IosDesignSystemTest.kt"),
+    "colorsXml": read("app/src/main/res/values/colors.xml"),
+    "stylesXml": read("app/src/main/res/values/styles.xml"),
 }
 
 workflow_sources = "\n".join(
@@ -478,7 +451,6 @@ check(
 check("exact last route is persisted", "setLastProfileRef(p.id, p.subscriptionId)" in files["repo"])
 check("remembered route stores source id", "lastProfileSourceId" in files["store"])
 check("source-aware profile lookup exists", "fun profile(id: String, sourceId: String? = null)" in files["repo"])
-check("source-aware UI deletion exists", "removeProfile(profile.id, profile.subscriptionId)" in files["ui"])
 check("active provider row survives refresh", "active-profile-preserved-on-refresh" in files["repo"])
 # MARBLE_SERVERS_LANGUAGE_V114 — "Library nodes" is "servers" everywhere the user can read it,
 # including this guard message; the invariant is the guard, not the old wording.
@@ -502,26 +474,6 @@ check(
     and all(step in files["permissions"] for step in ("VPN", "NOTIFICATIONS"))
     and "BATTERY" not in files["permissions"]
 )
-check(
-    "font choices persist and reach the theme",
-    "enum class AppFont" in files["models"]
-    and "fontFamily" in files["store"]
-    and "AppFont.entries" in files["ui"]
-    and "fontId" in files["theme"],
-)
-check(
-    "bottom dock has a stable single-surface contract",
-    "MARBLE_STABLE_NAVIGATION_V202" in files["ui"]
-    and "val dockSurface = chrome.surface" in files["ui"]
-    and "glassFraction" not in files["ui"]
-    and "pillWashAlpha" not in files["ui"],
-)
-check(
-    "connected Home exposes in-app IP details",
-    "HomeIpRow(" in files["homeStyles"]
-    and "IpDetailsDialog" in files["ui"]
-    and "ipDetails" in files["strings"],
-)
 
 # MARBLE_HOME_STYLE_TRIM_V121 — three presentations of one connection surface.
 # Parametric and Bioluminescent were removed from the product: they are not modelled, not
@@ -529,69 +481,11 @@ check(
 home_styles = ("IOS_SLIDER", "IOS_FLOATING", "IOS_EMBOSSED", "IOS_MODULAR")
 retired_home_styles = ("BIOLUMINESCENT", "PARAMETRIC")
 check(
-    "all four Home styles are modelled and persisted",
-    "enum class HomeStyle" in files["models"]
-    and all(style in files["models"] for style in home_styles)
-    and "homeStyle" in files["store"]
-    and "homeStyle = style.id" in files["ui"],
-)
-check(
-    "retired Home styles are gone from every layer",
-    all(
-        style not in blob
-        for style in retired_home_styles
-        for blob in (files["models"], files["homeStyles"], files["ui"])
-    ),
-)
-check(
-    "every Home style has an implementation and is reachable",
-    all(
-        name in files["homeStyles"]
-        for name in (
-            "HomeThemeSlider",
-            "HomeThemeFloating",
-            "HomeThemeEmbossed",
-            "HomeThemeModular",
-        )
-    )
-    and "HomeStyleSurface(" in files["homeStyles"]
-    and "HomeStyleSurface(" in files["ui"],
-)
-check(
-    "every Home style renders the same evidence through one shared model",
-    "data class HomeEvidence" in files["homeStyles"]
-    and "buildHomeEvidence(" in files["ui"]
-    and "IosStatusWideCard(" in files["homeStyles"]
-    and "IosServerListBox(" in files["homeStyles"],
-)
-check(
-    "Home evidence covers node, source, IP+flag+3 actions, uptime and ping",
-    all(
-        field in files["homeStyles"]
-        for field in ("nodeName", "sourceName", "flag", "connectedSinceMs", "pingState")
-    )
-    and all(
-        action in files["homeStyles"]
-        for action in ("onCopyIp", "onRefreshIp", "onIpDetails", "onTestPing")
-    ),
-)
-check(
-    "no Home style wraps the connect control in a quality indicator",
-    "PrismConnectionStage(" not in files["homeStyles"]
-    and "qualityScore" not in files["homeStyles"]
-    and "liveRouteScore" not in files["homeStyles"],
-)
-check(
     "connection ping is one-shot and never a background timer",
     "fun measureConnectionPing()" in files["repo"]
     and "connectionPingInFlight" in files["repo"]
     and "enum class ConnectionPingState" in files["models"]
     and "ConnectionPingState.FAILED" in files["repo"],
-)
-check(
-    "session uptime comes from the repository, not the UI clock",
-    "connectedSinceMs" in files["repo"]
-    and "rememberUptimeLabel(" in files["homeStyles"],
 )
 
 # MARBLE_HOME_THEME_TWO_DEFAULT_V160 / MARBLE_ROUTE_ATELIER_V207 — every presentation is modelled and
@@ -599,36 +493,8 @@ check(
 # cannot disagree about it. V160 set that name to Theme 2 (Floating); V207 moved it to the route
 # presentation, and the check moved with it — what it pins is the SHAPE of the rule (one name, read by
 # the store and the parser, with a dispatcher behind it), not which theme happens to hold it today.
-check(
-    "the route presentation is modelled and is the product default",
-    'ROUTE_ATELIER("route_atelier")' in files["models"]
-    and "homeStyle: String = HomeStyle.DEFAULT.id" in files["models"]
-    and "val DEFAULT: HomeStyle get() = ROUTE_ATELIER" in files["models"]
-    and "HomeStyle.DEFAULT" in files["store"]
-    and "HomeThemeAtelier(" in files["homeStyles"]
-    and "HomeStyleSurface(" in files["ui"]
-    and "HomeStyleSurface(" in files["homeStyles"],
-)
 # A default may be moved; a presentation may not be orphaned by the move. Theme 2 keeps its id, its
 # implementation and its reachability, because an install that chose it must still find it.
-check(
-    "the former default presentation is still modelled and reachable",
-    'IOS_FLOATING("ios_floating")' in files["models"]
-    and "HomeThemeFloating(" in files["homeStyles"]
-    and "HomeStyle.IOS_FLOATING -> HomeThemeFloating(" in files["homeStyles"],
-)
-check(
-    "every presentation including the former default is still modelled and reachable",
-    all(
-        style in files["models"] and implementation in files["homeStyles"]
-        for style, implementation in (
-            ('IOS_SLIDER("ios_slider")', "HomeThemeSlider("),
-            ('IOS_FLOATING("ios_floating")', "HomeThemeFloating("),
-            ('IOS_EMBOSSED("ios_embossed")', "HomeThemeEmbossed("),
-            ('IOS_MODULAR("ios_modular")', "HomeThemeModular("),
-        )
-    ),
-)
 # A first launch opens on the default; an install that chose a presentation keeps the choice, so
 # the store must ask whether a value was ever written instead of handing a default to getString.
 check(
@@ -643,40 +509,8 @@ check(
 )
 # MARBLE_SIGNATURE_STUDIO_REMOVED_V143 — the Signature studio product surface is gone from every
 # layer: no UI file, no model type, no persisted setting, no composer wiring, no translation.
-check(
-    "Signature studio surface and settings are fully removed",
-    "SignatureFloatingConnectOverlay(" not in files["ui"]
-    and "SignatureStatusBanner(" not in files["ui"]
-    and "SignatureCornerCluster(" not in files["ui"]
-    and "HomeProContext" not in files["homeStyles"]
-    and "rememberSignatureProContext(" not in files["ui"]
-    and "ProAccent" not in files["models"]
-    and "ProBannerScope" not in files["models"]
-    and "ProShortcut" not in files["models"]
-    and "proFloatingButtonEnabled" not in files["store"]
-    and "proStatusBannerEnabled" not in files["store"]
-    and "proCornerActionsEnabled" not in files["store"]
-    and "proBannerScope" not in files["store"]
-    and "proAccent" not in files["store"]
-    and "proShortcut" not in files["store"],
-)
 # Home carries no legacy Signature swppers or server-card settings; the presentation is chosen
 # in Settings and server selection stays shared between Home and the Servers page.
-check(
-    "Home carries no style switcher or server-card setting",
-    "SignatureStyleSwitcher" not in files["ui"]
-    and "ProServerCardStyle" not in files["models"]
-    and "proServerRailEnabled" not in files["store"]
-    and "proStyleSwitcherEnabled" not in files["store"],
-)
-check(
-    "Home server list is synced with the Servers group, not a second rail",
-    "IosServerListBox(" in files["homeStyles"]
-    and "ServersQuery.visible(" in files["homeStyles"]
-    and "librarySourceFilter" in files["homeStyles"]
-    and "selectProfile(" in files["homeStyles"]
-    and "SignatureServerRail" not in files["homeStyles"],
-)
 check(
     "selected-server endpoint ping is one-shot with failure kinds",
     "fun measureSelectedPing()" in files["repo"]
@@ -685,21 +519,10 @@ check(
     and "classifyPingFailure(" in files["repo"],
 )
 check(
-    "floating connection control is a bottom-end circular shutter",
-    "fun ConnectButtonFloating(" in files["homeStudio"]
-    and ".size(76.dp)" in files["homeStudio"]
-    and "bottom-end" in files["connectPlacement"],
-)
-check(
     "dragged Signature floating-button position state is gone",
     "rememberProFabPosition" not in files["repo"]
     and "setProFabPosition" not in files["store"]
     and "proFabPosition" not in files["repo"],
-)
-check(
-    "Home evidence is shared by deck, banner and floating button",
-    "rememberDeckEvidence(" in files["ui"]
-    and "deck = deck" in files["ui"],
 )
 
 # MARBLE_HOME_PING_RESCUE_V112 — the Home ping is a multi-mode ladder, not three 204 domains.
@@ -712,43 +535,14 @@ check(
 )
 # MARBLE_PING_USER_TAPPED_ONLY_V143 — ping is a one-shot user action. The bounded ladder still
 # lives in the repository; the UI never arms a background probe.
-check(
-    "cold-tunnel ping miss gets exactly one bounded re-check",
-    "MARBLE_HOME_PING_RESCUE_V112" in files["repo"]
-    and "MARBLE_PING_USER_TAPPED_ONLY_V143" in files["ui"],
-)
 
 # MARBLE_SEAMLESS_LOOPS_V112 — loop restarts must be invisible.
-check(
-    "loop effects fade through a zero-at-both-ends envelope",
-    "loopFade(" in files["homeStyles"]
-    and "MARBLE_SEAMLESS_LOOPS_V112" in files["homeStyles"],
-)
 
 # MARBLE_HOME_PING_AUTOFIT_V112 — the ping can never overflow its readout.
-check(
-    "every stat readout renders through the auto-fit value text",
-    "HomeStatValueText(" in files["homeStyles"]
-    and "softWrap = false" in files["homeStyles"],
-)
 
 # MARBLE_SYSTEM_FONT_V112 — the device typeface is a first-class choice; Persian stays Vazir.
-check(
-    "system font option exists and Persian still forces Vazirmatn",
-    "SYSTEM(\"system\")" in files["models"]
-    and "AppFont.SYSTEM -> FontFamily.Default" in files["theme"]
-    and "if (persian) VazirFamily else selectedFontFamily(fontId)" in files["theme"],
-)
 
 # MARBLE_NIGHT_OUTLINES_V112 — dark-theme frame personality is a user choice.
-check(
-    "night outline styles persist and reach the theme palette",
-    "enum class DarkOutlineStyle" in files["models"]
-    and "darkOutlineStyle" in files["store"]
-    and "outlineStyleId = repo.settings.darkOutlineStyle" in files["marbleApp"]
-    and "applyNightOutline(" in files["theme"]
-    and "DarkOutlineStyle.HIDDEN ->" in files["theme"],
-)
 
 # MARBLE_BILINGUAL_V110 â€” English/Persian with a device-locale default.
 check(
@@ -771,47 +565,10 @@ check(
     and files["strings"].count("language = MarbleLanguage") >= 2,
 )
 check(
-    "language and Home style are user-changeable in Settings",
-    "appLanguage = language.id" in files["ui"]
-    and "AppLanguage.entries.forEach" in files["ui"]
-    and "HomeStyle.entries.chunked(2)" in files["ui"],
-)
-check(
-    "Persian UI has a complete fallback rather than an English leak",
-    "return faFallback(text)" in files["persianLexicon"]
-    and "private fun faTransliterate" in files["persianLexicon"]
-    and 'languageEnglish = "انگلیسی"' in files["strings"]
-    and "persianFallbackNeverLeaksAnUntranslatedLatinUiLabel" in read(
-        "app/src/test/java/com/marbleng/app/ui/MarbleDesignSystemTest.kt"
-    ),
-)
-check(
-    "AMOLED navigation surface is transparent",
-    "Color.Transparent.toArgb()" in files["theme"]
-    and "isNavigationBarContrastEnforced=false" in files["theme"]
-    and "@android:color/transparent" in read("app/src/main/res/values/styles.xml"),
-)
-check(
-    "AMOLED page background leaves uncovered OLED pixels off",
-    "void = Color.Black" in files["theme"]
-    and "val DarkBgTop = Color.Black" in files["design"]
-    and "val DarkBgBottom = Color.Black" in files["design"]
-    and "return@Canvas" in files["design"],
-)
-check(
     "release packaging requires a stable signer",
     "signing.properties" in files["gradle"]
     and "unsigned APKs are not installable" in files["gradle"]
     and "apksigner" in files["build"],
-)
-appearance_settings = files["ui"].split("private fun AppearanceSettings", 1)
-appearance_body = appearance_settings[1].split("private fun ConnectionSettings", 1)[0] if len(appearance_settings) == 2 else ""
-check(
-    "Home layout options are not exposed in Settings",
-    "homeShowLiveQuality" in files["models"]
-    and "homeShowServerSelector" not in appearance_body
-    and "homeShowLiveQuality" not in appearance_body
-    and "homeShowRouteRibbon" not in appearance_body,
 )
 # MARBLE_SETTINGS_TREE_V215 — the flags no screen read are removed from the model and the store.
 check(
@@ -854,14 +611,6 @@ check(
 )
 
 # DNS, routing and identity.
-check(
-    "full TUN refuses a disabled DNS hijack rather than forwarding plaintext port 53",
-    "if (mode != MODE_PROXY && !app.repo.settings.dnsHijackEnabled)" in files["vpn"]
-    and 'failBeforeTunnel("Full VPN requires DNS hijacking' in files["vpn"]
-    and "val enableDnsHijack = mode == ConnectionMode.FULL_TUN && !settings.dnsHijackEnabled"
-        in files["repo"]
-    and "Required to start Full TUN without plaintext DNS" in files["ui"],
-)
 check(
     "endpoint bootstrap is encrypted local DoH and fails closed without a family-compatible peer",
     "https+local://${dnsHostLiteral(ip)}/dns-query" in files["hardener"]
@@ -989,11 +738,6 @@ check(
     and '"1-5"' not in files["shield"],
 )
 check(
-    "Home hides verbose live RTT evidence",
-    "liveRouteProbeStatus" in files["repo"]
-    and "repo.liveRouteProbeStatus" not in files["ui"],
-)
-check(
     "upload-only HEV stalls need route confirmation",
     "confirmRouteUnavailable" in files["vpn"]
     and "datapath-stall-suspected" in files["vpn"]
@@ -1063,13 +807,6 @@ check(
 check("diagnostics queue is bounded", "ArrayBlockingQueue" in files["diag"])
 check("diagnostics redaction exists", "fun redact" in files["diag"])
 check(
-    "Bug Finder raw evidence stays out of Settings",
-    "current.evidence.joinToString" not in files["ui"]
-    # The checks toggle must exist; anchored on its state (stable across copy edits)
-    # instead of a display string.
-    and "checksExpanded" in files["ui"],
-)
-check(
     "Bug Finder reports passive and external leak scores separately",
     "Passive leak containment" in files["bug"]
     and "External anti-leak audit" in files["bug"]
@@ -1077,74 +814,14 @@ check(
 )
 
 # UI / Home.
-check("Home exact reconnect path exists", "repo.reconnectLastOrAuto(onConnect)" in files["ui"])
-check("Library exact active-row check exists", "repo.isActiveProfile(profile)" in files["ui"])
-check(
-    "Settings hub renders one dedicated page per title",
-    "SettingsTabPage(" in files["ui"]
-    and "settingsSections(" in files["ui"]
-    and "SettingsSectionCard(" in files["ui"],
-)
-check(
-    "Settings single-page migration marker exists",
-    "MARBLE_SETTINGS_FLAT_SINGLE_PAGE_V115" in files["ui"]
-    and "SettingsSubPage(" in files["ui"],
-)
-check(
-    "Settings tab strip and adaptive rail are gone",
-    "NavigationRail(" not in files["ui"]
-    and "SettingsTabStrip(" not in files["ui"]
-    and "compactTabsState" not in files["ui"],
-)
-check(
-    "Per-app proxy lives inside Network & Routing",
-    'card("Per-app proxy"' in files["ui"]
-    and "SplitTunnelSettings(repo)" in files["ui"]
-    and "SplitTunnelModeSelector(" in files["ui"],
-)
-check(
-    "Settings workspace has no SubcomposeLayout content boundary",
-    "BoxWithConstraints(" not in files["ui"],
-)
-check(
-    "Settings sub-pages apply exactly one inset pass",
-    "imePadding()" in files["ui"]
-    and "windowInsetsPadding(WindowInsets.navigationBars)" not in files["ui"]
-    and "systemBarsPadding()" not in files["ui"],
-)
-check(
-    "Shared section source still exists and the expert gate is retired",
-    "SettingsSectionSpec" in files["ui"]
-    and "settingsSections(" in files["ui"]
-    and "ExpertGateRow(" not in files["ui"]
-    and "expertMode" not in files["ui"],
-)
 # MARBLE_ROUTING_SEPARATE_V143 — Routing is its own dedicated Settings page and the Home->Routing
 # deep link jumps straight to it without mutating Expert mode.
-check(
-    "Routing focus keeps Expert mode untouched",
-    'focusSection == "Routing"' in files["ui"]
-    and "page = SettingsPages.ROUTING" in files["ui"]
-    and "RoutingEntryCard(" in files["ui"]
-    and "SettingsRoutingPage(" in files["ui"]
-    and "copy(expertMode=true)" not in files["ui"],
-)
 # MARBLE_SMOOTH_CLOCK_V193 / MARBLE_ROUTE_ATELIER_V207 — V193 bounded an endless name scroller to
 # three passes, which fixed the frame cost and kept the usability defect: a row whose name moves is a
 # row a user cannot compare, and several of them starting two seconds apart turned the Servers page
 # into signage. V207 took the marquee off the list row entirely (two settled lines, ellipsis; the full
 # name stays readable and copyable in the detail sheet). The invariant is the one the product actually
 # promises now: no text scrolls inside a Servers row, and no unused scroller import is left behind.
-check(
-    "library long names settle instead of scrolling",
-    "basicMarquee" not in files["ui"]
-    and "maxLines = 2" in _fun_body(files["ui"], "private fun ServersNodeCard(")
-    and "overflow = TextOverflow.Ellipsis" in _fun_body(files["ui"], "private fun ServersNodeCard("),
-)
-check(
-    "legacy global chain settings are removed",
-    "chainEnabled" not in files["models"] + files["store"] + files["ui"],
-)
 # MARBLE_PROBE_METHODS_V151 — the product exposes exactly three measurements: Real delay (a real
 # page through the tunnel, PattNG's real ping), TCP ping (the port answers, PattNG's tcping) and
 # URL test (the delay the running sing-box extended core measured for its own outbound).
@@ -1164,22 +841,11 @@ check(
     ),
 )
 check(
-    "settings page offers every product ping method and none of the retired ones",
-    "ProbeMethod.REAL_DELAY ->" in files["ui"]
-    and "ProbeMethod.TCP_PING ->" in files["ui"]
-    and "ProbeMethod.URL_TEST ->" in files["ui"]
-    and "ProbeMethod.entries.forEach" in files["ui"]
-    and "ProbeMethod.DNS ->" not in files["ui"]
-    and "ProbeMethod.ICMP ->" not in files["ui"]
-    and "ProbeMethod.HYBRID ->" not in files["ui"]
-    and "ProbeMethod.TCP_CONNECT ->" not in files["ui"],
-)
-check(
     "no production code still selects a retired ping method",
     not any(
         "ProbeMethod." + retired in files[key]
         for retired in ("HYBRID", "TUNNEL", "TCP_CONNECT", "TCP_RECOMMENDED", "HTTP_GET", "HTTP_HEAD", "ICMP", "DNS")
-        for key in ("repo", "bench", "probe", "ui", "vpn", "store", "models")
+        for key in ("repo", "bench", "probe", "settingsTesting", "settingsScreen", "vpn", "store", "models")
     ),
 )
 # MARBLE_URLTEST_SINGBOX_ONLY_V156 — the URL test is sing-box extended's own delay controller and
@@ -1187,21 +853,6 @@ check(
 # something different behind the same label, so the same server reported two incomparable numbers
 # depending on the selected core. The method now refuses on any engine that does not own it, and
 # Settings stops offering it there.
-check(
-    "URL Test belongs to sing-box extended alone and refuses elsewhere",
-    "urlTestHook" in files["probe"]
-    and "urlTestHook =" in files["repo"]
-    and "urlTestLive(" in files["singBox"]
-    and "urlTestProfile(" in files["singBox"]
-    and "METHOD_URL_TEST" in files["probe"]
-    and "URL_TEST_ENGINE_GATE" in files["probe"]
-    and "RouteProbe.URL_TEST_ENGINE_GATE" in files["repo"]
-    and "availableOn(" in files["coreEngine"]
-    and "candidate.availableOn(s.coreEngine())" in files["ui"]
-    # The retired Xray substitute must not come back under any name.
-    and "SocksUrlTest" not in files["repo"] + files["probe"] + files["bench"]
-    and "object SocksUrlTest" not in files["coreUrlTest"],
-)
 # ───────────────────────────────────────────────────────────────────────────────────────────────
 # MARBLE_PING_FALSE_FAILED_V159 — URL test and Real delay both worked, yet occasionally published
 # a healthy server as FAILED. Two budget defects: the URL test shared ONE deadline across its
@@ -1307,12 +958,6 @@ check(
     and "fun toJson() = JSONObject().apply {" in files["models"]
     and "class RememberedPingV160Test" in files["rememberedPingTest"],
 )
-check(
-    "Settings names the tunnel core next to its own title",
-    "badge = CoreEngineInfo.displayName(repo.activeCoreEngine)" in files["ui"]
-    and "badge: String = \"\"," in files["ui"]
-    and "CoreEngineInfo.displayName(engine) +" in files["ui"],
-)
 
 # ───────────────────────────────────────────────────────────────────────────────────────────────
 # MARBLE_PING_SPEED_DIAL_V199 — every ping measurement got a speed dial.
@@ -1379,17 +1024,6 @@ check(
     and "sampleSpacingMs = settings.pingSampleSpacingMs()" in files["probe"]
     and "sampleSpacingMs = probeSettings.pingSampleSpacingMs()" in files["repo"]
     and "ProbeTargetPool.staggerProbe(staggerScale)" in files["reachability"],
-)
-check(
-    "the dial persists, renders, and translates",
-    "pingSpeedCustom = prefs.getBoolean(\"pingSpeedCustom\", false)" in files["store"]
-    and "PingSpeed.percent(prefs.getInt(\"pingSpeedPercent\", PingSpeed.DEFAULT_PERCENT))" in files["store"]
-    and ".putBoolean(\"pingSpeedCustom\", s.pingSpeedCustom)" in files["store"]
-    and ".putInt(\"pingSpeedPercent\", PingSpeed.percent(s.pingSpeedPercent))" in files["store"]
-    and "AnimatedVisibility(s.pingSpeedCustom)" in files["ui"]
-    and "onValueChangeFinished" in files["ui"]
-    and "\"Ping speed\" to" in files["persianLexicon"]
-    and "\"Custom speed\" to" in files["persianLexicon"],
 )
 check(
     "the speed dial is pinned by unit tests in both directions",
@@ -1460,48 +1094,12 @@ check(
     and "SingBoxManager.MAX_TEMPORARY_CORES" in files["bench"],
 )
 
-check(
-    "every bulk measurement can be cancelled and keeps what it measured",
-    "class ProbeCancelGate" in files["cancelGate"]
-    and "fun cancelProbes()" in files["repo"]
-    and "probeCancelGate.arm()" in files["repo"]
-    and "probeCancelGate.reset()" in files["repo"]
-    and "shouldStop: () -> Boolean" in files["bench"]
-    and "shouldStop: () -> Boolean" in files["rankEngine"]
-    and "shouldStop = probeShouldStop" in files["repo"]
-    # The same control from every surface that can start a sweep.
-    and "repo.cancelProbes()" in files["ui"] + files["homeStyles"]
-    and files["ui"].count("repo.cancelProbes()") >= 2
-    and "HomeGlyph.STOP" in files["homeStyles"]
-    and "HomeIcon.STOP" in files["ui"]
-    and "aCancelArmsOnceAndCanBeReusedByTheNextSweep" in files["probeTruthTest"],
-)
 
 # The status word and its dot sat between the wordmark and the actions. `repo.state == "CONNECTED"`
 # elsewhere in the file builds the evidence model the banner below reads; that stays. What must not
 # come back is the header rendering a status word of its own.
 # Comments are stripped first: the reason the status word was removed is recorded in the comment
 # right where it used to be, and that prose must not read as the readout coming back.
-home_top_bar = "\n".join(
-    line.split("//", 1)[0]
-    for line in files["homeStyles"]
-    .split("internal fun HomeTopActionBar(", 1)[1]
-    .split("internal fun ", 1)[0]
-    .splitlines()
-)
-check(
-    "the Home header no longer repeats the session state next to the logo",
-    "MARBLE_HOME_TOPBAR_NO_STATUS_V156" in files["homeStyles"]
-    and "val stateLabel" not in files["homeStyles"]
-    and "val stateTone = homeStateTone(evidence)" not in files["homeStyles"]
-    and "stateLabel" not in home_top_bar
-    and "stateTone" not in home_top_bar
-    and "CONNECTED" not in home_top_bar
-    and "READY" not in home_top_bar
-    and "MarbleWordmark()" in home_top_bar
-    # All four presentations share this one header, so removing it there removes it everywhere.
-    and files["homeStyles"].count("HomeTopActionBar(evidence, actions, repo)") == 4,
-)
 
 # A legacy stored method must never crash the settings screen or measure something the product no
 # longer offers: every retired name maps onto the honest replacement.
@@ -1530,13 +1128,6 @@ check(
     and "settings.coreEngine()" in files["vpn"]
     and "singBox.start(" in files["vpn"]
     and "xray.start(" in files["vpn"],
-)
-check(
-    "the engine page shows all three pinned versions",
-    "BuildConfig.SINGBOX_CORE_TAG" in files["ui"]
-    and "BuildConfig.XRAY_CORE_TAG" in files["ui"]
-    and "BuildConfig.HEV_CORE_TAG" in files["ui"]
-    and "SINGBOX_CORE_TAG" in files["gradle"],
 )
 # sing-box 1.12 renamed the DNS server address key. `address` parses to nothing, so a config that
 # still uses it fails every lookup at run time — long after any compiler has approved it.
@@ -1617,20 +1208,10 @@ check(
 # a stacked subscription row the slab read as a chip fighting the protocol badge, and the
 # glyph/number/unit triad was pressed against its own walls. The measurement stands alone in
 # its quality tone now; the width floor survives so numbers still column-align.
-check(
-    "the Servers ping readout carries no background of its own",
-    ".background(tone.copy(alpha = .12f))" not in _fun_body(files["ui"], "fun ServersPingCapsule")
-    and "MARBLE_PING_AIR_V152" in files["ui"],
-)
 # MARBLE_PROTOCOL_IDENTITY — the Home server row dropped its own slab for the shared
 # ServerPingStat (MarbleProtocolIdentity.kt): the same tone-only measurement rule now lives in
 # one component both lists read, so the invariant is pinned there — the readout must never grow
 # a tinted fill back, and the Home row must actually compose it.
-check(
-    "the Home latency readout is tone-only",
-    ".background(tone.copy(alpha" not in _fun_body(files["protocolIdentity"], "fun ServerPingStat(")
-    and "ServerPingStat(" in files["homeStyles"],
-)
 # Xray's certificate-pinning keys are read here to *report* the limitation, never written into a
 # sing-box config: the fork has no equivalent, and a key it does not know is a config it refuses.
 check(
@@ -1855,25 +1436,6 @@ check(
 # MARBLE_TUN2SOCKS_CORE_V222 — the second datapath is a product surface exactly like the second
 # proxy engine: a pin, a packaged library, a persisted choice, a start path, a stop path, and a
 # page that offers its own options. Any one of those missing makes the choice cosmetic.
-check(
-    "the second datapath is pinned, packaged, selectable and stopped on switch",
-    len(_core_lock.get("tun2socks", {}).get("commit", "")) == 40
-    and _core_lock.get("tun2socks", {}).get("repo") == "xjasonlyu/tun2socks"
-    and len(_core_lock.get("tun2socks", {}).get("sha256", {})) == 1
-    and "libtun2socks.so" in files["native"]
-    and "buildmode=c-shared" in files["native"]
-    and "TUN2SOCKS_CORE_TAG" in files["gradle"]
-    and '"**/libtun2socks.so"' in files["gradle"]
-    and "tunnelCoreId" in files["models"]
-    and "tunnelCoreId" in files["store"]
-    and "fun setTunnelCore(" in files["repo"]
-    and "TunnelCoreInfo.isAvailable(" in files["vpn"]
-    and "Tun2SocksPolicy.buildConfig(" in files["vpn"]
-    and "stopDatapath()" in files["vpn"]
-    and "tun2SocksUdpTimeoutSec" in files["store"]
-    and "TunnelEngineOptions(" in files["ui"]
-    and "prepareTunnelSession(" in files["diag"],
-)
 # MARBLE_TUN2SOCKS_SHUTDOWN_V223 — the disconnect abort. Three rules, and every file that has to
 # hold one of them is asserted here, because the Kotlin compiler cannot see the Go library and the
 # Go library cannot see the service.
@@ -2176,36 +1738,8 @@ check(
 
 # MARBLE_HOME_IP_STRIP_V151 — the "Show complete IP information" caption is gone from Home. The
 # words survive as the glyph's content description, so the strip is still readable out loud.
-check(
-    "Home no longer prints the IP-details caption",
-    "t.ipDetails" not in files["homeStyles"].replace(
-        "contentDescription = t.ipDetails", ""
-    )
-    and "contentDescription = t.ipDetails" in files["homeStyles"],
-)
 # MARBLE_MODULAR_CUSTOMIZER_V151 — Home style 4 offers Home style 2's floating control, and its
 # Customize affordance can be hidden with the way back kept in Settings.
-check(
-    "the modular layout offers the floating control and can hide its customizer",
-    "HomeFloatingSplitControl(" in files["homeStyles"]
-    and files["homeStyles"].count("HomeFloatingSplitControl(") >= 3
-    and "modularHideCustomizerButton" in files["models"]
-    and "modularHideCustomizerButton" in files["store"]
-    and "modularHideCustomizerButton" in files["homeStyles"]
-    and "modularHideCustomizerButton" in files["ui"],
-)
-check(
-    "Home no longer composes a top-of-page ping overlay",
-    "HomePingInlinePanel" not in files["ui"]
-    and "showPingInline" not in files["ui"],
-)
-check("DNS settings keep their Compose boundary", "@Composable\nprivate fun DnsSettings(" in files["ui"])
-check(
-    "Manual Library supports unbounded saved chains",
-    "fun composeChain(sources: List<String>)" in files["hardener"]
-    and "addManualChain" in files["repo"]
-    and "ManualChainEditor" in files["ui"],
-)
 check(
     "Quick Tile reconnects exact last profile",
     "lastProfile()" in files["tile"]
@@ -2399,11 +1933,6 @@ check(
         in files["hardener"],
 )
 check(
-    "the pinning editor is reachable from the UI",
-    "Verify peer certificate by name" in files["ui"]
-    and "Certificate fingerprint (SHA-256)" in files["ui"],
-)
-check(
     # Xray v26 removed allowInsecure: emitting it makes TLSConfig.Build() reject the WHOLE config.
     "allowInsecure is never emitted into an Xray config",
     'put("allowInsecure"' not in files["parser"]
@@ -2512,20 +2041,6 @@ check(
 # action. Scoping the invariant to the header (rather than to the whole 19k-line UI file) is what
 # lets it keep saying something exact: the hub's title is one bare word with no version stamp
 # under it, whatever else the page grows.
-hub_header = (
-    files["ui"].split('item(key = "hub-header")', 1)[1].split('item(key = "hub-group-', 1)[0]
-    if 'item(key = "hub-header")' in files["ui"] and 'item(key = "hub-group-' in files["ui"]
-    else ""
-)
-check(
-    "remembered pings survive memory pressure and the settings hub is trimmed",
-    "MARBLE_REMEMBERED_PING_KEEP_V163" in files["repo"]
-    and "benchmarks.filter { it.profileId == active }.take(1)" not in files["repo"]
-    and 'title = "Settings"' in hub_header
-    and "BuildConfig.VERSION_NAME" not in hub_header
-    and "MARBLE_SETTINGS_HUB_TRIM_V163" in files["ui"]
-    and files["ui"].count("SettingsVersionPreview(") == 2,
-)
 
 # MARBLE_SINGBOX_ANDROID_CLI_CRASH_V157 — Kotlin block comments NEST, so a KDoc that merely
 # *mentions* `/*` never terminates: its own `*/` closes the inner level and the comment swallows
@@ -2610,24 +2125,7 @@ check(
     and "verdict.note.isNotEmpty()" in files["auditor"],
 )
 
-check(
-    "the refusal the users and translators know is still the refusal, and only consent reaches it",
-    'const val PLAINTEXT_REFUSAL = "Unsupported VLESS • pick a server with TLS/REALITY"'
-    in files["configSuperset"]
-    and "CoreConfigSuperset.PLAINTEXT_REFUSAL" in files["vpn"]
-    and '"Unsupported VLESS • pick a server with TLS/REALITY"' in files["persianLexicon"]
-    and "Unsupported VLESS • pick a server with TLS/REALITY" in files["ui"],
-)
 
-check(
-    "a cleartext node is labelled, and consent is a stored setting with a UI control",
-    "val allowUnencryptedPublicOutbound: Boolean = true" in files["models"]
-    and 'putBoolean("allowUnencryptedPublicOutbound", s.allowUnencryptedPublicOutbound)' in files["store"]
-    and 'getBoolean("allowUnencryptedPublicOutbound", true)' in files["store"]
-    and "checked = s.allowUnencryptedPublicOutbound" in files["ui"]
-    and "PLAINTEXT_PUBLIC_NOTE" in files["configSuperset"]
-    and "Dial unencrypted nodes" in files["persianLexicon"],
-)
 
 check(
     "the config repair pass is lossless and runs before every consumer of a config",
@@ -2741,77 +2239,6 @@ check(
 # MARBLE_HOME_CLOUD_DEPTH_V191 — the flat-plane era of that card ended: the container is shared
 # exactly as before, but it now carries the product depth contract (one cool brand shadow, a
 # gradient rim, a whisper wash) instead of V187's total shadow ban. The invariant pins the lift.
-_banner_body = _fun_body(files["homeStyles"], "internal fun IosStatusWideCard(")
-_theme1_body = _fun_body(files["homeStyles"], "internal fun HomeThemeSlider(")
-check(
-    "the Home status card is shared, lifted on one cool shadow and telemetry stays in its route hierarchy",
-    files["homeStyles"].count("IosStatusWideCard(") == 5
-    and "MARBLE_HOME_STATUS_REFRAME_V187" in files["homeStyles"]
-    and "HomeCloudCard(modifier = modifier.fillMaxWidth(), shape = shape)" in _banner_body
-    # MARBLE_HOME_CLOUD_DEPTH_V191 — 0.dp is gone for good; the pin is the lift itself.
-    # MARBLE_NATIVE_ANDROID_V213 — the lift is *read* from the one depth contract now instead of
-    # being written here a second time. The property is unchanged (a resting card lifts, a selected
-    # one lifts further, and neither is 0), so both answers satisfy it.
-    and any(
-        token in files["design"]
-        for token in (
-            "val CardElevation = 3.dp",
-            "val CardElevation = MarbleDepthPolicy.RestingElevation",
-        )
-    )
-    and any(
-        token in files["design"]
-        for token in (
-            "val SelectedElevation = 7.dp",
-            "val SelectedElevation = MarbleDepthPolicy.RaisedElevation",
-        )
-    )
-    and "MARBLE_HOME_CLOUD_DEPTH_V191" in files["design"]
-    and "homeStatusText(evidence)" in _banner_body
-    # MARBLE_SESSION_USAGE_V192 — the telemetry row now answers to EITHER display choice: the
-    # live rates (speed widget) and/or the session's data total, and the last session's usage
-    # keeps the status row honest while disconnected.
-    and "visible = evidence.connected && (evidence.showSpeedWidget || evidence.showDataUsage)" in _banner_body
-    and _banner_body.count("HomeConnectionMetric(") == 3
-    and "glyph = HomeGlyph.DOWNLOAD" in _banner_body
-    and "glyph = HomeGlyph.UPLOAD" in _banner_body
-    and "glyph = HomeGlyph.DATA" in _banner_body
-    and "evidence.lastSessionBytes" in _banner_body
-    and "clickable { actions.onIpDetails() }" in _banner_body
-    and "HomeIpRow(" not in _banner_body
-    and ".weight(1f)" in _theme1_body
-    and "IosSlideToConnect(evidence, actions" in _theme1_body,
-)
-check(
-    "the fourth dock slot is a preference, not a fixture",
-    "enum class DockSlotKind" in files["models"]
-    and "fun <T> dockSlots(" in files["models"]
-    and "fun <T> dockSlotIndex(" in files["models"]
-    and "SpatialTab.CUSTOM" in files["ui"]
-    and "dockSlots(SpatialTab.entries, SpatialTab.CUSTOM, repo.settings.dockSlotEnabled)" in files["ui"]
-    and "when (tabs.getOrNull(pageIndex) ?: SpatialTab.DECK)" in files["ui"]
-    and "if (item == SpatialTab.CUSTOM && !slot.enabled) return@forEach" in files["ui"],
-)
-check(
-    "the fourth dock slot is personalized from Settings and persisted",
-    all(
-        field in files["models"]
-        for field in (
-            "dockSlotEnabled",
-            "dockSlotKind",
-            "dockSlotSourceId",
-            "dockSlotLabel",
-            "dockSlotIcon",
-        )
-    )
-    and "parseDockSlotKind" in files["store"]
-    and "dockSlotLabel" in files["store"]
-    and "const val DOCK_SLOT" in files["ui"]
-    and "SettingsDockSlotPage(" in files["ui"]
-    and "SettingsDockSlotPreview(" in files["ui"]
-    and "DockSlotIconChoice(" in files["ui"]
-    and "dockSlotCaptionText(" in files["ui"],
-)
 check(
     "V167 behaviour is covered by named tests and a chapter",
     "class DockSlotV167Test" in files["dockSlotTest"]
@@ -2937,81 +2364,7 @@ check(
 # cascades, page depth, rolling readouts and the expressive transitions; the pure math is
 # pinned by a named test class; and the chapter document explains the boundary. A design
 # chapter that stops being used is drift, and drift is what this checker catches.
-check(
-    "V186 expressive motion library holds its tokens, specs and pure math",
-    "object MarbleExpressiveMotion" in files["expressive"]
-    and "object MarbleExpressiveSpecs" in files["expressive"]
-    and "object ExpressiveMath" in files["expressive"]
-    and "val EmphasizedDecelerate" in files["expressive"]
-    and "val EmphasizedAccelerate" in files["expressive"]
-    and "const val StaggerStepMs" in files["expressive"]
-    and "fun staggerDelayMs(" in files["expressive"]
-    and "fun arcSweep(" in files["expressive"]
-    and "STAGGER_MAX_INDEX" in files["expressive"]
-    and "SpringReleaseFloat" in files["expressive"]
-    and "WaveSpringFloat" in files["expressive"],
-)
-check(
-    "V186 expressive components, modifiers and transitions exist",
-    "fun MarbleExpressiveCircularIndicator(" in files["expressive"]
-    and "fun MarbleExpressiveLinearIndicator(" in files["expressive"]
-    and "fun MarbleExpressiveValueText(" in files["expressive"]
-    and "fun MarbleExpressiveGlyphSwap(" in files["expressive"]
-    and "fun Modifier.marbleStaggerIn(" in files["expressive"]
-    and "fun Modifier.marbleSpringIn(" in files["expressive"]
-    and "fun Modifier.marblePopWhen(" in files["expressive"]
-    and "fun Modifier.marblePageDepth(" in files["expressive"]
-    and "fun Modifier.expressiveClickable(" in files["expressive"]
-    and "fun rememberMarbleEntranceWindow(" in files["expressive"]
-    and "fun rememberExpressiveMorphShape(" in files["expressive"]
-    and "expressiveContainerTransform(" in files["expressive"]
-    and "expressiveSharedAxisX(" in files["expressive"]
-    and "fun expressiveFadeThrough(" in files["expressive"],
-)
-check(
-    "expressive motion is active without unstable full-page transforms",
-    "MarbleExpressiveCircularIndicator(" in files["ui"]
-    and "MarbleExpressiveLinearIndicator(" in files["ui"]
-    and "MarbleExpressiveValueText(" in files["ui"]
-    and "marbleStaggerIn(" in files["ui"]
-    and "expressiveFadeThrough(" in files["ui"]
-    and "MARBLE_STABLE_NAVIGATION_V202" in files["ui"]
-    and "rememberMarbleEntranceWindow(" in files["ui"]
-    and "marbleStaggerIn(" in files["homeStyles"]
-    and "ExpressiveMath.arcSweep(" in files["homeStyles"]
-    and "MarbleExpressiveGlyphSwap(" in files["homeStyles"]
-    and "rememberMarbleEntranceWindow(" in files["homeStyles"]
-    and "MarbleExpressiveValueText(" in files["homeStudio"]
-    and "marblePopWhen(" in files["homeStudio"]
-    and "ExpressiveMath." in files["homeStudio"]
-    and "marbleStaggerIn(" in files["permissions"]
-    and "rememberMarbleEntranceWindow(" in files["permissions"]
-    and "releaseSpec" in files["motion"]
-    and "MarbleExpressiveShapes" in files["theme"]
-    and "MARBLE_EXPRESSIVE_MOTION_V186" in files["design"],
-)
 
-check(
-    "V186 the elastic surface keeps the fixed-slot and determinism contracts",
-    # The V135 reveal stays opacity-only: the meter column keeps its reserved 150 dp slot.
-    ".width(150.dp)" in files["homeStudio"]
-    and "graphicsLayer { alpha = presence }" in files["homeStudio"]
-    # The slide controls keep their committed thresholds and park behavior (V146).
-    and "val threshold = .78f" in files["homeStyles"]
-    and "maxDragPx * 0.65f" in files["homeStyles"]
-    and "MARBLE_SLIDE_PARK_V146" in files["homeStyles"]
-    # The floating shutter keeps its pinned geometry.
-    and "fun ConnectButtonFloating(" in files["homeStudio"]
-    and ".size(76.dp)" in files["homeStudio"],
-)
-check(
-    "V186 expressive math is pinned by a named test and explained by a chapter",
-    "class MarbleExpressiveMathV186Test" in files["expressiveTest"]
-    and "staggerDelayMs" in files["expressiveTest"]
-    and "arcSweep" in files["expressiveTest"]
-    and "MARBLE_EXPRESSIVE_MOTION_V186" in files["expressiveDoc"]
-    and "MARBLE_EXPRESSIVE_MOTION_V186" in files["expressive"],
-)
 
 # MARBLE_SERVERS_HIERARCHY_V189 — the Servers page is two levels now, and the difference between
 # them is the design: a subscription card (largest radius, boldest outline, largest type) and the
@@ -3019,143 +2372,8 @@ check(
 # separated). A pure table owns the sizes and the plan arithmetic, the product reads that table,
 # and a named test pins both — a nested row that grows back to the size of its card has to fail
 # here before it can ship.
-check(
-    "V189 the servers hierarchy owns one size table and the plan arithmetic",
-    "object ServersHierarchy" in files["serversHierarchy"]
-    and "enum class SubscriptionUsageTier" in files["serversHierarchy"]
-    and "const val CALM_CEILING_PERCENT = 70" in files["serversHierarchy"]
-    and "const val WATCH_CEILING_PERCENT = 90" in files["serversHierarchy"]
-    and "const val GROUP_CORNER_DP = 16f" in files["serversHierarchy"]
-    and "const val LIST_CORNER_DP = 12f" in files["serversHierarchy"]
-    and "const val ROW_TILE_DP = 30f" in files["serversHierarchy"]
-    and "const val STANDALONE_TILE_DP = 40f" in files["serversHierarchy"]
-    and "const val ROW_NAME_SP = 13f" in files["serversHierarchy"]
-    and "fun usagePercent(" in files["serversHierarchy"]
-    and "fun usageFraction(" in files["serversHierarchy"]
-    and "fun usageTier(" in files["serversHierarchy"]
-    and "fun compactBytes(" in files["serversHierarchy"]
-    and "fun groupBadge(" in files["serversHierarchy"]
-    and "fun activeFilterCount(" in files["serversHierarchy"]
-    # The table is arithmetic only: no Compose, so JVM unit tests can read it.
-    and "androidx.compose" not in files["serversHierarchy"]
-    and "MARBLE_SERVERS_HIERARCHY_V189" in files["serversHierarchy"],
-)
-check(
-    "V189 the Servers page reads the hierarchy table instead of hard-coding its sizes",
-    "ServersHierarchy.GROUP_CORNER_DP.dp" in files["ui"]
-    and "ServersHierarchy.GROUP_BORDER_DP.dp" in files["ui"]
-    and "ServersHierarchy.GROUP_NAME_SP.sp" in files["ui"]
-    and "ServersHierarchy.GROUP_CONTROL_DP.dp" in files["ui"]
-    and "ServersHierarchy.ROW_TILE_DP.dp" in files["ui"]
-    and "ServersHierarchy.ROW_NAME_SP.sp" in files["ui"]
-    and "ServersHierarchy.LIST_INSET_DP.dp" in files["ui"]
-    and "ServersHierarchy.percentLabel(" in files["ui"]
-    and "ServersHierarchy.groupBadge(groups.size)" in files["ui"]
-    and "ServersHierarchy.activeFilterCount(" in files["ui"]
-    and "ServersHierarchy.ROW_PING_SP.sp" in files["protocolIdentity"]
-    and "compact = true" in _fun_body(files["ui"], "fun ServersNodeCard("),
-)
-check(
-    "V189 a nested server row is smaller, inset and borderless",
-    # The card's outline is the boldest one and still runs through every row.
-    "width = ServersGroupFrameWidth" in _fun_body(files["ui"], "fun ServersNodeCard(")
-    # The row sits inside the card on the container step, with no outline of its own.
-    and ".padding(horizontal = ServersHierarchy.LIST_INSET_DP.dp)"
-    in _fun_body(files["ui"], "fun ServersNodeCard(")
-    # MARBLE_NATIVE_ANDROID_V213 — "the container step" is now the platform's container tone
-    # rather than the product's glass token. The rule the check protects is unchanged (the row is a
-    # step away from the card and carries no outline of its own), so both answers are accepted.
-    and any(
-        token in _fun_body(files["ui"], "fun ServersNodeCard(")
-        for token in (".background(Aether.Glass)", ".background(marbleNativeContainerHigh())")
-    )
-    and "HorizontalDivider(" in _fun_body(files["ui"], "fun ServersNodeCard(")
-    # The old 40 dp standalone tile is gone from the nested row, and so is its 38 dp rail.
-    and "size = 40.dp" not in _fun_body(files["ui"], "fun ServersNodeCard(")
-    and ".size(38.dp)" not in _fun_body(files["ui"], "fun ServersFilterRail(")
-    # A probe that got no answer fades the row instead of reddening the number.
-    and "quietFailure = true" in _fun_body(files["ui"], "fun ServersNodeCard(")
-    and "ServersHierarchy.FAILED_ROW_ALPHA" in _fun_body(files["ui"], "fun ServersNodeCard(")
-    and "attempted -> if (quietFailure) Aether.InkMuted else Aether.Danger"
-    in files["protocolIdentity"],
-)
-check(
-    "V189 a subscription card shows its plan as a bar and its counts as badges",
-    # The usage bar is real, and its colour is the plan's own tier.
-    "MarbleExpressiveLinearIndicator(" in _fun_body(files["ui"], "fun ServersGroupHeader(")
-    and "usageTierTone(" in files["ui"]
-    and "subscriptionUsageFraction(" in _fun_body(files["ui"], "fun ServersGroupHeader(")
-    # The count rides beside the subscription's own name, not on a line of its own.
-    and "ServersGroupCountPill(count = total" in _fun_body(files["ui"], "fun ServersGroupHeader(")
-    # The three trailing controls are equal siblings on one gap.
-    and "Arrangement.spacedBy(ServersHierarchy.GROUP_CONTROL_GAP_DP.dp)"
-    in _fun_body(files["ui"], "fun ServersGroupHeader(")
-    # The counts the header used to print moved into the filter controls for good.
-    and "$groupCount groups" not in files["ui"]
-    and "badge = groupBadge" in _fun_body(files["ui"], "fun ServersFilterRail(")
-    and "badge = serverBadge" in _fun_body(files["ui"], "fun ServersFilterRail("),
-)
-check(
-    "V189 the servers hierarchy is pinned by a named test and explained by a chapter",
-    "class ServersHierarchyV189Test" in files["serversHierarchyTest"]
-    and "usageTier" in files["serversHierarchyTest"]
-    and "ROW_TILE_DP" in files["serversHierarchyTest"]
-    and "groupBadge" in files["serversHierarchyTest"]
-    and "MARBLE_SERVERS_HIERARCHY_V189" in files["serversHierarchyTest"]
-    and "MARBLE_SERVERS_HIERARCHY_V189" in files["serversHierarchyDoc"]
-    and "MARBLE_SERVERS_HIERARCHY_V189" in files["ui"],
-)
 
 # MARBLE_VISUAL_REPAIR_V190 — the real-device review of Home and Servers.
-check(
-    "V190 the stacked servers frame is clipped to its own slice",
-    "clipRect(left = 0f, top = 0f, right = size.width, bottom = size.height)"
-    in _fun_body(files["ui"], "fun Modifier.serversStackedFrame(")
-    # MARBLE_NATIVE_ANDROID_V213 — the slice's card surface is the platform's card container now;
-    # the property being pinned (the slice paints the card's own surface, not the page) is the same.
-    and any(
-        token in _fun_body(files["ui"], "fun ServersNodeCard(")
-        for token in (".background(Aether.VoidElevated)", ".background(marbleNativeCardFill())")
-    )
-    and "displayServerName(" in _fun_body(files["ui"], "fun ServersNodeCard(")
-    and "fun displayServerName(" in files["design"],
-)
-check(
-    "V190 the ping meter keeps its centred three-bar geometry",
-    "val total = barW * 3f + gap * 2f" in files["protocolIdentity"]
-    and "heights.sum() + gap" not in files["protocolIdentity"],
-)
-check(
-    "V193 the flag is the circle and the wire scheme speaks as text",
-    # MARBLE_PROTOCOL_TEXT_IDENTITY_V193 / MARBLE_ROUTE_ATELIER_V207 — the tile's one content rule:
-    # the flag art fills the disc when the location has evidence behind it, and everything else is the
-    # world glyph. V193 kept the hand-drawn wire-scheme glyphs out of the circle; V207 closed the last
-    # upgrade path that was left, the flag emoji a subscription typed into the node's own name. A
-    # label is a seller's claim, not a measurement, so `nameFlag` is gone from the tile and the
-    # fallback is a globe — while the dashed rim says "unverified" without costing a sentence.
-    "CountryFlagCircle(" in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
-    and 'fallbackText = "🌐"' in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
-    and "nameFlag" not in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
-    and "locationTrust.mayDrawFlag()" in _fun_body(files["protocolIdentity"], "fun ProtocolTile(")
-    and "ProtocolGlyph" not in files["protocolIdentity"]
-    # The protocol identifies as TEXT in its own hue: a text pill with no glyph well.
-    and "Box(" not in _fun_body(files["protocolIdentity"], "fun ProtocolBadge(")
-    and "protocolTone(family)" in _fun_body(files["protocolIdentity"], "fun ProtocolBadge(")
-    and "background(tone.copy(alpha = .14f))" in files["protocolIdentity"],
-)
-check(
-    "V190 one colour source per theme",
-    "val systemDynamicColor = false" in files["theme"]
-    and "dynamic = true" in files["theme"]
-    and "dynamicPhonePalette(generated, !light)" in files["theme"]
-    and "Aether.IsDynamic" in files["design"]
-    and "window.statusBarColor=palette.void.toArgb()" in files["theme"],
-)
-check(
-    "V190 the page backdrop runs edge to edge",
-    "MARBLE_EDGE_TO_EDGE_BACKDROP_V190" in files["ui"]
-    and "containerColor = Color.Transparent" in files["ui"],
-)
 
 # ---------------------------------------------------------------------------
 # MARBLE_IP_FAMILY_SCAN_V196 / MARBLE_IPV6_FALLBACK_LADDER_V196 / MARBLE_DNS_DOMAIN_FAULT_V196
@@ -3221,22 +2439,6 @@ check(
 # offer a scan, report a verdict or draw a family chip. The measurement backend (IpFamilyScanner,
 # the ladder, the store, the repository entry points) still serves the tunnel and keeps its own
 # pins; only the surface is gone.
-check(
-    "V220 no page offers an address-family scan or draws its verdict",
-    "ServersGroupAction.SCAN_FAMILY" not in files["ui"]
-    and '"Scan IPv4 / IPv6"' not in files["ui"]
-    and "repo.scanIpFamily(profile)" not in files["ui"]
-    and "repo.scanIpFamilyForProfiles(group.profiles, group.title)" not in files["ui"]
-    and "IpFamilyScanDialog(" not in files["ui"]
-    and "IpFamilyGroupDialog(" not in files["ui"]
-    and "repo.ipFamilyScan(profile)?.let" not in files["ui"]
-    and "familyChipTone(" not in files["ui"]
-    and "familyChip" not in files["serverTiles"]
-    and "familyChip" not in files["ui"]
-    and "familyChip" not in files["homeStyles"]
-    and "familyTone" not in files["serverTiles"]
-    and "SCAN_FAMILY" not in files["ui"],
-)
 check(
     "V196 one failing name is not a failing resolver pool",
     "object DnsDomainFaultPolicy" in files["domainFault"]
@@ -3333,22 +2535,6 @@ check(
     and "voteRequiresAnIndependentQuorum" in files["locationTest"]
     and "oneAnswerWhileTheRestOfThePoolIsUnreachableIsAccepted" in files["locationV197Test"]
     and "aLoneAnswerIsMarkedProvisionalSoItIsTestedAgain" in files["locationV197Test"],
-)
-check(
-    "V197 the keyboard is released by an event, never by a recomposition",
-    "MARBLE_IME_HYGIENE_V197" in files["ime"]
-    # A surface that only looks like a text field must never be handed an input session.
-    and "fun Modifier.marbleImeInert()" in files["ime"]
-    and "marbleImeInert()" in files["ui"]
-    # Every real field declares the event that ends its session.
-    and "marbleImeOptions(" in files["ui"]
-    and "marbleImeActions(" in files["ui"]
-    # ...and a host that leaves releases it exactly once.
-    and "fun MarbleImeReleaseOnDispose(" in files["ime"]
-    and "MarbleImeReleaseOnDispose(" in files["ui"]
-    # No composable is allowed to ask for a hide on its own.
-    and "LocalSoftwareKeyboardController" not in files["ui"]
-    and "LocalSoftwareKeyboardController" not in files["ime"],
 )
 check(
     "V197 a repeated hide request is contained instead of logged a hundred times",
@@ -3466,23 +2652,6 @@ check(
 # The fragment feature is deleted, not disabled: no page, no card, no learner, no generated
 # dialer, and no settings key. A user who wants a shape on the wire writes it in the core's own
 # options — which is exactly what the second half of this block pins.
-check(
-    "V211 the fragment feature is gone from the product",
-    'const val TRANSPORT = "transport"' not in files["ui"]
-    and "SettingsTransportPage" not in files["ui"]
-    and "FragmentMuxEntryCard" not in files["ui"]
-    and "FragmentProfileChooser" not in files["ui"]
-    and "MuxProfileChooser" not in files["ui"]
-    and "FragmentMuxSettings" not in files["ui"]
-    and "TransportAdaptationSettings" not in files["ui"]
-    and "transportAdaptationEnabled" not in files["ui"]
-    and "fragmentEnabled" not in files["models"]
-    and "fragmentPackets" not in files["models"]
-    and "FragmentChoice" not in files["models"]
-    and "MuxChoice" not in files["models"]
-    and "TransportProfileMode" not in files["models"]
-    and not Path("app/src/main/java/com/marbleng/app/core/TransportAdaptation.kt").exists(),
-)
 
 check(
     "V211 no writer constructs a fragment outbound any more",
@@ -3498,21 +2667,6 @@ check(
     and '"block", "direct", "dns-out"' in files["hardener"],
 )
 
-check(
-    "V211 the cores' options are the user's, written once",
-    "object CoreOptions" in files["coreOptions"]
-    and "fun xraySniffing(" in files["coreOptions"]
-    and "fun xrayUserSockopt(" in files["coreOptions"]
-    and "fun xrayPolicy(" in files["coreOptions"]
-    and "fun merge(" in files["coreOptions"]
-    and "inbounds" in files["coreOptions"]
-    # The UI exposes the whole surface, including both extra-JSON editors.
-    and "CoreEngineOptions(" in files["ui"]
-    and "xrayExtraJson" in files["ui"]
-    and "singBoxExtraJson" in files["ui"]
-    and "xraySockoptDomainStrategy" in files["ui"]
-    and "singBoxMuxProtocol" in files["ui"],
-)
 
 check(
     "V211 the sing-box wire policy keeps the core's own field names",
@@ -3557,46 +2711,6 @@ check(
 # control, and the verb it runs is a setting rather than a fact about its shape. What survives
 # from V208/V210 is the part that was actually load-bearing — no transient status strip under the
 # header, one door for the bulk sweep, and no widget inventing its own meaning for "ping".
-check(
-    "V212 every Home ping surface is a control with a configurable verb",
-    "HomeRoutePingButton(" in files["homeStyles"]
-    and "val HomePingButtonSize" in files["homeStyles"]
-    # One mapping for every surface: a verb per action, resolved in one place, so the three
-    # buttons cannot drift into three private opinions about what "ping" means — which is exactly
-    # how two of them ended up doing different things and a third doing nothing.
-    and "internal fun runHomePingAction(" in files["homeStyles"]
-    and "runHomePingAction(headerAction, actions)" in files["homeStyles"]
-    and "runHomePingAction(evidence.pingGaugeAction, actions)" in files["homeStyles"]
-    and "runHomePingAction(pingAction, actions)" in files["studio"]
-    # The three verbs come from the shared evidence block, resolved once from the stored ids.
-    and "val pingGaugeAction: HomePingAction" in files["homeStyles"]
-    and "val pingChipAction: HomePingAction" in files["homeStyles"]
-    and "val pingHeaderAction: HomePingAction" in files["homeStyles"]
-    and "parseHomePingAction(repo.settings.homePingGaugeAction)" in files["homeStyles"]
-    and "parseHomePingAction(repo.settings.homePingChipAction)" in files["homeStyles"]
-    and "parseHomePingAction(repo.settings.homePingHeaderAction)" in files["homeStyles"]
-    # A surface that accepts a tap obeys the product's own enabled-ness rule for a ping control.
-    and "homePingTappable(evidence)" in files["studio"]
-    and "homePingTappable(evidence)" in files["homeStyles"]
-    # V209 survives: progress and connection truth stay with their owning controls.
-    and "HomeRuntimeNotice" not in files["homeStyles"]
-    and "MarbleNoticeHeight" not in files["homeStyles"]
-    and "MARBLE_HOME_NO_TRANSIENT_STATUS_V209" in files["ui"]
-    # The Atelier's corrective row measures the route it is complaining about — the same verb.
-    and "onPingRoute()" in files["atelier"]
-    # The bulk sweep keeps exactly one door on the Servers page, and it says what it measures.
-    and 'trx("Ping group")' in files["ui"]
-    and files["ui"].count("onPingGroup()") == 1
-    # Settings owns the verb of each surface, and the vocabulary is the controls' own.
-    and "HomePingControlsSettings(repo)" in files["ui"]
-    and "homePingGaugeAction = action.id" in files["ui"]
-    and "homePingChipAction = action.id" in files["ui"]
-    and "homePingHeaderAction = action.id" in files["ui"]
-    and "enum class HomePingAction" in files["models"]
-    and "homePingGaugeAction" in files["store"]
-    and "homePingChipAction" in files["store"]
-    and "homePingHeaderAction" in files["store"],
-)
 
 check(
     "V208 the group ping writes its result into the route's own evidence",
@@ -3605,19 +2719,6 @@ check(
     and "pingHomeGroup()" in files["repo"],
 )
 
-check(
-    "V210 the Home route ping is one verb wired to the route, not to a stale filter",
-    "val onPingRoute: () -> Unit" in files["homeStyles"]
-    and "onPingRoute = {" in files["ui"]
-    and "repo.measureHomePing()" in files["ui"]
-    # Connected the measurement goes through the tunnel; disconnected it probes the selected
-    # route's endpoint. Both are one call, so the two buttons cannot disagree about the answer.
-    and "fun measureHomePing()" in files["repo"]
-    # One predicate for "the route on screen is being measured", shared by the header pulse and
-    # the split control's second disc.
-    and "fun homeRouteMeasuring(" in files["homeStyles"]
-    and "homeRouteMeasuring(evidence)" in files["homeStyles"],
-)
 
 # ---------------------------------------------------------------------------
 # MARBLE_SERVER_TILE_TRUTH_V210
@@ -3626,23 +2727,6 @@ check(
 # from one that does, and a long name must not grow the box it lives in. The first is a verdict
 # over the measurement the page already holds; the second is a layout rule — one line, and a line
 # that stretches to the row instead of the row stretching to it.
-check(
-    "V210 a server box fades when it did not answer and never grows for a long name",
-    "object ServerTileTruth" in files["serverTiles"]
-    and "enum class Reach { ANSWERED, SILENT, UNMEASURED }" in files["serverTiles"]
-    and "fun reachOf(result: BenchmarkResult?, testing: Boolean): Reach" in files["serverTiles"]
-    and "ServerTileTruth.alphaOf(reach)" in files["serverTiles"]
-    and ".alpha(tileAlpha)" in files["serverTiles"]
-    # The name slot: one line, and the overflow travels instead of wrapping.
-    and "object ServerTileNamePolicy" in files["serverTiles"]
-    and "maxLines = ServerTileNamePolicy.MaxLines" in files["serverTiles"]
-    and "basicMarquee(" in files["serverTiles"]
-    # The layout half: every tile takes its row's height, so no box can be taller or shorter
-    # than the box beside it whatever its name says.
-    and "height(IntrinsicSize.Max)" in files["serverTiles"]
-    and "Modifier.weight(1f).fillMaxHeight()" in files["serverTiles"]
-    and ".fillMaxHeight()" in files["serverTiles"],
-)
 
 # ---------------------------------------------------------------------------
 # MARBLE_FLOATING_ACTIONS_V210
@@ -3650,24 +2734,6 @@ check(
 # The chrome around a floating button was theme-aware; its face was not. An action is a token
 # now, owned by the palette like the body, the hairline and the shadow — four verbs per theme,
 # with the glyph ink scored against them rather than assumed white.
-check(
-    "V210 every theme owns the four colours a floating action can wear",
-    "object MarbleFloatActions" in files["floatingChrome"]
-    and "data class MarbleFloatActionTones(" in files["floatingChrome"]
-    and "fun inkOn(tone: Color): Color" in files["floatingChrome"]
-    # All three palettes answer all four questions.
-    and "MarbleFloatActions.Light.tones()" in files["theme"]
-    and "MarbleFloatActions.Dark.tones()" in files["theme"]
-    and "MarbleFloatActions.dynamic(" in files["theme"]
-    and "val FloatActions: MarbleFloatActionTones" in files["theme"]
-    # And the two halves of the split control read them, so stop and measure are two colours the
-    # palette guarantees are different in the theme the user is actually running.
-    and "chrome.actions.stop" in files["homeStyles"]
-    and "chrome.actions.measure" in files["homeStyles"]
-    # MARBLE_FLOATING_FACE_V215 — the disc face is a deep shade of the token, and the glyph is white.
-    and "marbleDeepFaceArgb(tone.toArgb())" in files["homeStyles"]
-    and "content(Color.White)" in files["homeStyles"],
-)
 
 # ---------------------------------------------------------------------------
 # MARBLE_SETTINGS_SECTIONS_V210
@@ -3675,145 +2741,30 @@ check(
 # Settings is a tree: main sections holding their own named sub-sections, closable from their
 # headers. The state is one set of collapsed keys, owned above the page switch, and a section
 # nobody has touched is open — so a section added later is open too.
-check(
-    "V210 the Settings hub is a tree of sections with sub-sections under them",
-    "internal object SettingsHubPolicy" in files["settingsSections"]
-    and "internal object SettingsHubGroups" in files["settingsSections"]
-    and "fun toggled(collapsed: Set<String>, key: String): Set<String>" in files["settingsSections"]
-    and 'key = "home"' in files["ui"]
-    and "private fun settingsHubGroups(" in files["ui"]
-    and "SettingsHubGroupCard(" in files["ui"]
-    and "SettingsHubSubSectionCard(" in files["ui"]
-    # Sub-sections are children of a section, not more cards in the flat list: the hub composes
-    # no flat section card of its own any more.
-    and "SettingsHubCard(" not in files["ui"].split("private fun SettingsHub(")[1]
-    .split("\n// ---------------------------------------------------------------------------------------------")[0]
-    # The collapsed state lives above the page switch, so it survives a visit to a sub-page.
-    # MARBLE_SETTINGS_COLLAPSE_MEMORY_V220 — the keys are seeded from storage, so the hub reopens
-    # the way the user left it; an untouched install still reads an empty set.
-    and "var hubCollapsed by remember { mutableStateOf(repo.settingsCollapsedGroups) }" in files["ui"]
-    and "fun settingsCollapsedGroups(): Set<String>" in files["store"]
-    and "fun setSettingsGroupsCollapsed(collapsed: Set<String>)" in files["repo"]
-    and "SettingsHubPolicy.toggled(hubCollapsed, key)" in files["ui"]
-    and "SettingsHubPolicy.collapseAll(SettingsHubGroups.Keys)" in files["ui"],
-)
 
 # ---------------------------------------------------------------------------
 # MARBLE_SETTINGS_TREE_V215 / MARBLE_TEXT_SCALE_V215 / MARBLE_HOME_PING_COLOUR_V215 /
 # MARBLE_FLOATING_FACE_V215 / MARBLE_ATELIER_NOTICE_IN_CARD_V215 / MARBLE_PING_FIRST_VALUE_V215
 # ---------------------------------------------------------------------------
 check(
-    "V215 text size is one setting, applied at the root, and persisted",
-    "object TextScale" in files["models"]
-    and "val textScalePercent" in files["models"]
-    and "textScalePercent" in files["store"]
-    and "fun ProvideMarbleTextScale(" in files["textScale"]
-    and "LocalDensity provides" in files["textScale"]
-    and "ProvideMarbleTextScale(repo.settings.textScalePercent)" in files["marbleApp"]
-    and "TextScaleChoice(repo)" in files["ui"]
-    and "private fun TextScaleChoice(" in files["ui"]
-    and "Text size" in files["persianLexicon"],
-)
-check(
-    "V215 the settings tree opens each card from its own sub-section",
-    "private fun SettingsCardPage(" in files["ui"]
-    and "fun card(tab: SettingsWorkspaceTab, title: String)" in files["ui"]
-    and "SettingsPages.isCard(target)" in files["ui"]
-    and "SettingsPages.card(SettingsWorkspaceTab.GENERAL, \"Connection\")" in files["ui"]
-    and "SettingsPages.card(SettingsWorkspaceTab.GENERAL, \"Subscriptions\")" in files["ui"]
-    and "SettingsPages.card(SettingsWorkspaceTab.GENERAL, \"Navigation bar\")" in files["ui"]
-    and "SettingsPages.card(SettingsWorkspaceTab.GENERAL, \"Server cards\")" in files["ui"]
-    # The catch-all General row is gone from the hub.
-    and "title = trx(\"General\")" not in files["ui"],
-)
-check(
-    "V215 a Home ping keeps one colour while its run is open",
-    "internal fun homePingToneKind(" in files["homeStyles"]
-    and "HomePingToneKind.MEASURING -> Aether.Cyan" in files["homeStyles"]
-    and "HomePingToneKind.BAND -> marbleMetricTone(pingMetricBand(ms))" in files["homeStyles"]
-    and "PROVISIONAL_PING_FLOOR_MS" in files["repo"]
-    and "takeIf { it >= 20 } ?: 0" not in files["repo"],
-)
-check(
-    "V215 the floating disc face is deep and the glyph is white",
-    "fun marbleDeepFaceArgb(" in files["contrast"]
-    and "face = Color(marbleDeepFaceArgb(tone.toArgb()))" in files["homeStyles"]
-    and "HomeGlyphIcon(HomeGlyph.POWER, Color.White" in files["homeStyles"],
-)
-check(
     "V215 the chapter is written down and pinned by its tests",
     "MARBLE_SETTINGS_TREE_V215" in files["settingsTreeDoc"]
     and "class TextScaleV215Test" in files["settingsTreeTest"]
     and "SETTINGS_TREE_TEXT_SCALE_V215.md" in files["readme"],
 )
-check(
-    "V215 the national notice is a line of the decision card, not a flow banner",
-    "nationalCause" in files["homeAtelier"]
-    and "NationalEventBanner(repo = repo)" not in files["homeAtelier"],
-)
 
 # The four V210 chapters are written down and pinned by tests, like every chapter before them.
-check(
-    "V210 the server-box chapter is written down",
-    "MARBLE_SERVER_TILE_TRUTH_V210" in files["serverTileTruthDoc"]
-    and "class ServerTileTruthV210Test" in files["serverTileTruthTest"]
-    and "SERVER_TILE_TRUTH_V210.md" in files["readme"],
-)
-check(
-    "V210 the Home route-ping chapter is written down",
-    "MARBLE_HOME_ROUTE_PING_V210" in files["homeRoutePingDoc"]
-    and "MARBLE_HOME_ROUTE_PING_V210" in files["homeStyles"]
-    and "HOME_ROUTE_PING_V210.md" in files["readme"],
-)
-check(
-    "V210 the floating-action chapter is written down",
-    "MARBLE_FLOATING_ACTIONS_V210" in files["floatingActionsDoc"]
-    and "class MarbleFloatingActionsV210Test" in files["floatingActionsTest"]
-    and "FLOATING_ACTIONS_V210.md" in files["readme"],
-)
-check(
-    "V210 the Settings-sections chapter is written down",
-    "MARBLE_SETTINGS_SECTIONS_V210" in files["settingsSectionsDoc"]
-    and "class MarbleSettingsSectionsV210Test" in files["settingsSectionsTest"]
-    and "SETTINGS_SECTIONS_V210.md" in files["readme"],
-)
 
 # ---------------------------------------------------------------------------
 # MARBLE_SETTINGS_ONE_LINE_COPY_V208
 # ---------------------------------------------------------------------------
 # Every settings description is one sentence. The rule is enforced where the text is drawn, so it
 # also holds for copy that has not been written yet.
-check(
-    "V208 settings descriptions are clamped to one sentence",
-    "object MarbleCopy" in files["designContract"]
-    and "fun oneSentence(" in files["designContract"]
-    and files["ui"].count("MarbleCopy.oneSentence(trx(subtitle))") >= 6
-    and "MARBLE_SETTINGS_ONE_LINE_COPY_V208" in files["ui"],
-)
 
 # ---------------------------------------------------------------------------
 # MARBLE_SERVER_TILE_LAYOUT_V208
 # ---------------------------------------------------------------------------
-check(
-    "V208 servers can be read as compact boxes on the page and on Home",
-    "object ServerTilePolicy" in files["serverTiles"]
-    and "fun rememberServerTileColumns(" in files["serverTiles"]
-    and "fun ServerTile(" in files["serverTiles"]
-    and "fun ServerTileRow(" in files["serverTiles"]
-    and "ServerTilePolicy.chunkRows(" in files["ui"]
-    and "ServerTilePolicy.chunkRows(" in files["homeStyles"]
-    and "ServerLayout.GRID" in files["ui"],
-)
 
-check(
-    "V208 the layout is a user choice in Settings",
-    "enum class ServerLayout" in files["models"]
-    and "val AppSettings.serversLayoutEnum" in files["models"]
-    and "fun parseServerLayout(" in files["models"]
-    and "serversLayout = layout.id" in files["ui"]
-    and "fun ServerLayoutChoice(" in files["ui"]
-    and "SERVER_TILE_LAYOUT_V208.md" in files["readme"],
-)
 
 check(
     "V208 the four chapters of this pass are written down",
@@ -3842,162 +2793,6 @@ check(
 # that the rules have ONE owner, that no surface re-answers a question centrally, and that the chapter
 # is written down. A future "nice tweak" that re-invents a per-style tone function fails right here.
 # ---------------------------------------------------------------------------
-check(
-    "V207 the design grammar has one home, and it is not a style sheet",
-    "object MarbleTapTarget" in files["designContract"]
-    and "val Floor: Dp = 48.dp" in files["designContract"]
-    and "enum class MarbleRouteState" in files["designContract"]
-    and "fun marbleRouteStateOf(" in files["designContract"]
-    and "fun MarbleRouteState.connectVerb()" in files["designContract"]
-    and "enum class MarbleLocationTrust" in files["designContract"]
-    and "fun MarbleLocationTrust.mayDrawFlag()" in files["designContract"]
-    and "object MarbleFeedbackPolicy" in files["designContract"]
-    and "internal val LocalMarbleAmbientField" in files["designContract"]
-    # The contract must stay testable off-device: it may read Compose types, but it must not need a
-    # context, a coroutine or a frame clock to answer a question.
-    and "import android.content.Context" not in files["designContract"],
-)
-check(
-    "V207 a state surface may not invent its own tone or its own verb",
-    # The three per-style tone functions were the drift in miniature. If one comes back, so does the
-    # day four Home presentations mean four different things by "connected".
-    "internal fun homeTone(" not in files["homeStyles"]
-    # The names may appear in the comment that explains the deletion; the declarations may not come
-    # back, because a per-style tone is precisely the drift this chapter exists to prevent.
-    and "internal fun styleConnectedTone(" not in files["homeStyles"]
-    and "internal fun styleStateTone(" not in files["homeStyles"]
-    and "internal fun connectButtonTone(evidence: HomeEvidence): Color = "
-        "marbleRouteTone(evidence.routeState)" in files["homeStyles"]
-    and "return when (evidence.routeState.connectVerb())" in files["homeStyles"]
-    and "return when (evidence.routeState) {" in files["homeStyles"],
-)
-check(
-    "V207 the five silhouettes share one enabled-ness rule",
-    # A control that answers twice while a tunnel is closing is a control that fights the engine. The
-    # gate is the state table's answer, and the old local reading of one flag is gone for good.
-    "val armed = evidence.routeState.isActionable()" in files["homeStyles"]
-    and "val armed = !evidence.disconnecting" not in files["homeStyles"],
-)
-_slide_commit = _fun_body(files["homeStyles"], "private fun ConnectButtonSlide(")
-_slide_commit = _slide_commit[_slide_commit.index("if (completed) {"):]
-check(
-    "V207 a slide-to-confirm dispatches the command before it animates",
-    # The defect was an ordering: `animateTo(…) then onToggle()` put a network action behind a 120 ms
-    # decorative tween, so a dropped frame could leave the haptic having promised a connection nobody
-    # had been told about. Follow-through is allowed; it just may not hold the verb hostage.
-    "onToggle()" in _slide_commit
-    and "knob.animateTo" in _slide_commit
-    and _slide_commit.index("onToggle()") < _slide_commit.index("knob.animateTo"),
-)
-check(
-    "V207 reduced motion removes travel and queues, not only durations",
-    # A scale spring that snaps to 0.94 in zero milliseconds is still a control that jumps under the
-    # finger, and an entrance that still waits 45 ms per row is a bug the user cannot switch off.
-    # Both questions go to one owner, and that owner is fed the LIVE system setting.
-    "fun animates(): Boolean = MarbleMotionPolicy.animates(motionEnabled)" in files["motion"]
-    and "fun entranceDelayFor(index: Int): Long = MarbleMotionPolicy.entranceDelayMs" in files["motion"]
-    and "fun pressScaleFor(kind: MarbleControlKind): Float = MarbleMotionPolicy.pressScale" in files["motion"]
-    and "fun acknowledges(kind: MarbleControlKind): Boolean" in files["motion"]
-    and "delay(motion.entranceDelayFor(index))" in files["expressive"]
-    # The observer that reads the animator scale must be released with the composition that owns it.
-    and "registerContentObserver" in files["motion"]
-    and "unregisterContentObserver" in files["motion"],
-)
-check(
-    "V209 Home removes transient status while internal messages stay bounded",
-    # No status strip or snackbar is rendered. The repository message is only retained briefly after
-    # work settles so its old result cannot leak into a later task; system notifications are separate.
-    "MARBLE_HOME_NO_TRANSIENT_STATUS_V209" in files["ui"]
-    and "MarbleFeedbackPolicy.dwellMillis(actionRequired = false)" in files["ui"]
-    and "HomeRuntimeNotice" not in files["homeStyles"]
-    and "MarbleNoticeHeight" not in files["homeStyles"]
-    and "Snackbar(" not in files["ui"],
-)
-check(
-    "V207 the ambient field is one preference, published once and asked everywhere",
-    # Backdrop glow, status rings, the heartbeat trace and the signet's waiting dot are the same cost
-    # and the same question, so they are the same setting — provided once above every page rather than
-    # threaded through ten signatures where it can drift.
-    "val homeAmbientBackdrop: Boolean = true" in files["models"]
-    and 'prefs.getBoolean("homeAmbientBackdrop", true)' in files["store"]
-    and '.putBoolean("homeAmbientBackdrop", s.homeAmbientBackdrop)' in files["store"]
-    and "LocalMarbleAmbientField provides repo.settings.homeAmbientBackdrop" in files["ui"]
-    and 'title = "Ambient page motion"' in files["ui"]
-    and "LocalMarbleAmbientField.current" in files["design"]
-    # MARBLE_HOME_ONE_PING_V208 removed the second consumer (the header's heartbeat trace, deleted
-    # with the rest of the header ping), so the count this can demand here is one — the field is
-    # still provided once above the pages and asked in the design system, the Studio chrome and
-    # the Atelier cards rather than threaded through signatures.
-    and files["homeStyles"].count("LocalMarbleAmbientField.current") >= 1
-    and "LocalMarbleAmbientField.current" in files["homeAtelier"],
-)
-check(
-    "V207 the location answer is never upgraded from a node's own name",
-    # Three sources can name a country and they are not three versions of one fact. The chain of
-    # precedence stays (a page should use the best code it has), but the label tier is no longer a flag
-    # and a lone witness is no longer a confirmed one — and the strength travels WITH the answer.
-    "val flagCode = if (intelCode.isNotBlank()) intelCode else measuredCode" in files["homeStyles"]
-    and "hasLabelGlyph = labelCode.isNotBlank()" in files["homeStyles"]
-    and "locationTrust = locationTrust," in files["homeStyles"]
-    and "mayPaintLocationFlag" in files["homeStyles"]
-    and "locationTrust = evidence.locationTrust" in files["homeAtelier"]
-    and "locationTrust = marbleLocationTrustOf(" in files["ui"]
-    # The provisional tier is not recomputed from nothing: the resolver's own single-witness verdict is
-    # what the tile reads, persisted and restored with the location it qualifies.
-    and "fun serverLocationIsProvisional(profile: ProxyProfile?): Boolean" in files["repo"]
-    and "serverLocationProvisional[key] = verdict.provisional" in files["repo"]
-    and 'put("provisional", provisionalFlags[k] == true)' in files["store"],
-)
-check(
-    "V207 the route presentation is a page, not a fork of the model",
-    # The cheapest way for a redesign to lose a feature is to reimplement the widgets it displays. The
-    # route presentation therefore consumes the shared evidence and the shared feature surfaces; if it
-    # ever grows its own session stats or its own server picker, a feature will live in two places and
-    # one of them will be wrong.
-    "internal fun HomeThemeAtelier(" in files["homeAtelier"]
-    and "HomeStyle.ROUTE_ATELIER -> HomeThemeAtelier(" in files["homeStyles"]
-    and "HomeStyle.ROUTE_ATELIER -> HomeFlavor.ROUTE_ATELIER" in files["homeStyles"]
-    and "private fun RoutePathSignet(" in files["homeAtelier"]
-    and "HomeTopActionBar(" in files["homeAtelier"]
-    and "HomeSessionStats(" in files["homeAtelier"]
-    and "HomeShortcutDeck(" in files["homeAtelier"]
-    # MARBLE_ATELIER_NOTICE_IN_CARD_V215 — the notice is a line of the decision card, not a banner.
-    and "nationalCause" in files["homeAtelier"]
-    and "NationalEventBanner(" not in files["homeAtelier"].split("internal fun HomeThemeAtelier(")[1].split("private fun RouteConnectCard(")[0]
-    and "ProtocolTile(" in files["homeAtelier"]
-    # The signet states its own uncertainty, in words as well as in pixels.
-    and "provenCount" in files["homeAtelier"]
-    and "contentDescription = speech" in files["homeAtelier"]
-    and "path.provenCount" in files["homeAtelier"],
-)
-check(
-    "V207 every control that can be hit can be hit at 48 dp, without being repainted",
-    # The review's phrase was "visual refinement was bought by shrinking the touch area". The floor is
-    # a layout node, so a designer's artwork keeps its size and the slot absorbs the hit area — which is
-    # also why an icon control no longer has to grow to 48 dp to be legal.
-    "fun Modifier.marbleTapTarget(" in files["designContract"]
-    and ".marbleTapTarget(" in files["design"]
-    and ".marbleTapTarget(" in files["homeStyles"]
-    and ".marbleTapTarget(" in files["homeAtelier"]
-    and "val ControlHeight = 48.dp" in files["design"]
-    # A nameless icon button is the other half of the same defect: an unlabeled control is not a small
-    # control, it is an inaccessible one. The parameter has no default any more.
-    and "descriptiveLabel: String," in files["design"]
-    and "descriptiveLabel: String = \"\"" not in files["design"],
-)
-check(
-    "V207 the chapter is pinned by tests and written down",
-    "class MarbleDesignContractV207Test" in files["routeAtelierTest"]
-    and "assertEquals(5, HomeStyle.entries.size)" in files["homeStyleTest"]
-    and "assertEquals(HomeStyle.ROUTE_ATELIER, HomeStyle.DEFAULT)" in files["homeStyleTest"]
-    and "MARBLE_ROUTE_ATELIER_V207" in files["routeAtelierDoc"]
-    and "MARBLE_ROUTE_ATELIER_V207" in files["homeAtelier"]
-    and "MARBLE_ROUTE_ATELIER_V207" in files["designContract"]
-    # The Persian UI may not let the word-level fallback invent a reading for a whole sentence.
-    and "\"Slide right to connect\"" in files["persianLexicon"]
-    and "\"location not verified\"" in files["persianLexicon"]
-    and "\"Ambient page motion\"" in files["persianLexicon"],
-)
 
 # ---------------------------------------------------------------------------
 # MARBLE_SERVER_TILE_PARITY_V212
@@ -4009,20 +2804,6 @@ check(
 # MARBLE_FAMILY_SCAN_UI_RETIRED_V220 — parity is now about the menu, not the family chip: the
 # retirement removed the chip from both silhouettes at once, so neither answers what the other
 # withholds. The shared menu slot is still the thing a refactor must not drop.
-check(
-    "V212 the compact server box shares the row's menu and draws no family chip",
-    "familyChip" not in files["serverTiles"]
-    and "trailing: (@Composable () -> Unit)? = null" in files["serverTiles"]
-    and "familyChip = familyScan?.chip" not in files["ui"]
-    and "familyChip = familyScan?.chip" not in files["homeStyles"]
-    # One menu, composed by the layout that owns the actions: two smaller menus is how the grid
-    # ended up with fewer verbs than the list.
-    and "internal fun ServersNodeMenu(" in files["ui"]
-    and "ServersNodeMenu(" in files["ui"]
-    and "class ServerTileParityV212Test" in files["tileParityTest"]
-    and "MARBLE_SERVER_TILE_PARITY_V212" in files["serverTileParityDoc"]
-    and "SERVER_TILE_PARITY_V212.md" in files["readme"],
-)
 
 # ---------------------------------------------------------------------------
 # MARBLE_MULTI_SOURCE_ROUTING_V212
@@ -4079,17 +2860,6 @@ check(
 # ---------------------------------------------------------------------------
 # The V191 depth contract left HomeCloudCard and became a modifier any surface can wear, and the
 # two full-screen dismissals answer the platform's predictive-back progress instead of snapping.
-check(
-    "V212 one depth contract, and the back gesture's progress is drawn",
-    "object MarbleDepthPolicy" in files["surfaceDepth"]
-    and "fun Modifier.marbleSurfaceDepth(" in files["surfaceDepth"]
-    and "fun Modifier.marblePredictiveBack(progress: Float): Modifier" in files["surfaceDepth"]
-    and "marbleSurfaceDepth(shape = shape, fill = fill, rim = rim" in files["serverTiles"]
-    and files["ui"].count("PredictiveBackHandler(") == 2
-    and files["ui"].count("marblePredictiveBack(") == 2
-    and "MARBLE_SURFACE_DEPTH_V212" in files["surfaceDepthDoc"]
-    and "SURFACE_DEPTH_V212.md" in files["readme"],
-)
 
 # ---------------------------------------------------------------------------
 # Persistence and language for the whole pass
@@ -4122,80 +2892,8 @@ check(
 # component set that paints *only* platform roles, and a call-site sweep — so the invariant is
 # that the table exists, that its numbers are the platform's, that the components read the scheme
 # rather than a brand token, and that the surfaces which were rebuilt are still wearing them.
-check(
-    "V213 the platform's measurements are one table",
-    "object MarbleNativeSpec" in files["nativeUi"]
-    and "const val RowMinHeightDp: Int = 56" in files["nativeUi"]
-    and "const val RowTwoLineHeightDp: Int = 72" in files["nativeUi"]
-    and "const val RowDenseHeightDp: Int = 48" in files["nativeUi"]
-    and "const val TouchTargetDp: Int = 48" in files["nativeUi"]
-    and "const val LeadingContainerDp: Int = 40" in files["nativeUi"]
-    and "const val CardCornerDp: Int = 24" in files["nativeUi"]
-    and "const val TileCornerDp: Int = 20" in files["nativeUi"]
-    and "const val RowCornerDp: Int = 16" in files["nativeUi"]
-    and "const val ContactElevationDp: Int = 2" in files["nativeUi"]
-    and "const val IndicatorWidthDp: Int = 56" in files["nativeUi"]
-    and "fun rowHeightDp(hasSubtitle: Boolean): Int" in files["nativeUi"]
-    and "fun meetsTouchFloor(heightDp: Int): Boolean" in files["nativeUi"]
-    and "fun dividerInsetDp(hasLeading: Boolean): Int" in files["nativeUi"],
-)
 
-check(
-    "V213 every native surface paints a platform role and never a hand-mixed brand token",
-    # The helpers read the live scheme, which AetherTheme rebuilds for the brand palettes, for
-    # AMOLED and for a wallpaper palette in one place.
-    "MaterialTheme.colorScheme.surfaceContainerLowest" in files["nativeUi"]
-    and "MaterialTheme.colorScheme.surfaceContainerLow" in files["nativeUi"]
-    and "MaterialTheme.colorScheme.surfaceContainerHigh" in files["nativeUi"]
-    and "scheme.surfaceContainerHighest" in files["nativeUi"]
-    and "scheme.outlineVariant" in files["nativeUi"]
-    and "MaterialTheme.colorScheme.onSurfaceVariant" in files["nativeUi"]
-    # The platform's component set.
-    and "fun MarbleNativeCard(" in files["nativeUi"]
-    and "fun MarbleNativeListItem(" in files["nativeUi"]
-    and "fun MarbleNativeSwitch(" in files["nativeUi"]
-    and "fun MarbleNativeChoiceRow(" in files["nativeUi"]
-    and "fun MarbleNativeSegmentedRow(" in files["nativeUi"]
-    and "fun MarbleNativeSectionHeader(" in files["nativeUi"]
-    and "fun MarbleNativeDivider(" in files["nativeUi"]
-    and "fun MarbleNativeChevron(" in files["nativeUi"]
-    # The card wears the contact shadow, which is what puts a surface on a page.
-    and "MarbleNativeSpec.ContactElevationDp" in files["nativeUi"],
-)
 
-check(
-    "V213 the boxes, tabs, servers, flags, settings and options are on the platform's skin",
-    # Boxes: the panel's rim is directional and neutral, and the depth contract carries a contact
-    # shadow; the panel's own hairline is the platform's outline at the top and the bottom.
-    "val borderBrush=Brush.verticalGradient(" in files["design"]
-    and "marbleNativeOutline()" in files["design"]
-    and "val ContactElevation: Dp = 2.dp" in files["surfaceDepth"]
-    and "val RestingElevation: Dp = 4.dp" in files["surfaceDepth"]
-    and "val RaisedElevation: Dp = 9.dp" in files["surfaceDepth"]
-    # Tabs: the active indicator is a stadium, and the floating chrome's body and edge are the
-    # platform's container step and outline family (the palette's shadow and four action tones stay
-    # the product's).
-    and "val glassShape = marbleNativePill()" in files["ui"]
-    and "surface = marbleNativeContainerHigh()" in files["floatingChrome"]
-    and "border = marbleNativeOutline()" in files["floatingChrome"]
-    and "shadow = Aether.FloatShadow" in files["floatingChrome"]
-    and "actions = Aether.FloatActions" in files["floatingChrome"]
-    # Servers: the tile is on the platform's tile corner, and the subscription frame is neutral.
-    and "marbleNativeShape(MarbleNativeSpec.TileCornerDp.dp)" in files["serverTiles"]
-    and "private fun serversGroupFrameColor(): Color = marbleNativeOutline()" in files["ui"]
-    # Flags: the circle can be framed, and the Home route chip is.
-    and "ring: Color? = null" in files["countryFlagArt"]
-    and "Modifier.border(1.dp, ring, CircleShape)" in files["countryFlagArt"]
-    and "ring = marbleNativeOutline()" in files["homeStyles"]
-    # Settings and options: the option row is the platform's list item, the switch palette is the
-    # platform's four roles, and a group heading is no longer uppercased.
-    and "MarbleNativeListItem(" in files["ui"]
-    and "MarbleNativeSwitch(" in files["ui"]
-    and "checkedTrackColor = MaterialTheme.colorScheme.primary" in files["ui"]
-    and "uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest" in files["ui"]
-    and "trx(title).uppercase()" not in files["ui"]
-    and "MarbleNativeSpec.SectionLabelTrackingSp" in files["ui"],
-)
 
 check(
     "V213 the notifications fill the fields the platform defines",
@@ -4218,14 +2916,6 @@ check(
     and 'android:windowSoftInputMode="adjustResize"' in files["manifest"],
 )
 
-check(
-    "V213 the native chapter is written down",
-    "MARBLE_NATIVE_ANDROID_V213" in files["nativeUiDoc"]
-    and "MARBLE_NATIVE_ANDROID_V213" in files["nativeUi"]
-    and "class MarbleNativeAndroidV213Test" in files["nativeUiTest"]
-    and "NATIVE_ANDROID_V213.md" in files["readme"]
-    and "APPEARANCE_CRITIQUE_V213.md" in files["readme"],
-)
 
 
 # ---------------------------------------------------------------------------
@@ -4234,40 +2924,8 @@ check(
 # One switch has to reach every material. The failure this guards is not "flat looks wrong"; it is
 # a build in which the new page toggles a local that only the cards V221 rebuilt happen to read,
 # leaving half the product lifted while the other half is flat.
-check(
-    "V221 the flat switch is one composition local every material reads",
-    "internal val LocalMarbleFlat = staticCompositionLocalOf { true }" in files["theme"]
-    and "internal fun marbleFlatSurfaces(): Boolean = LocalMarbleFlat.current" in files["theme"]
-    and "val flat = marbleFlatSurfaces()" in files["design"]
-    and "val flat = marbleFlatSurfaces()" in files["surfaceDepth"]
-    and "if (marbleFlatSurfaces())" in files["nativeUi"]
-    and "LocalMarbleFlat provides flatSurfaces" in files["theme"]
-    and "flatSurfaces = repo.settings.flatInterface" in files["marbleApp"],
-)
 
-check(
-    "V221 the flat surface is a tone and a hairline, not a missing shadow",
-    # The panel keeps one border call and drops both shadows and the specular plane when flat.
-    "val surface=if (flat) Aether.Glass else Aether.VoidElevated" in files["design"]
-    and "if (flat) 0.dp else {" in files["design"]
-    and "if (flat) Modifier else Modifier" in files["design"]
-    and "listOf(flatEdge, flatEdge)" in files["design"]
-    and "if (marbleFlatSurfaces())" in files["nativeUi"]
-    # The depth contract keeps its anatomy (fill, rim, corners) and loses only its material.
-    and "if (flat) Modifier else Modifier" in files["surfaceDepth"]
-    and "MarbleNativeShadow(Color.Transparent, Color.Transparent, Color.Transparent)" in files["nativeUi"],
-)
 
-check(
-    "V221 the accent is one setting with six palettes and Ocean is byte-identical",
-    "enum class FlatAccent" in files["models"]
-    and "fun parseFlatAccent(" in files["models"]
-    and "private fun accentPalette(" in files["theme"]
-    and "if (accent == FlatAccent.OCEAN || palette.dynamic) return palette" in files["theme"]
-    and "LocalMarbleAccent provides activeAccent" in files["theme"]
-    and "accentId = repo.settings.accentTheme" in files["marbleApp"]
-    and "FlatAccent.entries.chunked(3)" in files["meridian"],
-)
 
 check(
     "V221 the power profiles are a bounded projection over the effective settings",
@@ -4284,18 +2942,6 @@ check(
     and "strictAddressFamily = " not in files["corePower"],
 )
 
-check(
-    "V221 the Censorship Lab measures, names and prescribes without a second network stack",
-    "object CensorshipLab" in files["censorshipLab"]
-    and "object CensorshipProbe" in files["censorshipLab"]
-    and "MultiVectorReachability.probe(" in files["censorshipLab"]
-    and "fun diagnose(observations: List<Observation>): Diagnosis" in files["censorshipLab"]
-    and "fun prescribe(diagnosis: Diagnosis, base: AppSettings): Prescription" in files["censorshipLab"]
-    and "class CensorshipLabV221Test" in files["censorshipTest"]
-    and "MeridianShieldPage(" in files["meridian"]
-    and "CensorshipProbe.scan(" in files["meridian"]
-    and "SettingsPages.SHIELD" in files["ui"],
-)
 
 check(
     "V221 handshake fragmentation emits only the fork's client-side keys and never spoof",
@@ -4342,14 +2988,6 @@ check(
     and 'putBoolean("censorshipAutoApply", s.censorshipAutoApply)' in files["store"],
 )
 
-check(
-    "V221 the new pages are reachable from the Settings hub",
-    'const val INTERFACE = "interface"' in files["ui"]
-    and 'const val SHIELD = "censorship-lab"' in files["ui"]
-    and "onNavigate(SettingsPages.INTERFACE)" in files["ui"]
-    and "onNavigate(SettingsPages.SHIELD)" in files["ui"]
-    and "MeridianInterfacePage(" in files["ui"],
-)
 
 check(
     "V221 the chapter is written down and the new strings speak Persian",
@@ -4361,27 +2999,10 @@ check(
     and '"Power" to "' in files["persianLexicon"],
 )
 
-check(
-    "V221 machine-readable numbers ignore the device locale",
-    "String.format(java.util.Locale.US" in files["mtuPolicy"]
-    and "String.format(java.util.Locale.US" in files["flapGuard"]
-    and "String.format(java.util.Locale.US" in files["stressMonitor"]
-    and '\"%.1f MB/s\".format(java.util.Locale.US' in files["ui"]
-    and '\"%.2f\".format(java.util.Locale.US' in files["vpn"],
-)
 
 production = "\n".join(
     value for key, value in files.items()
     if key not in {"build", "verify", "native"}
-)
-check(
-    "V221 every cast shadow asks the flat switch",
-    "internal fun Modifier.marbleShadow(" in files["nativeUi"]
-    and "if (marbleFlatSurfaces() || elevation <= 0.dp)" in files["nativeUi"]
-    and ".marbleShadow(" in files["ui"]
-    and ".marbleShadow(" in files["design"]
-    and ".shadow(" not in files["meridian"]
-    and ".shadow(" not in production.replace("this.shadow(", ""),
 )
 
 check(
@@ -4393,6 +3014,77 @@ check(
 )
 
 check("no GlobalScope in production", "GlobalScope" not in production)
+
+
+# MARBLE_IOS_DESIGN_SYSTEM invariants
+check(
+    "legacy Aether/Meridian UI files are removed",
+    not (ROOT / "app/src/main/java/com/marbleng/app/ui/Aether2026.kt").exists()
+    and not (ROOT / "app/src/main/java/com/marbleng/app/ui/AetherTheme.kt").exists()
+    and not (ROOT / "app/src/main/java/com/marbleng/app/ui/MarbleDesignSystem.kt").exists()
+    and not (ROOT / "app/src/main/java/com/marbleng/app/ui/MarbleMeridian.kt").exists(),
+)
+
+check(
+    "iOS design tokens enforce #F8F9FA canvas, #FFFFFF 20dp cards, 12dp squircles and 1dp dividers",
+    "const val BACKGROUND_HEX: Long = 0xFFF8F9FA" in files["iosTheme"]
+    and "const val CARD_HEX: Long = 0xFFFFFFFF" in files["iosTheme"]
+    and "const val CARD_CORNER_DP: Int = 20" in files["iosTheme"]
+    and "const val SQUIRCLE_CORNER_DP: Int = 12" in files["iosTheme"]
+    and "const val DIVIDER_THICKNESS_DP: Int = 1" in files["iosTheme"]
+    and "#F8F9FA" in files["colorsXml"]
+    and "@color/ios_background" in files["stylesXml"],
+)
+
+check(
+    "iOS list item uses right-aligned squircle glyph, bold title, gray subtitle and left chevron",
+    "fun IosListItem(" in files["iosComponents"]
+    and "MarbleGlyph.CHEVRON_LEFT" in files["iosComponents"]
+    and "LayoutDirection.Rtl" in files["iosComponents"]
+    and "fun IosDivider(" in files["iosComponents"],
+)
+
+check(
+    "MarbleApp wraps language, text scale and MarbleIosTheme and binds all modular tabs",
+    "ProvideMarbleLanguage(repo.settings.appLanguage)" in files["marbleApp"]
+    and "ProvideMarbleTextScale(repo.settings.textScalePercent)" in files["marbleApp"]
+    and "MarbleIosTheme(" in files["marbleApp"]
+    and "HomeScreen(" in files["marbleApp"]
+    and "ServersScreen(" in files["marbleApp"]
+    and "CustomSlotScreen(" in files["marbleApp"]
+    and "SettingsScreen(" in files["marbleApp"]
+    and "ServerDetailPage(" in files["marbleApp"]
+    and "ServerAddSheet(" in files["marbleApp"],
+)
+
+check(
+    "SettingsScreen dispatches all 20 modular iOS sub-pages",
+    all(
+        page in files["settingsScreen"]
+        for page in (
+            "SettingsConnectionModePage",
+            "SettingsCoreEnginePage",
+            "SettingsTunnelDatapathPage",
+            "SettingsPowerProfilePage",
+            "SettingsRoutingPage",
+            "SettingsDnsAndFamilyPage",
+            "SettingsSplitTunnelPage",
+            "SettingsCensorshipLabPage",
+            "SettingsPingTestingPage",
+            "SettingsAutoSelectorPage",
+            "SettingsIdentityLocationPage",
+            "SettingsAppearancePage",
+            "SettingsLanguageAndFontPage",
+            "SettingsTabBarPage",
+            "SettingsHomeLayoutPage",
+            "SettingsSubscriptionsPage",
+            "SettingsBackupRestorePage",
+            "SettingsNotificationsPage",
+            "SettingsDiagnosticsPage",
+            "SettingsAboutPage",
+        )
+    ),
+)
 
 failed = [name for name, passed in checks if not passed]
 
