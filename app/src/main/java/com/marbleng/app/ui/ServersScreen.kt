@@ -200,7 +200,8 @@ fun ServersScreen(
                 IosSearchBar(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = strings.searchServersHint
+                    placeholder = strings.searchServersHint,
+                    trailingCount = "${visibleProfiles.size}"
                 )
 
                 IosChipStrip {
@@ -617,6 +618,8 @@ private fun ServerGroupCard(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         IosSectionHeader(
             title = bucket.title,
+            badge = "${bucket.profiles.size}",
+            badgeColor = if (sub != null) colors.indigo else colors.teal,
             trailing = {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -626,7 +629,7 @@ private fun ServerGroupCard(
                         Text(
                             text = trx("Refresh"),
                             color = colors.accent,
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             modifier = Modifier.clickable(enabled = !repo.busy) {
                                 repo.refresh(sub.id)
                             }
@@ -636,7 +639,7 @@ private fun ServerGroupCard(
                         Text(
                             text = strings.connectionPing,
                             color = colors.green,
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             modifier = Modifier.clickable(enabled = !repo.probeActive) {
                                 repo.testSource(bucket.id)
                             }
@@ -646,7 +649,7 @@ private fun ServerGroupCard(
                         Text(
                             text = trx("Edit"),
                             color = colors.subtitle,
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.clickable { onManageSubscription(sub) }
                         )
                     }
@@ -662,11 +665,19 @@ private fun ServerGroupCard(
                 squircleColor = if (sub != null) colors.indigo else colors.teal,
                 showChevron = false,
                 trailing = {
-                    MarbleGlyphIcon(
-                        glyph = if (collapsed) MarbleGlyph.CHEVRON else MarbleGlyph.CHEVRON_DOWN,
-                        color = colors.chevron,
-                        modifier = Modifier.size(16.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(colors.cardSecondary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MarbleGlyphIcon(
+                            glyph = if (collapsed) MarbleGlyph.CHEVRON else MarbleGlyph.CHEVRON_DOWN,
+                            color = colors.subtitle,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                 },
                 onClick = onToggleCollapse
             )
@@ -679,7 +690,7 @@ private fun ServerGroupCard(
                     val probeState = repo.probeStateOf(profile.id)
                     val countryCode = repo.serverLocation(profile).code
 
-                    IosDivider()
+                    IosDivider(insetStart = 66.dp)
                     ServerRowItem(
                         profile = profile,
                         countryCode = countryCode,
@@ -690,6 +701,21 @@ private fun ServerGroupCard(
                         onClick = { onSelectProfile(profile) },
                         onMore = { onMoreProfile(profile) }
                     )
+                }
+                // Council: gentle footer hint for discoverability
+                if (bucket.profiles.size > 6) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = trx("Tap server to select · ⋯ for actions"),
+                            color = colors.tertiary,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
             }
         }
@@ -710,6 +736,7 @@ private fun ServerRowItem(
     val colors = IosTheme.colors
     val pingText = pingBadgeText(result, probeState)
     val pingTone = pingBadgeColor(result, probeState)
+    val quietFailure = result != null && (result.success <= 0 || result.latencyMs <= 0.0)
     val subtitleText = buildString {
         append(protocolShortLabel(profile))
         if (profile.host.isNotBlank()) {
@@ -724,6 +751,7 @@ private fun ServerRowItem(
         titleColor = when {
             active -> colors.green
             selected -> colors.accent
+            quietFailure -> colors.title.copy(alpha = 0.58f)
             else -> colors.title
         },
         leading = {
@@ -733,22 +761,38 @@ private fun ServerRowItem(
         trailing = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 if (result != null || probeState != ProbeState.IDLE) {
-                    IosBadge(text = pingText, color = pingTone)
+                    if (quietFailure) {
+                        // Council: quiet failure — muted, not alarming red
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(colors.tertiary.copy(alpha = 0.14f))
+                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = trx("No reply"),
+                                color = colors.subtitle,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                        }
+                    } else {
+                        IosBadge(text = pingText, color = pingTone)
+                    }
                 }
                 if (active || selected) {
                     MarbleGlyphIcon(
                         glyph = MarbleGlyph.CHECK,
                         color = if (active) colors.green else colors.accent,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(16.dp),
                         weight = 1.2f
                     )
                 }
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
                         .background(colors.cardSecondary)
                         .clickable(role = Role.Button, onClick = onMore),

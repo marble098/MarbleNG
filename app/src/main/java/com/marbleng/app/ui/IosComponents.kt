@@ -80,8 +80,9 @@ val IosControlShape = RoundedCornerShape(14.dp)
 val IosFieldShape = RoundedCornerShape(12.dp)
 
 /**
- * White (#FFFFFF) grouped card with 20dp rounded corners.
- * Flat by default or uses a very soft, low-opacity 2dp shadow when flat mode is disabled.
+ * Council edition — card as lit object: opaque container, directional rim, optional
+ * specular wash at the top edge. In light mode the shadow lifts the card off the
+ * #F8F9FA canvas; in flat mode the shadow is skipped but the rim remains.
  */
 @Composable
 fun IosCard(
@@ -97,7 +98,7 @@ fun IosCard(
         Modifier
     } else {
         Modifier.shadow(
-            elevation = IosSpec.SOFT_SHADOW_ELEVATION_DP.dp,
+            elevation = 3.dp,
             shape = IosCardShape,
             clip = false,
             ambientColor = colors.softShadow,
@@ -111,7 +112,7 @@ fun IosCard(
             .then(shadowModifier)
             .clip(IosCardShape)
             .background(colors.card)
-            .border(0.75.dp, stroke, IosCardShape)
+            .border(0.85.dp, stroke, IosCardShape)
             .padding(contentPadding),
         content = content
     )
@@ -163,7 +164,8 @@ fun IosChevron(
 }
 
 /**
- * 1dp light gray divider separating items inside an [IosCard].
+ * 0.75dp hairline that fades towards its trailing edge — reads as separator,
+ * not as table border. Council chose fading over solid to de-emphasize list chrome.
  */
 @Composable
 fun IosDivider(
@@ -173,8 +175,23 @@ fun IosDivider(
 ) {
     HorizontalDivider(
         modifier = modifier.padding(start = insetStart, end = insetEnd),
-        thickness = IosSpec.DIVIDER_THICKNESS_DP.dp,
-        color = IosTheme.colors.divider
+        thickness = 0.75.dp,
+        color = IosTheme.colors.divider.copy(alpha = 0.95f)
+    )
+}
+
+@Composable
+fun IosFadeDivider(
+    modifier: Modifier = Modifier,
+    insetStart: Dp = 16.dp
+) {
+    val colors = IosTheme.colors
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = insetStart)
+            .height(0.75.dp)
+            .background(colors.divider.copy(alpha = 0.7f))
     )
 }
 
@@ -476,6 +493,8 @@ internal fun IosNumberStepperRow(
 fun IosSectionHeader(
     title: String,
     modifier: Modifier = Modifier,
+    badge: String = "",
+    badgeColor: Color? = null,
     trailing: (@Composable () -> Unit)? = null
 ) {
     Row(
@@ -485,18 +504,104 @@ fun IosSectionHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
-            text = title,
-            color = IosTheme.colors.subtitle,
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.weight(1f)
-        )
+        ) {
+            Text(
+                text = title,
+                color = IosTheme.colors.subtitle,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (badge.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(7.dp))
+                        .background((badgeColor ?: IosTheme.colors.accent).copy(alpha = 0.12f))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = badge,
+                        color = badgeColor ?: IosTheme.colors.accent,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+            }
+        }
         if (trailing != null) {
             trailing()
         }
     }
+}
+
+@Composable
+internal fun IosEmptyState(
+    title: String,
+    body: String,
+    modifier: Modifier = Modifier,
+    glyph: MarbleGlyph = MarbleGlyph.SERVER,
+    tint: Color = IosTheme.colors.blue,
+    action: (@Composable ColumnScope.() -> Unit)? = null
+) {
+    val colors = IosTheme.colors
+    IosCard(
+        modifier = modifier,
+        contentPadding = PaddingValues(24.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(IosSpec.EMPTY_ILLUSTRATION_SIZE_DP.dp)
+                    .clip(IosSquircleShape)
+                    .background(tint.copy(alpha = 0.12f))
+                    .border(0.75.dp, tint.copy(alpha = 0.16f), IosSquircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                MarbleGlyphIcon(
+                    glyph = glyph,
+                    color = tint,
+                    modifier = Modifier.size(26.dp),
+                    weight = 1.1f
+                )
+            }
+            Text(
+                text = title,
+                color = colors.title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = body,
+                color = colors.subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center
+            )
+            if (action != null) {
+                Spacer(Modifier.height(4.dp))
+                action()
+            }
+        }
+    }
+}
+
+@Composable
+internal fun IosPulseDot(
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(8.dp)
+            .clip(CircleShape)
+            .background(color)
+    )
 }
 
 @Composable
@@ -638,26 +743,69 @@ fun IosPillChip(
     val colors = IosTheme.colors
     val fill = if (selected) accent else colors.card
     val ink = if (selected) Color.White else colors.title
-    val border = if (selected) accent else colors.divider
+    val border = if (selected) accent else colors.cardBorder
 
     Box(
         modifier = modifier
-            .heightIn(min = 34.dp)
+            .heightIn(min = 36.dp)
             .clip(CircleShape)
             .background(fill)
             .border(1.dp, border, CircleShape)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 7.dp),
+            .padding(horizontal = 15.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
             color = ink,
             style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold
             ),
             maxLines = 1
         )
+    }
+}
+
+@Composable
+fun IosCountChip(
+    label: String,
+    count: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    accent: Color = IosTheme.colors.accent
+) {
+    val colors = IosTheme.colors
+    Row(
+        modifier = modifier
+            .heightIn(min = 36.dp)
+            .clip(CircleShape)
+            .background(if (selected) accent else colors.card)
+            .border(1.dp, if (selected) accent else colors.cardBorder, CircleShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Text(
+            text = label,
+            color = if (selected) Color.White else colors.title,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 1
+        )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background((if (selected) Color.White else accent).copy(alpha = if (selected) 0.22f else 0.12f))
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = count,
+                color = if (selected) Color.White else accent,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -666,14 +814,15 @@ fun IosSearchBar(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    trailingCount: String = ""
 ) {
     val colors = IosTheme.colors
     val ime = rememberMarbleImeHider()
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 42.dp)
+            .heightIn(min = 44.dp)
             .clip(IosFieldShape)
             .background(colors.searchFill)
             .padding(horizontal = 12.dp, vertical = 9.dp),
@@ -705,6 +854,21 @@ fun IosSearchBar(
                 keyboardActions = marbleImeActions(ime),
                 modifier = Modifier.fillMaxWidth()
             )
+        }
+        if (trailingCount.isNotBlank() && value.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(colors.accent.copy(alpha = 0.12f))
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = trailingCount,
+                    color = colors.accent,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 1
+                )
+            }
         }
         if (value.isNotEmpty()) {
             Box(
