@@ -736,7 +736,7 @@ private fun ServerRowItem(
     val colors = IosTheme.colors
     val pingText = pingBadgeText(result, probeState)
     val pingTone = pingBadgeColor(result, probeState)
-    val quietFailure = result?.reachable == false && pingTone == colors.red
+    val quietFailure = result != null && (result.success <= 0 || result.latencyMs <= 0.0)
     val subtitleText = buildString {
         append(protocolShortLabel(profile))
         if (profile.host.isNotBlank()) {

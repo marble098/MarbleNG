@@ -538,7 +538,7 @@ fun IosSectionHeader(
 }
 
 @Composable
-fun IosEmptyState(
+internal fun IosEmptyState(
     title: String,
     body: String,
     modifier: Modifier = Modifier,
@@ -592,7 +592,7 @@ fun IosEmptyState(
 }
 
 @Composable
-fun IosPulseDot(
+internal fun IosPulseDot(
     color: Color,
     modifier: Modifier = Modifier
 ) {

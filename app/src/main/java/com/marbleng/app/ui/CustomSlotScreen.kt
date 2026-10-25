@@ -1,19 +1,25 @@
 package com.marbleng.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.ServersQuery
@@ -140,14 +146,14 @@ fun CustomSlotScreen(
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(14.dp),
-                            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(54.dp)
-                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .clip(CircleShape)
                                     .background((if (connected) colors.green else colors.blue).copy(alpha = 0.12f)),
-                                contentAlignment = androidx.compose.ui.Alignment.Center
+                                contentAlignment = Alignment.Center
                             ) {
                                 MarbleGlyphIcon(
                                     glyph = MarbleGlyph.SHIELD,
@@ -157,15 +163,15 @@ fun CustomSlotScreen(
                                 if (connected) {
                                     Box(
                                         modifier = Modifier
-                                            .align(androidx.compose.ui.Alignment.TopEnd)
+                                            .align(Alignment.TopEnd)
                                             .size(10.dp)
-                                            .clip(androidx.compose.foundation.shape.CircleShape)
+                                            .clip(CircleShape)
                                             .background(colors.green)
-                                            .border(1.5.dp, colors.card, androidx.compose.foundation.shape.CircleShape)
+                                            .border(1.5.dp, colors.card, CircleShape)
                                     )
                                 }
                             }
-                            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
                                     text = if (connected) strings.statusProtected else strings.readyToConnect,
                                     color = colors.title,
