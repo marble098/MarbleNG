@@ -340,9 +340,9 @@ private fun IosBottomTabBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(barHeight)
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceAround
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             tabs.forEach { tab ->
                 val isSelected = tab == selected
@@ -361,51 +361,72 @@ private fun IosBottomTabBar(
                     IosRootTab.SETTINGS -> strings.tabSettings
                 }
 
-                Column(
+                val pillShape = RoundedCornerShape(IosSpec.DOCK_ACTIVE_PILL_CORNER_DP.dp)
+                Box(
                     modifier = Modifier
                         .weight(1f)
+                        .clip(pillShape)
+                        .background(
+                            if (isSelected) activeColor.copy(alpha = if (colors.dark) 0.18f else 0.10f) else Color.Transparent
+                        )
                         .clickable(
                             role = Role.Tab,
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { onSelect(tab) }
-                        .padding(vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                        .padding(vertical = 6.dp, horizontal = 4.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    if (showIcons) {
-                        Box(contentAlignment = Alignment.Center) {
-                            MarbleGlyphIcon(
-                                glyph = glyph,
-                                color = tint,
-                                modifier = Modifier.size(iconSize),
-                                weight = if (isSelected) 1.15f else 1f
-                            )
-                            if (tab == IosRootTab.CUSTOM_SLOT && statusDotColor != null) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .offset(x = 3.dp, y = (-2).dp)
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(statusDotColor)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        if (showIcons) {
+                            Box(contentAlignment = Alignment.Center) {
+                                MarbleGlyphIcon(
+                                    glyph = glyph,
+                                    color = tint,
+                                    modifier = Modifier.size(iconSize),
+                                    weight = if (isSelected) 1.18f else 1f
                                 )
+                                if (tab == IosRootTab.CUSTOM_SLOT && statusDotColor != null) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .offset(x = 4.dp, y = (-3).dp)
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(statusDotColor)
+                                            .border(1.2.dp, colors.tabBar, CircleShape)
+                                    )
+                                }
+                                // Selected dot under active tab (6dp pill lens)
+                                if (isSelected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .offset(y = 10.dp)
+                                            .size(width = 14.dp, height = 3.dp)
+                                            .clip(CircleShape)
+                                            .background(activeColor.copy(alpha = 0.55f))
+                                    )
+                                }
                             }
                         }
-                    }
-                    if (showIcons && showLabels) {
-                        Spacer(Modifier.height(3.dp))
-                    }
-                    if (showLabels) {
-                        Text(
-                            text = label,
-                            color = tint,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        if (showIcons && showLabels) {
+                            Spacer(Modifier.height(3.dp))
+                        }
+                        if (showLabels) {
+                            Text(
+                                text = label,
+                                color = tint,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }

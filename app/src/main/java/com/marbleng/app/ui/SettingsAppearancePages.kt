@@ -86,6 +86,43 @@ fun SettingsAppearancePage(
             }
         }
 
+        item(key = "theme-preview") {
+            // Council: live preview — WYSIWYG for theme + accent
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                IosSectionHeader(title = trx("Preview"))
+                IosCard(contentPadding = PaddingValues(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                                .background(colors.accent),
+                            contentAlignment = androidx.compose.ui.Alignment.Center
+                        ) {
+                            MarbleGlyphIcon(glyph = MarbleGlyph.PALETTE, color = Color.White, modifier = Modifier.size(22.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = trx("MarbleNG Card Preview"),
+                                color = colors.title,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "${trx(s.theme.replaceFirstChar { it.uppercase() })} · ${trx(activeAccent.label)}",
+                                color = colors.subtitle,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        IosBadge(text = "Aa", color = colors.accent)
+                    }
+                }
+            }
+        }
+
         item(key = "accent-swatches") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 IosSectionHeader(title = trx("Accent Color"))
@@ -100,14 +137,14 @@ fun SettingsAppearancePage(
                             val chosen = activeAccent == candidate
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(44.dp)
                                     .clip(CircleShape)
                                     .background(swatch)
                                     .then(
                                         if (chosen) {
                                             Modifier.border(2.5.dp, colors.title, CircleShape)
                                         } else {
-                                            Modifier
+                                            Modifier.border(1.dp, colors.cardBorder, CircleShape)
                                         }
                                     )
                                     .clickable(role = Role.Button) {

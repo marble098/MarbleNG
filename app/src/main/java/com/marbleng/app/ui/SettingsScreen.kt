@@ -335,15 +335,24 @@ fun SettingsScreen(
                 IosSearchBar(
                     value = search,
                     onValueChange = { search = it },
-                    placeholder = trx("Search settings")
+                    placeholder = trx("Search settings"),
+                    trailingCount = if (search.isBlank()) "${connectionGroup.size + routingGroup.size + testingGroup.size + appearanceGroup.size + systemGroup.size}" else ""
                 )
+                if (search.isNotBlank() && sections.isEmpty()) {
+                    IosEmptyState(
+                        title = trx("No matches"),
+                        body = trx("Try a shorter keyword — e.g. DNS, Theme, or Ping"),
+                        glyph = MarbleGlyph.SEARCH,
+                        tint = colors.subtitle
+                    )
+                }
             }
         }
 
         sections.forEachIndexed { sectionIndex, (header, rows) ->
             item(key = "settings-sec-$sectionIndex") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IosSectionHeader(title = header)
+                    IosSectionHeader(title = header, badge = "${rows.size}", badgeColor = colors.accent)
                     IosCard {
                         rows.forEachIndexed { rowIndex, spec ->
                             if (rowIndex > 0) IosDivider()
@@ -357,6 +366,27 @@ fun SettingsScreen(
                         }
                     }
                 }
+            }
+        }
+        // Council: footer legibility
+        item(key = "settings-footer") {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+            ) {
+                androidx.compose.material3.Text(
+                    text = "v${BuildConfig.VERSION_NAME} · Xray ${BuildConfig.XRAY_CORE_TAG} · MarbleNG",
+                    color = colors.tertiary,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    maxLines = 1
+                )
+                androidx.compose.material3.Text(
+                    text = trx("Tap any row to configure • Use search to jump"),
+                    color = colors.tertiary,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
             }
         }
     }

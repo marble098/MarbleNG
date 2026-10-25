@@ -60,6 +60,15 @@ object IosSpec {
     const val ITEM_HORIZONTAL_PADDING_DP: Int = 16
     const val ROW_MIN_HEIGHT_DP: Int = 56
     const val SOFT_SHADOW_ELEVATION_DP: Int = 2
+
+    // Council refinement — motion & depth ladder (pure tokens, no behavior)
+    const val CARD_PRESSED_SCALE: Float = 0.98f
+    const val HERO_PULSE_MIN_SCALE: Float = 0.92f
+    const val HERO_PULSE_MAX_SCALE: Float = 1.06f
+    const val DOCK_ACTIVE_PILL_CORNER_DP: Int = 16
+    const val SLIDE_THUMB_SIZE_DP: Int = 48
+    const val SLIDE_TRACK_HEIGHT_DP: Int = 56
+    const val EMPTY_ILLUSTRATION_SIZE_DP: Int = 56
 }
 
 @Immutable
@@ -107,8 +116,8 @@ fun lightIosPalette(accent: FlatAccent = FlatAccent.OCEAN): IosPalette = IosPale
     background = Color(IosSpec.BACKGROUND_HEX),
     card = Color(IosSpec.CARD_HEX),
     cardSecondary = Color(0xFFF2F2F7),
-    cardBorder = Color(0x0D000000),
-    softShadow = Color(0x0A000000),
+    cardBorder = Color(0x0F000000),
+    softShadow = Color(0x12000000),
     title = Color(IosSpec.TITLE_INK_HEX),
     subtitle = Color(IosSpec.SUBTITLE_GRAY_HEX),
     tertiary = Color(0xFFAEAEB2),
@@ -137,7 +146,7 @@ fun darkIosPalette(accent: FlatAccent = FlatAccent.OCEAN): IosPalette = IosPalet
     background = Color(0xFF000000),
     card = Color(0xFF1C1C1E),
     cardSecondary = Color(0xFF2C2C2E),
-    cardBorder = Color(0x1FFFFFFF),
+    cardBorder = Color(0x22FFFFFF),
     softShadow = Color(0x00000000),
     title = Color(0xFFF5F5F7),
     subtitle = Color(0xFF98989D),
@@ -190,53 +199,53 @@ private fun buildIosTypography(family: FontFamily): Typography = Typography(
     displaySmall = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Bold,
-        fontSize = 32.sp,
-        lineHeight = 38.sp,
+        fontSize = 30.sp,
+        lineHeight = 36.sp,
         letterSpacing = (-0.4).sp
     ),
     headlineLarge = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Bold,
-        fontSize = 28.sp,
-        lineHeight = 34.sp,
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
         letterSpacing = (-0.3).sp
     ),
     headlineMedium = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Bold,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
         letterSpacing = (-0.2).sp
     ),
     headlineSmall = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Bold,
-        fontSize = 19.sp,
-        lineHeight = 24.sp
+        fontSize = 17.sp,
+        lineHeight = 22.sp
     ),
     titleLarge = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Bold,
-        fontSize = 18.sp,
-        lineHeight = 24.sp
+        fontSize = 17.sp,
+        lineHeight = 22.sp
     ),
     titleMedium = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Bold,
-        fontSize = 16.sp,
-        lineHeight = 21.sp
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 15.sp,
+        lineHeight = 20.sp
     ),
     titleSmall = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
-        lineHeight = 19.sp
+        fontSize = 13.sp,
+        lineHeight = 18.sp
     ),
     bodyLarge = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 22.sp
+        fontSize = 15.sp,
+        lineHeight = 21.sp
     ),
     bodyMedium = TextStyle(
         fontFamily = family,
@@ -247,13 +256,13 @@ private fun buildIosTypography(family: FontFamily): Typography = Typography(
     bodySmall = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.Normal,
-        fontSize = 13.sp,
-        lineHeight = 18.sp
+        fontSize = 12.5.sp,
+        lineHeight = 17.sp
     ),
     labelLarge = TextStyle(
         fontFamily = family,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp,
+        fontSize = 13.5.sp,
         lineHeight = 18.sp
     ),
     labelMedium = TextStyle(
@@ -264,7 +273,7 @@ private fun buildIosTypography(family: FontFamily): Typography = Typography(
     ),
     labelSmall = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Normal,
+        fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
         lineHeight = 15.sp
     )
