@@ -489,7 +489,9 @@ class NotificationCooldown(
 
     @Synchronized
     fun allow(key: String, now: Long, windowMs: Long): Boolean {
-        prune(now)
+        // The entry a cooldown is about to be checked against must survive the prune, even when the
+        // user configured a window longer than the table's TTL.
+        prune(now, maxOf(ttlMs, windowMs))
         val previous = lastAt[key]
         if (previous != null && windowMs > 0L && now - previous < windowMs) return false
         lastAt[key] = now
@@ -510,11 +512,11 @@ class NotificationCooldown(
     @Synchronized
     fun size(): Int = lastAt.size
 
-    private fun prune(now: Long) {
-        if (ttlMs <= 0L) return
+    private fun prune(now: Long, thresholdMs: Long) {
+        if (thresholdMs <= 0L) return
         val iterator = lastAt.entries.iterator()
         while (iterator.hasNext()) {
-            if (now - iterator.next().value > ttlMs) iterator.remove() else return
+            if (now - iterator.next().value > thresholdMs) iterator.remove() else return
         }
     }
 
@@ -602,14 +604,18 @@ class NotificationIdAllocator(
 class ConnectionSignatureGate(private val minIntervalMs: Long = 1_000L) {
     private var lastSignature: String? = null
     private var lastAt: Long = 0L
+    private var hasPosted = false
 
     @Synchronized
     fun allow(signature: String, now: Long): Boolean {
-        val previous = lastSignature
-        if (previous == signature && lastAt > 0L) return false
-        if (previous != null && minIntervalMs > 0L && now - lastAt < minIntervalMs) return false
+        if (hasPosted) {
+            // Identical bytes never reach SystemUI again, whatever the clock says.
+            if (lastSignature == signature) return false
+            if (minIntervalMs > 0L && now - lastAt < minIntervalMs) return false
+        }
         lastSignature = signature
         lastAt = now
+        hasPosted = true
         return true
     }
 
@@ -617,5 +623,6 @@ class ConnectionSignatureGate(private val minIntervalMs: Long = 1_000L) {
     fun reset() {
         lastSignature = null
         lastAt = 0L
+        hasPosted = false
     }
 }
