@@ -264,6 +264,52 @@ object NotificationCopy {
         t(language, "Restore", "بازیابی")
 
     // ------------------------------------------------------------------------------------------
+    // MARBLE_NOTIFICATION_SWITCH_V234 — the two verbs that move the tunnel without opening the app
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * Short on purpose: an action button on the shade shows roughly a dozen characters before it
+     * ellipsizes, and a truncated verb is worse than a short one.
+     */
+    fun actionNextServer(language: NotificationLanguage): String =
+        t(language, "Next server", "سرور بعدی")
+
+    fun actionNextSubscription(language: NotificationLanguage): String =
+        t(language, "Next sub", "اشتراک بعدی")
+
+    /**
+     * The detail lines the tunnel service hands to the shade. They are English constants on purpose:
+     * the service is language-free (it publishes a state, not a translation), and every one of these
+     * four strings is a key in [FaCopy], so the notifier can render it in the app's own language.
+     */
+    const val DETAIL_SWITCHING_SERVER: String = "Switching to the next server"
+    const val DETAIL_SWITCHING_SUBSCRIPTION: String = "Switching to the next subscription"
+    const val DETAIL_NO_OTHER_SERVER: String = "No other server to switch to"
+    const val DETAIL_NO_OTHER_SUBSCRIPTION: String = "No other subscription to switch to"
+
+    /** The detail line while the shade is switching: the badge keeps its promise, so does the text. */
+    fun cycleBusyEnglish(kind: NotificationCycleKind): String = when (kind) {
+        NotificationCycleKind.SERVER -> DETAIL_SWITCHING_SERVER
+        NotificationCycleKind.SUBSCRIPTION -> DETAIL_SWITCHING_SUBSCRIPTION
+    }
+
+    /**
+     * The only honest answer when there is nothing else to switch to. It is shown where the route
+     * line would be, so a tap on a verb that cannot move anything explains itself instead of
+     * leaving the shade exactly as it was.
+     */
+    fun cycleEmptyEnglish(kind: NotificationCycleKind): String = when (kind) {
+        NotificationCycleKind.SERVER -> DETAIL_NO_OTHER_SERVER
+        NotificationCycleKind.SUBSCRIPTION -> DETAIL_NO_OTHER_SUBSCRIPTION
+    }
+
+    fun cycleBusyDetail(kind: NotificationCycleKind, language: NotificationLanguage): String =
+        translate(cycleBusyEnglish(kind), language)
+
+    fun cycleEmptyDetail(kind: NotificationCycleKind, language: NotificationLanguage): String =
+        translate(cycleEmptyEnglish(kind), language)
+
+    // ------------------------------------------------------------------------------------------
     // channels
     // ------------------------------------------------------------------------------------------
 
@@ -450,6 +496,14 @@ object NotificationCopy {
         "App update available" to "نسخه تازه برنامه آماده است",
         "MarbleNG was updated" to "MarbleNG به‌روزرسانی شد",
         "Test notification" to "اعلان آزمایشی",
+
+        // MARBLE_NOTIFICATION_SWITCH_V234 — the shade's own verbs and the two honest answers
+        "Next server" to "سرور بعدی",
+        "Next sub" to "اشتراک بعدی",
+        "Switching to the next server" to "در حال رفتن به سرور بعدی",
+        "Switching to the next subscription" to "در حال رفتن به اشتراک بعدی",
+        "No other server to switch to" to "سرور دیگری برای جابه‌جایی نیست",
+        "No other subscription to switch to" to "اشتراک دیگری برای جابه‌جایی نیست",
 
         // alert bodies
         "Local proxy ready" to "پروکسی محلی آماده است",

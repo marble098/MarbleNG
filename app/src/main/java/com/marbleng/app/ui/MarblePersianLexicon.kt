@@ -2229,6 +2229,14 @@ private val FaLexicon: Map<String, String> = mapOf(
         "قبل از اینکه اتصال شروع بشه، دسترسی VPN عوض شد.",
     "Could not open Android VPN permission" to "نتونستم پنجره دسترسی VPN اندروید رو باز کنم",
     "Could not open notification permission" to "نتونستم پنجره دسترسی اعلان رو باز کنم",
+
+    // MARBLE_NOTIFICATION_SWITCH_V234 — the settings page's own preview of the shade's new verbs.
+    "Both switches work from the shade — no need to open the app" to
+        "هر دو کلید از همان اعلان کار می‌کنند؛ لازم نیست برنامه را باز کنی",
+    "Next server" to "سرور بعدی",
+    "Next sub" to "اشتراک بعدی",
+    "No other server to switch to" to "سرور دیگری برای جابه‌جایی نیست",
+    "No other subscription to switch to" to "اشتراک دیگری برای جابه‌جایی نیست",
 )
 
 

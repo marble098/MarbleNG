@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MARBLE_SHADE_ATELIER_V234 — the measurement chip.
+
+     A translucent brand wash instead of an opaque fill: RemoteViews cannot ask the inflating context
+     for `?attr/colorSurface` (the app theme is a fixed light Material theme while the shade follows
+     the phone), so a fixed 12 % accent reads correctly on both the white and the near-black
+     notification surface. Text colour is set at runtime by `TunnelNotificationView`. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="9dp" />
+    <solid android:color="#1F0066CC" />
+</shape>

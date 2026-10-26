@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -52,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.CoreEngine
@@ -63,9 +65,9 @@ import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.HomePingAction
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.ProxyProfile
+import com.marbleng.app.model.SlideConnectSpec
 import com.marbleng.app.model.parseConnectButtonStyle
 import com.marbleng.app.model.parseHomePingAction
-import kotlin.math.roundToInt
 
 @Composable
 fun HomeScreen(
@@ -513,6 +515,11 @@ private fun IosSlideConnectBar(
 ) {
     val colors = IosTheme.colors
     val density = LocalDensity.current
+    // MARBLE_RTL_CONNECT_CONTROL_V234 — the slide control mirrors with the language. `IntOffset`
+    // is a pixel offset: on a Persian phone the thumb rests on the right edge and may only travel
+    // left, the drag delta is negative, and both chevrons point the other way. All three signs live
+    // in `SlideConnectSpec`, which the host JVM test pins.
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     var dragFraction by remember(connected) { mutableFloatStateOf(0f) }
 
     BoxWithConstraints(
@@ -526,7 +533,7 @@ private fun IosSlideConnectBar(
     ) {
         val thumbSize = IosSpec.SLIDE_THUMB_SIZE_DP.dp
         val travelPx = with(density) { (maxWidth - thumbSize).toPx().coerceAtLeast(1f) }
-        val offsetPx = (dragFraction * travelPx).roundToInt()
+        val offsetPx = SlideConnectSpec.thumbOffsetPx(travelPx, dragFraction, rtl)
         val fillFraction = dragFraction.coerceIn(0f, 1f)
 
         // Energy fill — grows under thumb, brighter at head
@@ -553,7 +560,7 @@ private fun IosSlideConnectBar(
             ) {
                 repeat(3) {
                     MarbleGlyphIcon(
-                        glyph = MarbleGlyph.CHEVRON,
+                        glyph = if (rtl) MarbleGlyph.CHEVRON_LEFT else MarbleGlyph.CHEVRON,
                         color = colors.subtitle.copy(alpha = 0.7f),
                         modifier = Modifier.size(14.dp)
                     )
@@ -575,15 +582,20 @@ private fun IosSlideConnectBar(
                 .clip(CircleShape)
                 .background(if (connected) colors.red else tone)
                 .border(0.75.dp, Color.White.copy(alpha = 0.22f), CircleShape)
-                .pointerInput(connected, enabled, travelPx) {
+                .pointerInput(connected, enabled, travelPx, rtl) {
                     if (!enabled) return@pointerInput
                     detectHorizontalDragGestures(
                         onHorizontalDrag = { change, dragAmount ->
                             change.consume()
-                            dragFraction = (dragFraction + dragAmount / travelPx).coerceIn(0f, 1f)
+                            dragFraction = SlideConnectSpec.dragFraction(
+                                current = dragFraction,
+                                dragAmountPx = dragAmount,
+                                travelPx = travelPx,
+                                rtl = rtl
+                            )
                         },
                         onDragEnd = {
-                            if (dragFraction >= 0.76f) {
+                            if (SlideConnectSpec.released(dragFraction)) {
                                 dragFraction = 0f
                                 onTriggered()
                             } else {
@@ -597,7 +609,11 @@ private fun IosSlideConnectBar(
             contentAlignment = Alignment.Center
         ) {
             MarbleGlyphIcon(
-                glyph = if (connected) MarbleGlyph.STOP else MarbleGlyph.CHEVRON,
+                glyph = when {
+                    connected -> MarbleGlyph.STOP
+                    rtl -> MarbleGlyph.CHEVRON_LEFT
+                    else -> MarbleGlyph.CHEVRON
+                },
                 color = Color.White,
                 modifier = Modifier.size(20.dp),
                 weight = 1.15f

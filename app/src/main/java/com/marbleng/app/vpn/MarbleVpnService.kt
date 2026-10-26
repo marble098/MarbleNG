@@ -9,6 +9,7 @@ import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import androidx.core.app.ServiceCompat
 import com.marbleng.app.MarbleApplication
 import com.marbleng.app.core.AccelerationPlan
@@ -39,6 +40,8 @@ import com.marbleng.app.core.RuntimeDiagnostics
 import com.marbleng.app.core.SocksHttpClient
 import com.marbleng.app.core.ConnectionNotificationState
 import com.marbleng.app.core.ConnectionStatus
+import com.marbleng.app.core.NotificationCopy
+import com.marbleng.app.core.NotificationCycleKind
 import com.marbleng.app.core.SmartNotificationKind
 import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.core.TransportTelemetry
@@ -82,6 +85,15 @@ class MarbleVpnService : VpnService() {
         const val ACTION_STOP = "com.marbleng.STOP"
 
         const val ACTION_TUNE = "com.marbleng.TUNE"
+
+        /**
+         * MARBLE_NOTIFICATION_SWITCH_V234 — the two verbs the ongoing notification carries.
+         *
+         * They are service actions, not app launches: the shade switches the live route in place,
+         * so the tunnel never has to be rebuilt by hand from the Servers page.
+         */
+        const val ACTION_CYCLE_SERVER = "com.marbleng.CYCLE_SERVER"
+        const val ACTION_CYCLE_SUBSCRIPTION = "com.marbleng.CYCLE_SUBSCRIPTION"
         const val EXTRA_PROFILE = "profile"
         const val EXTRA_PROFILE_SOURCE = "profileSource"
         const val EXTRA_MODE = "mode"
@@ -158,6 +170,18 @@ class MarbleVpnService : VpnService() {
         private const val HEV_STALL_MIN_TX_BYTES = 64L * 1024L
         private const val HEV_STATS_FAILURE_LIMIT = 5
         private const val EXIT_IDENTITY_PROBE_INTERVAL_TICKS = 180
+
+        /**
+         * MARBLE_NOTIFICATION_SWITCH_V234 — how often a shade verb may rebuild the tunnel.
+         *
+         * A double tap on "Next server" is one intent too many: each switch tears down a live
+         * core, and a rollout that starts and dies twice in a second is worse than one that
+         * ignored the second tap.
+         */
+        private const val CYCLE_MIN_INTERVAL_MS = 1_500L
+
+        /** How long the "there is nothing else to switch to" answer stays on the shade. */
+        private const val CYCLE_NOTICE_MS = 8_000L
 
         private const val FIRST_TUNE_DELAY_MS = 20_000L
         private const val EGRESS_FIRST_OBSERVATION_DELAY_MS = 20_000L
@@ -262,6 +286,27 @@ class MarbleVpnService : VpnService() {
 
     /** MARBLE_NOTIFICATION_COUNCIL_V231 — the session clock the shade's chronometer counts from. */
     @Volatile private var sessionStartedAtMs = 0L
+
+    /**
+     * MARBLE_NOTIFICATION_SWITCH_V234 — the last state the shade was told about.
+     *
+     * A verb that cannot move anything has to explain itself *in the same item*; without the last
+     * status the service would have to guess which state to re-publish that detail onto.
+     */
+    @Volatile private var lastPublishedStatus = ConnectionStatus.DISCONNECTED
+
+    /** The monotonic stamp of the last shade-driven route switch, for [CYCLE_MIN_INTERVAL_MS]. */
+    @Volatile private var lastCycleSwitchAtMs = 0L
+
+    /**
+     * The sentence a verb that could not move anything left behind, and when it stops being true.
+     *
+     * The telemetry loop re-publishes `PROTECTED` with no detail every five seconds, so an answer
+     * written straight into one post would be overwritten before it was read. The notice is merged
+     * into every publish until it expires.
+     */
+    @Volatile private var cycleNoticeDetail = ""
+    @Volatile private var cycleNoticeUntilMs = 0L
     @Volatile private var hevActive = false
     @Volatile private var activeMtu = 1500
     @Volatile private var connectStartedNs = 0L
@@ -408,6 +453,24 @@ class MarbleVpnService : VpnService() {
                     tuningRequested.set(true)
                     diag.event("TURBO", "manual-request", "session" to activeSession)
                 }
+                ACTION_CYCLE_SERVER,
+                ACTION_CYCLE_SUBSCRIPTION -> {
+                    // MARBLE_NOTIFICATION_SWITCH_V234 — the shade asks the running service for the
+                    // next route. The verb is carried both in the action and in an extra, so a
+                    // re-delivered intent (or one re-created by `FLAG_UPDATE_CURRENT`) still knows
+                    // which of the two buttons it belongs to.
+                    val kind = NotificationCycleKind.fromId(
+                        intent.getStringExtra(SmartNotifier.EXTRA_CYCLE_KIND)
+                    ) ?: if (intent.action == ACTION_CYCLE_SERVER) {
+                        NotificationCycleKind.SERVER
+                    } else {
+                        NotificationCycleKind.SUBSCRIPTION
+                    }
+                    controlWorker.execute {
+                        runCatching { cycleRoute(kind) }
+                            .onFailure { diag.error("VPN", "async-cycle-failed", it, "kind" to kind.id) }
+                    }
+                }
                 ACTION_START -> {
                     val id = intent.getStringExtra(EXTRA_PROFILE)
                     val sourceId = intent.getStringExtra(EXTRA_PROFILE_SOURCE)
@@ -465,6 +528,68 @@ class MarbleVpnService : VpnService() {
             handleFailure(activeSession, "Service error: ${safeMessage(error)}")
             START_NOT_STICKY
         }
+    }
+
+    /**
+     * MARBLE_NOTIFICATION_SWITCH_V234 — move the live tunnel to the next server or subscription,
+     * from the notification's own action.
+     *
+     * Three rules, all of them the difference between a button and a gesture:
+     *
+     *  1. **Only a live tunnel switches.** A stale notification whose service has stopped must not
+     *     resurrect a session; it is dismissed instead.
+     *  2. **A tap is not a storm.** [CYCLE_MIN_INTERVAL_MS] swallows the double tap that would
+     *     otherwise tear down the route it just built.
+     *  3. **A verb that cannot move anything says so.** The shade is re-published with the same
+     *     status and a detail line, so the tap has a visible answer instead of silence.
+     */
+    private fun cycleRoute(kind: NotificationCycleKind) {
+        val repo = (application as MarbleApplication).repo
+        if (!running.get() && activeSession.isBlank()) {
+            diag.event("VPN", "cycle-ignored", "kind" to kind.id, "reason" to "no-session")
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            runCatching { stopSelf() }
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (lastCycleSwitchAtMs > 0L && now - lastCycleSwitchAtMs < CYCLE_MIN_INTERVAL_MS) {
+            diag.event(
+                "VPN",
+                "cycle-throttled",
+                "kind" to kind.id,
+                "sinceMs" to (now - lastCycleSwitchAtMs)
+            )
+            return
+        }
+        lastCycleSwitchAtMs = now
+
+        val target = repo.notificationCycleRoute(kind)
+        if (target == null) {
+            val detail = NotificationCopy.cycleEmptyEnglish(kind)
+            diag.event("VPN", "cycle-empty", "kind" to kind.id, "session" to activeSession)
+            repo.setRuntimeMessage(detail)
+            cycleNoticeDetail = detail
+            cycleNoticeUntilMs = now + CYCLE_NOTICE_MS
+            publishStatus(lastPublishedStatus, detail = detail)
+            return
+        }
+        cycleNoticeDetail = ""
+        cycleNoticeUntilMs = 0L
+
+        diag.event(
+            "VPN",
+            "cycle-switch",
+            "kind" to kind.id,
+            "session" to activeSession,
+            "profile" to target.id.take(12),
+            "name" to target.name.take(80),
+            "source" to target.subscriptionName.take(60)
+        )
+        // The service is the one that rebuilds the tunnel; announcing CONNECTING here keeps the app
+        // UI and the shade in the same state while the new core comes up.
+        repo.setRuntimeState("CONNECTING", target.name)
+        startConnection(target.id, target.subscriptionId, activeMode)
     }
 
     @Synchronized
@@ -3849,6 +3974,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         return ConnectionNotificationState(
             status = status,
             routeName = routeName,
+            subscriptionName = activeRouteSourceName(),
             pingMs = repo.livePingMs,
             downBps = repo.liveDownBps,
             upBps = repo.liveUpBps,
@@ -3867,13 +3993,31 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             ?: ""
     }
 
+    /** MARBLE_NOTIFICATION_SWITCH_V234 — the subscription the live (or selected) route came from. */
+    private fun activeRouteSourceName(): String {
+        val repo = (application as MarbleApplication).repo
+        return repo.profile(activeProfileId, activeProfileSourceId)?.subscriptionName?.trim()
+            ?: repo.profile(repo.selectedProfileId, repo.selectedProfileSourceId)?.subscriptionName?.trim()
+            ?: ""
+    }
+
     /** Update the shade only when the state it would show has changed. */
     private fun publishStatus(
         status: ConnectionStatus,
         routeName: String = activeRouteName(),
         detail: String = ""
     ) {
-        notifier.updateConnection(NOTIFY, connectionState(status, routeName, detail))
+        lastPublishedStatus = status
+        notifier.updateConnection(NOTIFY, connectionState(status, routeName, detail.ifEmpty { cycleNotice() }))
+    }
+
+    /** MARBLE_NOTIFICATION_SWITCH_V234 — the live "nothing to switch to" answer, if it still is. */
+    private fun cycleNotice(): String {
+        if (cycleNoticeDetail.isEmpty()) return ""
+        if (SystemClock.elapsedRealtime() <= cycleNoticeUntilMs) return cycleNoticeDetail
+        cycleNoticeDetail = ""
+        cycleNoticeUntilMs = 0L
+        return ""
     }
 
     /** Promote/replace the foreground item with the same structured state. */
@@ -3882,7 +4026,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         routeName: String = activeRouteName(),
         detail: String = ""
     ): Boolean {
-        val notification = notifier.connectionNotification(connectionState(status, routeName, detail))
+        lastPublishedStatus = status
+        val notification = notifier.connectionNotification(
+            connectionState(status, routeName, detail.ifEmpty { cycleNotice() })
+        )
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         return runCatching { ServiceCompat.startForeground(this, NOTIFY, notification, type) }
             .onFailure { diag.error("VPN", "foreground-start-failed", it, "sdk" to Build.VERSION.SDK_INT) }

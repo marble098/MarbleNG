@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MARBLE_SHADE_ATELIER_V234 — the Persian/RTL twin of `notification_tunnel.xml`.
+
+     The two files are the same box, one attribute apart: the root asks the platform for an RTL
+     layout, so `paddingStart`/`paddingEnd` and the reading order mirror when the app itself is
+     Persian — the case the app-language setting creates on an English phone, which no locale
+     qualifier can express. Ids must stay identical: the builder in `TunnelNotificationView` finds
+     its views by id and picks the file by [NotificationLanguage].
+
+     Every rule about *when* a field exists is decided in `NotificationShadeDesign` (pure Kotlin,
+     host-JVM tested); this file only declares the boxes. Only RemoteViews-safe views are used:
+     LinearLayout, ImageView, TextView, Chronometer and ProgressBar — no constraint layout, no
+     Compose, no theme attribute that may not exist in the inflating context. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/notif_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layoutDirection="rtl"
+    android:orientation="vertical"
+    android:paddingStart="4dp"
+    android:paddingEnd="4dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="2dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/notif_badge"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="@null"
+            android:src="@drawable/notif_badge_protected"
+            tools:ignore="ContentDescription" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingStart="10dp"
+            android:paddingEnd="8dp">
+
+            <TextView
+                android:id="@+id/notif_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="@font/vazirmatn_bold"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textSize="16sp"
+                tools:text="Protected" />
+
+            <TextView
+                android:id="@+id/notif_route"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:fontFamily="@font/vazirmatn_medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textSize="13sp"
+                tools:text="Frankfurt 01 · My subscription" />
+        </LinearLayout>
+
+        <Chronometer
+            android:id="@+id/notif_clock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/vazirmatn_semibold"
+            android:gravity="end"
+            android:includeFontPadding="false"
+            android:textSize="13sp"
+            tools:text="12:04" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/notif_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:layout_marginTop="9dp"
+        android:indeterminate="true"
+        android:max="100"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
+    <LinearLayout
+        android:id="@+id/notif_telemetry_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <TextView
+            android:id="@+id/notif_ping"
+            android:layout_width="0dp"
+            android:layout_height="30dp"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/notif_chip_bg"
+            android:ellipsize="end"
+            android:fontFamily="@font/vazirmatn_semibold"
+            android:gravity="center"
+            android:maxLines="1"
+            android:textSize="12sp"
+            tools:text="42 ms" />
+
+        <TextView
+            android:id="@+id/notif_down"
+            android:layout_width="0dp"
+            android:layout_height="30dp"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/notif_chip_bg"
+            android:ellipsize="end"
+            android:fontFamily="@font/vazirmatn_semibold"
+            android:gravity="center"
+            android:maxLines="1"
+            android:textSize="12sp"
+            tools:text="↓ 1.2 MB/s" />
+
+        <TextView
+            android:id="@+id/notif_up"
+            android:layout_width="0dp"
+            android:layout_height="30dp"
+            android:layout_weight="1"
+            android:background="@drawable/notif_chip_bg"
+            android:ellipsize="end"
+            android:fontFamily="@font/vazirmatn_semibold"
+            android:gravity="center"
+            android:maxLines="1"
+            android:textSize="12sp"
+            tools:text="↑ 320 KB/s" />
+    </LinearLayout>
+</LinearLayout>

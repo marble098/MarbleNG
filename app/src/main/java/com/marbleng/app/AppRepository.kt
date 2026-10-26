@@ -3322,6 +3322,66 @@ private fun postToMain(block: () -> Unit) {
         io.execute { runCatching { store.setLastProfileRef(p.id, p.subscriptionId) } }
     }
 
+    /**
+     * MARBLE_NOTIFICATION_SWITCH_V234 — the shade's own route switch, resolved here because this is
+     * the only class that knows the library, the live session and the remembered route.
+     *
+     * The walk itself is [NotificationRouteCycle] (pure Kotlin, host-JVM tested). What lives here is
+     * the translation from that decision to a real profile: the active profile wins over the
+     * selected one, the selected one over the remembered one, and the chosen route is written back
+     * through [selectProfile] so the Servers page and the Home card follow the shade instead of
+     * disagreeing with it.
+     */
+    fun notificationCycleRoute(kind: NotificationCycleKind): ProxyProfile? {
+        val all = profiles.toList().distinctBy { it.id }
+        val current = profile(activeProfileId, activeProfileSourceId)
+            ?: profile(selectedProfileId, selectedProfileSourceId)
+            ?: lastProfile()
+        val routes = all.map {
+            CycleRoute(
+                id = it.id,
+                name = it.name,
+                sourceId = it.subscriptionId,
+                sourceName = it.subscriptionName
+            )
+        }
+        val next = NotificationRouteCycle.next(
+            kind = kind,
+            routes = routes,
+            currentId = current?.id.orEmpty(),
+            currentSourceId = current?.subscriptionId.orEmpty()
+        )
+        if (next == null) {
+            diagnostics.event(
+                "APP",
+                "notification-switch-empty",
+                "kind" to kind.id,
+                "routes" to routes.size,
+                "current" to current?.id?.take(12)
+            )
+            return null
+        }
+        val target = profile(next.id, next.sourceId) ?: profile(next.id)
+        if (target == null) {
+            diagnostics.event("APP", "notification-switch-missing", "kind" to kind.id)
+            return null
+        }
+        diagnostics.event(
+            "APP",
+            "notification-switch",
+            "kind" to kind.id,
+            "profile" to target.id.take(12),
+            "name" to target.name.take(80),
+            "source" to target.subscriptionName.take(60)
+        )
+        // The shade calls this from the tunnel service's worker thread; `selectProfile` touches
+        // Compose state (the selection and the library source), so it is handed to the main thread
+        // like every other repository mutation. Persisting the last route is inside it and is safe
+        // from either thread.
+        postToMain { selectProfile(target) }
+        return target
+    }
+
     fun writeBackup(uri: Uri) {
         task("Creating backup") {
             context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use {

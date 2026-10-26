@@ -379,6 +379,26 @@ files = {
         "app/src/test/java/com/marbleng/app/model/DockIndicatorSpecV233Test.kt"
     ),
     "v233CouncilDoc": read("docs/PERSIAN_CONNECT_DOCK_COUNCIL_V233.md"),
+    # MARBLE_NOTIFICATION_SWITCH_V234 / MARBLE_SHADE_ATELIER_V234 / MARBLE_RTL_CONNECT_CONTROL_V234 —
+    # the shade's own route switch, the drawn ongoing item, and the mirrored Home connect control.
+    "routeCycle": read("app/src/main/java/com/marbleng/app/core/NotificationRouteCycle.kt"),
+    "routeCycleTest": read(
+        "app/src/test/java/com/marbleng/app/core/NotificationRouteCycleV234Test.kt"
+    ),
+    "shadeDesign": read("app/src/main/java/com/marbleng/app/core/NotificationShadeDesign.kt"),
+    "shadeView": read("app/src/main/java/com/marbleng/app/core/TunnelNotificationView.kt"),
+    "shadeTest": read(
+        "app/src/test/java/com/marbleng/app/core/NotificationShadeDesignV234Test.kt"
+    ),
+    "slideSpec": read("app/src/main/java/com/marbleng/app/model/SlideConnectSpec.kt"),
+    "slideTest": read(
+        "app/src/test/java/com/marbleng/app/model/SlideConnectSpecV234Test.kt"
+    ),
+    "shadeLayout": read("app/src/main/res/layout/notification_tunnel.xml"),
+    "shadeLayoutRtl": read("app/src/main/res/layout/notification_tunnel_rtl.xml"),
+    "switchIcon": read("app/src/main/res/drawable/ic_notification_switch.xml"),
+    "sourceIcon": read("app/src/main/res/drawable/ic_notification_source.xml"),
+    "v234Doc": read("docs/NOTIFICATION_SWITCH_AND_SHADE_V234.md"),
     # MARBLE_MULTI_SOURCE_ROUTING_V212 — the geo source set, the curated domestic knowledge, the
     # routing engine that reads both, and the three tests that pin them.
     "geoRegistry": read("app/src/main/java/com/marbleng/app/core/GeoAssetRegistry.kt"),
@@ -3176,7 +3196,9 @@ check(
     "V231 the ongoing item is built from state, not from a joined string",
     "fun connectionNotification(" in files["notifier"]
     and "state: ConnectionNotificationState" in files["notifier"]
-    and ".setUsesChronometer(true)" in files["notifier"]
+    # MARBLE_SHADE_ATELIER_V234 — the chronometer is a view in the drawn layout now.
+    and "views.setChronometer(" in files["shadeView"]
+    and "builder.setUsesChronometer(false)" in files["notifier"]
     and ".setProgress(0, 0, true)" in files["notifier"]
     and "R.drawable.ic_notification_reconnect" in files["notifier"]
     and "ACTION_RECONNECT_LAST" in files["notifier"]
@@ -3226,7 +3248,12 @@ check(
     and 'prefs.getBoolean("notificationSessionTimer", true)' in files["store"]
     and '.putBoolean("notificationSessionTimer", s.notificationSessionTimer)' in files["store"]
     and "showTimer = current.notificationSessionTimer" in files["vpn"]
-    and "Session Clock" in files["settingsSystem"],
+    and "Session Clock" in files["settingsSystem"]
+    # MARBLE_SHADE_ATELIER_V234 — the same switch now drives the chronometer *inside* the drawn
+    # view, and the header's own clock is switched off so the item never shows two of them.
+    and "builder.setUsesChronometer(false)" in files["notifier"]
+    and "fun clockVisible(status: ConnectionStatus, showTimer: Boolean): Boolean"
+    in files["shadeDesign"],
 )
 
 check(
@@ -3329,11 +3356,18 @@ check(
 )
 
 check(
-    "V232 the connection shade can open server and subscription pickers",
-    "fun actionChangeServer(language: NotificationLanguage)" in files["notificationCopy"]
+    "V232 the connection shade owns route management",
+    # MARBLE_NOTIFICATION_SWITCH_V234 — V232 shipped two actions that *opened* the pickers. The
+    # council's request on 2026-10-26 (V234) was to do the switch inside the shade itself, so the
+    # invariant keeps its subject — the shade can change the server and the subscription — and
+    # asserts the stronger mechanism: two service verbs that move the live tunnel, plus the page
+    # routes the shade can still deep-link to for the long tail (alerts, taps).
+    "fun actionNextServer(language: NotificationLanguage)" in files["notificationCopy"]
+    and "fun actionNextSubscription(language: NotificationLanguage)" in files["notificationCopy"]
+    and "fun actionChangeServer(language: NotificationLanguage)" in files["notificationCopy"]
     and "fun actionChangeSubscription(language: NotificationLanguage)" in files["notificationCopy"]
-    and "openAppIntent(NotificationRoute.SERVERS, language)" in files["notifier"]
-    and "openAppIntent(NotificationRoute.SUBSCRIPTIONS, language)" in files["notifier"]
+    and "cycleIntent(NotificationCycleKind.SERVER)" in files["notifier"]
+    and "cycleIntent(NotificationCycleKind.SUBSCRIPTION)" in files["notifier"]
     and "NotificationRoute.SERVERS -> IosRootTab.SERVERS" in files["marbleApp"]
     and 'SERVERS("servers")' in files["notificationCopy"],
 )
@@ -3488,6 +3522,176 @@ check(
     and "PERSIAN_CONNECT_DOCK_COUNCIL_V233.md" in files["readme"]
     and "class PersianCoverageV233Test" in files["v233PersianTest"]
     and "fun theLabelsThatUsedToStayEnglishNowHaveRealPersianSentences()" in files["v233PersianTest"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_NOTIFICATION_SWITCH_V234 — the shade changes the server and the subscription itself
+# ---------------------------------------------------------------------------
+
+check(
+    "V234 the route cycle is a pure decision with three rules",
+    "MARBLE_NOTIFICATION_SWITCH_V234" in files["routeCycle"]
+    and "data class CycleRoute(" in files["routeCycle"]
+    and "enum class NotificationCycleKind(val id: String)" in files["routeCycle"]
+    and "fun next(" in files["routeCycle"]
+    and "fun nextServer(" in files["routeCycle"]
+    and "fun nextSubscription(" in files["routeCycle"]
+    and "fun routeLine(route: String, source: String): String" in files["routeCycle"]
+    # The three rules: never dead, library order, an honest null.
+    and "if (order.size <= 1) return nextServer(routes, currentId, currentSourceId)"
+    in files["routeCycle"]
+    and "if (list.size == 1) return null" in files["routeCycle"]
+    and "class NotificationRouteCycleV234Test" in files["routeCycleTest"]
+    and "fun aSingleNodeSubscriptionFallsBackToTheWholeLibrary()" in files["routeCycleTest"]
+    and "fun aLibraryWithOneSubscriptionStillMoves()" in files["routeCycleTest"],
+)
+
+check(
+    "V234 the shade's two verbs reach the running service, not a page",
+    "const val ACTION_CYCLE_SERVER = " in files["vpn"]
+    and "const val ACTION_CYCLE_SUBSCRIPTION = " in files["vpn"]
+    and "ACTION_CYCLE_SERVER,\n                ACTION_CYCLE_SUBSCRIPTION -> {" in files["vpn"]
+    and "private fun cycleRoute(kind: NotificationCycleKind)" in files["vpn"]
+    and "repo.notificationCycleRoute(kind)" in files["vpn"]
+    and "startConnection(target.id, target.subscriptionId, activeMode)" in files["vpn"]
+    and "CYCLE_MIN_INTERVAL_MS" in files["vpn"]
+    and "fun notificationCycleRoute(kind: NotificationCycleKind): ProxyProfile?" in files["repo"]
+    and "NotificationRouteCycle.next(" in files["repo"]
+    and "cycleIntent(NotificationCycleKind.SERVER)" in files["notifier"]
+    and "cycleIntent(NotificationCycleKind.SUBSCRIPTION)" in files["notifier"]
+    # Two verbs sharing a request code are one PendingIntent: the ids and the data URI keep them apart.
+    and "REQUEST_CYCLE_BASE + kind.ordinal" in files["notifier"]
+    and "marbleng://cycle/" in files["notifier"]
+    and "ACTION_CYCLE_SERVER" in files["notifier"]
+    and "ACTION_CYCLE_SUBSCRIPTION" in files["notifier"]
+    # The old behaviour — a verb that only opened a page — must not come back on its own.
+    and "openAppIntent(NotificationRoute.SERVERS, language)" not in files["notifier"]
+    and "openAppIntent(NotificationRoute.SUBSCRIPTIONS, language)" not in files["notifier"]
+    and "DETAIL_NO_OTHER_SERVER: String" in files["notificationCopy"]
+    and "DETAIL_NO_OTHER_SUBSCRIPTION: String" in files["notificationCopy"],
+)
+
+check(
+    "V234 the live subscription is part of the state and of its signature",
+    "val subscriptionName: String = " in files["notifier"]
+    and "append(subscriptionName).append('|')" in files["notifier"]
+    and "subscriptionName = activeRouteSourceName()" in files["vpn"]
+    and "private fun activeRouteSourceName(): String" in files["vpn"]
+    and "NotificationRouteCycle.routeLine(route, source)" in files["notifier"]
+    # A permission that cannot move anything still answers in the same item.
+    and "publishStatus(lastPublishedStatus, detail = detail)" in files["vpn"]
+    and "NotificationCopy.cycleEmptyEnglish(kind)" in files["vpn"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_RTL_CONNECT_CONTROL_V234 — the Home connect control mirrors with the language
+# ---------------------------------------------------------------------------
+
+check(
+    "V234 the Home connect control mirrors when the app is RTL",
+    "MARBLE_RTL_CONNECT_CONTROL_V234" in files["slideSpec"]
+    and "fun dragFraction(current: Float, dragAmountPx: Float, travelPx: Float, rtl: Boolean): Float"
+    in files["slideSpec"]
+    and "fun thumbOffsetPx(travelPx: Float, fraction: Float, rtl: Boolean): Int"
+    in files["slideSpec"]
+    and "fun released(fraction: Float): Boolean" in files["slideSpec"]
+    and "val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl" in files["homeScreen"]
+    and "SlideConnectSpec.thumbOffsetPx(travelPx, dragFraction, rtl)" in files["homeScreen"]
+    and "SlideConnectSpec.dragFraction(" in files["homeScreen"]
+    and "SlideConnectSpec.released(dragFraction)" in files["homeScreen"]
+    and "if (rtl) MarbleGlyph.CHEVRON_LEFT else MarbleGlyph.CHEVRON" in files["homeScreen"]
+    # The three signs that made the control unusable in Persian must stay out of the composable.
+    and "(dragFraction + dragAmount / travelPx)" not in files["homeScreen"]
+    and "(dragFraction * travelPx)" not in files["homeScreen"]
+    and "dragFraction >= 0.76f" not in files["homeScreen"]
+    and "class SlideConnectSpecV234Test" in files["slideTest"]
+    and "fun theSameGestureCommitsInBothDirections()" in files["slideTest"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_SHADE_ATELIER_V234 — the ongoing item is drawn, not assembled
+# ---------------------------------------------------------------------------
+
+v234_ltr_ids = set(re.findall(r'@\+id/(notif_[a-z_]+)', files["shadeLayout"]))
+v234_rtl_ids = set(re.findall(r'@\+id/(notif_[a-z_]+)', files["shadeLayoutRtl"]))
+v234_required_ids = {
+    "notif_root",
+    "notif_badge",
+    "notif_title",
+    "notif_route",
+    "notif_clock",
+    "notif_progress",
+    "notif_telemetry_row",
+    "notif_ping",
+    "notif_down",
+    "notif_up",
+}
+v234_badges = sorted(set(re.findall(r'R\.drawable\.(notif_badge_[a-z]+)', files["shadeView"])))
+
+check(
+    "V234 the ongoing item is drawn by a RemoteViews layout, not a paragraph",
+    "MARBLE_SHADE_ATELIER_V234" in files["shadeDesign"]
+    and "MARBLE_SHADE_ATELIER_V234" in files["shadeView"]
+    and "fun badge(status: ConnectionStatus): ShadeBadge" in files["shadeDesign"]
+    and "fun clockVisible(status: ConnectionStatus, showTimer: Boolean): Boolean"
+    in files["shadeDesign"]
+    and "fun progressVisible(status: ConnectionStatus): Boolean" in files["shadeDesign"]
+    and "fun telemetryVisible(status: ConnectionStatus, showTelemetry: Boolean): Boolean"
+    in files["shadeDesign"]
+    and "fun chronometerBase(sessionStartedAtMs: Long, nowWallMs: Long, nowElapsedMs: Long): Long"
+    in files["shadeDesign"]
+    and "RemoteViews(context.packageName, layout)" in files["shadeView"]
+    and "R.layout.notification_tunnel_rtl" in files["shadeView"]
+    and "views.setChronometer(" in files["shadeView"]
+    and "views.setTextViewText(" in files["shadeView"]
+    and "views.setTextColor(" in files["shadeView"]
+    and "NotificationCompat.DecoratedCustomViewStyle()" in files["notifier"]
+    and "setCustomContentView(shade.compact)" in files["notifier"]
+    and "setCustomBigContentView(shade.expanded)" in files["notifier"]
+    # One style only: `setStyle` is singular, and a second call steals the decorator.
+    and files["notifier"].index("NotificationCompat.DecoratedCustomViewStyle()")
+    < files["notifier"].index("setCustomBigContentView(shade.expanded)")
+    and "NotificationCompat.BigTextStyle()" not in files["notifier"].split(
+        "fun connectionNotification(\n        state: ConnectionNotificationState", 1
+    )[-1].split("fun connectionNotification(title: String", 1)[0]
+    # The two-line rule the drawn view uses instead of a paragraph.
+    and "val secondLine = if (detail.isNotEmpty()) detail else routeLine" in files["notifier"]
+    and "class NotificationShadeDesignV234Test" in files["shadeTest"]
+    and "fun theClockAndTheRailNeverShareTheShade()" in files["shadeTest"]
+    and "fun theChronometerBaseIsMonotonicNotWallClock()" in files["shadeTest"],
+)
+
+check(
+    "V234 the drawn layout is RemoteViews-safe and has a Persian twin",
+    v234_ltr_ids == v234_rtl_ids
+    and v234_required_ids <= v234_ltr_ids
+    and 'android:layoutDirection="rtl"' in files["shadeLayoutRtl"]
+    and 'android:layoutDirection="rtl"' not in files["shadeLayout"]
+    # Only the views SystemUI can inflate: no ConstraintLayout, no custom widget, no Compose.
+    and "<androidx." not in files["shadeLayout"]
+    and "<androidx." not in files["shadeLayoutRtl"]
+    and "ConstraintLayout" not in files["shadeLayout"]
+    and "<Chronometer" in files["shadeLayout"]
+    and "<ProgressBar" in files["shadeLayout"]
+    and len(v234_badges) == 5
+    and all(
+        (ROOT / f"app/src/main/res/drawable/{name}.xml").is_file() for name in v234_badges
+    )
+    # The two new verbs have their own marks, on the same 24-unit grid.
+    and 'android:viewportWidth="24"' in files["switchIcon"]
+    and 'android:viewportWidth="24"' in files["sourceIcon"]
+    and "ic_notification_switch" in files["notifier"]
+    and "ic_notification_source" in files["notifier"],
+)
+
+check(
+    "V234 the switch, the mirror and the drawing are recorded and linked",
+    "MARBLE_NOTIFICATION_SWITCH_V234" in files["v234Doc"]
+    and "| سارا |" in files["v234Doc"]
+    and "## ۵. جدول اجرا" in files["v234Doc"]
+    and "## ۶. آنچه عمداً انجام نشد" in files["v234Doc"]
+    and "NOTIFICATION_SWITCH_AND_SHADE_V234.md" in files["readme"]
+    and "MARBLE_NOTIFICATION_SWITCH_V234" in files["notificationCopy"],
 )
 
 failed = [name for name, passed in checks if not passed]

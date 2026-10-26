@@ -51,6 +51,13 @@ enum class ConnectionStatus {
 data class ConnectionNotificationState(
     val status: ConnectionStatus = ConnectionStatus.CONNECTING,
     val routeName: String = "",
+    /**
+     * MARBLE_NOTIFICATION_SWITCH_V234 — the subscription the live route came from.
+     *
+     * The shade now switches both the server and the subscription in place, so it has to *show*
+     * which subscription is live; without this the user would cycle sources blind.
+     */
+    val subscriptionName: String = "",
     val pingMs: Int = 0,
     val downBps: Long = 0L,
     val upBps: Long = 0L,
@@ -63,6 +70,7 @@ data class ConnectionNotificationState(
     fun signature(language: NotificationLanguage): String = buildString {
         append(status.name).append('|')
         append(routeName).append('|')
+        append(subscriptionName).append('|')
         if (showTelemetry) {
             append(pingMs).append('|').append(downBps).append('|').append(upBps)
         }
@@ -194,12 +202,19 @@ class SmartNotifier(
         ensureChannels(language)
         val title = NotificationCopy.statusTitle(state.status, language)
         val route = state.routeName.trim()
+        val source = state.subscriptionName.trim()
+        val routeLine = NotificationRouteCycle.routeLine(route, source)
         val detail = NotificationCopy.translate(state.detail.trim(), language)
 
-        val contentText = when {
-            state.status == ConnectionStatus.BLOCKED && detail.isNotEmpty() -> detail
-            route.isNotEmpty() -> route
-            else -> NotificationCopy.statusDetail(state.status, language)
+        // MARBLE_NOTIFICATION_SWITCH_V234 — the second line of the drawn view is one slot: the
+        // live `route · source`, or the reason the state is what it is ("No other server to switch
+        // to", "Kill switch is holding traffic"). A detail is never appended as a third line the
+        // shade has no room for.
+        val secondLine = if (detail.isNotEmpty()) detail else routeLine
+        val contentText = if (secondLine.isNotEmpty()) {
+            secondLine
+        } else {
+            NotificationCopy.statusDetail(state.status, language)
         }
 
         val subText = if (state.iranModeLabel.isBlank()) {
@@ -208,42 +223,35 @@ class SmartNotifier(
             "MarbleNG · ${state.iranModeLabel.take(NotificationCopy.SUB_TEXT_MAX)}"
         }
 
-        val expanded = buildList {
-            add(NotificationCopy.statusDetail(state.status, language))
-            if (route.isNotEmpty()) {
-                add(NotificationCopy.t(language, "Route: $route", "مسیر: $route"))
-            }
-            if (state.showTelemetry) {
-                add(
-                    NotificationCopy.telemetryExpanded(
-                        language,
-                        state.pingMs,
-                        state.downBps,
-                        state.upBps
-                    )
-                )
-            }
-            if (state.iranModeLabel.isNotBlank()) {
-                add(NotificationCopy.t(language, "Iran Mode", "حالت ایران"))
-            }
-            if (detail.isNotEmpty() && detail != NotificationCopy.statusDetail(state.status, language)) {
-                add(detail)
-            }
-        }.joinToString("\n")
-
+        val shade = TunnelNotificationView.build(
+            context = context,
+            state = state,
+            language = language,
+            title = NotificationCopy.ellipsize(title, NotificationCopy.TITLE_MAX),
+            routeLine = NotificationCopy.ellipsize(secondLine, NotificationCopy.TEXT_MAX),
+            ping = NotificationCopy.latency(state.pingMs),
+            down = "↓ ${NotificationCopy.rate(state.downBps)}",
+            up = "↑ ${NotificationCopy.rate(state.upBps)}"
+        )
         val builder = NotificationCompat.Builder(context, CHANNEL_CONNECTION)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(ACCENT)
+            // The text fields stay: they are the accessibility stream, the fallback for every
+            // surface that cannot inflate a RemoteViews layout, and what a screen reader reads.
             .setContentTitle(NotificationCopy.ellipsize(title, NotificationCopy.TITLE_MAX))
             .setContentText(NotificationCopy.ellipsize(contentText, NotificationCopy.TEXT_MAX))
             .setSubText(NotificationCopy.ellipsize(subText, NotificationCopy.SUB_TEXT_MAX))
             .setGroup(GROUP_ID)
             .setLocalOnly(true)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
-            .setStyle(
-                NotificationCompat.BigTextStyle()
-                    .bigText(NotificationCopy.ellipsize(expanded, NotificationCopy.BIG_TEXT_MAX))
-            )
+            // MARBLE_SHADE_ATELIER_V234 — one style, because `setStyle` is singular: a second
+            // call (BigTextStyle, InboxStyle) silently replaces the decorator and the custom view
+            // loses its header and its actions. The textual fields above are the fallback instead:
+            // every surface that cannot inflate a RemoteViews layout still receives the state, the
+            // route and the subscription as plain text.
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .setCustomContentView(shade.compact)
+            .setCustomBigContentView(shade.expanded)
             .setContentIntent(openAppIntent(NotificationRoute.DASHBOARD, language))
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -261,35 +269,36 @@ class SmartNotifier(
                 }
             )
 
-        // The session clock is the platform's, not ours: a chronometer costs zero notifications
-        // and keeps counting while the app is dozing, which a re-posted string never did. It is
-        // only drawn for a live session — an indeterminate progress bar and a chronometer in the
-        // same row read as two clocks.
-        if (state.showTimer && state.sessionStartedAtMs > 0L && state.status == ConnectionStatus.PROTECTED) {
-            builder.setWhen(state.sessionStartedAtMs)
-            builder.setShowWhen(true)
-            builder.setUsesChronometer(true)
-        } else {
-            builder.setShowWhen(false)
-            builder.setUsesChronometer(false)
-        }
+        // MARBLE_SHADE_ATELIER_V234 — the session clock moved into the drawn view.
+        //
+        // It is still the platform's own `Chronometer` (it costs zero notifications and keeps
+        // counting while the app is dozing), but it is now a view inside `notification_tunnel.xml`
+        // instead of the timestamp in the notification header: with a decorated custom view the
+        // header would draw a second clock next to the row's, and V231's own finding is that two
+        // clocks in one item read as a timer. The header keeps the app name and nothing else.
+        builder.setShowWhen(false)
+        builder.setUsesChronometer(false)
 
         if (state.status == ConnectionStatus.CONNECTING || state.status == ConnectionStatus.RECOVERING) {
             builder.setProgress(0, 0, true)
         }
 
         if (state.ongoing) {
-            // Direct shortcuts keep route management one tap away from the system shade; they
-            // open the app on the picker rather than silently switching a live tunnel.
+            // MARBLE_NOTIFICATION_SWITCH_V234 — the two route verbs act on the live tunnel instead
+            // of opening a page. V231's buttons opened Servers/Subscriptions, which meant a user
+            // who wanted the next node had to unlock the phone and cross a screen to do it. A
+            // `PendingIntent.getService` reaches the running foreground service directly, and the
+            // service re-publishes the same item with the new route, so the shade stays the place
+            // the decision is made *and* the place it is applied.
             builder.addAction(
-                R.drawable.ic_notification_manage,
-                NotificationCopy.actionChangeServer(language),
-                openAppIntent(NotificationRoute.SERVERS, language)
+                R.drawable.ic_notification_switch,
+                NotificationCopy.actionNextServer(language),
+                cycleIntent(NotificationCycleKind.SERVER)
             )
             builder.addAction(
-                R.drawable.ic_notification_update,
-                NotificationCopy.actionChangeSubscription(language),
-                openAppIntent(NotificationRoute.SUBSCRIPTIONS, language)
+                R.drawable.ic_notification_source,
+                NotificationCopy.actionNextSubscription(language),
+                cycleIntent(NotificationCycleKind.SUBSCRIPTION)
             )
             if (state.status == ConnectionStatus.BLOCKED) {
                 builder.addAction(
@@ -629,6 +638,30 @@ class SmartNotifier(
         )
     }
 
+    /**
+     * MARBLE_NOTIFICATION_SWITCH_V234 — the shade's own route switch.
+     *
+     * A distinct request code per verb, and a distinct data URI: two `PendingIntent`s that share a
+     * request code are one `PendingIntent`, and `FLAG_UPDATE_CURRENT` would rewrite the first verb's
+     * intent with the second's action (the exact defect V231 fixed for taps).
+     */
+    private fun cycleIntent(kind: NotificationCycleKind): PendingIntent {
+        val action = when (kind) {
+            NotificationCycleKind.SERVER -> MarbleVpnService.ACTION_CYCLE_SERVER
+            NotificationCycleKind.SUBSCRIPTION -> MarbleVpnService.ACTION_CYCLE_SUBSCRIPTION
+        }
+        val intent = Intent(context, MarbleVpnService::class.java)
+            .setAction(action)
+            .setData(Uri.parse("marbleng://cycle/${kind.id}"))
+            .putExtra(EXTRA_CYCLE_KIND, kind.id)
+        return PendingIntent.getService(
+            context,
+            REQUEST_CYCLE_BASE + kind.ordinal,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
     private fun stopServiceIntent(): PendingIntent {
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_STOP)
@@ -689,6 +722,9 @@ class SmartNotifier(
         /** The language the notification was written in; read by `MainActivity`. */
         const val EXTRA_LANGUAGE = "marble.language"
 
+        /** MARBLE_NOTIFICATION_SWITCH_V234 — which verb the shade's route switch carried. */
+        const val EXTRA_CYCLE_KIND = "marble.cycle"
+
         /** "Connect the last route again", raised by the notification's own action. */
         const val ACTION_RECONNECT_LAST = "com.marbleng.RECONNECT_LAST"
 
@@ -700,6 +736,7 @@ class SmartNotifier(
         private const val REQUEST_STOP = 7303
         private const val REQUEST_RECONNECT = 7304
         private const val REQUEST_MANAGE = 7305
+        private const val REQUEST_CYCLE_BASE = 7312
 
         fun formatRate(bytesPerSecond: Long): String = NotificationCopy.rate(bytesPerSecond)
 

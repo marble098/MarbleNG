@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MARBLE_SHADE_ATELIER_V234 — the recovering badge of the ongoing tunnel item.
+
+     One drawing per state instead of one icon for all five: `recovering` reads from the badge alone,
+     before a single word of the title is parsed. Same 24-unit grid and 2.1-unit stroke as every
+     other MarbleNG notification mark; the disc is the state's tone. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#FFB45309" />
+        </shape>
+    </item>
+
+    <item
+        android:bottom="1dp"
+        android:left="1dp"
+        android:right="1dp"
+        android:top="1dp">
+        <shape android:shape="oval">
+            <stroke
+                android:width="1dp"
+                android:color="#33FFFFFF" />
+        </shape>
+    </item>
+
+    <item
+        android:width="22dp"
+        android:height="22dp"
+        android:drawable="@drawable/ic_notification_reconnect"
+        android:gravity="center" />
+</layer-list>
