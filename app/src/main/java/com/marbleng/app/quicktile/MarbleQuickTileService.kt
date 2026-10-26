@@ -10,6 +10,8 @@ import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import com.marbleng.app.MainActivity
 import com.marbleng.app.MarbleApplication
+import com.marbleng.app.core.QuickTileCopy
+import com.marbleng.app.core.QuickTileTransient
 import com.marbleng.app.model.ConnectionMode
 
 class MarbleQuickTileService : TileService() {
@@ -26,12 +28,12 @@ class MarbleQuickTileService : TileService() {
             val repo = app.repo
 
             if (repo.state == "DISCONNECTING") {
-                updateTile("Disconnecting…")
+                updateTile(QuickTileTransient.DISCONNECTING)
                 return@unlockAndRun
             }
             if (repo.state in setOf("CONNECTED", "CONNECTING", "BLOCKED")) {
                 repo.stopVpn()
-                updateTile("Disconnecting…")
+                updateTile(QuickTileTransient.DISCONNECTING)
                 return@unlockAndRun
             }
 
@@ -49,41 +51,41 @@ class MarbleQuickTileService : TileService() {
                     else openApp(connectLast = true)
                 }
             }
-            updateTile("Connecting…")
+            updateTile(QuickTileTransient.CONNECTING)
         }
     }
 
-    private fun updateTile(transientSubtitle: String = "") {
+    // MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — every string the system tile prints comes from
+    // QuickTileCopy, which resolves the same app-language setting the Compose UI resolves.
+    private fun updateTile(transient: QuickTileTransient? = null) {
         val tile = qsTile ?: return
         val repo = app.repo
         val last = repo.lastProfile()
+        val deviceLanguage = resources.configuration.locales
+            .takeIf { !it.isEmpty() }
+            ?.get(0)
+            ?.language
+        val language = QuickTileCopy.languageFor(repo.settings.appLanguage, deviceLanguage)
+        val transientLabel = QuickTileCopy.transientLabel(transient, language)
+        val lastName = last?.name.orEmpty()
         tile.state = when {
             repo.state == "CONNECTED" -> Tile.STATE_ACTIVE
             last == null -> Tile.STATE_UNAVAILABLE
             else -> Tile.STATE_INACTIVE
         }
-        tile.label = when (repo.state) {
-            "CONNECTED" -> "MarbleNG • On"
-            "CONNECTING" -> "MarbleNG • Connecting"
-            "DISCONNECTING" -> "MarbleNG • Disconnecting"
-            "BLOCKED" -> "MarbleNG • Reset"
-            else -> "MarbleNG"
-        }
+        tile.label = QuickTileCopy.label(repo.state, language)
         if (Build.VERSION.SDK_INT >= 29) {
-            tile.subtitle = transientSubtitle.ifBlank {
-                when {
-                    repo.state == "CONNECTED" -> repo.stateDetail
-                    last != null -> last.name
-                    else -> "Connect once in app"
-                }
+            tile.subtitle = transientLabel.ifBlank {
+                QuickTileCopy.subtitle(repo.state, repo.stateDetail, lastName, language)
             }.take(80)
         }
         if (Build.VERSION.SDK_INT >= 29) {
-            tile.contentDescription = when {
-                repo.state == "CONNECTED" -> "Disconnect MarbleNG from ${repo.stateDetail}"
-                last != null -> "Connect MarbleNG to ${last.name}"
-                else -> "Open MarbleNG and choose a server"
-            }
+            tile.contentDescription = QuickTileCopy.contentDescription(
+                repo.state,
+                repo.stateDetail,
+                lastName,
+                language
+            )
         }
         tile.updateTile()
     }

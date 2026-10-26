@@ -18,12 +18,20 @@ internal fun trxOrNull(text: String?): String? = text?.let { trx(it) }
 
 internal fun faTranslate(text: String): String {
     if (text.isBlank()) return text
-    FaLexicon[text]?.let { return it }
+    FaEffectiveLexicon[text]?.let { return it }
     val trimmed = text.trim()
-    if (trimmed !== text) FaLexicon[trimmed]?.let { return text.replace(trimmed, it) }
+    if (trimmed !== text) FaEffectiveLexicon[trimmed]?.let { return text.replace(trimmed, it) }
 
     FaLexiconLower[trimmed.lowercase()]?.let { return it }
     faPattern(trimmed)?.let { return it }
+    // MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — a live repository message is a known English
+    // phrase glued to a server name or a number ("Fast connect • Berlin 01"). Translate the known
+    // parts and leave the proper noun alone: V232's rule (never transliterate) still holds, but a
+    // Persian screen no longer has to show an English verb in front of that name.
+    val dynamic = faTranslateDynamic(trimmed)
+    if (dynamic != trimmed) {
+        return if (trimmed === text) dynamic else text.replace(trimmed, dynamic)
+    }
     // Unknown copy must remain legible in its source language. Transliteration produced strings
     // that looked Persian but had no meaning; add a real phrase translation to FaLexicon instead.
     return text
@@ -1649,13 +1657,795 @@ private val FaLexicon: Map<String, String> = mapOf(
     "The test alert could not be posted" to "اعلان آزمایشی منتشر نشد",
     "Choose and connect a server once to enable Reconnect" to
         "برای فعال‌شدن «اتصال دوباره» یک‌بار سرور را انتخاب و وصل کنید",
+
+    // MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — every literal the UI can print now has a
+    // Persian sentence. The voice is deliberately close: second-person singular, short verbs, no
+    // ceremonial phrasing. Proper protocol names stay themselves; only words get translated.
+    "0 disables the optional local HTTP proxy" to "صفر یعنی پروکسی HTTP محلی خاموشه",
+    "0 follows the active VPN session MTU" to "صفر یعنی MTU همون چیزی باشه که VPN میگه",
+    "A chain needs at least two available hops" to "برای زنجیره حداقل دوتا سرور لازمه",
+    "A newer release of MarbleNG is available on GitHub." to "یه نسخه تازهتر از ماربل تو گیتهاب اومده!",
+    "Actions" to "کارها",
+    "Active Route" to "مسیر فعلی",
+    "Adaptive Dual-Stack DNS" to "DNS هوشمند دوتایی",
+    "Adaptive MTU Healing" to "ترمیم خودکار MTU",
+    "Add Routing Rule" to "افزودن قانون مسیریابی",
+    "Add Server or Source" to "افزودن سرور یا منبع",
+    "Add Server or Subscription" to "افزودن سرور یا اشتراک",
+    "Add a dedicated Pulse, Subscription or Server tab to the bottom bar" to "یه تب جداگونه برای نبض زنده، اشتراک یا سرور به نوار پایین اضافه کن",
+    "Add another subscription group first to move this server." to "اول یه گروه اشتراک دیگه بساز، بعد سرور رو جابهجا کن.",
+    "Add at least two Xray-compatible servers first to compose a multi-hop proxy chain." to "اول دوتا سرور سازگار با Xray اضافه کن تا بشه زنجیره چندمرحلهای ساخت.",
+    "Adjust tunnel MTU automatically on lossy paths" to "وقتی مسیر پکت کم میکنه، MTU تونل رو خودش تنظیم کن",
+    "Alert Cooldown" to "فاصله بین هشدارها",
+    "All apps use VPN" to "همه برنامهها از VPN رد میشن",
+    "All servers managed by this subscription will be removed." to "همه سرورهای این اشتراک پاک میشن.",
+    "Allow Unencrypted Outbounds" to "اجازه خروجی بدون رمز",
+    "Always Active" to "همیشه روشن",
+    "Always display the loopback SOCKS5 address on Home" to "آدرس SOCKS5 محلی رو همیشه تو خانه نشون بده",
+    "Another subscription already uses this URL" to "یه اشتراک دیگه همین لینک رو داره",
+    "App Tunnel Mode" to "حالت تونل برنامهها",
+    "Appearance & Accent" to "ظاهر و رنگ تأکیدی",
+    "Apply Recommended Prescription" to "اعمال نسخه پیشنهادی",
+    "Apply domain, IP and Geo rules to tunnel traffic" to "قوانین دامنه، IP و جغرافیایی رو روی ترافیک تونل اعمال کن",
+    "Apply recommended bypass settings immediately after a scan" to "بعد از هر اسکن، تنظیمات پیشنهادی دور زدن فیلتر رو فوری اعمال کن",
+    "As-Is" to "همونجوری که هست",
+    "Auto-Apply Decisive Prescriptions" to "اعمال خودکار نسخههای قطعی",
+    "Auto-Connect After Scan" to "اتصال خودکار بعد از اسکن",
+    "Auto-Detect Server Countries" to "تشخیص خودکار کشور سرورها",
+    "Auto-Refresh Subscriptions" to "بهروزرسانی خودکار اشتراکها",
+    "Automatic App Update Check" to "بررسی خودکار نسخه تازه",
+    "Automatic ISP Detection" to "تشخیص خودکار ISP",
+    "Automatic Updates" to "بهروزرسانی خودکار",
+    "Automatically detects proxy links, JSON or HTTPS subscription URLs" to "لینک پروکسی، JSON یا لینک اشتراک HTTPS رو خودش تشخیص میده",
+    "Backup & Restore" to "پشتیبانگیری و بازگردانی",
+    "Backup created" to "پشتیبان ساخته شد",
+    "Backup restored • restart MarbleNG to apply every setting" to "پشتیبان برگشت • یه بار ماربل رو ببند و باز کن تا همه تنظیمات بشینن",
+    "Benchmark & rank your server library" to "سرورهاتو بسنج و رتبهبندی کن",
+    "Bind local inbound on 0.0.0.0 so LAN devices can share this tunnel" to "ورودی محلی رو روی 0.0.0.0 ببند تا بقیه دستگاههای شبکه هم بتونن از تونل استفاده کنن",
+    "Bug Finder • safe runtime reset requested" to "یابنده باگ • درخواست ریست امن رانتهام داده شد",
+    "Bug Finder • stale runtime state cleared" to "یابنده باگ • وضعیت قدیمی رانتهام پاک شد",
+    "Bypass Selected Apps" to "رد کردن برنامههای انتخابی",
+    "Capture a QR code directly" to "مستقیم با دوربین کد QR بگیر",
+    "Capture plaintext DNS queries inside the tunnel" to "درخواستهای DNS ساده رو داخل تونل بگیر",
+    "Card Elevation" to "برجستگی کارت",
+    "Censorship prescription applied" to "نسخه دور زدن سانسور اعمال شد",
+    "Chain Name" to "اسم زنجیره",
+    "Change Pinned Server" to "عوض کردن سرور پینشده",
+    "Check GitHub releases on startup" to "اول هر اجرا، نسخههای گیتهاب رو چک کن",
+    "Check for Updates Now" to "الان چک کن نسخه تازهای هست",
+    "Checked apps go direct; all other apps use the VPN" to "برنامههای تیکخورده مستقیم میرن؛ بقیه از VPN رد میشن",
+    "Choose Group" to "انتخاب گروه",
+    "Choose When Pressing Connect" to "موقع زدن دکمه اتصال انتخاب کن",
+    "Choose and connect a server once to arm Quick Tile" to "یکبار یه سرور انتخاب کن و وصل شو تا کاشی سریع آماده بشه",
+    "Choose another subscription for the fourth tab or add servers." to "برای تب چهارم یه اشتراک دیگه انتخاب کن یا سرور اضافه کن.",
+    "Choose from Photo Library" to "انتخاب از گالری",
+    "Cipher Method" to "روش رمزنگاری",
+    "Clear Alerts" to "پاک کردن هشدارها",
+    "Clear your search or filters to view all saved servers." to "جستجو یا فیلترها رو پاک کن تا همه سرورها برگردن.",
+    "Clipboard subscriptions are already in Servers" to "اشتراکهای کلیپبورد قبلاً تو سرورها هستن",
+    "Cloudflare POP" to "نقطه حضور Cloudflare",
+    "Combine tags across multiple geo rule repositories" to "برچسبهای چند مخزن جغرافیایی رو با هم ترکیب کن",
+    "Config is too large for a single QR code — copy the text link below." to "کانفیگ برای یه کد QR زیادی بزرگه — لینک متنی پایین رو کپی کن.",
+    "Connect Control Style" to "سبک دکمه اتصال",
+    "Connect automatically to the top server after a Smart Rank scan" to "بعد از رتبهبندی هوشمند، خودکار به بهترین سرور وصل شو",
+    "Connect button style, telemetry cards and shortcuts" to "سبک دکمه اتصال، کارتهای آمار و میانبرها",
+    "Connect immediately through this server" to "همین حالا با این سرور وصل شو",
+    "Connect immediately to this pinned server" to "همین حالا به این سرور پینشده وصل شو",
+    "Connect to a server or tap Refresh below to resolve exit IP details" to "اول وصل شو، یا پایین بزن «تازه کردن» تا آدرس خروجی معلوم بشه",
+    "Connected • history persistence skipped" to "وصل شد • ولی تاریخچه ذخیره نشد",
+    "Connection Acceleration" to "شتابدهی اتصال",
+    "Connection Mode" to "حالت اتصال",
+    "Connection Mode & Ports" to "حالت اتصال و پورتها",
+    "Connection cancelled • required access was not granted" to "اتصال لغو شد • دسترسی لازم رو ندادی",
+    "Copy All Server Links" to "کپی لینک همه سرورها",
+    "Copy Doctor Report" to "کپی گزارش دکتر",
+    "Copy Share Link" to "کپی لینک اشتراکگذاری",
+    "Copy Share Link / Config" to "کپی لینک یا کانفیگ",
+    "Copy Share URI" to "کپی لینک اشتراکگذاری",
+    "Copy URI or outbound JSON to clipboard" to "لینک یا JSON خروجی رو تو کلیپبورد کپی کن",
+    "Copy every server in this subscription to clipboard" to "همه سرورهای این اشتراک رو کپی کن",
+    "Copy raw share link to clipboard" to "لینک خام رو تو کلیپبورد کپی کن",
+    "Core Native URL Test" to "تست URL بومی هسته",
+    "Create Multi-Hop Chain" to "ساخت زنجیره چندمرحلهای",
+    "Create a GeoSite, GeoIP, Domain, IP or Port rule" to "یه قانون GeoSite، GeoIP، دامنه، IP یا پورت بساز",
+    "Crisp #F8F9FA background with #FFFFFF rounded cards" to "زمینه تمیز #F8F9FA با کارتهای گرد سفید",
+    "Current Recommendation" to "پیشنهاد فعلی",
+    "Current Source" to "منبع فعلی",
+    "Custom Rules Only" to "فقط قوانین دلخواه",
+    "Custom Signal Weights" to "وزنهای دلخواه سیگنالها",
+    "Custom Sweep Speed" to "سرعت دلخواه پیمایش",
+    "Custom Tab Label (optional)" to "اسم دلخواه تب (اختیاری)",
+    "Custom routing rules" to "قوانین مسیریابی دلخواه",
+    "Customize Fourth Tab" to "شخصیسازی تب چهارم",
+    "DNS" to "DNS",
+    "DNS & IPv4 / IPv6" to "DNS و IPv4 / IPv6",
+    "DPI Countermeasures" to "مقابله با فیلترینگ عمیق",
+    "Default fast pace" to "همون سرعت سریع پیشفرض",
+    "Delay Test URL" to "آدرس تست تأخیر",
+    "Delete Server" to "حذف سرور",
+    "Delete Subscription" to "حذف اشتراک",
+    "Delete Subscription?" to "اشتراک پاک بشه؟",
+    "Detect DPI filtering, TLS resets and apply prescriptions" to "فیلترینگ DPI و ریستهای TLS رو بگیر و نسخه مناسب رو اعمال کن",
+    "Diagnostics, Logs & Bug Finder" to "عیبیابی، لاگها و یابنده باگ",
+    "Diagnostics, Logs & Privacy Audit" to "عیبیابی، لاگها و بررسی حریم خصوصی",
+    "Dial candidate endpoints in parallel for faster failover" to "چند مقصد رو همزمان بزن تا اگه یکی افتاد سریع عوض بشه",
+    "Disable even the subtle 2dp card shadow for pure flat iOS geometry" to "حتی سایه ریز ۲dp کارت رو هم بردار تا سطح کاملاً تخت بشه",
+    "Disconnect before deleting a subscription source" to "اول قطع کن، بعد منبع اشتراک رو حذف کن",
+    "Disconnect before deleting servers" to "اول قطع کن، بعد سرورها رو حذف کن",
+    "Disconnect before downloading routing assets • direct management downloads are blocked while a tunnel is active" to "اول قطع کن، بعد فایلهای مسیریابی رو بگیر • تا تونل روشنه نمیشه مستقیم دانلود کرد",
+    "Disconnect before removing failed servers" to "اول قطع کن، بعد سرورهای ناموفق رو پاک کن",
+    "Disconnect before restoring a backup" to "اول قطع کن، بعد پشتیبان رو برگردون",
+    "Disconnect before routing verification when remote geo data URLs are configured" to "وقتی لینکهای جغرافیایی داری، اول قطع کن بعد مسیریابی رو چک کن",
+    "Disconnect first to edit the active server's JSON." to "اول قطع کن تا بشه JSON سرور فعال رو ویرایش کرد.",
+    "Disconnect pinned server" to "قطع کردن سرور پینشده",
+    "Disconnect this server before editing its Xray JSON" to "قبل از ویرایش JSON این سرور، اول قطعش کن",
+    "Display Options" to "گزینههای نمایش",
+    "Display scannable QR code or copy link" to "کد QR قابل اسکن نشون بده یا لینک رو کپی کن",
+    "Doctor" to "دکتر",
+    "Doctor report copied" to "گزارش دکتر کپی شد",
+    "Domain First" to "اول دامنه",
+    "Domestic Services Direct" to "سرویسهای داخلی مستقیم",
+    "Download" to "دانلود",
+    "Download required" to "باید دانلود کنی",
+    "Edit Routing Rule" to "ویرایش قانون مسیریابی",
+    "Edited config would duplicate another server in this source" to "این کانفیگ شبیه یه سرور دیگه تو همین منبعه",
+    "Enable Automatic Server Selector" to "روشن کردن انتخابگر خودکار سرور",
+    "Enable anti-filtering timeouts, resolver hardening and MTU healing" to "تایماوتهای ضدفیلتر، سختگیری رزولور و ترمیم MTU رو روشن کن",
+    "Encrypted DNS Protection" to "محافظت DNS رمزنگاریشده",
+    "Encrypted-Ready JSON Archive" to "آرشیو JSON آماده رمزنگاری",
+    "Entire Library" to "کل کتابخانه",
+    "Entry Relay (First Hop)" to "رله ورودی (هاپ اول)",
+    "Evaluate only the custom rule list below" to "فقط همین قوانین دلخواه پایین رو بررسی کن",
+    "Every" to "هر",
+    "Every app on the device uses the VPN" to "همه برنامههای گوشی از VPN رد میشن",
+    "Exit IP protection and automatic country detection" to "محافظت از IP خروجی و تشخیص خودکار کشور",
+    "Exit Intelligence & Country Flags" to "اطلاعات خروجی و پرچم کشورها",
+    "Exit Server (Final Hop)" to "سرور خروجی (هاپ آخر)",
+    "Export Full Backup" to "خروجی کامل پشتیبان",
+    "Export or import all servers, subscriptions and settings" to "همه سرورها، اشتراکها و تنظیمات رو صادر یا وارد کن",
+    "Exposes a local SOCKS5 listener on" to "یه شنونده SOCKS5 محلی روی این پورت باز میکنه:",
+    "Extra Core JSON (Advanced)" to "JSON اضافی هسته (پیشرفته)",
+    "Fail Over When Route Drops" to "اگه مسیر افتاد، عوضش کن",
+    "Failover & Recovery" to "جایگزینی و بازیابی",
+    "Faster parallel pings, TCP Fast Open and scaled buffers" to "پینگهای موازی سریعتر، TCP Fast Open و بافرهای بزرگتر",
+    "Fastest endpoint liveness check without starting a tunnel" to "سریعترین چک زندهموندن مقصد، بدون راهاندازی تونل",
+    "Flat Card Surfaces" to "سطوح تخت کارت",
+    "Follow System" to "تابع سیستم",
+    "Force IPv4" to "فقط IPv4",
+    "Force IPv6" to "فقط IPv6",
+    "Four tabs enabled" to "چهار تب روشنه",
+    "Fourth Tab Shortcut" to "میانبر تب چهارم",
+    "Freshness Weight" to "وزن تازگی",
+    "Full TUN (Device VPN)" to "تونل کامل (VPN کل دستگاه)",
+    "Full TUN device VPN" to "VPN تونل کامل دستگاه",
+    "Geo direct domestic separation" to "تفکیک مستقیم سایتهای داخلی",
+    "GeoIP & GeoSite Databases" to "پایگاههای GeoIP و GeoSite",
+    "Granted — tunnel stays alive with screen off" to "دسترسی داری — با خاموش شدن صفحه هم تونل زنده میمونه",
+    "Grow TCP receive window dynamically as needed" to "پنجره دریافت TCP رو هرجا لازم شد خودش بزرگ کن",
+    "HTTPS Subscription URL" to "لینک HTTPS اشتراک",
+    "Hide servers whose last test failed" to "سرورهایی که تست آخرشون خراب شد رو مخفی کن",
+    "Highest smart score" to "بیشترین امتیاز هوشمند",
+    "Home Screen Ping Action" to "کاری که دکمه پینگ خانه انجام میده",
+    "Host Key SHA-256 (optional)" to "کلید هاست SHA-256 (اختیاری)",
+    "IPv4 / IPv6 Address Family" to "خانواده آدرس IPv4 / IPv6",
+    "Identity Guard & Locations" to "نگهبان هویت و موقعیتها",
+    "Import a previously saved MarbleNG JSON backup" to "یه پشتیبان JSON قبلی از ماربل رو برگردون",
+    "Import a server to begin — paste, QR or file" to "یه سرور اضافه کن تا شروع کنیم — چسبوندن، QR یا فایل",
+    "Import at least one profile before verifying routing" to "حداقل یه سرور وارد کن بعد مسیریابی رو چک کن",
+    "Import links, add an HTTPS subscription, build a node or compose a chain" to "لینک وارد کن، اشتراک HTTPS اضافه کن، یه گره بساز یا زنجیره بچین",
+    "Inbound & Sniffing" to "ورودی و شنود",
+    "Inspect HTTP / TLS / QUIC hostnames for domain routing" to "اسم هاستهای HTTP / TLS / QUIC رو برای مسیریابی دامنهای نگاه کن",
+    "Inspect Server Configuration" to "نگاهی به تنظیمات سرور بنداز",
+    "Inspect security, IPv4/IPv6 reachability and outbound JSON" to "امنیت، دسترسی IPv4/IPv6 و JSON خروجی رو بررسی کن",
+    "Intercept Port 53 DNS" to "گرفتن DNS پورت ۵۳",
+    "Iran Mode & Censorship Lab" to "حالت ایران و آزمایشگاه سانسور",
+    "Iran routing preset saved" to "پیشتنظیم مسیریابی ایران ذخیره شد",
+    "Iran routing preset saved • reconnect to apply it to the active tunnel" to "پیشتنظیم ایران ذخیره شد • یه بار قطع و وصل کن تا روی تونل اعمال بشه",
+    "JSON copied" to "JSON کپی شد",
+    "Keep domestic sites direct when Iran Mode is active" to "وقتی حالت ایرانه، سایتهای داخلی مستقیم بمونن",
+    "Keep local Wi-Fi and RFC1918 addresses direct" to "آدرسهای وایفای محلی و RFC1918 مستقیم بمونن",
+    "Keep remote HTTPS server lists fresh automatically" to "لیست سرورهای HTTPS رو خودکار تازه نگه دار",
+    "Latency Weight" to "وزن تأخیر",
+    "Leave URL blank to create a local-only server group." to "لینک رو خالی بذار تا یه گروه فقط محلی بسازی.",
+    "Live Censorship Lab" to "آزمایشگاه زنده سانسور",
+    "Live Pulse & Diagnostics" to "نبض زنده و عیبیابی",
+    "Live Telemetry in Ongoing Notification" to "آمار زنده تو اعلان همیشگی",
+    "Live notification stats and unrestricted battery access" to "آمار زنده اعلان و معافیت از محدودیت باتری",
+    "Live tunnel telemetry & quick diagnostics" to "آمار زنده تونل و عیبیابی سریع",
+    "Load a .txt or .json file from device storage" to "یه فایل .txt یا .json از گوشی بردار",
+    "Local CIDR Address" to "آدرس CIDR محلی",
+    "Local Ports & Behavior" to "پورتها و رفتار محلی",
+    "Local Proxy" to "پروکسی محلی",
+    "Local Proxy Only" to "فقط پروکسی محلی",
+    "Local SOCKS5 Port" to "پورت SOCKS5 محلی",
+    "Local SOCKS5 Row" to "ردیف SOCKS5 محلی",
+    "Local SOCKS5 proxy" to "پروکسی SOCKS5 محلی",
+    "Log Level & Extra JSON" to "سطح لاگ و JSON اضافی",
+    "Logs copied" to "لاگها کپی شدن",
+    "Lower background wakeups and smaller socket pools to save battery" to "بیدار شدنهای پسزمینه و تعداد سوکتها رو کم کن تا باتری بیشتر بمونه",
+    "Lowest ping" to "کمترین پینگ",
+    "MTU Cap" to "سقف MTU",
+    "Manage subscription URL, links and failed nodes" to "لینک اشتراک، لینکها و گرههای خراب رو مدیریت کن",
+    "Manual refresh only" to "فقط بهصورت دستی تازه میشه",
+    "Manual source has no remote subscription to refresh" to "این منبع دستیه و لینک remotای نداره که تازه بشه",
+    "Marble Turbo is switched off in Settings → Engine" to "ماربل توربو تو تنظیمات ← موتور خاموشه",
+    "Marble Turbo needs an active connection" to "ماربل توربو یه اتصال فعال میخواد",
+    "Marble Turbo • learning a faster method without interrupting this route" to "ماربل توربو • داره یه راه سریعتر یاد میگیره، بدون اینکه مسیرت قطع بشه",
+    "MarbleNG Card Preview" to "پیشنمایش کارت ماربل",
+    "MarbleNG is busy • finish the current task before starting another" to "ماربل سرش شلوغه • اول کار فعلی تموم بشه، بعد یه کار دیگه",
+    "Match DNS record family to active link capabilities" to "خانواده رکورد DNS رو با توان لینک فعلی هماهنگ کن",
+    "Match Kind" to "نوع تطبیق",
+    "Matcher Value" to "مقدار تطبیق",
+    "Maximum concurrency and large buffers on capable devices" to "حداکثر همزمانی و بافرهای بزرگ روی گوشیهای قوی",
+    "Measure Candidate Pool" to "اندازهگیری گروه کاندیداها",
+    "Measure servers first" to "اول سرورها رو اندازه بگیر",
+    "Measure true end-to-end round-trip latency" to "تأخیر واقعی رفتوبرگشت رو اندازه بگیر",
+    "Measure tunnel latency, jitter and stability" to "تأخیر، نوسان و پایداری تونل رو اندازه بگیر",
+    "Measurement Method" to "روش اندازهگیری",
+    "Moderate Receive Buffer" to "بافر دریافت متوسط",
+    "Move Server" to "جابهجایی سرور",
+    "Move into this group" to "ببرش تو این گروه",
+    "Multi-Source Geo Databases" to "پایگاههای جغرافیایی چندمنبعی",
+    "Multiplex multiple streams over a single proxy connection" to "چند جریان رو روی یه اتصال پروکسی جا بده",
+    "Multiplexing" to "مولتیپلکس",
+    "Multiplexing & Transport" to "مولتیپلکس و انتقال",
+    "Mux Concurrency" to "همزمانی Mux",
+    "Mux Frame Padding" to "پر کردن فریمهای Mux",
+    "Name (A–Z)" to "اسم (A–Z)",
+    "Native core URL test" to "تست URL بومی هسته",
+    "Network Speed & Session Data" to "سرعت شبکه و داده نشست",
+    "Network changed • restarting Rank once" to "شبکه عوض شد • یه بار رتبهبندی دوباره شروع شد",
+    "New Routing Rule" to "قانون مسیریابی تازه",
+    "No QR code found in that image" to "تو اون عکس کد QR پیدا نکردم",
+    "No QR code found • hold the camera steady and fill the frame" to "کد QR پیدا نشد • دوربین رو ثابت نگه دار و کادر رو پر کن",
+    "No connection history yet." to "هنوز تاریخچهای از اتصالات نیست.",
+    "No enabled servers to test" to "هیچ سرور روشنی برای تست نیست",
+    "No matches" to "چیزی پیدا نشد",
+    "No matching servers" to "سروری با این مشخصات نیست",
+    "No pinned server selected" to "سرور پینشدهای انتخاب نکردی",
+    "No remote subscriptions to refresh • local sources were left untouched" to "اشتراک remotای نیست که تازه بشه • منبعهای محلی دستنخورده موندن",
+    "No reply" to "جوابی نگرفتیم",
+    "No runtime log entries yet." to "هنوز لاگی ثبت نشده.",
+    "No servers in the selector pool" to "تو استخر انتخابگر سروری نیست",
+    "No servers in this group" to "تو این گروه سروری نیست",
+    "No servers yet • add a subscription or import configs first" to "هنوز سروری نداری • اول یه اشتراک اضافه کن یا کانفیگ وارد کن",
+    "Notification Preferences" to "تنظیمات اعلانها",
+    "Notifications & Background" to "اعلانها و پسزمینه",
+    "Notify on route recovery, privacy warnings or subscription updates" to "وقتی مسیر برگشت، هشدار حریم خصوصی اومد یا اشتراک تازه شد خبر بده",
+    "Off · manual server selection" to "خاموش · انتخاب دستی سرور",
+    "One-tap pinned server shortcut" to "یه ضربه تا سرور پینشده",
+    "Only Selected Apps" to "فقط برنامههای انتخابی",
+    "Only checked apps below enter the VPN" to "فقط برنامههای تیکخورده پایین وارد VPN میشن",
+    "Only reachable servers" to "فقط سرورهای در دسترس",
+    "Only selected apps use VPN" to "فقط برنامههای انتخابی از VPN استفاده میکنن",
+    "Open runtime logs, system doctor and leak checks" to "لاگهای رانتهام، دکتر سیستم و چک نشتیها رو باز کن",
+    "Opens an HTTPS request through the tunnel and measures browser-like latency" to "یه درخواست HTTPS از داخل تونل میفرسته و تأخیر شبیه مرورگر رو میگیره",
+    "Optional MarbleNG alerts cleared" to "هشدارهای اضافی ماربل پاک شدن",
+    "Organize servers by exit country instead of subscription" to "سرورها رو بهجای اشتراک، بر اساس کشور خروجی بچین",
+    "Organize servers by latency, score, country or protocol" to "سرورها رو بر اساس تأخیر، امتیاز، کشور یا پروتکل مرتب کن",
+    "Outbound JSON Configuration" to "پیکربندی JSON خروجی",
+    "Packet Datapath" to "مسیر بستهها",
+    "Pad multiplexed frames against packet-size fingerprinting" to "فریمهای مولتیپلکس رو پر کن تا اندازه بسته لو نره",
+    "Parallel Sweep Workers" to "کارگرهای پیمایش موازی",
+    "Password (optional)" to "رمز عبور (اختیاری)",
+    "Paste Links or JSON" to "چسبوندن لینکها یا JSON",
+    "Per-App Split Tunnel" to "تونل جداگانه برای هر برنامه",
+    "Performance Profile" to "پروفایل کارایی",
+    "Pick a Server" to "یه سرور انتخاب کن",
+    "Pick a screenshot or saved QR image" to "یه اسکرینشات یا عکس QR ذخیرهشده انتخاب کن",
+    "Pin a single server for one-tap connect in the fourth tab." to "یه سرور پین کن تا تو تب چهارم با یه ضربه وصل بشی.",
+    "Pin a subscription, single server or live pulse" to "یه اشتراک، یه سرور یا نبض زنده رو پین کن",
+    "Ping & Delay Testing" to "پینگ و تست تأخیر",
+    "Ping Timeout" to "مهلت پینگ",
+    "Pinned Cert SHA-256 (optional)" to "اثر انگشت گواهی SHA-256 (اختیاری)",
+    "Pinned Server" to "سرور پینشده",
+    "Pinned Single Server" to "سرور تکی پینشده",
+    "Pinned Subscription Group" to "گروه اشتراک پینشده",
+    "Pool & Triggers" to "استخر و محرکها",
+    "Port used in Local Proxy mode" to "پورتی که تو حالت پروکسی محلی استفاده میشه",
+    "Power & Speed Profile" to "پروفایل توان و سرعت",
+    "Pre-Warm Active Route on Launch" to "گرم کردن مسیر فعال موقع اجرا",
+    "Pre-resolve DNS so the first ping and connection start faster" to "DNS رو پیشاپیش حل کن تا اولین پینگ و اتصال سریعتر شروع شن",
+    "Prefer IPv4" to "IPv4 رو ترجیح بده",
+    "Prefer the fastest healthy encrypted DNS endpoint" to "سریعترین سرور DNS رمزنگاریشده سالم رو ترجیح بده",
+    "Prevent accidental IP identity changes across reconnects" to "نذار IP خروجی موقع وصل شدنهای دوباره بیخبر عوض بشه",
+    "Preview" to "پیشنمایش",
+    "Primary DoH URL" to "آدرس اصلی DoH",
+    "Privacy & Kill Switch Warnings" to "هشدارهای حریم خصوصی و کلید قطع اضطراری",
+    "Privacy Score" to "امتیاز حریم خصوصی",
+    "Privacy audit needs an active healthy connection" to "برای بررسی حریم خصوصی یه اتصال سالم و فعال لازمه",
+    "Privacy audit, system doctor, core logs and health checks" to "بررسی حریم خصوصی، دکتر سیستم، لاگ هسته و چک سلامت",
+    "Probe A / AAAA DNS records and dual-stack TCP handshakes" to "رکوردهای A / AAAA و دستدهیهای TCP دوتایی رو آزمایش کن",
+    "Proxy Core Engine" to "موتور هسته پروکسی",
+    "Proxy all traffic" to "همه ترافیک از پروکسی رد بشه",
+    "Prune unreachable nodes from this subscription" to "گرههایی که در دسترس نیستن رو از این اشتراک حذف کن",
+    "Public Exit IP" to "IP خروجی عمومی",
+    "Public Exit IP Intelligence" to "اطلاعات IP خروجی عمومی",
+    "Public exit identity & ASN intelligence" to "هویت خروجی عمومی و اطلاعات ASN",
+    "Query latest MarbleNG release on GitHub" to "آخرین نسخه ماربل رو تو گیتهاب چک کن",
+    "Quick Actions" to "کارهای سریع",
+    "Quick Actions Card" to "کارت کارهای سریع",
+    "Race Parallel Connect" to "مسابقه اتصال موازی",
+    "Read QR code from camera or gallery image" to "کد QR رو از دوربین یا عکس گالری بخون",
+    "Real HTTPS Delay" to "تأخیر واقعی HTTPS",
+    "Real HTTPS tunnel delay" to "تأخیر واقعی تونل HTTPS",
+    "Real delay" to "تأخیر واقعی",
+    "Refresh All Subscriptions Now" to "همه اشتراکها رو الان تازه کن",
+    "Refresh Interval" to "فاصله بهروزرسانی",
+    "Refresh Logs" to "تازه کردن لاگها",
+    "Refresh cancelled • previous servers kept" to "تازهمسازی لغو شد • سرورهای قبلی سر جاشون موندن",
+    "Refuse servers that cannot use the forced IP version" to "سرورهایی که نمیتونن نسخه IP تحمیلشده رو استفاده کنن رو رد کن",
+    "Remote subscription URL must use HTTPS, or stay empty for a local source" to "لینک اشتراک باید HTTPS باشه، یا برای منبع محلی خالی بمونه",
+    "Remote subscriptions must use HTTPS" to "اشتراکهای remote باید HTTPS باشن",
+    "Remote subscriptions must use HTTPS • leave URL empty for a local source" to "اشتراکها باید HTTPS باشن • برای منبع محلی لینک رو خالی بذار",
+    "Remove Failed Servers" to "حذف سرورهای ناموفق",
+    "Rename Server" to "تغییر اسم سرور",
+    "Report copied" to "گزارش کپی شد",
+    "Reset All Settings to Defaults" to "برگردوندن همه تنظیمات به پیشفرض",
+    "Reset Settings?" to "تنظیمات ریست بشن؟",
+    "Resolve exit IP, country, ISP and ASN after connecting" to "بعد از اتصال، IP خروجی، کشور، ISP و ASN رو پیدا کن",
+    "Restore from Backup File" to "بازگردانی از فایل پشتیبان",
+    "Restores default settings while keeping your saved servers" to "تنظیمات برمیگردن پیشفرض، ولی سرورهات میمونن",
+    "Restoring the route the app update interrupted" to "دارم مسیری رو که آپدیت قطع کرده برمیگردونم",
+    "Retry the same server before allowing failover to another exit" to "قبل از اینکه سرور عوض بشه، یه بار همون سرور رو دوباره امتحان کن",
+    "Return instant local synthetic IPs and resolve in-tunnel" to "همون لحظه IPهای مصنوعی محلی بده و داخل تونل حلشون کن",
+    "Reverse sort direction" to "جهت مرتبسازی رو برعکس کن",
+    "Route Simulator" to "شبیهساز مسیر",
+    "Routes all device apps through the encrypted VPN interface" to "همه برنامههای گوشی رو از رابط VPN رمزنگاریشده رد میکنه",
+    "Routing & Geo Databases" to "مسیریابی و پایگاههای جغرافیایی",
+    "Routing Rules" to "قوانین مسیریابی",
+    "Routing needs at least one geo database" to "مسیریابی حداقل یه پایگاه جغرافیایی میخواد",
+    "Rule Label (optional)" to "برچسب قانون (اختیاری)",
+    "Rule Presets & Domain Strategy" to "پیشتنظیمهای قانون و استراتژی دامنه",
+    "Run Bug Finder first" to "اول یابنده باگ رو اجرا کن",
+    "Run Censorship Scan" to "اجرای اسکن سانسور",
+    "Run Full Route Test" to "تست کامل مسیر",
+    "Run Health Scan" to "اجرای اسکن سلامت",
+    "Run Privacy & Leak Audit" to "بررسی حریم خصوصی و نشتی",
+    "Run a full tunnel & delay test on this server" to "روی این سرور یه تست کامل تونل و تأخیر بزن",
+    "Runs bounded DNS, TCP and TLS handshake probes to identify active filtering on your current network." to "با چند تست محدود DNS، TCP و TLS میفهمه تو شبکهت چی فیلتر میشه.",
+    "SSH Password" to "رمز SSH",
+    "SSH Username" to "نام کاربری SSH",
+    "SSH cannot be embedded in a persisted Xray chain" to "نمیشه SSH رو تو یه زنجیره Xray ذخیرهشده گذاشت",
+    "Save Changes" to "ذخیره تغییرات",
+    "Save Imported Nodes Into" to "گرههای واردشده رو کجا ذخیره کنیم؟",
+    "Save Rule" to "ذخیره قانون",
+    "Save Server" to "ذخیره سرور",
+    "Save Snapshot" to "ذخیره عکس لحظهای",
+    "Save Subscription" to "ذخیره اشتراک",
+    "Save To Group" to "ذخیره تو کدوم گروه",
+    "Save subscriptions, manual servers, routing rules and settings to a JSON file" to "اشتراکها، سرورهای دستی، قوانین مسیریابی و تنظیمات رو تو یه فایل JSON ذخیره کن",
+    "Scan" to "اسکن",
+    "Scan IPv4 & IPv6 Reachability" to "اسکن دسترسی IPv4 و IPv6",
+    "Scan QR" to "اسکن QR",
+    "Scan or Pick QR Code" to "کد QR رو اسکن کن یا انتخابش کن",
+    "Scan with your camera or choose a QR image from your library" to "با دوربین اسکن کن یا یه عکس QR از گالری انتخاب کن",
+    "Search app or package name" to "جستجوی اسم برنامه یا پکیج",
+    "Search settings" to "جستجو تو تنظیمات",
+    "Secondary DoH URL" to "آدرس دوم DoH",
+    "Select After Ping Sweep" to "بعد از پیمایش پینگ انتخاب کن",
+    "Select Core Engine" to "انتخاب موتور هسته",
+    "Select Recommended Server" to "انتخاب سرور پیشنهادی",
+    "Select a server first • then ping it" to "اول یه سرور انتخاب کن • بعد پینگش بزن",
+    "Select another server or customize tab appearance" to "یه سرور دیگه انتخاب کن یا ظاهر تب رو عوض کن",
+    "Select one server source before moving a server" to "قبل از جابهجایی سرور، یه منبع سرور انتخاب کن",
+    "Select one server source before saving the chain" to "قبل از ذخیره زنجیره، یه منبع سرور انتخاب کن",
+    "Select one source in Servers before adding a manual config" to "قبل از افزودن کانفیگ دستی، یه منبع تو سرورها انتخاب کن",
+    "Select one source in Servers before importing configs" to "قبل از وارد کردن کانفیگها، یه منبع تو سرورها انتخاب کن",
+    "Select or import a server from the Servers tab" to "از تب سرورها یه سرور انتخاب یا وارد کن",
+    "Selected apps bypass VPN" to "برنامههای انتخابی از VPN رد نمیشن",
+    "Selected server source no longer exists" to "منبع سروری که انتخاب کرده بودی دیگه نیست",
+    "Selector & Strategy" to "انتخابگر و استراتژی",
+    "Send Test Alert" to "ارسال هشدار آزمایشی",
+    "Send configured domestic country traffic directly" to "ترافیک کشور داخلی تنظیمشده رو مستقیم بفرست",
+    "Send every connection through the proxy server" to "همه اتصالها رو از سرور پروکسی رد بده",
+    "Send initial payload inside the TCP SYN packet" to "اولین بسته داده رو همون تو بسته TCP SYN بفرست",
+    "Server Details & JSON" to "جزئیات سرور و JSON",
+    "Server Host / IP" to "هاست یا IP سرور",
+    "Server JSON saved • identity and learned acceleration refreshed" to "JSON سرور ذخیره شد • هویت و شتاب یادگرفتهشده تازه شدن",
+    "Server Name" to "اسم سرور",
+    "Server no longer exists" to "این سرور دیگه وجود نداره",
+    "Settings reset • Iran direct routing + ad blocking restored" to "تنظیمات ریست شد • مسیریابی مستقیم ایران و مسدودسازی تبلیغات برگشتن",
+    "Share QR Code" to "اشتراکگذاری کد QR",
+    "Show Fourth Tab" to "نمایش تب چهارم",
+    "Show Tab Icons" to "نمایش آیکون تبها",
+    "Show Tab Labels" to "نمایش اسم تبها",
+    "Show active status indicator on the fourth tab" to "نشان وضعیت فعال رو روی تب چهارم نشون بده",
+    "Show clipboard import, QR scanner, Smart Rank and Censorship Lab" to "کلیپبورد، اسکنر QR، رتبهبندی هوشمند و آزمایشگاه سانسور رو نشون بده",
+    "Show live throughput and session/total usage card" to "کارت سرعت لحظهای و مصرف نشست/کل رو نشون بده",
+    "Show real-time ping and throughput in the status bar notification" to "پینگ و سرعت لحظهای رو تو اعلان نوار وضعیت نشون بده",
+    "Show scannable QR code for this server" to "کد QR قابل اسکن برای این سرور نشون بده",
+    "Smart Automatic Failover" to "جایگزینی خودکار هوشمند",
+    "Smart Dual-Stack" to "دوتایی هوشمند",
+    "Smart Rank" to "رتبهبندی هوشمند",
+    "Smart Rank All Servers" to "رتبهبندی هوشمند همه سرورها",
+    "Sort & Filter" to "مرتبسازی و فیلتر",
+    "Sort Order" to "ترتیب چینش",
+    "Stability Weight" to "وزن پایداری",
+    "Standard core settings exactly as configured" to "همون تنظیمات استاندارد هسته، دقیقاً همجوری که تنظیم کردی",
+    "Start protected tunnel through this server" to "تونل امن رو با این سرور راه بنداز",
+    "Stop the active VPN session" to "اتصال VPN فعلی رو قطع کن",
+    "Stream Debug TXT Log" to "لاگ متنی اشکالزدایی زنده",
+    "Strict Same-Exit Enforcement" to "سختگیری برای همون خروجی ثابت",
+    "Sub" to "ساب",
+    "Subscription Name" to "اسم اشتراک",
+    "Subscription Refreshes" to "بهروزرسانی اشتراکها",
+    "Subscription added • refreshing source" to "اشتراک اضافه شد • دارم منبع رو تازه میکنم",
+    "Subscription links copied" to "لینکهای اشتراک کپی شدن",
+    "Subscription no longer exists" to "این اشتراک دیگه وجود نداره",
+    "Subscription order" to "ترتیب اشتراکها",
+    "Subscriptions & Auto-Refresh" to "اشتراکها و بهروزرسانی خودکار",
+    "Sweep Current Subscription Group" to "پیمایش گروه اشتراک فعلی",
+    "Sweep Entire Server Library" to "پیمایش کل کتابخانه سرورها",
+    "Sweep Pace" to "سرعت پیمایش",
+    "Swipe horizontally across the pill track to connect or disconnect" to "روی نوار گرد انگشتت رو بکش تا وصل یا قطع بشی",
+    "Switch Hysteresis Margin" to "حاشیه حساسیت تعویض",
+    "Switch automatically with device appearance" to "با ظاهر گوشی خودکار عوض بشه",
+    "Switch off to refuse plaintext public proxy configs" to "خاموشش کن تا کانفیگهای بدون رمز عمومی رد بشن",
+    "Switch to a healthy backup server if the tunnel stalls" to "اگه تونل گیر کرد، برو سراغ یه سرور پشتیبان سالم",
+    "System Permissions" to "دسترسیهای سیستم",
+    "TCP Handshake Ping" to "پینگ دستدهی TCP",
+    "TCP Receive Buffer" to "بافر دریافت TCP",
+    "TCP Send Buffer" to "بافر ارسال TCP",
+    "TCP handshake ping" to "پینگ دستدهی TCP",
+    "TLS Fingerprint" to "اثر انگشت TLS",
+    "TLS Handshake Fragmentation" to "تکمتکه کردن دستدهی TLS",
+    "Tab Bar & Fourth Tab" to "نوار تبها و تب چهارم",
+    "Tab Bar Appearance" to "ظاهر نوار تبها",
+    "Tap any row to configure • Use search to jump" to "روی هر ردیف بزن تا تنظیمش کنی • با جستجو سریع بپر",
+    "Tap server to select · ⋯ for actions" to "روی سرور بزن تا انتخاب بشه · ⋯ برای کارهای بیشتر",
+    "Tap the circular status emblem or primary Connect button" to "روی نشان گرد وضعیت یا دکمه اصلی اتصال بزن",
+    "Tap to copy local SOCKS5 address" to "بزن تا آدرس SOCKS5 محلی کپی بشه",
+    "Tap to exempt MarbleNG from battery optimization" to "بزن تا ماربل رو از محدودیت باتری معاف کنی",
+    "Tap to inspect exit IP details" to "بزن تا جزئیات IP خروجی رو ببینی",
+    "Tap to inspect exit IP, country and ASN" to "بزن تا IP خروجی، کشور و ASN رو ببینی",
+    "Tap to measure active route latency" to "بزن تا تأخیر مسیر فعلی اندازهگیری بشه",
+    "Tap to stop" to "بزن تا قطع بشه",
+    "Test Active / Selected Server" to "تست سرور فعال / انتخابشده",
+    "Test Endpoint & Budgets" to "مقصد تست و سقفها",
+    "Test Hostname or IP" to "تست هاست یا IP",
+    "Test Route Latency" to "تست تأخیر مسیر",
+    "Testing servers" to "دارم سرورها رو تست میکنم",
+    "Three tabs" to "سه تب",
+    "Throughput / Load Weight" to "وزن توان عملیاتی / بار",
+    "Traffic Sniffing" to "شنود ترافیک",
+    "True dark OLED background with #1C1C1E cards" to "زمینه مشکی واقعی OLED با کارتهای #1C1C1E",
+    "Try a shorter keyword — e.g. DNS, Theme, or Ping" to "یه کلمه کوتاهتر امتحان کن — مثلاً DNS، پوسته یا پینگ",
+    "Tunnel Datapath" to "مسیر داده تونل",
+    "Tunnel Exit IP" to "IP خروجی تونل",
+    "Typography" to "تایپوگرافی",
+    "UDP Session Timeout" to "مهلت نشست UDP",
+    "URL test" to "تست URL",
+    "Underlay IP" to "IP زیرلایه",
+    "Unified Delay Measurement" to "اندازهگیری یکپارچه تأخیر",
+    "Unrestricted Background Activity" to "فعالیت آزاد تو پسزمینه",
+    "Unsupported failed-server evidence type" to "نوع مدرک سرور ناموفق پشتیبانی نمیشه",
+    "Update Available" to "نسخه تازه اومده",
+    "Update Geo Files" to "بهروزرسانی فایلهای جغرافیایی",
+    "Updates & Open Source" to "بهروزرسانیها و کد باز",
+    "Use sniffed hostname for routing without rewriting destination" to "از هاست شنودشده برای مسیریابی استفاده کن، بدون تغییر مقصد",
+    "Username (optional)" to "نام کاربری (اختیاری)",
+    "Uses sing-box extended's built-in delay controller" to "از کنترلر تأخیر داخلی sing-box extended استفاده میکنه",
+    "Validate final config with Xray before starting tunnel" to "قبل از راه افتادن تونل، کانفیگ نهایی رو با Xray چک کن",
+    "Verify Config Compatibility" to "بررسی سازگاری کانفیگ",
+    "Verify Policy" to "بررسی خطمشی",
+    "Versions & Cores" to "نسخهها و هستهها",
+    "Visible Home Cards" to "کارتهای قابل نمایش خانه",
+    "Wait for the current background task before deleting a subscription" to "صبر کن کار پسزمینه تموم بشه، بعد اشتراک رو حذف کن",
+    "Wait for the current background task before duplicating a server" to "صبر کن کار پسزمینه تموم بشه، بعد سرور رو کپی کن",
+    "Wait for the current background task before editing a server" to "صبر کن کار پسزمینه تموم بشه، بعد سرور رو ویرایش کن",
+    "Wait for the current background task before editing a subscription" to "صبر کن کار پسزمینه تموم بشه، بعد اشتراک رو ویرایش کن",
+    "Wait for the current task before adding a chain" to "صبر کن کار فعلی تموم بشه، بعد زنجیره اضافه کن",
+    "Wait for the current task before adding a manual config" to "صبر کن کار فعلی تموم بشه، بعد کانفیگ دستی اضافه کن",
+    "Wait for the current task before deleting a server" to "صبر کن کار فعلی تموم بشه، بعد سرور رو حذف کن",
+    "Wait for the current task before moving a server" to "صبر کن کار فعلی تموم بشه، بعد سرور رو جابهجا کن",
+    "Wait for the current task before removing failed servers" to "صبر کن کار فعلی تموم بشه، بعد سرورهای ناموفق رو پاک کن",
+    "Wait until ping finishes before changing server" to "صبر کن پینگ تموم بشه، بعد سرور رو عوض کن",
+    "Wait until the connection is stable or disconnected before refreshing" to "صبر کن اتصال آروم بشه یا قطع بشه، بعد تازه کن",
+    "Xray JSON" to "JSON خروجی Xray",
+    "Xray Outbound / Config JSON" to "JSON خروجی / پیکربندی Xray",
+    "Your saved servers and subscriptions will not be deleted." to "سرورها و اشتراکهای ذخیرهشدهت پاک نمیشن.",
+    "gRPC Service Name" to "اسم سرویس gRPC",
+    "iOS Button & Power Ring" to "دکمه iOS و حلقه پاور",
+    "iOS Dark" to "تاریک iOS",
+    "iOS Light" to "روشن iOS",
+    "iOS Slide to Connect" to "کشیدنی iOS برای اتصال",
+    "servers resolved" to "سرور حل شد",
+    "Allow VPN connection" to "بذار وصلت کنم",
+    "Allow notifications" to "اجازه اعلان میدی؟",
+    "MarbleNG needs Android's VPN permission to establish a protected tunnel on this device." to "برای اینکه یه تونل امن رو تو گوشیت راه بندازم، اندروید باید اجازه VPN بده.",
+    "Allow status notifications so Android keeps your active VPN session visible and reliable." to "اجازه بده یه اعلان کوچیک بذارم تا اندروید اتصالتم سرپا و جلوی چشمت نگه داره.",
+    "Your traffic stays private on-device and only leaves through the server you choose." to "ترافیکت همینجا تو گوشی خصوصی میمونه و فقط از سروری که خودت انتخاب کردی بیرون میره.",
+    "You can customize or mute optional alerts anytime in Settings." to "هر وقت خواستی میتونی از تنظیمات اعلانهای اضافی رو کموزیاد یا بیصدا کنی.",
+    "Left-to-right English interface" to "رابط انگلیسی چپبه راست",
+    "Right-to-left Persian interface" to "رابط فارسی راستبهچپ",
+    "Never" to "هیچوقت",
+    "Just now" to "همین الان",
+    "ON" to "روشنه",
+    "ACTION" to "اقدام کن",
+    "My Provider" to "سرویسدهنده من",
+    "Frankfurt · 01" to "فرانکفورت · ۰۱",
+    "Relay → Exit" to "رله ← خروجی",
+    "example.com or 1.1.1.1" to "example.com یا 1.1.1.1",
+    "Connect your way" to "هرجور دلت خواست وصل شو",
+    "Three ways to connect" to "سه جور وصل شدن",
+    "Quick connect" to "سریع وصل شو",
+    "Last route, one tap" to "همون مسیر قبل، با یه ضربه",
+    "Smart connect" to "انتخاب هوشمند",
+    "Best route, picked for you" to "بهترین مسیر، خودش برات انتخاب میشه",
+    "Light connect" to "اتصال سبک",
+    "Local SOCKS, no device VPN" to "فقط SOCKS محلی، بدون VPN دستگاه",
+    "Lit" to "روشنه",
+    "Tap again to stop" to "دوباره بزن تا قطع بشه",
+    "No route to recommend yet — measure a server first" to "هنوز مسیری برای پیشنهاد نیست — اول یه سرور رو اندازه بگیر",
+    "Turned on" to "روشن شد",
+    "Fast connect" to "اتصال سریع",
+    "Reconnect" to "وصل شدن دوباره",
+    "Auto-select" to "انتخاب خودکار",
+    "Cancelled" to "لغو شد",
+    "Cancelling" to "دارم لغو میکنم",
+    "Refresh cancelled" to "تازهمسازی لغو شد",
+    "previous servers kept" to "سرورهای قبلی سر جاشون موندن",
+    "refreshing" to "دارم تازه میکنم",
+    "Invalid Xray JSON" to "JSON خروجی Xray درست نیست",
+    "Chain invalid" to "زنجیره درست نیست",
+    "Manual config invalid" to "کانفیگ دستی درست نیست",
+    "Server removed" to "سرور پاک شد",
+    "Subscription already exists" to "این اشتراک قبلاً هست",
+    "Subscription added" to "اشتراک اضافه شد",
+    "Routing assets" to "فایلهای مسیریابی",
+    "safe runtime reset requested" to "درخواست ریست امن داده شد",
+    "stale runtime state cleared" to "وضعیت قدیمی پاک شد",
+    "Marble Turbo" to "ماربل توربو",
+    "learning a faster method without interrupting this route" to "داره یه راه سریعتر یاد میگیره، بدون اینکه مسیرت قطع بشه",
+    "No QR code found" to "کد QR پیدا نشد",
+    "hold the camera steady and fill the frame" to "دوربین رو ثابت نگه دار و کادر رو پر کن",
+    "direct management downloads are blocked while a tunnel is active" to "تا تونل روشنه نمیشه مستقیم دانلود کرد",
+    "local sources were left untouched" to "منبعهای محلی دستنخورده موندن",
+    "restart MarbleNG to apply every setting" to "یه بار ماربل رو ببند و باز کن تا تنظیمات بشینن",
+    "reconnect to apply it to the active tunnel" to "یه بار قطع و وصل کن تا روی تونل اعمال بشه",
+    "leave URL empty for a local source" to "برای منبع محلی لینک رو خالی بذار",
+    "nothing remote to refresh" to "چیزی برای تازه کردن نیست",
+    "add Manual/SSH servers into it" to "سرورهای دستی یا SSH توش اضافه کن",
+    "add a subscription or import configs first" to "اول یه اشتراک اضافه کن یا کانفیگ وارد کن",
+    "finish the current task before starting another" to "اول کار فعلی تموم بشه، بعد یه کار دیگه",
+    "MarbleNG is busy" to "ماربل سرش شلوغه",
+    "Network changed" to "شبکه عوض شد",
+    "restarting Rank once" to "یه بار رتبهبندی دوباره شروع شد",
+    "Settings reset" to "تنظیمات ریست شد",
+    "Iran direct routing + ad blocking restored" to "مسیریابی مستقیم ایران و مسدودسازی تبلیغات برگشتن",
+    "identity and learned acceleration refreshed" to "هویت و شتاب یادگرفتهشده تازه شدن",
+    "Server JSON saved" to "JSON سرور ذخیره شد",
+    "required access was not granted" to "دسترسی لازم رو ندادی",
+    "Connection cancelled" to "اتصال لغو شد",
+    "testing all servers" to "دارم همه سرورها رو تست میکنم",
+    "Disconnect before downloading routing assets" to "اول قطع کن، بعد فایلهای مسیریابی رو بگیر",
+    "No remote subscriptions to refresh" to "اشتراک remotای نیست که تازه بشه",
+    "Select a server first" to "اول یه سرور انتخاب کن",
+    "then ping it" to "بعد پینگش بزن",
+    "No servers yet" to "هنوز سروری نداری",
+    "Manual config saved" to "کانفیگ دستی ذخیره شد",
+    "VPN access changed before the connection could start." to
+        "قبل از اینکه اتصال شروع بشه، دسترسی VPN عوض شد.",
+    "Could not open Android VPN permission" to "نتونستم پنجره دسترسی VPN اندروید رو باز کنم",
+    "Could not open notification permission" to "نتونستم پنجره دسترسی اعلان رو باز کنم",
 )
 
+
+/**
+ * MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — the warm voice layer.
+ *
+ * The base lexicon is a dictionary: accurate, but written in the neutral/bookish register of a
+ * manual ("اتصال", "لطفاً صبر کنید"). A Persian user asked for a product that talks to them like a
+ * friend. These overrides are deliberately exact whole-string keys, never word substitutions, so
+ * a verb cannot be rewritten inside a technical sentence. Anything not listed keeps its base
+ * translation; anything unknown still stays in its own language (the V232 rule).
+ */
+private val FaFriendlyVoice: Map<String, String> = mapOf(
+    "Connect" to "بزن وصل شو",
+    "Disconnect" to "قطعش کن",
+    "Connected" to "وصل شدی!",
+    "Disconnected" to "دیگه وصل نیستی",
+    "Connecting…" to "دارم وصلت میکنم…",
+    "Reconnecting…" to "دوباره وصلت میکنم…",
+    "Continue" to "باشه، ادامه",
+    "Not now" to "الان نه",
+    "Cancel" to "بیخیال",
+    "Save" to "ذخیرهش کن",
+    "Add" to "اضافهش کن",
+    "Delete" to "پاکش کن",
+    "Refresh" to "تازهش کن",
+    "Import" to "بیارش تو",
+    "Export" to "ببرش بیرون",
+    "Close" to "ببند",
+    "Done" to "تموم شد",
+    "On" to "روشنه",
+    "Off" to "خاموشه",
+    "Ready" to "آمادهای؟",
+    "Edit" to "ویرایشش کن",
+    "Test" to "تستش کن",
+    "Apply" to "اعمالش کن",
+    "Reset" to "برگردون به اول",
+    "Search" to "بگرد دنبالش",
+    "Copy" to "کپیش کن",
+    "Share" to "بفرستش",
+    "Back" to "برگرد",
+    "Stop" to "نگهش دار",
+    "Start" to "شروعش کن",
+    "OK" to "باشه",
+    "Missing" to "کمه",
+    "Failed" to "نشد دیگه",
+    "Success" to "انجام شد!",
+    "Enabled" to "روشنش کردم",
+    "Disabled" to "خاموشش کردم",
+    "Copied" to "کپی شد",
+    "No reply" to "جوابی نگرفتیم",
+    "Preview" to "یه نگاه بنداز",
+    "Download" to "بگیرش",
+    "Scan QR" to "یه QR اسکن کن",
+    "Traffic blocked" to "جلوی ترافیک گرفته شد",
+    "No tunnel is active" to "هیچ تونلی روشن نیست",
+    "Your traffic leaves through this route" to "ترافیکت از همین مسیر میره بیرون",
+    "Choose and connect a server once to enable Reconnect" to
+        "یه بار یه سرور انتخاب کن و وصل شو تا «اتصال دوباره» آماده بشه",
+    "Import a server to begin — paste, QR or file" to
+        "یه سرور اضافه کن تا شروع کنیم — بچسبون، QR یا فایل",
+    "Applies to every screen, and takes effect at once." to
+        "روی همه صفحهها اعمال میشه و همون لحظه میبینیش.",
+    "Text size" to "اندازه نوشتهها",
+    "Text & language" to "نوشته و زبان",
+    "Size, typeface and language of every screen" to "اندازه، قلم و زبان همه صفحهها",
+    "Search settings" to "دنبال چی میگردی؟"
+)
+
+/** The dictionary the whole product reads: base entries with the warm voice on top. */
+private val FaEffectiveLexicon: Map<String, String> = FaLexicon + FaFriendlyVoice
+
+/**
+ * Runtime messages are English templates plus a live name/number. Every known part is translated;
+ * a name, a host, a strategy label or an error class stays exactly as it arrived. `FSI`/`PDI`
+ * isolate those Latin runs so an RTL paragraph cannot reorder "Berlin 01" into "01 Berlin".
+ */
+private const val FA_SEGMENT = " • "
+
+private fun faIsolate(value: String): String = "\u2068$value\u2069"
+
+private val FaRuntimePatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
+    Regex("""^Config already exists in (.+)$""") to { m ->
+        "این کانفیگ قبلاً تو ${faIsolate(m.groupValues[1])} هست"
+    },
+    Regex("""^That server already exists in (.+)$""") to { m ->
+        "این سرور قبلاً تو ${faIsolate(m.groupValues[1])} هست"
+    },
+    Regex("""^(.+) is already in (.+)$""") to { m ->
+        "${faIsolate(m.groupValues[1])} همین الان تو ${faIsolate(m.groupValues[2])} هست"
+    },
+    Regex("""^(.+) moved to (.+)$""") to { m ->
+        "${faIsolate(m.groupValues[1])} رفت تو ${faIsolate(m.groupValues[2])}"
+    },
+    Regex("""^(.+) is a local source$""") to { m ->
+        "${faIsolate(m.groupValues[1])} یه منبع محلیه"
+    },
+    Regex("""^(.+) added$""") to { m -> "${faIsolate(m.groupValues[1])} اضافه شد" },
+    Regex("""^Could not refresh (.+)$""") to { m ->
+        "نتونستم ${faIsolate(m.groupValues[1])} رو تازه کنم"
+    },
+    Regex("""^Race winner: (.+)$""") to { m -> "برنده مسابقه: ${faIsolate(m.groupValues[1])}" },
+    Regex("""^Could not start Marble Turbo: (.+)$""") to { m ->
+        "نتونستم ماربل توربو رو راه بندازم: ${faIsolate(m.groupValues[1])}"
+    },
+    Regex("""^Could not stop connection service: (.+)$""") to { m ->
+        "نتونستم سرویس اتصال رو نگه دارم: ${faIsolate(m.groupValues[1])}"
+    },
+    Regex("""^Could not open Android VPN permission: (.+)$""") to { m ->
+        "نتونستم پنجره دسترسی VPN اندروید رو باز کنم: ${faIsolate(m.groupValues[1])}"
+    },
+    Regex("""^Could not open notification permission: (.+)$""") to { m ->
+        "نتونستم پنجره دسترسی اعلان رو باز کنم: ${faIsolate(m.groupValues[1])}"
+    },
+    Regex("""^Tunnel engine set to (.+)\. Reconnect to run it\.$""") to { m ->
+        "موتور تونل شد ${faIsolate(m.groupValues[1])}. یه بار قطع و وصل کن تا راه بیفته."
+    },
+    Regex("""^Proxy core set to (.+)\. Reconnect to run it\.$""") to { m ->
+        "هسته پروکسی شد ${faIsolate(m.groupValues[1])}. یه بار قطع و وصل کن تا راه بیفته."
+    },
+    Regex("""^URL test runs on sing-box extended • (.+) selected instead$""") to { m ->
+        "تست URL روی sing-box extended اجرا میشه • بهجاش ${faIsolate(m.groupValues[1])} انتخاب شد"
+    },
+    Regex("""^(\d+) profile(?:s)? imported into (.+)$""") to { m ->
+        "${faIsolate(m.groupValues[1])} سرور وارد ${faIsolate(m.groupValues[2])} شد"
+    },
+    Regex("""^(\d+) clipboard source(?:s)? added$""") to { m ->
+        "${faIsolate(m.groupValues[1])} منبع از کلیپبورد اضافه شد"
+    },
+    Regex("""^(\d+) profiles refreshed$""") to { m ->
+        "${faIsolate(m.groupValues[1])} سرور تازه شدن"
+    },
+    Regex("""^(\d+) measurements kept$""") to { m ->
+        "${faIsolate(m.groupValues[1])} اندازهگیری نگه داشته شد"
+    },
+    Regex("""^keeping the (\d+) measurements already made$""") to { m ->
+        "همون ${faIsolate(m.groupValues[1])} اندازهگیریی که داشتی میمونه"
+    },
+    Regex("""^(\d+)-hop chain saved$""") to { m ->
+        "زنجیره ${faIsolate(m.groupValues[1])} مرحلهای ذخیره شد"
+    },
+    Regex("""^(\d+) servers deleted$""") to { m ->
+        "${faIsolate(m.groupValues[1])} سرور پاک شد"
+    },
+    Regex("""^Removed (\d+) failed (.+) servers?$""") to { m ->
+        "${faIsolate(m.groupValues[1])} سرور ناموفق ${faIsolate(m.groupValues[2])} پاک شد"
+    },
+    Regex("""^No failed (.+) servers recorded in (.+)$""") to { m ->
+        "تو ${faIsolate(m.groupValues[2])} هیچ سرور ناموفق ${faIsolate(m.groupValues[1])} ثبت نشده"
+    },
+    Regex("""^Nothing enabled to (ping|rank) in (.+)$""") to { m ->
+        val verb = if (m.groupValues[1] == "ping") "پینگ" else "رتبهبندی"
+        "تو ${faIsolate(m.groupValues[2])} چیزی برای $verb روشن نیست"
+    },
+    Regex("""^Nothing to scan • no server in (.+) has a usable address$""") to { m ->
+        "چیزی برای اسکن نیست • تو ${faIsolate(m.groupValues[1])} سرور قابل استفادهای نیست"
+    },
+    Regex("""^At most (\d+) geo sources at once$""") to { m ->
+        "حداکثر ${faIsolate(m.groupValues[1])} منبع جغرافیایی با هم"
+    },
+    Regex("""^Routing reads (\d+) geo sources?$""") to { m ->
+        "مسیریابی ${faIsolate(m.groupValues[1])} منبع جغرافیایی میخونه"
+    },
+    Regex("""^preflight flagged (\d+)$""") to { m ->
+        "پیشبررسی ${faIsolate(m.groupValues[1])} مورد رو علامت زد"
+    },
+    Regex("""^(\d+)/(\d+) (.+)$""") to { m ->
+        "${faIsolate(m.groupValues[1])} از ${faIsolate(m.groupValues[2])} ${m.groupValues[3]}"
+    },
+    Regex("""^Tunnel intelligence (\d+)/(\d+)$""") to { m ->
+        "هوش تونل ${faIsolate(m.groupValues[1])}/${faIsolate(m.groupValues[2])}"
+    },
+    Regex("""^Connection race • (\d+)$""") to { m ->
+        "مسابقه اتصال • ${faIsolate(m.groupValues[1])}"
+    },
+    Regex("""^(\d+) server(?:s)? resolved$""") to { m ->
+        "${faIsolate(m.groupValues[1])} سرور حل شد"
+    }
+)
+
+/** Translate one known phrase. A segment that has no entry is returned untouched. */
+private fun faTranslateSegment(segment: String): String {
+    val key = segment.trim()
+    FaEffectiveLexicon[key]?.let { return it }
+    FaLexiconLower[key.lowercase()]?.let { return it }
+    faPattern(key)?.let { return it }
+    for ((regex, render) in FaRuntimePatterns) {
+        val match = regex.matchEntire(key) ?: continue
+        return render(match)
+    }
+    return segment
+}
+
+/** The repository speaks in "known phrase • live value" sentences; translate the phrase, not the value. */
+private fun faTranslateDynamic(text: String): String {
+    val whole = faTranslateSegment(text)
+    if (whole != text) return whole
+    if (!text.contains(FA_SEGMENT)) return text
+    val rendered = text.split(FA_SEGMENT).map { part ->
+        val known = faTranslateSegment(part)
+        when {
+            known !== part -> known
+            // A live server name, strategy label or error class stays in its own language, but is
+            // isolated so an RTL paragraph cannot reorder "Berlin 01" into "01 Berlin".
+            part.any { it in 'A'..'Z' || it in 'a'..'z' } -> faIsolate(part)
+            else -> part
+        }
+    }
+    val joined = rendered.joinToString(FA_SEGMENT)
+    return if (joined == text) text else joined
+}
+
 private val FaLexiconLower: Map<String, String> =
-    FaLexicon.entries.associate { it.key.lowercase() to it.value }
+    FaEffectiveLexicon.entries.associate { it.key.lowercase() to it.value }
 
 internal fun isFaLexiconKey(text: String): Boolean =
-    FaLexicon.containsKey(text) || FaLexiconLower.containsKey(text.lowercase())
+    FaEffectiveLexicon.containsKey(text) || FaLexiconLower.containsKey(text.lowercase())
 
 private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     Regex("""^(\d+) servers$""") to { m -> "${m.groupValues[1]} سرور" },

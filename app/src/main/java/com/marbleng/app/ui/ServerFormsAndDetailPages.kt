@@ -176,7 +176,7 @@ fun ServerAddSheet(
                                 label = trx("Subscription Name"),
                                 value = subName,
                                 onValueChange = { subName = it },
-                                placeholder = "My Provider"
+                                placeholder = trx("My Provider")
                             )
                             IosTextField(
                                 label = trx("HTTPS Subscription URL"),
@@ -247,7 +247,7 @@ private fun IosManualNodeForm(
                 label = trx("Server Name"),
                 value = draft.name,
                 onValueChange = { draft = draft.copy(name = it) },
-                placeholder = "Frankfurt · 01"
+                placeholder = trx("Frankfurt · 01")
             )
 
             IosDropdownField(
@@ -633,7 +633,7 @@ private fun IosChainBuilderForm(
                 label = trx("Chain Name"),
                 value = chainName,
                 onValueChange = { chainName = it },
-                placeholder = "Relay → Exit"
+                placeholder = trx("Relay → Exit")
             )
             IosDropdownField(
                 label = trx("Entry Relay (First Hop)"),

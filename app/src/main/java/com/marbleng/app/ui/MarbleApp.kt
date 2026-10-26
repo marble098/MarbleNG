@@ -2,6 +2,9 @@ package com.marbleng.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -12,7 +15,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,8 +46,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.NotificationRoute
+import com.marbleng.app.model.DockIndicatorSpec
 import com.marbleng.app.model.DockPresentation
-import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.dockShowsIcons
 import com.marbleng.app.model.dockShowsLabels
@@ -338,16 +340,9 @@ private fun IosBottomTabBar(
     val slotIcon = dockSlotMarbleGlyph(parseDockSlotIcon(s.dockSlotIcon))
     val slotColor = dockSlotIosColor(parseDockSlotAccent(s.dockSlotAccent))
 
-    val barHeight = when (size) {
-        DockSize.SMALL -> 52.dp
-        DockSize.MEDIUM -> 60.dp
-        DockSize.LARGE -> 68.dp
-    }
-    val iconSize = when (size) {
-        DockSize.SMALL -> 20.dp
-        DockSize.MEDIUM -> 23.dp
-        DockSize.LARGE -> 26.dp
-    }
+    // MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — one measured geometry, shared with the JVM test.
+    val barHeight = DockIndicatorSpec.barHeightDp(size).dp
+    val iconSize = DockIndicatorSpec.iconSizeDp(size).dp
 
     val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
         when (repo.state) {
@@ -408,7 +403,10 @@ private fun IosBottomTabBar(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { onSelect(tab) }
-                        .padding(vertical = 6.dp, horizontal = 4.dp),
+                        .padding(
+                            vertical = DockIndicatorSpec.TAB_VERTICAL_PADDING_DP.dp,
+                            horizontal = 4.dp
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -434,21 +432,12 @@ private fun IosBottomTabBar(
                                             .border(1.2.dp, colors.tabBar, CircleShape)
                                     )
                                 }
-                                // Selected dot under active tab (6dp pill lens)
-                                if (isSelected) {
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomCenter)
-                                            .offset(y = 10.dp)
-                                            .size(width = 14.dp, height = 3.dp)
-                                            .clip(CircleShape)
-                                            .background(activeColor.copy(alpha = 0.55f))
-                                    )
-                                }
+                                // V233: the line is NOT here any more. It used to be an unmeasured
+                                // child of this icon box, pushed 10dp down with offset(), so it
+                                // overlapped the label and was clipped by the active pill. It is
+                                // now a measured sibling directly under the icon.
                             }
-                        }
-                        if (showIcons && showLabels) {
-                            Spacer(Modifier.height(3.dp))
+                            DockActiveIndicator(visible = isSelected, color = activeColor)
                         }
                         if (showLabels) {
                             Text(
@@ -461,9 +450,47 @@ private fun IosBottomTabBar(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                        if (!showIcons) {
+                            DockActiveIndicator(visible = isSelected, color = activeColor)
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — the active tab's little line, in the right place.
+ *
+ * It is a measured [DockIndicatorSpec.SLOT_DP] slot that EVERY tab reserves, so the labels of
+ * unselected tabs do not sit one line higher than the selected one. No offset, no alignment to
+ * the icon box, no dependence on icon size or text scale: the line is centred in its own slot,
+ * directly under the icon (or under the label when icons are hidden).
+ */
+@Composable
+private fun DockActiveIndicator(visible: Boolean, color: Color) {
+    val progress by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "dockActiveIndicator"
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(DockIndicatorSpec.SLOT_DP.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (progress > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .size(
+                        width = (DockIndicatorSpec.WIDTH_DP * (0.45f + 0.55f * progress)).dp,
+                        height = DockIndicatorSpec.HEIGHT_DP.dp
+                    )
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = 0.9f * progress))
+            )
         }
     }
 }

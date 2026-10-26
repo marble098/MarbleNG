@@ -294,7 +294,7 @@ fun CustomSlotScreen(
                                     trailing = {
                                         if (result != null) {
                                             IosBadge(
-                                                text = pingBadgeText(result, probeState),
+                                                text = trx(pingBadgeText(result, probeState)),
                                                 color = pingBadgeColor(result, probeState)
                                             )
                                         }
