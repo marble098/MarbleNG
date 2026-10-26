@@ -649,7 +649,9 @@ private fun ServerGroupCard(
                         Text(
                             text = trx("Edit"),
                             color = colors.subtitle,
-                            style = MaterialTheme.typography.labelMedium,
+                            // MARBLE_WEIGHT_LADDER_V235 — Refresh/Ping/Edit are one row of peer
+                            // actions: one rung (TITLE 600) for all three, color carries the rest.
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             modifier = Modifier.clickable { onManageSubscription(sub) }
                         )
                     }

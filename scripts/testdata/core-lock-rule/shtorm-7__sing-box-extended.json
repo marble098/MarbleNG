@@ -1,0 +1,5 @@
+[
+  { "tag_name": "v1.15.0-extended-3.0.0", "draft": true,  "prerelease": false, "published_at": null,                      "created_at": "2026-10-26T10:00:00Z" },
+  { "tag_name": "v1.14.3-extended-2.7.3", "draft": false, "prerelease": false, "published_at": "2026-10-19T16:41:59Z",    "created_at": "2026-10-19T14:34:19Z" },
+  { "tag_name": "v1.14.1-extended-2.7.2", "draft": false, "prerelease": true,  "published_at": "2026-09-20T22:08:07Z",    "created_at": "2026-09-20T20:18:07Z" }
+]

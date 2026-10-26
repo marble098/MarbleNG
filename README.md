@@ -631,6 +631,43 @@ they are what a screen reader reads and what any surface that cannot inflate a `
 receives. `setStyle` is called exactly once, because a second call replaces the decorator and the
 custom view loses its header and its actions.
 
+### The V235 pass — one update rule (newest published wins), and a type ladder with real weights
+
+`docs/LATEST_VERSION_RULE_AND_WEIGHT_LADDER_V235.md` is the chapter (Persian). It answers two
+sentences: *make the cores' update rules complete — the only rule is: upgrade to the latest version
+that exists, beta or release*, and *use the fonts' different weights in the different parts of the
+app*.
+
+**One rule, everywhere something updates.** Until V235 each surface kept its own idea of "latest":
+the core updater filtered by *channel* (`prerelease` for Xray, `beta` for the rest), the in-app check
+asked GitHub's `/releases/latest` — by definition the newest *stable* — and the toolchain autopilot
+capped itself at a compatibility line. The channel idea failed in production exactly as predicted:
+Xray sat pinned to beta `v26.9.30` (2026-09-30) while stable `v26.10.21` (2026-10-21) was newer in
+every sense, because a `prerelease` filter cannot see a build wearing the wrong label — and the
+stable-only endpoint was the same blind spot mirrored. The rule is now stated once and used by all
+three updaters (`MARBLE_LATEST_VERSION_RULE_V235`): among **non-draft** releases, the one with the
+latest `published_at` wins — a stable published after a beta is the update, a beta after a stable is
+the update — with the version as a same-instant tie-break, and (in the app) the version still
+guarding direction so a fresh hotfix of an old line can never offer a downgrade. `core-lock.json`
+dropped `channel` for `"rule": "latest-published"` plus per-core provenance (resolved commit — now
+for all four cores — publication instant, label); `scripts/test-core-lock-rule.sh` pins every branch
+of the picker offline in PR verification; the pure-Kotlin half, `core/LatestReleaseRule.kt`, is what
+`AppRepository.checkForAppUpdate` now runs, and the update dialog names a pre-release as one. The
+toolchain targets newest-published too, with its old line kept as the compile-failure fallback: the
+scheduled job resolves newest, must prove `:app:compileDebugKotlin`, and only falls back when that
+proof fails. The first thing the new rule did, on its first run, was move Xray `v26.9.30 → v26.10.21`.
+
+**A weight ladder instead of two voices.** The app effectively spoke in Bold (page titles, dialog
+titles, every settings row, verdicts) and Normal (prose). `MarbleWeightSpec` in `ui/IosTheme.kt` now
+names one weight per role — DISPLAY 800 for large-header page titles, HEADLINE 700, TITLE 600 for row
+and card titles, LABEL 500, BODY 400, NUMERIC 700 — the typography slots carry the rungs, and the
+components were retuned to them (rows step down to 600, trailing values up to 500, resting chips to
+500 so selection is a two-rung step, menu selection to 600, warnings up a rung; the redundant
+`.copy(Bold)`s are gone). A fifth real face, `vazirmatn_extrabold.ttf` (same Vazirmatn 33.003
+release as the other four), backs the DISPLAY rung — no synthesised weights. Light/Thin were
+deliberately not shipped: the app has no large quiet text to give them, and thin strokes at caption
+sizes are where Persian legibility dies first. `MarbleWeightLadderV235Test` pins the ladder.
+
 ### The V215 pass — Settings, text size, and a steadier Home
 
 `docs/SETTINGS_TREE_TEXT_SCALE_V215.md` is the chapter. Settings is regrouped so every sub-section

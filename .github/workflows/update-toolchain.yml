@@ -1,18 +1,23 @@
 name: Update toolchain
-# MARBLE_TOOLCHAIN_AUTOPILOT_V211 — the build updates itself to the newest published pre-release
-# of every component it is made of: Gradle, AGP, Kotlin, the Compose BOM, the androidx libraries,
-# jsch, ZXing, org.json and JUnit.
+# MARBLE_TOOLCHAIN_AUTOPILOT_V211 — the build updates itself: Gradle, AGP, Kotlin, the Compose
+# BOM, the androidx libraries, jsch, ZXing, org.json and JUnit.
 #
-# One file holds them (`gradle/toolchain.properties`), one script resolves them
-# (`scripts/resolve-toolchain.py`), and everything else in the tree reads that file — so this job
-# is the whole update: resolve, prove the result compiles, commit, push.
+# MARBLE_LATEST_VERSION_RULE_V235 — the target is the one rule every updater in this repo now
+# answers to: the newest *published* version of every component, beta or release or any other
+# qualifier. (Nightly snapshots stay excluded — unpublished work, this world's drafts.) The
+# pre-V235 compatibility line no longer caps the target; it is the fallback. The flow is:
 #
-# It pushes only after `:app:compileDebugKotlin` succeeds, because a toolchain bump is the one
-# change that can break every line of the product at once. A component whose move is bigger than
-# its compatibility line (a new androidx minor, a new Gradle/AGP/Kotlin major) is still written —
-# that is what "newest pre-release" means — but the compile step is what makes it safe to land
-# without a human: if the newest pre-release does not build, nothing is pushed and the report is
-# left in the log.
+#   1. resolve newest-published (`--write`) and prove `:app:compileDebugKotlin`;
+#   2. if that proof fails, throw the file away, resolve `--in-line-only` (newest inside each
+#      compatibility line) and prove that instead;
+#   3. push only a set that compiled. If neither compiles, nothing is pushed and the errors
+#      are left in the log.
+#
+# One file holds the versions (`gradle/toolchain.properties`), one script resolves them
+# (`scripts/resolve-toolchain.py`), and everything else in the tree reads that file — so this
+# job is the whole update: resolve, prove, commit, push. It pushes only after a compile
+# succeeds, because a toolchain bump is the one change that can break every line of the
+# product at once; the compile, not a version-number convention, is the safety property.
 on:
   schedule:
     - cron: '43 2 * * *'
@@ -34,7 +39,7 @@ jobs:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
 
-      - name: Resolve the newest pre-release of every component
+      - name: Resolve the newest published version of every component
         shell: bash
         run: |
           set -euo pipefail
@@ -50,7 +55,7 @@ jobs:
           set -euo pipefail
           if git diff --quiet -- gradle/toolchain.properties; then
             echo "moved=no" >> "$GITHUB_OUTPUT"
-            echo "MARBLE_TOOLCHAIN_AUTOPILOT: already at the newest pre-release of everything."
+            echo "MARBLE_TOOLCHAIN_AUTOPILOT: already at the newest published version of everything."
           else
             echo "moved=yes" >> "$GITHUB_OUTPUT"
             git diff -- gradle/toolchain.properties
@@ -92,24 +97,78 @@ jobs:
         with:
           gradle-version: ${{ steps.toolchain.outputs.gradle }}
 
-      - name: Prove the new toolchain compiles the app
+      # continue-on-error is the whole point of the step: a red compile here is not a dead
+      # job, it is the signal to try the in-line fallback. The outcome is read below.
+      - name: Prove the newest published toolchain compiles the app
         if: steps.moved.outputs.moved == 'yes'
+        id: compile_newest
+        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           gradle --no-daemon :app:compileDebugKotlin 2>&1 | tee toolchain-ci.log
 
-      - name: Publish the compiler errors when the newest pre-release does not build
+      - name: Fall back to the newest in-line versions when the newest does not build
+        if: steps.moved.outputs.moved == 'yes' && steps.compile_newest.outcome == 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "MARBLE_LATEST_VERSION_RULE_V235: the newest published set did not compile."
+          echo "Resolving the in-line fallback (--in-line-only) and proving that instead."
+          grep -E "^(e: |error:)|FAILED|Execution failed" toolchain-ci.log | tail -n 30 || true
+          git checkout -- gradle/toolchain.properties
+          python3 scripts/resolve-toolchain.py --in-line-only --write
+          git diff -- gradle/toolchain.properties || true
+
+      - name: Read the fallback Gradle version
+        if: steps.moved.outputs.moved == 'yes' && steps.compile_newest.outcome == 'failure'
+        id: toolchain_fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^gradle=//p' gradle/toolchain.properties | tail -n 1)"
+          echo "gradle=${version:-9.5.1}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up the fallback Gradle
+        if: steps.moved.outputs.moved == 'yes' && steps.compile_newest.outcome == 'failure'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.toolchain_fallback.outputs.gradle }}
+
+      - name: Prove the in-line fallback compiles the app
+        if: steps.moved.outputs.moved == 'yes' && steps.compile_newest.outcome == 'failure'
+        shell: bash
+        run: |
+          set -o pipefail
+          if git diff --quiet -- gradle/toolchain.properties; then
+            echo "MARBLE_TOOLCHAIN_AUTOPILOT: the in-line fallback changes nothing; nothing to prove."
+            exit 0
+          fi
+          gradle --no-daemon :app:compileDebugKotlin 2>&1 | tee toolchain-ci.log
+
+      - name: Publish the compiler errors when neither set builds
         if: failure() && steps.moved.outputs.moved == 'yes'
         shell: bash
         run: |
           set -euo pipefail
-          echo "MARBLE_TOOLCHAIN_AUTOPILOT: nothing was committed — the newest pre-release of one"
-          echo "of these components does not compile. The error lines follow."
+          echo "MARBLE_TOOLCHAIN_AUTOPILOT: nothing was committed — neither the newest published"
+          echo "set nor the in-line fallback compiles. The error lines follow."
           grep -E "^(e: |error:)|FAILED|Execution failed" toolchain-ci.log | tail -n 60 || true
 
-      - name: Commit and push
+      - name: Did a compilable set move?
         if: steps.moved.outputs.moved == 'yes' && success()
+        id: moved_final
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- gradle/toolchain.properties; then
+            echo "moved=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "moved=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push
+        if: steps.moved_final.outputs.moved == 'yes' && success()
         shell: bash
         run: |
           set -euo pipefail
@@ -117,10 +176,12 @@ jobs:
           git config user.email "toolchain-bot@users.noreply.github.com"
           git add gradle/toolchain.properties
           {
-            echo "toolchain: update to the newest pre-release of every component"
+            echo "toolchain: update to the newest published version of every component"
             echo
-            echo "MARBLE_TOOLCHAIN_AUTOPILOT_V211 — resolved by scripts/resolve-toolchain.py and"
-            echo "proved by :app:compileDebugKotlin before this commit was made."
+            echo "MARBLE_TOOLCHAIN_AUTOPILOT_V211 / MARBLE_LATEST_VERSION_RULE_V235 — resolved by"
+            echo "scripts/resolve-toolchain.py and proved by :app:compileDebugKotlin before this"
+            echo "commit was made (newest-published set, or the in-line fallback when the newest"
+            echo "did not build; the workflow log says which)."
             echo
             python3 scripts/resolve-toolchain.py --offline
           } > /tmp/commit-msg

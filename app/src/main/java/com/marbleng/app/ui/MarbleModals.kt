@@ -188,6 +188,14 @@ fun AppUpdateAvailableDialog(
             onDismiss()
         }
     ) {
+        // MARBLE_LATEST_VERSION_RULE_V235 — the one rule offers the newest published
+        // build whatever its label, so the dialog names the label: a pre-release is
+        // offered openly as one, never dressed as a stable.
+        if (update.prerelease) {
+            Row {
+                IosBadge(text = trx("Pre-release"), color = colors.orange)
+            }
+        }
         Text(
             text = update.notes.take(420).ifBlank { trx("A newer release of MarbleNG is available on GitHub.") },
             color = colors.subtitle,

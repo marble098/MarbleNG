@@ -14,13 +14,24 @@ themselves publish in:
 
     ... < 1.0-alpha1 < 1.0-beta1 < 1.0-milestone1 < 1.0-rc1 < 1.0 < 1.0-sp
 
-with numeric segments compared numerically, and a package's own "newest" line expressed as a
-*compatibility line* (`--line`): the artifact's major.minor for androidx-style versioning, the
-major alone for Gradle/AGP/Kotlin. A candidate outside the line is not a bug fix, it is a
-migration, so it is reported separately (`newerMajor`) instead of being applied automatically.
+with numeric segments compared numerically.
+
+MARBLE_LATEST_VERSION_RULE_V235 — the target is the same one rule the cores and the app now
+answer to: **the newest published version that exists**, whatever its qualifier. A stable
+published after a beta wins; a beta published after the stable wins. Unpublished work does not
+exist — Maven/Gradle nightly *snapshots* are this world's drafts, and `gradle_versions()` drops
+them for exactly that reason.
+
+The pre-V235 *compatibility line* (major for Gradle/AGP/Kotlin, minor for androidx, year for the
+Compose BOM) used to *cap* the target. It no longer decides anything on the happy path; it is
+reported (`newerMajor`) and kept as the workflow's fallback (`--in-line-only`): the scheduled
+autopilot first resolves newest-overall and must prove it compiles before pushing, and only when
+that proof fails does it fall back to the newest-in-line set and try to prove that instead. The
+compile is the safety property; the line was only ever a proxy for it.
 
 Usage:
-    scripts/resolve-toolchain.py                      # report, newest-in-line + newest-any
+    scripts/resolve-toolchain.py                      # report, target = newest published overall
+    scripts/resolve-toolchain.py --in-line-only       # report, target = newest inside the line
     scripts/resolve-toolchain.py --write              # write gradle/toolchain.properties
     scripts/resolve-toolchain.py --json report.json   # machine-readable
     scripts/resolve-toolchain.py --offline            # report the pins, touch no network
@@ -259,7 +270,7 @@ class _Sortable:
         return isinstance(other, _Sortable) and compare(self.version, other.version) == 0
 
 
-def resolve(offline: bool = False) -> "list[dict]":
+def resolve(offline: bool = False, in_line_only: bool = False) -> "list[dict]":
     pins = load_pins()
     report: "list[dict]" = []
     for component in COMPONENTS:
@@ -282,10 +293,15 @@ def resolve(offline: bool = False) -> "list[dict]":
                 versions = gradle_versions()
             else:
                 versions = maven_versions(component["repo"], component["group"], component["artifact"])
-            target, overall = newest(versions, pin, component["line"])
-            entry["target"] = target
+            in_line, overall = newest(versions, pin, component["line"])
+            # MARBLE_LATEST_VERSION_RULE_V235 — the target is the newest published version
+            # overall (never a downgrade); `--in-line-only` is the compile-failure fallback
+            # the workflow resolves when the newest overall does not build.
+            entry["target"] = in_line if in_line_only else (
+                overall if overall and compare(overall, pin) > 0 else pin
+            )
             entry["newest"] = overall
-            if overall != target and compare(overall, pin) > 0:
+            if overall != in_line and compare(overall, pin) > 0:
                 entry["newerMajor"] = overall
         except (urllib.error.URLError, OSError, ValueError, KeyError) as failure:
             entry["error"] = f"{type(failure).__name__}: {failure}"
@@ -309,9 +325,10 @@ def write_properties(report: "list[dict]") -> "list[str]":
         "# and read by `settings.gradle.kts`, `gradlew` and `.github/workflows/*.yml`. Nothing else\n"
         "# in the tree names a version: a second copy is a version that drifts.\n"
         "#\n"
-        "# `line` in the resolver decides how far the autopilot may move a value on its own:\n"
-        "# Gradle/AGP/Kotlin move inside their major, androidx inside its minor, the Compose BOM\n"
-        "# inside its year. Anything bigger is reported as `newerMajor` for a human to take.\n"
+        "# MARBLE_LATEST_VERSION_RULE_V235 — the target is the newest published version of every\n"
+        "# component, beta or release; the workflow proves it compiles before pushing. `line` in\n"
+        "# the resolver is only the fallback (`--in-line-only`) for the night the newest does not\n"
+        "# build: Gradle/AGP/Kotlin inside their major, androidx inside its minor, BOM its year.\n"
     )
     body = "\n".join(f"{key}={pins[key]}" for key in sorted(pins))
     LOCK.parent.mkdir(parents=True, exist_ok=True)
@@ -320,14 +337,19 @@ def write_properties(report: "list[dict]") -> "list[str]":
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Resolve the newest pre-release toolchain versions.")
+    parser = argparse.ArgumentParser(description="Resolve the newest published toolchain versions.")
     parser.add_argument("--write", action="store_true", help="write gradle/toolchain.properties")
     parser.add_argument("--offline", action="store_true", help="report the pins, touch no network")
+    parser.add_argument(
+        "--in-line-only",
+        action="store_true",
+        help="target the newest version inside each compatibility line (compile-failure fallback)",
+    )
     parser.add_argument("--json", metavar="PATH", help="also write the report as JSON")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
-    report = resolve(offline=args.offline)
+    report = resolve(offline=args.offline, in_line_only=args.in_line_only)
 
     if args.json:
         Path(args.json).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -350,7 +372,8 @@ def main() -> int:
             for line in changed:
                 print(f"  {line}")
         else:
-            print("MARBLE_TOOLCHAIN_AUTOPILOT: everything already at the newest in-line version.")
+            scope = "newest in-line" if args.in_line_only else "newest published"
+            print(f"MARBLE_TOOLCHAIN_AUTOPILOT: everything already at the {scope} version.")
 
     # An unreachable repository is a report, never a failure: the pins in the tree are the build's
     # floor, and a network problem in CI must not turn into a red release.

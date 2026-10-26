@@ -34,7 +34,17 @@ jobs:
           set -euo pipefail
           bash -n scripts/*.sh
 
-      # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — what the newest published pre-release of every
+      # MARBLE_LATEST_VERSION_RULE_V235 — the one update rule (newest *published* version wins,
+      # beta or release) proven offline against recorded release lists: a stable published after
+      # a beta wins, a beta after a stable wins, a draft never wins, same-instant ties break by
+      # version. This is the branch the old `prerelease` channel got wrong in production.
+      - name: Core update rule fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/test-core-lock-rule.sh
+
+      # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — what the newest published version of every
       # component this build is made of actually is, printed on every source verification. The
       # resolver is the same file the scheduled updater writes `gradle/toolchain.properties`
       # with, and the report is informational: the pins are the build's floor, and a repository
@@ -90,16 +100,23 @@ jobs:
           grep -q "libtun2socks.so" scripts/prepare-native.sh
           grep -q "libtun2socks.so" app/build.gradle.kts
 
-          # The sing-box pin tracks the extended beta line, which is what the product ships.
-          [[ "$(jq -r '.singbox.channel' core-lock.json)" == "beta" ]]
+          # MARBLE_LATEST_VERSION_RULE_V235 — one rule for every core: the newest published
+          # (non-draft) release by published_at, beta or release or any other label. There are
+          # no channels left to drift: the lock stamps the rule, each core carries the commit
+          # its tag resolved to plus the publication instant that won it the pin, and the
+          # fixture step above proves the picker on every branch of the rule.
+          [[ "$(jq -r '.rule' core-lock.json)" == "latest-published" ]]
+          jq -e '[.xray, .hev, .singbox, .tun2socks] | all(has("channel") | not)' core-lock.json >/dev/null
           [[ "$(jq -r '.singbox.repo' core-lock.json)" == "shtorm-7/sing-box-extended" ]]
-
-          # MARBLE_TUN2SOCKS_CORE_V222 — the second datapath tracks the newest tun2socks
-          # release of any kind, and the pin is a commit, not a movable tag.
-          [[ "$(jq -r '.tun2socks.channel' core-lock.json)" == "beta" ]]
           [[ "$(jq -r '.tun2socks.repo' core-lock.json)" == "xjasonlyu/tun2socks" ]]
-          [[ "$(jq -r '.tun2socks.commit' core-lock.json)" =~ ^[0-9a-f]{40}$ ]]
-          grep -q "beta" scripts/update-core-lock.sh
+          for core in xray hev singbox tun2socks; do
+            [[ "$(jq -r ".${core}.commit" core-lock.json)" =~ ^[0-9a-f]{40}$ ]]
+            [[ "$(jq -r ".${core}.publishedAt" core-lock.json)" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]]
+            jq -e ".${core} | has(\"prerelease\")" core-lock.json >/dev/null
+          done
+          grep -q "published_at" scripts/update-core-lock.sh
+          grep -q "MARBLE_LATEST_VERSION_RULE_V235" scripts/update-core-lock.sh
+          ! grep -q "releases/latest" app/src/main/java/com/marbleng/app/AppRepository.kt
 
           # A hard-coded version string anywhere outside the lock is drift waiting to happen.
           ! grep -RnoE "v26\.[0-9]+\.[0-9]+" app/build.gradle.kts scripts/prepare-native.sh

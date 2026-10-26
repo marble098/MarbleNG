@@ -417,7 +417,10 @@ private fun HomeConnectionHeroCard(
                 Text(
                     text = headline,
                     color = colors.title,
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    // MARBLE_WEIGHT_LADDER_V235 — headlineSmall already carries the HEADLINE
+                    // rung (700); the copy() restated it. The status hero is a headline,
+                    // the page's large-header title above it is the DISPLAY rung (800).
+                    style = MaterialTheme.typography.headlineSmall,
                     textAlign = TextAlign.Center
                 )
                 Text(

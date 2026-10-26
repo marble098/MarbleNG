@@ -1,0 +1,5 @@
+[
+  { "tag_name": "v2.7.0-beta", "draft": false, "prerelease": true,  "published_at": "2026-07-12T09:48:53Z", "created_at": "2026-07-12T08:04:34Z" },
+  { "tag_name": "v2.7.0",      "draft": false, "prerelease": false, "published_at": "2026-07-12T09:48:53Z", "created_at": "2026-07-12T08:04:34Z" },
+  { "tag_name": "v2.6.0",      "draft": false, "prerelease": false, "published_at": "2025-06-07T19:46:26Z", "created_at": "2025-05-25T21:22:28Z" }
+]

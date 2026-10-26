@@ -1,32 +1,39 @@
 {
   "xray": {
     "repo": "XTLS/Xray-core",
-    "tag": "v26.9.30",
-    "channel": "prerelease"
+    "tag": "v26.10.21",
+    "commit": "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74",
+    "publishedAt": "2026-10-21T12:07:11Z",
+    "prerelease": false
   },
   "hev": {
     "repo": "heiher/hev-socks5-tunnel",
     "tag": "2.19.3",
-    "channel": "beta"
+    "commit": "c5584feca8f6df70ee53eb2879e034b849a3d15a",
+    "publishedAt": "2026-10-25T01:15:18Z",
+    "prerelease": false
   },
   "singbox": {
     "repo": "shtorm-7/sing-box-extended",
     "tag": "v1.14.3-extended-2.7.3",
     "commit": "d9442d14b19ddd02605bf3ee893a171947038e19",
-    "channel": "beta",
     "patch": "crash-fix.1",
     "sha256": {
       "sing-box-1.14.3-extended-2.7.3-linux-amd64.tar.gz": "c9fd27564d55b6abc7b21c9fdd1e29dee4834e034aeb6b7b8255055bff46a3f5"
-    }
+    },
+    "publishedAt": "2026-10-19T16:41:59Z",
+    "prerelease": false
   },
   "tun2socks": {
     "repo": "xjasonlyu/tun2socks",
     "tag": "v2.7.0",
     "commit": "8dda19e8e4613e014f0b12f3e624fdff5e5f23b3",
-    "channel": "beta",
     "sha256": {
       "tun2socks-linux-amd64.zip": "a612baa287a3b6de6221f74fd02b442a50888508227ecf51e1288a5ccbb77381"
-    }
+    },
+    "publishedAt": "2026-07-12T09:48:53Z",
+    "prerelease": false
   },
-  "updated": "2026-10-26"
+  "updated": "2026-10-26",
+  "rule": "latest-published"
 }

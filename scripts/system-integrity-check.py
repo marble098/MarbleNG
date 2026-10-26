@@ -379,6 +379,18 @@ files = {
         "app/src/test/java/com/marbleng/app/model/DockIndicatorSpecV233Test.kt"
     ),
     "v233CouncilDoc": read("docs/PERSIAN_CONNECT_DOCK_COUNCIL_V233.md"),
+    # MARBLE_LATEST_VERSION_RULE_V235 / MARBLE_WEIGHT_LADDER_V235 — the one update rule (newest
+    # published wins, beta or release) in its pure-Kotlin, shell and fixture forms, the tests that
+    # pin it, the weight ladder's test, and the chapter that records both.
+    "latestRule": read("app/src/main/java/com/marbleng/app/core/LatestReleaseRule.kt"),
+    "latestRuleTest": read(
+        "app/src/test/java/com/marbleng/app/core/LatestReleaseRuleV235Test.kt"
+    ),
+    "weightLadderTest": read(
+        "app/src/test/java/com/marbleng/app/ui/MarbleWeightLadderV235Test.kt"
+    ),
+    "coreRuleTest": read("scripts/test-core-lock-rule.sh"),
+    "v235Doc": read("docs/LATEST_VERSION_RULE_AND_WEIGHT_LADDER_V235.md"),
     # MARBLE_NOTIFICATION_SWITCH_V234 / MARBLE_SHADE_ATELIER_V234 / MARBLE_RTL_CONNECT_CONTROL_V234 —
     # the shade's own route switch, the drawn ongoing item, and the mirrored Home connect control.
     "routeCycle": read("app/src/main/java/com/marbleng/app/core/NotificationRouteCycle.kt"),
@@ -3692,6 +3704,132 @@ check(
     and "## ۶. آنچه عمداً انجام نشد" in files["v234Doc"]
     and "NOTIFICATION_SWITCH_AND_SHADE_V234.md" in files["readme"]
     and "MARBLE_NOTIFICATION_SWITCH_V234" in files["notificationCopy"],
+)
+
+# MARBLE_LATEST_VERSION_RULE_V235 — one update rule everywhere something updates: the newest
+# *published* (non-draft) version wins by published_at, beta or release, with the version as the
+# same-instant tie-break and (in the app) the downgrade guard. These checks exist so no surface
+# can grow a second definition of "latest" again: no channel filter in the core updater, no
+# stable-only endpoint in the app, no compatibility-line cap as the toolchain's target.
+_v235_lock = json.loads(files["coreLock"])
+_v235_cores = ("xray", "hev", "singbox", "tun2socks")
+_v235_fixtures = (
+    "XTLS__Xray-core",
+    "heiher__hev-socks5-tunnel",
+    "shtorm-7__sing-box-extended",
+    "xjasonlyu__tun2socks",
+)
+check(
+    "V235 the core updater picks by publication time, never by label",
+    "MARBLE_LATEST_VERSION_RULE_V235" in files["coreUpdater"]
+    and "select(.draft == false)" in files["coreUpdater"]
+    and "(.published_at // .created_at" in files["coreUpdater"]
+    and "sort_by([.at, (.tag | vkey)])" in files["coreUpdater"]
+    # The retired channel filters must not come back as eligibility rules.
+    and "prerelease == true" not in files["coreUpdater"]
+    and "prerelease == false" not in files["coreUpdater"]
+    and "xray_channel" not in files["coreUpdater"]
+    and "--resolve-only" in files["coreUpdater"]
+    and "MARBLE_RELEASES_FIXTURE_DIR" in files["coreUpdater"]
+    and "::warning::" in files["coreUpdater"]
+    and "resolve_singbox_commit" in files["coreUpdater"],
+)
+
+check(
+    "V235 every branch of the one rule is proven offline in PR verification",
+    "MARBLE_LATEST_VERSION_RULE_V235" in files["coreRuleTest"]
+    and "expect xray" in files["coreRuleTest"]
+    and "v26.10.21" in files["coreRuleTest"]
+    and "2.20.0-beta1" in files["coreRuleTest"]
+    and all(
+        (ROOT / f"scripts/testdata/core-lock-rule/{name}.json").is_file()
+        for name in _v235_fixtures
+    )
+    and "./scripts/test-core-lock-rule.sh" in files["verify"]
+    and "scripts/inject-singbox-android-fix.py" in files["updateCores"],
+)
+
+check(
+    "V235 the lock stamps the rule and carries full provenance for all four cores",
+    _v235_lock.get("rule") == "latest-published"
+    and all("channel" not in _v235_lock[c] for c in _v235_cores)
+    and all(len(_v235_lock[c].get("commit", "")) == 40 for c in _v235_cores)
+    and all("T" in _v235_lock[c].get("publishedAt", "") for c in _v235_cores)
+    and all(isinstance(_v235_lock[c].get("prerelease"), bool) for c in _v235_cores)
+    and '[[ "$(jq -r \'.rule\' core-lock.json)" == "latest-published" ]]' in files["verify"]
+    and '[[ "$(jq -r \'.rule\' core-lock.json)" == "latest-published" ]]' in files["updateCores"],
+)
+
+check(
+    "V235 the in-app update check runs the same one rule",
+    "object LatestReleaseRule" in files["latestRule"]
+    and "fun newest(candidates: List<Candidate>): Candidate?" in files["latestRule"]
+    and "fun isUpdate(candidateTag: String, currentVersion: String): Boolean"
+    in files["latestRule"]
+    and "fun compareVersions(left: String, right: String): Int" in files["latestRule"]
+    and "LatestReleaseRule.newest(candidates)" in files["repo"]
+    and "LatestReleaseRule.isUpdate(tag, BuildConfig.VERSION_NAME)" in files["repo"]
+    and "releases?per_page=30" in files["repo"]
+    # The stable-only endpoint and the x.y.z-only parser were the old rule's two halves.
+    and "releases/latest" not in files["repo"]
+    and "parseStableSemver" not in files["repo"]
+    and "class LatestReleaseRuleV235Test" in files["latestRuleTest"]
+    and "fun aStablePublishedAfterABetaIsTheUpdate()" in files["latestRuleTest"]
+    and "fun aBetaPublishedAfterAStableIsTheUpdate()" in files["latestRuleTest"]
+    and "fun aDraftNeverWinsEvenWhenItIsNewest()" in files["latestRuleTest"],
+)
+
+check(
+    "V235 the toolchain targets newest published with the line as compile fallback",
+    "MARBLE_LATEST_VERSION_RULE_V235" in files["resolveToolchain"]
+    and '"--in-line-only"' in files["resolveToolchain"]
+    and "def resolve(offline: bool = False, in_line_only: bool = False)"
+    in files["resolveToolchain"]
+    and "--in-line-only --write" in files["updateToolchain"]
+    and "steps.compile_newest.outcome == 'failure'" in files["updateToolchain"]
+    and "python3 scripts/resolve-toolchain.py --write" in files["updateToolchain"]
+    and ":app:compileDebugKotlin" in files["updateToolchain"]
+    and "git push origin HEAD:main" in files["updateToolchain"],
+)
+
+# MARBLE_WEIGHT_LADDER_V235 — one weight per role, each rung a real bundled face. The spec is
+# plain primitives in the theme file (JVM-pinnable), the family registers exactly those faces,
+# and the ladder's ordering is asserted by the unit test these anchors keep alive.
+check(
+    "V235 the type ladder names one registered weight per role",
+    "object MarbleWeightSpec" in files["iosTheme"]
+    and "const val BODY: Int = 400" in files["iosTheme"]
+    and "const val LABEL: Int = 500" in files["iosTheme"]
+    and "const val TITLE: Int = 600" in files["iosTheme"]
+    and "const val HEADLINE: Int = 700" in files["iosTheme"]
+    and "const val DISPLAY: Int = 800" in files["iosTheme"]
+    and "Font(R.font.vazirmatn_extrabold, FontWeight(MarbleWeightSpec.DISPLAY))"
+    in files["iosTheme"]
+    and "fontWeight = FontWeight(MarbleWeightSpec.DISPLAY)" in files["iosTheme"]
+    and all(
+        (ROOT / f"app/src/main/res/font/{name}.ttf").is_file()
+        for name in (
+            "vazirmatn_regular",
+            "vazirmatn_medium",
+            "vazirmatn_semibold",
+            "vazirmatn_bold",
+            "vazirmatn_extrabold",
+        )
+    )
+    and "class MarbleWeightLadderV235Test" in files["weightLadderTest"]
+    and "fun theLadderClimbsOneRungPerRole()" in files["weightLadderTest"]
+    and "fun everyRungHasARealBundledFace()" in files["weightLadderTest"],
+)
+
+check(
+    "V235 the rule and the ladder are recorded and linked",
+    "MARBLE_LATEST_VERSION_RULE_V235" in files["v235Doc"]
+    and "MARBLE_WEIGHT_LADDER_V235" in files["v235Doc"]
+    and "## ۴. جدول اجرا" in files["v235Doc"]
+    and "## ۵. آنچه عمداً انجام نشد" in files["v235Doc"]
+    and "LATEST_VERSION_RULE_AND_WEIGHT_LADDER_V235.md" in files["readme"]
+    and "MARBLE_LATEST_VERSION_RULE_V235" in files["latestRule"]
+    and "MARBLE_WEIGHT_LADDER_V235" in files["iosTheme"],
 )
 
 failed = [name for name, passed in checks if not passed]
