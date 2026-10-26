@@ -555,6 +555,9 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Local address / CIDR" to "نشانی محلی / CIDR",
     "Peer public key" to "کلید عمومی همتا",
     "Pre-shared key" to "کلید از پیش تقسیم‌شده",
+    // MARBLE_LATEST_VERSION_RULE_V235 — the update dialog's label for a newest-published
+    // build that upstream marked as a pre-release.
+    "Pre-release" to "پیش‌انتشار",
     "Allowed IPs" to "آی‌پی‌های مجاز",
     "Reserved" to "رزروشده",
     "Keepalive" to "نگه‌داشتن اتصال",

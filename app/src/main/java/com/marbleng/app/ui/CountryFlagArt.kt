@@ -819,7 +819,9 @@ fun CountryFlagCircle(
                     text = fallbackText,
                     color = fallbackTone,
                     style = styleOverride ?: MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
+                    // MARBLE_WEIGHT_LADDER_V235 — two drawn letters standing in for a flag are
+                    // display art, not a label: DISPLAY rung keeps them legible at avatar size.
+                    fontWeight = FontWeight.ExtraBold,
                     textAlign = TextAlign.Center,
                     maxLines = 1
                 )

@@ -62,7 +62,8 @@ fun ConnectionPermissionDialog(
                     Text(
                         text = title,
                         color = colors.title,
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                        // MARBLE_WEIGHT_LADDER_V235 — titleLarge carries HEADLINE (700) itself.
+                        style = MaterialTheme.typography.titleLarge
                     )
                 }
             },

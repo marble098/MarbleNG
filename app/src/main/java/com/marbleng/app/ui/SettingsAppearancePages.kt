@@ -21,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.model.AppFont
@@ -112,7 +111,9 @@ fun SettingsAppearancePage(
                             Text(
                                 text = trx("MarbleNG Card Preview"),
                                 color = colors.title,
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                // MARBLE_WEIGHT_LADDER_V235 — the preview shows a card title, so
+                                // it previews the TITLE rung real cards now use, not Bold.
+                                style = MaterialTheme.typography.titleMedium
                             )
                             Text(
                                 text = "${trx(s.theme.replaceFirstChar { it.uppercase() })} · ${trx(activeAccent.label)}",

@@ -20,6 +20,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.ServersQuery
@@ -175,14 +177,16 @@ fun CustomSlotScreen(
                                 Text(
                                     text = if (connected) strings.statusProtected else strings.readyToConnect,
                                     color = colors.title,
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    // MARBLE_WEIGHT_LADDER_V235 — the slot's status line is its
+                                    // headline (700) over BODY prose (400), same as Home's hero.
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    textAlign = TextAlign.Center
                                 )
                                 Text(
                                     text = if (connected) "${route?.let { cleanServerName(it.name) } ?: ""} · $uptime" else route?.let { cleanServerName(it.name) } ?: strings.chooseRoute,
                                     color = colors.subtitle,
                                     style = MaterialTheme.typography.bodySmall,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    textAlign = TextAlign.Center
                                 )
                             }
                             IosButton(

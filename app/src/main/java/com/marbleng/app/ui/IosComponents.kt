@@ -255,7 +255,10 @@ internal fun IosListItem(
             Text(
                 text = title,
                 color = titleColor,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                // MARBLE_WEIGHT_LADDER_V235 — a row title is the TITLE rung (600, the slot's
+                // own weight), not Bold: Bold is now saved for headlines, so a settings page
+                // of forty rows no longer shouts at the volume of its own page title (800).
+                style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -274,7 +277,8 @@ internal fun IosListItem(
             Text(
                 text = value,
                 color = colors.subtitle,
-                style = MaterialTheme.typography.bodyMedium,
+                // MARBLE_WEIGHT_LADDER_V235 — a trailing value is data, not prose: LABEL rung.
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -758,8 +762,10 @@ fun IosPillChip(
         Text(
             text = label,
             color = ink,
+            // MARBLE_WEIGHT_LADDER_V235 — resting chips sit on the LABEL rung; selection is
+            // the step up to HEADLINE weight, so the active chip differs by two rungs, not one.
             style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
             ),
             maxLines = 1
         )
@@ -790,7 +796,11 @@ fun IosCountChip(
         Text(
             text = label,
             color = if (selected) Color.White else colors.title,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            // MARBLE_WEIGHT_LADDER_V235 — same ladder step as the pill chip: Medium at rest,
+            // Bold when selected; the count beside it stays NUMERIC Bold either way.
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+            ),
             maxLines = 1
         )
         Box(
@@ -1069,8 +1079,10 @@ fun IosDropdownField(
                             Text(
                                 text = option.label,
                                 color = if (option.enabled) colors.title else colors.tertiary,
+                                // MARBLE_WEIGHT_LADDER_V235 — a menu's chosen row is TITLE rung,
+                                // not a headline: SemiBold marks it without shouting over the field.
                                 style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
                                 )
                             )
                             if (option.detail.isNotBlank()) {

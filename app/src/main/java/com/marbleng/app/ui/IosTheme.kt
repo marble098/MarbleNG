@@ -178,11 +178,60 @@ fun resolveIosDarkMode(themeId: String, systemDark: Boolean): Boolean =
         else -> false
     }
 
+/**
+ * MARBLE_WEIGHT_LADDER_V235 — the one weight ladder every surface reads.
+ *
+ * Until V235 the app effectively had two voices: Bold for anything that looked like a title
+ * (page titles, dialog titles, every settings row, empty states, verdicts) and Normal for
+ * prose, with SemiBold/Medium sprinkled on labels. Same weight everywhere is the same
+ * hierarchy nowhere: nothing could be louder than a list row.
+ *
+ * The ladder assigns one weight per *role*, and `buildIosTypography` plus the components
+ * read it from here instead of naming weights ad hoc:
+ *
+ *   DISPLAY   800  the largest type on a surface — page (large-header) titles, display slot
+ *   HEADLINE  700  headlines inside a page — hero status, sheet/dialog titles, verdicts
+ *   TITLE     600  row and card titles, section headers, button and chip labels
+ *   LABEL     500  small labels, captions, hints, unselected segmented/chip states
+ *   BODY      400  prose — subtitles, body copy, notes
+ *   NUMERIC   700  measured values (stat tiles, steppers, percentages) — data reads firmer
+ *                  than the prose around it at the same size
+ *
+ * Selected/active states step one rung up from their resting rung (LABEL 500 → TITLE 600
+ * → HEADLINE 700); that step, not color alone, is what marks the active choice.
+ *
+ * Deliberately not shipped: Light/Thin (300 and below). The app has no large quiet text
+ * for them to carry — the biggest secondary line is a 14sp subtitle — and thin Vazirmatn
+ * strokes at caption sizes are exactly where Persian legibility dies first. Black (900)
+ * is left out for the mirror reason: nothing here is a poster.
+ *
+ * Plain primitives, like [IosSpec], so JVM unit tests can pin the ladder directly.
+ * Every weight named here has a real bundled face in [VazirmatnFamily] — a weight the
+ * family does not register would be synthesised by the platform, and a synthesised
+ * Persian bold is a smear, not a weight.
+ */
+object MarbleWeightSpec {
+    const val BODY: Int = 400
+    const val LABEL: Int = 500
+    const val TITLE: Int = 600
+    const val HEADLINE: Int = 700
+    const val DISPLAY: Int = 800
+    const val NUMERIC: Int = 700
+
+    /** The weights with a real bundled Vazirmatn face, in ladder order. */
+    val REGISTERED: List<Int> = listOf(BODY, LABEL, TITLE, HEADLINE, DISPLAY)
+
+    fun isRegistered(weight: Int): Boolean = weight in REGISTERED
+}
+
 private val VazirmatnFamily = FontFamily(
-    Font(R.font.vazirmatn_regular, FontWeight.Normal),
-    Font(R.font.vazirmatn_medium, FontWeight.Medium),
-    Font(R.font.vazirmatn_semibold, FontWeight.SemiBold),
-    Font(R.font.vazirmatn_bold, FontWeight.Bold)
+    Font(R.font.vazirmatn_regular, FontWeight(MarbleWeightSpec.BODY)),
+    Font(R.font.vazirmatn_medium, FontWeight(MarbleWeightSpec.LABEL)),
+    Font(R.font.vazirmatn_semibold, FontWeight(MarbleWeightSpec.TITLE)),
+    Font(R.font.vazirmatn_bold, FontWeight(MarbleWeightSpec.HEADLINE)),
+    // MARBLE_WEIGHT_LADDER_V235 — the DISPLAY rung. Same Vazirmatn release (fontRevision
+    // 33.003) as the other four faces, so metrics and joining behaviour stay one family.
+    Font(R.font.vazirmatn_extrabold, FontWeight(MarbleWeightSpec.DISPLAY))
 )
 
 internal fun resolveIosFontFamily(fontId: String, persianActive: Boolean): FontFamily {
@@ -195,85 +244,88 @@ internal fun resolveIosFontFamily(fontId: String, persianActive: Boolean): FontF
     }
 }
 
+// MARBLE_WEIGHT_LADDER_V235 — slots carry ladder rungs, so a call site that just names a
+// slot already speaks at the right weight; `.copy(fontWeight = …)` is reserved for a
+// deliberate step up or down (selected states, numeric values, warnings).
 private fun buildIosTypography(family: FontFamily): Typography = Typography(
     displaySmall = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight(MarbleWeightSpec.DISPLAY),
         fontSize = 30.sp,
         lineHeight = 36.sp,
         letterSpacing = (-0.4).sp
     ),
     headlineLarge = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight(MarbleWeightSpec.DISPLAY),
         fontSize = 24.sp,
         lineHeight = 30.sp,
         letterSpacing = (-0.3).sp
     ),
     headlineMedium = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight(MarbleWeightSpec.HEADLINE),
         fontSize = 20.sp,
         lineHeight = 26.sp,
         letterSpacing = (-0.2).sp
     ),
     headlineSmall = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight(MarbleWeightSpec.HEADLINE),
         fontSize = 17.sp,
         lineHeight = 22.sp
     ),
     titleLarge = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight(MarbleWeightSpec.HEADLINE),
         fontSize = 17.sp,
         lineHeight = 22.sp
     ),
     titleMedium = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight(MarbleWeightSpec.TITLE),
         fontSize = 15.sp,
         lineHeight = 20.sp
     ),
     titleSmall = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight(MarbleWeightSpec.TITLE),
         fontSize = 13.sp,
         lineHeight = 18.sp
     ),
     bodyLarge = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Normal,
+        fontWeight = FontWeight(MarbleWeightSpec.BODY),
         fontSize = 15.sp,
         lineHeight = 21.sp
     ),
     bodyMedium = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Normal,
+        fontWeight = FontWeight(MarbleWeightSpec.BODY),
         fontSize = 14.sp,
         lineHeight = 20.sp
     ),
     bodySmall = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Normal,
+        fontWeight = FontWeight(MarbleWeightSpec.BODY),
         fontSize = 12.5.sp,
         lineHeight = 17.sp
     ),
     labelLarge = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight(MarbleWeightSpec.TITLE),
         fontSize = 13.5.sp,
         lineHeight = 18.sp
     ),
     labelMedium = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight(MarbleWeightSpec.LABEL),
         fontSize = 12.sp,
         lineHeight = 16.sp
     ),
     labelSmall = TextStyle(
         fontFamily = family,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight(MarbleWeightSpec.LABEL),
         fontSize = 11.sp,
         lineHeight = 15.sp
     )

@@ -569,7 +569,9 @@ private fun IosManualNodeForm(
                 Text(
                     text = trx(missing),
                     color = colors.orange,
-                    style = MaterialTheme.typography.labelMedium
+                    // MARBLE_WEIGHT_LADDER_V235 — a blocking warning steps up to TITLE weight;
+                    // colour alone should not be the only thing saying "this blocks Save".
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
                 )
             }
 

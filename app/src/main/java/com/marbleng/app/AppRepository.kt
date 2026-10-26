@@ -31,7 +31,13 @@ data class AppUpdateInfo(
     val tag: String,
     val title: String,
     val notes: String,
-    val url: String
+    val url: String,
+    // MARBLE_LATEST_VERSION_RULE_V235 — the label and the moment of the winning release,
+    // carried so the dialog can say *what kind* of newest build this is. Under the one
+    // rule a pre-release can be the newest published version; hiding that would be the
+    // app keeping a second, silent rule.
+    val prerelease: Boolean = false,
+    val publishedAt: String = ""
 )
 
 data class ServerIntelInfo(
@@ -1364,8 +1370,14 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         io.execute {
             var connection: HttpURLConnection? = null
             try {
+                // MARBLE_LATEST_VERSION_RULE_V235 — the list, not GitHub's "latest" alias:
+                // that endpoint is by definition the newest *stable*, so it structurally
+                // cannot offer a newer beta, and a build published after the newest stable
+                // stayed invisible. The rule is one (LatestReleaseRule): newest published
+                // non-draft release by `published_at`, whatever its label — a stable
+                // published after a beta wins, a beta published after a stable wins.
                 connection = (URL(
-                    "https://api.github.com/repos/marble098/MarbleNG/releases/latest"
+                    "https://api.github.com/repos/marble098/MarbleNG/releases?per_page=30"
                 ).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 6_000
@@ -1385,12 +1397,32 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 val payload = connection.inputStream.bufferedReader(Charsets.UTF_8).use {
                     it.readText()
                 }
-                val json = JSONObject(payload)
-                val tag = json.optString("tag_name").trim()
-                val latest = parseStableSemver(tag) ?: return@execute
-                val current = parseStableSemver(BuildConfig.VERSION_NAME) ?: return@execute
+                val entries = org.json.JSONArray(payload)
+                val byTag = HashMap<String, JSONObject>()
+                val candidates = ArrayList<LatestReleaseRule.Candidate>(entries.length())
+                for (i in 0 until entries.length()) {
+                    val entry = entries.optJSONObject(i) ?: continue
+                    val candidate = LatestReleaseRule.candidate(
+                        tag = entry.optString("tag_name"),
+                        publishedAt = entry.optString("published_at"),
+                        createdAt = entry.optString("created_at"),
+                        prerelease = entry.optBoolean("prerelease"),
+                        draft = entry.optBoolean("draft")
+                    ) ?: continue
+                    candidates += candidate
+                    byTag[candidate.tag] = entry
+                }
 
-                if (!isSemverNewer(latest, current)) {
+                val winner = LatestReleaseRule.newest(candidates) ?: run {
+                    postToMain { availableUpdate = null }
+                    return@execute
+                }
+                val tag = winner.tag
+                val json = byTag[tag] ?: return@execute
+
+                // The date picked the candidate; the version guards the direction, so a
+                // freshly published hotfix of an older line can never offer a downgrade.
+                if (!LatestReleaseRule.isUpdate(tag, BuildConfig.VERSION_NAME)) {
                     postToMain { availableUpdate = null }
                     return@execute
                 }
@@ -1402,7 +1434,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                     ?: "https://github.com/marble098/MarbleNG/releases"
 
                 val release = AppUpdateInfo(
-                    version = "${latest.first}.${latest.second}.${latest.third}",
+                    version = LatestReleaseRule.displayVersion(tag),
                     tag = tag,
                     title = json.optString("name").trim()
                         .ifBlank { "MarbleNG $tag" }
@@ -1412,7 +1444,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                         .replace('\r', '\n')
                         .trim()
                         .take(1_800),
-                    url = htmlUrl
+                    url = htmlUrl,
+                    prerelease = winner.prerelease,
+                    publishedAt = json.optString("published_at").trim()
                 )
 
                 postToMain {
@@ -1456,22 +1490,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         postToMain { availableUpdate = null }
     }
 
-    private fun parseStableSemver(raw: String): Triple<Int, Int, Int>? {
-        val match = Regex("^v?(\\d+)\\.(\\d+)\\.(\\d+)$").matchEntire(raw.trim()) ?: return null
-        val major = match.groupValues[1].toIntOrNull() ?: return null
-        val minor = match.groupValues[2].toIntOrNull() ?: return null
-        val patch = match.groupValues[3].toIntOrNull() ?: return null
-        return Triple(major, minor, patch)
-    }
-
-    private fun isSemverNewer(
-        latest: Triple<Int, Int, Int>,
-        current: Triple<Int, Int, Int>
-    ): Boolean = when {
-        latest.first != current.first -> latest.first > current.first
-        latest.second != current.second -> latest.second > current.second
-        else -> latest.third > current.third
-    }
+    // MARBLE_LATEST_VERSION_RULE_V235 — the old stable-only semver pair is gone: a
+    // strictly-`x.y.z` parser was the second half of the stable-only rule (a `-beta` tag
+    // parsed to null and the check silently gave up). Version order lives in
+    // LatestReleaseRule now, shared in spirit with the core and toolchain updaters.
 
 fun updateTelemetry(downBps: Long, upBps: Long) {
         val down = downBps.coerceAtLeast(0)
