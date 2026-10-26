@@ -9,15 +9,16 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.marbleng.app.MainActivity
 import com.marbleng.app.R
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.vpn.MarbleVpnService
-import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 
 enum class SmartNotificationKind {
     CONNECTION,
@@ -29,95 +30,299 @@ enum class SmartNotificationKind {
     TEST
 }
 
-class SmartNotifier(private val context: Context) {
+/** The five states the ongoing tunnel item can be in. One of them is always true. */
+enum class ConnectionStatus {
+    CONNECTING,
+    PROTECTED,
+    RECOVERING,
+    BLOCKED,
+    DISCONNECTED
+}
+
+/**
+ * MARBLE_NOTIFICATION_COUNCIL_V231 — everything the ongoing notification needs to say, and
+ * nothing about how it says it.
+ *
+ * The old API took two pre-joined strings (`"Protected • Frankfurt"`, `"42 ms • ↓ …"`), so the
+ * shade had no idea which part was a state, which part was a route and which part was a
+ * measurement. The service now hands over the state itself; the presentation (title, subtext,
+ * chronometer, progress, actions, bidi) is decided in one place and in the user's language.
+ */
+data class ConnectionNotificationState(
+    val status: ConnectionStatus = ConnectionStatus.CONNECTING,
+    val routeName: String = "",
+    val pingMs: Int = 0,
+    val downBps: Long = 0L,
+    val upBps: Long = 0L,
+    val showTelemetry: Boolean = true,
+    val showTimer: Boolean = true,
+    val sessionStartedAtMs: Long = 0L,
+    val iranModeLabel: String = "",
+    val detail: String = ""
+) {
+    fun signature(language: NotificationLanguage): String = buildString {
+        append(status.name).append('|')
+        append(routeName).append('|')
+        if (showTelemetry) {
+            append(pingMs).append('|').append(downBps).append('|').append(upBps)
+        }
+        append('|').append(showTimer).append('|').append(sessionStartedAtMs)
+        append('|').append(iranModeLabel).append('|').append(detail)
+        append('|').append(language.id)
+    }
+
+    val ongoing: Boolean
+        get() = status != ConnectionStatus.DISCONNECTED
+}
+
+class SmartNotifier(
+    private val context: Context,
+    private val languageSource: () -> String = { "" }
+) {
     private val manager = context.getSystemService(NotificationManager::class.java)
 
-    private val channelsEnsured = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile
+    private var channelsLanguage: NotificationLanguage? = null
 
-    fun ensureChannels() {
+    private val cooldowns = NotificationCooldown()
+    private val ids = NotificationIdAllocator(OPTIONAL_ID_BASE, OPTIONAL_ID_RANGE)
+    private val connectionGate = ConnectionSignatureGate()
+    private val channelLock = Any()
+
+    fun resolveLanguage(): NotificationLanguage {
+        val locales = context.resources.configuration.locales
+        val deviceLanguage = if (locales.isEmpty) "" else locales.get(0).language
+        return NotificationCopy.languageFor(languageSource(), deviceLanguage)
+    }
+
+    /**
+     * The four-channel table. Names and descriptions are rewritten whenever the app language
+     * changes: Android keeps a user's per-channel choices, but it keeps the *first* name it was
+     * given unless the app asks again, which is why a Persian app used to list English channels.
+     */
+    fun ensureChannels(language: NotificationLanguage = resolveLanguage()) {
         if (Build.VERSION.SDK_INT < 26) return
-        if (channelsEnsured.get()) return
-        runCatching {
-            manager.createNotificationChannelGroup(
-                NotificationChannelGroup(GROUP_ID, "MarbleNG")
-            )
+        if (channelsLanguage == language) return
+        synchronized(channelLock) {
+            if (channelsLanguage == language) return
+            runCatching {
+                manager.createNotificationChannelGroup(
+                    NotificationChannelGroup(GROUP_ID, "MarbleNG")
+                )
 
-            val connection = NotificationChannel(
-                CHANNEL_CONNECTION,
-                "Connection status",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Persistent VPN/proxy connection, route and live status"
-                group = GROUP_ID
-                setShowBadge(false)
+                val connection = NotificationChannel(
+                    CHANNEL_CONNECTION,
+                    NotificationCopy.channelTitle(NotificationChannelKey.CONNECTION, language),
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description =
+                        NotificationCopy.channelDescription(NotificationChannelKey.CONNECTION, language)
+                    group = GROUP_ID
+                    setShowBadge(false)
+                    setSound(null, null)
+                    enableVibration(false)
+                    setLockscreenVisibility(Notification.VISIBILITY_PRIVATE)
+                }
 
-                setSound(null, null)
-                enableVibration(false)
-                setLockscreenVisibility(Notification.VISIBILITY_PRIVATE)
+                val alerts = NotificationChannel(
+                    CHANNEL_SMART,
+                    NotificationCopy.channelTitle(NotificationChannelKey.ALERTS, language),
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description =
+                        NotificationCopy.channelDescription(NotificationChannelKey.ALERTS, language)
+                    group = GROUP_ID
+                    setShowBadge(true)
+                    setLockscreenVisibility(Notification.VISIBILITY_PRIVATE)
+                }
+
+                // A privacy alarm is the one alert that may interrupt: it is the difference
+                // between "a route died" and "traffic is being held while you believe it is not".
+                val privacy = NotificationChannel(
+                    CHANNEL_PRIVACY,
+                    NotificationCopy.channelTitle(NotificationChannelKey.PRIVACY, language),
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description =
+                        NotificationCopy.channelDescription(NotificationChannelKey.PRIVACY, language)
+                    group = GROUP_ID
+                    setShowBadge(true)
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0L, 120L, 80L, 120L)
+                    setLockscreenVisibility(Notification.VISIBILITY_PRIVATE)
+                }
+
+                val updates = NotificationChannel(
+                    CHANNEL_UPDATES,
+                    NotificationCopy.channelTitle(NotificationChannelKey.UPDATES, language),
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description =
+                        NotificationCopy.channelDescription(NotificationChannelKey.UPDATES, language)
+                    group = GROUP_ID
+                    setShowBadge(true)
+                    setSound(null, null)
+                    enableVibration(false)
+                    setLockscreenVisibility(Notification.VISIBILITY_PRIVATE)
+                }
+
+                manager.createNotificationChannels(listOf(connection, alerts, privacy, updates))
+                channelsLanguage = language
             }
-            val smart = NotificationChannel(
-                CHANNEL_SMART,
-                "Alerts, privacy & recovery",
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = "Optional connection alerts, privacy warnings and recovery events"
-                group = GROUP_ID
-                setShowBadge(true)
-                setLockscreenVisibility(Notification.VISIBILITY_PRIVATE)
-            }
-            val updates = NotificationChannel(
-                CHANNEL_UPDATES,
-                "Subscriptions & app updates",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Subscription refresh results and app core updates"
-                group = GROUP_ID
-                setShowBadge(true)
-                setSound(null, null)
-                enableVibration(false)
-            }
-            manager.createNotificationChannels(listOf(connection, smart, updates))
-            channelsEnsured.set(true)
         }
     }
 
     fun optionalPermissionGranted(): Boolean =
         (Build.VERSION.SDK_INT < 33 ||
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED) &&
             NotificationManagerCompat.from(context).areNotificationsEnabled()
 
-    fun connectionNotification(title: String, text: String, ongoing: Boolean): Notification {
-        ensureChannels()
-        val publicVersion = NotificationCompat.Builder(context, CHANNEL_CONNECTION)
+    // ------------------------------------------------------------------------------------------
+    // the ongoing tunnel item
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * The status notification: the state as the title, the route as the text, the measurement as
+     * one bidi-isolated line, the session as the platform's own chronometer, and only the verbs
+     * that are valid in that state.
+     */
+    fun connectionNotification(
+        state: ConnectionNotificationState,
+        language: NotificationLanguage = resolveLanguage()
+    ): Notification {
+        ensureChannels(language)
+        val title = NotificationCopy.statusTitle(state.status, language)
+        val route = state.routeName.trim()
+        val detail = NotificationCopy.translate(state.detail.trim(), language)
+
+        val contentText = when {
+            state.status == ConnectionStatus.BLOCKED && detail.isNotEmpty() -> detail
+            route.isNotEmpty() -> route
+            else -> NotificationCopy.statusDetail(state.status, language)
+        }
+
+        val subText = if (state.iranModeLabel.isBlank()) {
+            "MarbleNG"
+        } else {
+            "MarbleNG · ${state.iranModeLabel.take(NotificationCopy.SUB_TEXT_MAX)}"
+        }
+
+        val expanded = buildList {
+            add(NotificationCopy.statusDetail(state.status, language))
+            if (route.isNotEmpty()) {
+                add(NotificationCopy.t(language, "Route: $route", "مسیر: $route"))
+            }
+            if (state.showTelemetry) {
+                add(
+                    NotificationCopy.telemetryExpanded(
+                        language,
+                        state.pingMs,
+                        state.downBps,
+                        state.upBps
+                    )
+                )
+            }
+            if (state.iranModeLabel.isNotBlank()) {
+                add(NotificationCopy.t(language, "Iran Mode", "حالت ایران"))
+            }
+            if (detail.isNotEmpty() && detail != NotificationCopy.statusDetail(state.status, language)) {
+                add(detail)
+            }
+        }.joinToString("\n")
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_CONNECTION)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(ACCENT)
-            .setContentTitle("MarbleNG")
-            .setContentText("Connection details hidden")
-            .setSubText("Tunnel active")
+            .setContentTitle(NotificationCopy.ellipsize(title, NotificationCopy.TITLE_MAX))
+            .setContentText(NotificationCopy.ellipsize(contentText, NotificationCopy.TEXT_MAX))
+            .setSubText(NotificationCopy.ellipsize(subText, NotificationCopy.SUB_TEXT_MAX))
             .setGroup(GROUP_ID)
             .setLocalOnly(true)
+            .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText(NotificationCopy.ellipsize(expanded, NotificationCopy.BIG_TEXT_MAX))
+            )
+            .setContentIntent(openAppIntent(NotificationRoute.DASHBOARD, language))
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOngoing(ongoing)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion(language, state.ongoing))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(state.ongoing)
             .setOnlyAlertOnce(true)
             .setSilent(true)
-            .build()
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+            .setForegroundServiceBehavior(
+                if (state.status == ConnectionStatus.CONNECTING) {
+                    NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE
+                } else {
+                    NotificationCompat.FOREGROUND_SERVICE_DEFERRED
+                }
+            )
 
+        // The session clock is the platform's, not ours: a chronometer costs zero notifications
+        // and keeps counting while the app is dozing, which a re-posted string never did. It is
+        // only drawn for a live session — an indeterminate progress bar and a chronometer in the
+        // same row read as two clocks.
+        if (state.showTimer && state.sessionStartedAtMs > 0L && state.status == ConnectionStatus.PROTECTED) {
+            builder.setWhen(state.sessionStartedAtMs)
+            builder.setShowWhen(true)
+            builder.setUsesChronometer(true)
+        } else {
+            builder.setShowWhen(false)
+            builder.setUsesChronometer(false)
+        }
+
+        if (state.status == ConnectionStatus.CONNECTING || state.status == ConnectionStatus.RECOVERING) {
+            builder.setProgress(0, 0, true)
+        }
+
+        if (state.status == ConnectionStatus.BLOCKED) {
+            builder.addAction(
+                R.drawable.ic_notification_reconnect,
+                NotificationCopy.actionReconnect(language),
+                reconnectIntent(language)
+            )
+        }
+        builder.addAction(
+            R.drawable.ic_notification_stop,
+            NotificationCopy.actionDisconnect(language),
+            stopServiceIntent()
+        )
+
+        return builder.build()
+    }
+
+    /**
+     * The legacy entry point, kept for the paths whose text is genuinely ad hoc (a launch failure
+     * before there is a state to describe). Its subtext is the platform's own second line.
+     */
+    fun connectionNotification(title: String, text: String, ongoing: Boolean): Notification {
+        val language = resolveLanguage()
+        ensureChannels(language)
         return NotificationCompat.Builder(context, CHANNEL_CONNECTION)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(ACCENT)
-            .setContentTitle(title)
-            .setContentText(text)
+            .setContentTitle(NotificationCopy.ellipsize(title, NotificationCopy.TITLE_MAX))
+            .setContentText(NotificationCopy.ellipsize(text, NotificationCopy.TEXT_MAX))
             .setSubText(statusSubText(text))
             .setGroup(GROUP_ID)
             .setLocalOnly(true)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setContentIntent(openAppIntent())
-            .addAction(R.drawable.ic_notification_stop, "Disconnect", stopServiceIntent())
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText(NotificationCopy.ellipsize(text, NotificationCopy.BIG_TEXT_MAX))
+            )
+            .setContentIntent(openAppIntent(NotificationRoute.DASHBOARD, language))
+            .addAction(
+                R.drawable.ic_notification_stop,
+                NotificationCopy.actionDisconnect(language),
+                stopServiceIntent()
+            )
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPublicVersion(publicVersion)
+            .setPublicVersion(publicVersion(language, ongoing))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(ongoing)
             .setOnlyAlertOnce(true)
@@ -127,6 +332,25 @@ class SmartNotifier(private val context: Context) {
             .build()
     }
 
+    /**
+     * Re-post the ongoing item only when the shade would actually look different. The telemetry
+     * loop ticks once a second and used to rewrite the notification every five, even when a
+     * tunnel was idle: twelve identical binder calls and twelve SystemUI relayouts a minute.
+     */
+    fun updateConnection(
+        id: Int,
+        state: ConnectionNotificationState,
+        language: NotificationLanguage = resolveLanguage()
+    ): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (!connectionGate.allow(state.signature(language), now)) return false
+        val note = connectionNotification(state, language)
+        return runCatching {
+            manager.notify(id, note)
+            true
+        }.getOrDefault(false)
+    }
+
     fun updateConnection(id: Int, title: String, text: String, ongoing: Boolean): Boolean {
         val note = connectionNotification(title, text, ongoing)
         return runCatching {
@@ -134,6 +358,14 @@ class SmartNotifier(private val context: Context) {
             true
         }.getOrDefault(false)
     }
+
+    fun resetConnectionGate() {
+        connectionGate.reset()
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // alerts
+    // ------------------------------------------------------------------------------------------
 
     fun alert(
         kind: SmartNotificationKind,
@@ -145,7 +377,8 @@ class SmartNotifier(private val context: Context) {
     ): Boolean {
         if (!settings.smartNotificationsEnabled || !kindEnabled(kind, settings)) return false
         if (!optionalPermissionGranted()) return false
-        ensureChannels()
+        val language = resolveLanguage()
+        ensureChannels(language)
 
         val now = System.currentTimeMillis()
         val eventKey = "${kind.name}:$key"
@@ -153,79 +386,143 @@ class SmartNotifier(private val context: Context) {
             minIntervalOverrideMs
                 ?: settings.notificationCooldownSec.coerceIn(5, 300) * 1000L
             ).coerceAtLeast(0L)
-        val previous = lastEventAt[eventKey] ?: 0L
-        if (cooldown > 0L && now - previous < cooldown) return false
-        lastEventAt[eventKey] = now
+        if (!cooldowns.allow(eventKey, now, cooldown)) return false
 
-        val channel = when (kind) {
-            SmartNotificationKind.SUBSCRIPTION,
-            SmartNotificationKind.CORE -> CHANNEL_UPDATES
-            else -> CHANNEL_SMART
-        }
+        val channel = channelFor(kind, settings)
+        // The English label doubles as the dictionary key for the Persian one.
+        val kindLabel = kindSubText(kind)
+        val subText = NotificationCopy.translate(kindLabel, language)
+        val localizedTitle = NotificationCopy.translate(title, language)
+        val localizedText = NotificationCopy.translate(text, language)
+
         val priority = when (kind) {
             SmartNotificationKind.PRIVACY,
             SmartNotificationKind.RECOVERY,
             SmartNotificationKind.TEST -> NotificationCompat.PRIORITY_DEFAULT
             else -> NotificationCompat.PRIORITY_LOW
         }
-        val safeHash = eventKey.hashCode().ushr(1)
-        val id = OPTIONAL_ID_BASE + (safeHash % OPTIONAL_ID_RANGE)
-        val publicVersion = NotificationCompat.Builder(context, channel)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setColor(ACCENT)
-            .setContentTitle("MarbleNG")
-            .setContentText("A new alert is waiting")
-            .setSubText("Open the app for details")
-            .setGroup(GROUP_ID)
-            .setLocalOnly(true)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setAutoCancel(true)
-            .build()
-        val category = if (kind == SmartNotificationKind.PRIVACY) {
-            NotificationCompat.CATEGORY_ERROR
-        } else {
-            NotificationCompat.CATEGORY_STATUS
-        }
+        val route = routeFor(kind)
 
-        val kindTone = when (kind) {
-            SmartNotificationKind.PRIVACY -> TONE_PRIVACY
-            SmartNotificationKind.RECOVERY -> TONE_RECOVERY
-            SmartNotificationKind.NETWORK -> TONE_NETWORK
-            SmartNotificationKind.SUBSCRIPTION,
-            SmartNotificationKind.CORE -> TONE_UPDATES
-            SmartNotificationKind.CONNECTION,
-            SmartNotificationKind.TEST -> ACCENT
-        }
         val note = NotificationCompat.Builder(context, channel)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setColor(kindTone)
-            .setContentTitle(title.take(80))
-            .setContentText(text.take(240))
-            .setSubText(kindSubText(kind))
+            .setSmallIcon(iconFor(kind))
+            .setColor(toneFor(kind))
+            .setContentTitle(
+                NotificationCopy.ellipsize(localizedTitle, NotificationCopy.TITLE_MAX)
+            )
+            .setContentText(NotificationCopy.ellipsize(localizedText, NotificationCopy.TEXT_MAX))
+            .setSubText(subText)
             .setGroup(GROUP_ID)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text.take(1000)))
-            .setContentIntent(openAppIntent())
-            .setCategory(category)
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText(NotificationCopy.ellipsize(localizedText, NotificationCopy.BIG_TEXT_MAX))
+            )
+            .setContentIntent(openAppIntent(route, language))
+            .addAction(
+                R.drawable.ic_notification_manage,
+                NotificationCopy.actionManageAlerts(language),
+                channelSettingsIntent(channel)
+            )
+            .setCategory(
+                if (kind == SmartNotificationKind.PRIVACY) {
+                    NotificationCompat.CATEGORY_ERROR
+                } else {
+                    NotificationCompat.CATEGORY_STATUS
+                }
+            )
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPublicVersion(publicVersion)
+            .setPublicVersion(publicVersion(language, false))
             .setPriority(priority)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+            .setLocalOnly(true)
             .setAutoCancel(true)
             .build()
 
+        val id = ids.idFor(eventKey)
         return runCatching {
             manager.notify(id, note)
-            optionalIds += id
+            postSummary(language)
+            true
+        }.getOrDefault(false)
+    }
+
+    /** The bundle header Android shows above two or more alerts in the same group. */
+    private fun postSummary(language: NotificationLanguage) {
+        val count = ids.size()
+        val title = NotificationCopy.t(language, "MarbleNG alerts", "هشدارهای MarbleNG")
+        val text = if (count <= 1) {
+            NotificationCopy.t(language, "1 alert waiting", "۱ هشدار در انتظار")
+        } else {
+            NotificationCopy.t(language, "$count alerts waiting", "$count هشدار در انتظار")
+        }
+        val summary = NotificationCompat.Builder(context, CHANNEL_SMART)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ACCENT)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSubText(NotificationCopy.t(language, "Grouped", "گروه‌شده"))
+            .setGroup(GROUP_ID)
+            .setGroupSummary(true)
+            .setLocalOnly(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(true)
+            .setContentIntent(openAppIntent(NotificationRoute.NOTIFICATIONS, language))
+            .build()
+        runCatching { manager.notify(SUMMARY_ID, summary) }
+    }
+
+    /**
+     * The post-update notice: an update stopped the tunnel, so this is a recovery event, not a
+     * status line. It used to be posted on the silent ongoing channel with no action at all.
+     */
+    fun restoreNotice(language: NotificationLanguage = resolveLanguage()): Boolean {
+        ensureChannels(language)
+        if (!optionalPermissionGranted()) return false
+        val title = NotificationCopy.translate("MarbleNG was updated", language)
+        val text = NotificationCopy.translate(
+            "The tunnel was stopped by the update • tap to restore the last route",
+            language
+        )
+        val note = NotificationCompat.Builder(context, CHANNEL_SMART)
+            .setSmallIcon(R.drawable.ic_notification_reconnect)
+            .setColor(TONE_RECOVERY)
+            .setContentTitle(NotificationCopy.ellipsize(title, NotificationCopy.TITLE_MAX))
+            .setContentText(NotificationCopy.ellipsize(text, NotificationCopy.TEXT_MAX))
+            .setSubText(kindSubText(SmartNotificationKind.RECOVERY, language))
+            .setGroup(GROUP_ID)
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText(NotificationCopy.ellipsize(text, NotificationCopy.BIG_TEXT_MAX))
+            )
+            .setContentIntent(openAppIntent(NotificationRoute.DASHBOARD, language))
+            .addAction(
+                R.drawable.ic_notification_reconnect,
+                NotificationCopy.actionRestore(language),
+                reconnectIntent(language)
+            )
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setLocalOnly(true)
+            .build()
+        val id = ids.idFor("RESTORE:update")
+        return runCatching {
+            manager.notify(id, note)
+            postSummary(language)
             true
         }.getOrDefault(false)
     }
 
     fun cancelOptional() {
-        optionalIds.toList().forEach { id -> runCatching { manager.cancel(id) } }
-        optionalIds.clear()
-        lastEventAt.clear()
+        ids.activeIds().forEach { id -> runCatching { manager.cancel(id) } }
+        ids.clear()
+        cooldowns.clear()
+        runCatching { manager.cancel(SUMMARY_ID) }
     }
+
+    fun activeAlertCount(): Int = ids.size()
 
     private fun kindEnabled(kind: SmartNotificationKind, s: AppSettings): Boolean = when (kind) {
         SmartNotificationKind.CONNECTION -> s.notifyConnectionEvents
@@ -237,13 +534,81 @@ class SmartNotifier(private val context: Context) {
         SmartNotificationKind.TEST -> true
     }
 
-    private fun openAppIntent(): PendingIntent {
+    private fun channelFor(kind: SmartNotificationKind, s: AppSettings): String = when (kind) {
+        SmartNotificationKind.PRIVACY ->
+            if (s.notifyPrivacyHeadsUp) CHANNEL_PRIVACY else CHANNEL_SMART
+        SmartNotificationKind.SUBSCRIPTION,
+        SmartNotificationKind.CORE -> CHANNEL_UPDATES
+        else -> CHANNEL_SMART
+    }
+
+    private fun iconFor(kind: SmartNotificationKind): Int = when (kind) {
+        SmartNotificationKind.PRIVACY -> R.drawable.ic_notification_privacy
+        SmartNotificationKind.CORE,
+        SmartNotificationKind.SUBSCRIPTION -> R.drawable.ic_notification_update
+        SmartNotificationKind.RECOVERY -> R.drawable.ic_notification_reconnect
+        else -> R.drawable.ic_notification
+    }
+
+    private fun toneFor(kind: SmartNotificationKind): Int = when (kind) {
+        SmartNotificationKind.PRIVACY -> TONE_PRIVACY
+        SmartNotificationKind.RECOVERY -> TONE_RECOVERY
+        SmartNotificationKind.NETWORK -> TONE_NETWORK
+        SmartNotificationKind.SUBSCRIPTION,
+        SmartNotificationKind.CORE -> TONE_UPDATES
+        SmartNotificationKind.CONNECTION,
+        SmartNotificationKind.TEST -> ACCENT
+    }
+
+    /** Where the tap lands: the page that can act on the alert, not always the first tab. */
+    private fun routeFor(kind: SmartNotificationKind): NotificationRoute = when (kind) {
+        SmartNotificationKind.PRIVACY,
+        SmartNotificationKind.RECOVERY,
+        SmartNotificationKind.NETWORK -> NotificationRoute.DIAGNOSTICS
+        SmartNotificationKind.SUBSCRIPTION -> NotificationRoute.SUBSCRIPTIONS
+        SmartNotificationKind.CORE -> NotificationRoute.DASHBOARD
+        SmartNotificationKind.CONNECTION -> NotificationRoute.DASHBOARD
+        SmartNotificationKind.TEST -> NotificationRoute.NOTIFICATIONS
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // intents
+    // ------------------------------------------------------------------------------------------
+
+    private fun publicVersion(language: NotificationLanguage, ongoing: Boolean): Notification =
+        NotificationCompat.Builder(context, CHANNEL_CONNECTION)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ACCENT)
+            .setContentTitle("MarbleNG")
+            .setContentText(
+                NotificationCopy.t(
+                    language,
+                    "Connection details hidden",
+                    "جزئیات اتصال پنهان است"
+                )
+            )
+            .setSubText(NotificationCopy.t(language, "Tunnel active", "تونل فعال است"))
+            .setGroup(GROUP_ID)
+            .setLocalOnly(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(ongoing)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setShowWhen(false)
+            .build()
+
+    private fun openAppIntent(route: NotificationRoute, language: NotificationLanguage): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
+            .setAction(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_LAUNCHER)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(EXTRA_PAGE, route.id)
+            .setData(Uri.parse("marbleng://notify/${route.id}"))
         return PendingIntent.getActivity(
             context,
-            7302,
+            REQUEST_OPEN_BASE + route.ordinal,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -254,7 +619,34 @@ class SmartNotifier(private val context: Context) {
             .setAction(MarbleVpnService.ACTION_STOP)
         return PendingIntent.getService(
             context,
-            7303,
+            REQUEST_STOP,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun reconnectIntent(language: NotificationLanguage): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java)
+            .setAction(ACTION_RECONNECT_LAST)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(EXTRA_LANGUAGE, language.id)
+        return PendingIntent.getActivity(
+            context,
+            REQUEST_RECONNECT,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun channelSettingsIntent(channel: String): PendingIntent {
+        val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            .putExtra(Settings.EXTRA_CHANNEL_ID, channel)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        return PendingIntent.getActivity(
+            context,
+            REQUEST_MANAGE,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -268,32 +660,50 @@ class SmartNotifier(private val context: Context) {
         private const val TONE_NETWORK = 0xFF0B57D0.toInt()
         private const val TONE_UPDATES = 0xFF6750A4.toInt()
 
+        // Mirrored by NotificationChannelKey; Android stores these ids on the device, so they are
+        // never renamed, only added to.
         const val CHANNEL_CONNECTION = "marbleng-vpn"
         const val CHANNEL_SMART = "marbleng-smart"
+        const val CHANNEL_PRIVACY = "marbleng-privacy"
         const val CHANNEL_UPDATES = "marbleng-updates"
-        private const val GROUP_ID = "marbleng-notifications"
+        const val GROUP_ID = "marbleng-notifications"
+
+        /** The page a notification tap opens; read by `MainActivity`. */
+        const val EXTRA_PAGE = "marble.page"
+
+        /** The language the notification was written in; read by `MainActivity`. */
+        const val EXTRA_LANGUAGE = "marble.language"
+
+        /** "Connect the last route again", raised by the notification's own action. */
+        const val ACTION_RECONNECT_LAST = "com.marbleng.RECONNECT_LAST"
+
+        const val NOTIFICATION_ID = 7301
+        private const val SUMMARY_ID = 7300
         private const val OPTIONAL_ID_BASE = 7600
         private const val OPTIONAL_ID_RANGE = 1200
-        private val lastEventAt = ConcurrentHashMap<String, Long>()
-        private val optionalIds = ConcurrentHashMap.newKeySet<Int>()
+        private const val REQUEST_OPEN_BASE = 7310
+        private const val REQUEST_STOP = 7303
+        private const val REQUEST_RECONNECT = 7304
+        private const val REQUEST_MANAGE = 7305
 
-        fun formatRate(bytesPerSecond: Long): String = when {
-            bytesPerSecond >= 1024L * 1024L -> String.format(Locale.US, "%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0))
-            bytesPerSecond >= 1024L -> String.format(Locale.US, "%.0f KB/s", bytesPerSecond / 1024.0)
-            else -> "$bytesPerSecond B/s"
-        }
+        fun formatRate(bytesPerSecond: Long): String = NotificationCopy.rate(bytesPerSecond)
+
+        /** The channel ids the settings page lists, in reading order. */
+        fun channelIds(): List<String> = NotificationChannelKey.menuOrder.map { it.id }
     }
 }
 
+/** The leading clause of a free-form status line — the legacy path's subtext. */
 internal fun statusSubText(text: String): String {
     val head = text.substringBefore('•').trim().trimEnd('.', ',', ':', '-', '·').trim()
     return when {
         head.isEmpty() -> "MarbleNG"
-        head.length > 32 -> "MarbleNG"
+        head.length > NotificationCopy.SUB_TEXT_MAX -> "MarbleNG"
         else -> head
     }
 }
 
+/** The English kind label; also the dictionary key for its Persian translation. */
 internal fun kindSubText(kind: SmartNotificationKind): String = when (kind) {
     SmartNotificationKind.CONNECTION -> "Connection"
     SmartNotificationKind.RECOVERY -> "Recovery"
@@ -303,3 +713,6 @@ internal fun kindSubText(kind: SmartNotificationKind): String = when (kind) {
     SmartNotificationKind.CORE -> "Update"
     SmartNotificationKind.TEST -> "Test"
 }
+
+internal fun kindSubText(kind: SmartNotificationKind, language: NotificationLanguage): String =
+    NotificationCopy.translate(kindSubText(kind), language)

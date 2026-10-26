@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ProxyProfile
+import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.quicktile.MarbleQuickTileService
 import com.marbleng.app.ui.ConnectionPermissionDialog
 import com.marbleng.app.ui.ConnectionPermissionStep
@@ -182,6 +183,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        handleNotificationIntent(intent)
         handleQuickTileIntent(intent)
         restoreInterruptedTunnel()
     }
@@ -203,11 +205,40 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleNotificationIntent(intent)
         handleQuickTileIntent(intent)
     }
 
+    /**
+     * MARBLE_NOTIFICATION_COUNCIL_V231 — a notification names the page it belongs to. The screen
+     * that renders it lives in Compose, so the activity only records the request; the root shell
+     * consumes it once. Nothing outside the UI knows how navigation is built.
+     */
+    private fun handleNotificationIntent(intent: Intent?) {
+        if (intent == null) return
+        val page = intent.getStringExtra(SmartNotifier.EXTRA_PAGE)
+        if (page.isNullOrBlank()) return
+        intent.removeExtra(SmartNotifier.EXTRA_PAGE)
+        app.repo.requestNotificationPage(page)
+    }
+
     private fun handleQuickTileIntent(intent: Intent?) {
-        if (intent?.action != MarbleQuickTileService.ACTION_CONNECT_LAST) return
+        if (intent == null) return
+
+        // The ongoing notification's own Reconnect verb goes through the same permission gate as
+        // the Quick Tile: a revoked VPN consent is asked for again instead of silently failing.
+        if (intent.action == SmartNotifier.ACTION_RECONNECT_LAST) {
+            intent.action = Intent.ACTION_MAIN
+            val last = app.repo.lastProfile()
+            if (last == null) {
+                app.repo.setRuntimeMessage("Choose and connect a server once to enable Reconnect")
+            } else {
+                connect(last)
+            }
+            return
+        }
+
+        if (intent.action != MarbleQuickTileService.ACTION_CONNECT_LAST) return
         intent.action = Intent.ACTION_MAIN
         val last = app.repo.lastProfile()
         if (last == null) {

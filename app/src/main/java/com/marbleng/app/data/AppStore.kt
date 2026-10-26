@@ -490,6 +490,8 @@ class AppStore(context: Context) {
         notifyCoreUpdates = prefs.getBoolean("notifyCoreUpdates", true),
         notificationLiveStats = prefs.getBoolean("notificationLiveStats", true),
         notificationCooldownSec = prefs.getInt("notificationCooldownSec", 20).coerceIn(5, 300),
+        notifyPrivacyHeadsUp = prefs.getBoolean("notifyPrivacyHeadsUp", true),
+        notificationSessionTimer = prefs.getBoolean("notificationSessionTimer", true),
 
         routingMode = enumValue("routingMode", RoutingMode.GEO_DIRECT),
         customRoutingEnabled = prefs.getBoolean("customRoutingEnabled", false),
@@ -786,6 +788,8 @@ class AppStore(context: Context) {
         .putBoolean("notifyCoreUpdates", s.notifyCoreUpdates)
         .putBoolean("notificationLiveStats", s.notificationLiveStats)
         .putInt("notificationCooldownSec", s.notificationCooldownSec.coerceIn(5, 300))
+        .putBoolean("notifyPrivacyHeadsUp", s.notifyPrivacyHeadsUp)
+        .putBoolean("notificationSessionTimer", s.notificationSessionTimer)
         .putString("routingMode", s.routingMode.name)
         .putBoolean("customRoutingEnabled", s.customRoutingEnabled)
         .putString(

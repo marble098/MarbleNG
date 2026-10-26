@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MARBLE_NOTIFICATION_COUNCIL_V231 — the privacy alarm's status-bar mark.
+
+     Notification icons are silhouettes: the system tints one colour, so this is a closed shield
+     with the same 2.1-unit stroke as the tunnel mark. A shield says "you are being held on
+     purpose"; the tunnel's prism says "you are protected". -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M12,3.2 L19.2,6.2 L19.2,11.6 C19.2,15.6 16.2,18.9 12,20.8 C7.8,18.9 4.8,15.6 4.8,11.6 L4.8,6.2 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2.1" />
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M11.1,8.4 L12.9,8.4 L12.9,13.4 L11.1,13.4 Z" />
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M11.1,15.1 L12.9,15.1 L12.9,16.9 L11.1,16.9 Z" />
+</vector>

@@ -1102,6 +1102,12 @@ data class AppSettings(
     val notificationLiveStats: Boolean = true,
     val notificationCooldownSec: Int = 20,
 
+    // MARBLE_NOTIFICATION_COUNCIL_V231 — two switches the old page could not offer because the
+    // notifier had no such behaviour. A privacy alarm gets its own channel and may therefore
+    // interrupt; the session clock is the platform's chronometer rather than a re-posted string.
+    val notifyPrivacyHeadsUp: Boolean = true,
+    val notificationSessionTimer: Boolean = true,
+
     val routingMode: RoutingMode = RoutingMode.GEO_DIRECT,
 
     val customRoutingEnabled: Boolean = false,
