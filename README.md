@@ -586,6 +586,51 @@ proves the content fits all three sizes, all four icon/label combinations and al
 steps. A new integrity block gates lexicon completeness, so a future literal cannot quietly ship in
 English again.
 
+### The V234 pass — the shade switches the route, the connect control mirrors, the item is drawn
+
+`docs/NOTIFICATION_SWITCH_AND_SHADE_V234.md` is the chapter (Persian, like the council's record). It
+answers three sentences: *change the subscription and the server inside the notification itself*,
+*when the app is Persian and right-to-left the connect button on Home must change too*, and *the
+notification needs a new, modern look*.
+
+**The shade now moves the tunnel.** V231's two route buttons only opened Servers and Subscriptions, so
+changing a node meant unlocking the phone and crossing a screen. Both actions are now service verbs —
+`ACTION_CYCLE_SERVER` / `ACTION_CYCLE_SUBSCRIPTION` reached with distinct `PendingIntent`s (a shared
+request code would collapse the two verbs into one) — and the running foreground service rebuilds the
+route and re-publishes the same item with the new name. The decision half is pure Kotlin:
+`core/NotificationRouteCycle.kt` owns three rules that `NotificationRouteCycleV234Test` pins — a
+*subscription with one server still moves* (it walks the library), a *library with one subscription
+still moves* (the server verb is used), and a verb that cannot move anything answers with a line in
+the same item instead of silence. A live subscription with eleven nodes stays inside itself and wraps;
+the walk follows the library order, so two taps return to where it started. `subscriptionName` joined
+`ConnectionNotificationState` (and its signature), because a user cycling sources has to see which
+source is live: the second line reads `route · subscription`. A 1.5 s floor swallows the double tap
+that would otherwise tear down the route it just built, and a stale item whose service has stopped
+cannot resurrect a session.
+
+**The Home connect control mirrors with the language.** `IosSlideConnectBar` was written in physical
+pixels: the thumb moved with `IntOffset(+offsetPx, 0)`, the drag added `dragAmount` verbatim, and the
+guide chevrons pointed right. In an RTL layout the thumb *rests* on the right edge, so every one of
+those signs was wrong — the thumb left the track and the bar could not be used in Persian at all.
+The three signs moved into `model/SlideConnectSpec.kt` (`dragFraction`, `thumbOffsetPx`,
+`released`), `SlideConnectSpecV234Test` proves a full leftward drag on a Persian phone and a full
+rightward drag on an English one commit identically, and both chevrons — the guides and the thumb's
+own — turn around.
+
+**The item is drawn instead of assembled.** The ongoing notification left `BigTextStyle` for a real
+`RemoteViews` layout: a badge that is a *different drawing per state*, the state as the title,
+`route · subscription` beneath it, the platform chronometer on the reading edge, and a rail of
+measurement chips that exists only when the numbers are true. `NotificationShadeDesign` (pure,
+host-JVM tested) decides every *when* — a clock and an indeterminate rail never share a row, rates
+are never printed while no traffic moves, and the wall-clock session start becomes a monotonic
+`Chronometer` base. `TunnelNotificationView` paints it with only RemoteViews-safe views and colours
+taken from the phone's `uiMode` (the app theme is a fixed light Material theme while the shade follows
+the phone), and `notification_tunnel_rtl.xml` is the same box with `layoutDirection="rtl"` for the
+Persian app on an English phone — a state no resource qualifier can express. The textual fields stay:
+they are what a screen reader reads and what any surface that cannot inflate a `RemoteViews` layout
+receives. `setStyle` is called exactly once, because a second call replaces the decorator and the
+custom view loses its header and its actions.
+
 ### The V215 pass — Settings, text size, and a steadier Home
 
 `docs/SETTINGS_TREE_TEXT_SCALE_V215.md` is the chapter. Settings is regrouped so every sub-section

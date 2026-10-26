@@ -41,6 +41,7 @@ import com.marbleng.app.core.ConnectionStatus
 import com.marbleng.app.core.NotificationChannelKey
 import com.marbleng.app.core.NotificationCopy
 import com.marbleng.app.core.NotificationLanguage
+import com.marbleng.app.core.NotificationRouteCycle
 
 @Composable
 fun SettingsSubscriptionsPage(
@@ -538,11 +539,14 @@ private fun NotificationPreviewCard(repo: AppRepository) {
         "BLOCKED" -> ConnectionStatus.BLOCKED
         else -> ConnectionStatus.DISCONNECTED
     }
-    val route = repo.profile(repo.selectedProfileId)?.name.orEmpty()
+    val selected = repo.profile(repo.selectedProfileId, repo.selectedProfileSourceId)
+    val route = selected?.name.orEmpty()
+    // MARBLE_NOTIFICATION_SWITCH_V234 — the preview shows the same second line the drawn view
+    // shows: `route · subscription`, not a bare route name.
     val detail = if (route.isBlank()) {
         NotificationCopy.statusDetail(status, NotificationLanguage.EN)
     } else {
-        route
+        NotificationRouteCycle.routeLine(route, selected?.subscriptionName.orEmpty())
     }
     val metrics = NotificationCopy.telemetryCompact(
         NotificationLanguage.EN,
@@ -617,6 +621,23 @@ private fun NotificationPreviewCard(repo: AppRepository) {
                     IosBadge(text = trx("ALERTS ON"), color = colors.purple)
                 }
             }
+            // MARBLE_NOTIFICATION_SWITCH_V234 — the shade switches the route itself now, so the
+            // preview names both verbs and says they act in place.
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IosBadge(
+                    text = "↔ ${trx(NotificationCopy.actionNextServer(NotificationLanguage.EN))}",
+                    color = colors.blue
+                )
+                IosBadge(
+                    text = "⇄ ${trx(NotificationCopy.actionNextSubscription(NotificationLanguage.EN))}",
+                    color = colors.indigo
+                )
+            }
+            Text(
+                text = trx("Both switches work from the shade — no need to open the app"),
+                color = colors.tertiary,
+                style = MaterialTheme.typography.labelSmall
+            )
         }
     }
 }
