@@ -41,7 +41,8 @@ enum class NotificationRoute(val id: String) {
     DASHBOARD("dashboard"),
     NOTIFICATIONS("notifications"),
     DIAGNOSTICS("diagnostics"),
-    SUBSCRIPTIONS("subscriptions");
+    SUBSCRIPTIONS("subscriptions"),
+    SERVERS("servers");
 
     companion object {
         fun fromId(raw: String?): NotificationRoute =
@@ -243,6 +244,12 @@ object NotificationCopy {
             ConnectionStatus.BLOCKED -> t(language, "Blocked", "مسدود")
             ConnectionStatus.DISCONNECTED -> t(language, "Idle", "بی‌کار")
         }
+
+    fun actionChangeServer(language: NotificationLanguage): String =
+        t(language, "Server", "سرور")
+
+    fun actionChangeSubscription(language: NotificationLanguage): String =
+        t(language, "Subscription", "اشتراک")
 
     fun actionDisconnect(language: NotificationLanguage): String =
         t(language, "Disconnect", "قطع اتصال")

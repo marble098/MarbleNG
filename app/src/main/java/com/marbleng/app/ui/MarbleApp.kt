@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.NotificationRoute
+import com.marbleng.app.model.DockPresentation
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.dockShowsIcons
@@ -50,6 +52,7 @@ import com.marbleng.app.model.dockShowsLabels
 import com.marbleng.app.model.dockSlotIndex
 import com.marbleng.app.model.dockSlots
 import com.marbleng.app.model.parseDockSize
+import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSlotAccent
 import com.marbleng.app.model.parseDockSlotIcon
 import kotlinx.coroutines.delay
@@ -159,11 +162,16 @@ private fun MarbleIosRootShell(
         inspectingProfileSource = ""
         val destination = when (route) {
             NotificationRoute.DASHBOARD -> null
+            NotificationRoute.SERVERS -> null
             NotificationRoute.NOTIFICATIONS -> SettingsDestination.NOTIFICATIONS_BG
             NotificationRoute.DIAGNOSTICS -> SettingsDestination.DIAGNOSTICS
             NotificationRoute.SUBSCRIPTIONS -> SettingsDestination.SUBSCRIPTIONS_DATA
         }
-        rememberedTab = if (destination == null) IosRootTab.HOME else IosRootTab.SETTINGS
+        rememberedTab = when {
+            route == NotificationRoute.SERVERS -> IosRootTab.SERVERS
+            destination == null -> IosRootTab.HOME
+            else -> IosRootTab.SETTINGS
+        }
         activeSettingsPage = destination
     }
 
@@ -322,6 +330,8 @@ private fun IosBottomTabBar(
     val strings = Tr.now
     val s = repo.settings
     val size = parseDockSize(s.dockSize)
+    val presentation = parseDockPresentation(s.dockSize)
+    val floating = presentation == DockPresentation.FLOATING
     val showIcons = dockShowsIcons(s.dockShowIcons, s.dockShowLabels)
     val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
     val slot = resolveDockSlot(repo)
@@ -349,11 +359,15 @@ private fun IosBottomTabBar(
         null
     }
 
+    val barShape = RoundedCornerShape(if (floating) 28.dp else 0.dp)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(colors.tabBar)
+            .then(if (floating) Modifier.padding(horizontal = 14.dp, vertical = 8.dp) else Modifier)
             .navigationBarsPadding()
+            .then(if (floating) Modifier.shadow(12.dp, barShape).clip(barShape) else Modifier)
+            .background(colors.tabBar)
+            .then(if (floating) Modifier.border(1.dp, colors.tabBarBorder, barShape) else Modifier)
     ) {
         HorizontalDivider(thickness = 0.75.dp, color = colors.tabBarBorder)
         Row(

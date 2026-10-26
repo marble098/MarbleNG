@@ -339,6 +339,15 @@ files = {
         "app/src/test/java/com/marbleng/app/core/NotificationCopyV231Test.kt"
     ),
     "notificationDoc": read("docs/NOTIFICATION_COUNCIL_V231.md"),
+    # MARBLE_PERSIAN_DOCK_AND_SHADE_COUNCIL_V232 — real Persian fallback, dock positioning,
+    # notification shortcuts and the role-based five-person review.
+    "persianLexicon": read("app/src/main/java/com/marbleng/app/ui/MarblePersianLexicon.kt"),
+    "dockModel": read("app/src/main/java/com/marbleng/app/model/Models.kt"),
+    "dockStore": read("app/src/main/java/com/marbleng/app/data/AppStore.kt"),
+    "dockSettings": read("app/src/main/java/com/marbleng/app/ui/SettingsAppearancePages.kt"),
+    "dockTest": read("app/src/test/java/com/marbleng/app/model/DockPresentationV232Test.kt"),
+    "persianTest": read("app/src/test/java/com/marbleng/app/ui/PersianLocalizationV232Test.kt"),
+    "dockCouncilDoc": read("docs/PERSIAN_DOCK_AND_SHADE_COUNCIL_V232.md"),
     "receiver": read("app/src/main/java/com/marbleng/app/MarblePackageReplacedReceiver.kt"),
     # MARBLE_MULTI_SOURCE_ROUTING_V212 — the geo source set, the curated domestic knowledge, the
     # routing engine that reads both, and the three tests that pin them.
@@ -3266,6 +3275,46 @@ check(
     and "NOTIFICATION_COUNCIL_V231.md" in files["readme"]
     and "## ۱. ترکیب شورا" in files["notificationDoc"]
     and "## ۴. جدول اجرا" in files["notificationDoc"],
+)
+
+# MARBLE_PERSIAN_DOCK_AND_SHADE_COUNCIL_V232 — the council's voted corrections.
+check(
+    "V232 Persian unknowns stay readable instead of being transliterated",
+    "return text" in files["persianLexicon"]
+    and "faTransliterate" not in files["persianLexicon"]
+    and "faFallback" not in files["persianLexicon"]
+    and "unknownEnglishCopyIsNeverFalselyTransliterated" in files["persianTest"],
+)
+
+check(
+    "V232 the bottom dock is selectable, persisted and defaults to attached",
+    "enum class DockPresentation" in files["dockModel"]
+    and "fun encodeDockPreference(size: DockSize, presentation: DockPresentation)" in files["dockModel"]
+    and "encodeDockPreference(parseDockSize(" in files["dockStore"]
+    and '"dockSize",' in files["dockStore"]
+    and "parseDockPresentation(s.dockSize)" in files["marbleApp"]
+    and "DockPresentation.FLOATING" in files["marbleApp"]
+    and "Bottom Bar Position" in files["dockSettings"]
+    and "sizeAndPresentationShareTheExistingPreferenceWithoutLoss" in files["dockTest"],
+)
+
+check(
+    "V232 the connection shade can open server and subscription pickers",
+    "fun actionChangeServer(language: NotificationLanguage)" in files["notificationCopy"]
+    and "fun actionChangeSubscription(language: NotificationLanguage)" in files["notificationCopy"]
+    and "openAppIntent(NotificationRoute.SERVERS, language)" in files["notifier"]
+    and "openAppIntent(NotificationRoute.SUBSCRIPTIONS, language)" in files["notifier"]
+    and "NotificationRoute.SERVERS -> IosRootTab.SERVERS" in files["marbleApp"]
+    and 'SERVERS("servers")' in files["notificationCopy"],
+)
+
+check(
+    "V232 the five-role review, Persian copy and regression tests are documented",
+    "class PersianLocalizationV232Test" in files["persianTest"]
+    and "class DockPresentationV232Test" in files["dockTest"]
+    and "| نرگس |" in files["dockCouncilDoc"]
+    and "رأی: **۵ از ۵**" in files["dockCouncilDoc"]
+    and "PERSIAN_DOCK_AND_SHADE_COUNCIL_V232.md" in files["readme"],
 )
 
 failed = [name for name, passed in checks if not passed]

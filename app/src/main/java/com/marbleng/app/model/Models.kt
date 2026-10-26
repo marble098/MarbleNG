@@ -760,19 +760,35 @@ fun AppSettings.pingWorkers(cores: Int, memoryMb: Long, method: ProbeMethod = pr
 fun AppSettings.pingSampleSpacingMs(): Long =
     (PingBudget.SAMPLE_SPACING_MS / pingSpeedFactor()).roundToLong().coerceIn(20L, 300L)
 
+enum class DockPresentation(val id: String) {
+    ATTACHED("attached"),
+    FLOATING("floating")
+}
+
+fun parseDockPresentation(raw: String): DockPresentation {
+    val encoded = raw.substringAfter('|', DockPresentation.ATTACHED.id).trim()
+    return DockPresentation.entries.firstOrNull { it.id.equals(encoded, ignoreCase = true) }
+        ?: DockPresentation.ATTACHED
+}
+
+fun encodeDockPreference(size: DockSize, presentation: DockPresentation): String =
+    "${size.id}|${presentation.id}"
+
 enum class DockSize(val id: String) {
     SMALL("small"),
     MEDIUM("medium"),
     LARGE("large")
 }
 
-fun parseDockSize(raw: String): DockSize =
-    DockSize.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: when (raw.trim().uppercase()) {
+fun parseDockSize(raw: String): DockSize {
+    val sizeId = raw.substringBefore('|').trim()
+    return DockSize.entries.firstOrNull { it.id.equals(sizeId, ignoreCase = true) }
+        ?: when (sizeId.uppercase()) {
             "COMPACT" -> DockSize.SMALL
             "SPACIOUS", "BIG" -> DockSize.LARGE
             else -> DockSize.MEDIUM
         }
+}
 
 enum class DockSlotKind(val id: String) {
     PULSE("pulse"),
