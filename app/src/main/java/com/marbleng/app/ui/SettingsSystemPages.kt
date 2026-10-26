@@ -287,7 +287,7 @@ fun SettingsNotificationsPage(
                         squircleColor = if (bgGranted) colors.green else colors.red,
                         trailing = {
                             IosBadge(
-                                text = if (bgGranted) "ON" else "ACTION",
+                                text = trx(if (bgGranted) "ON" else "ACTION"),
                                 color = if (bgGranted) colors.green else colors.red
                             )
                         },
@@ -864,7 +864,7 @@ fun SettingsDiagnosticsPage(
                                 if (idx > 0) IosDivider()
                                 IosListItem(
                                     title = cleanServerName(rec.name),
-                                    subtitle = "${rec.reason} · ${relativeTimeLabel(rec.at)}",
+                                    subtitle = "${rec.reason} · ${trx(relativeTimeLabel(rec.at))}",
                                     glyph = MarbleGlyph.TUNNEL,
                                     squircleColor = colors.blue,
                                     showChevron = false

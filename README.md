@@ -561,6 +561,31 @@ lives in `core/NotificationCopy.kt` — no `Context`, so `NotificationCopyV231Te
 isolation, the grapheme-safe ellipsis, the Persian dictionary (unknown copy stays English rather than
 being transliterated) and the bounded collections on the host JVM.
 
+### The V233 council — Persian everywhere, three real connect buttons, and a dock line that fits
+
+`docs/PERSIAN_CONNECT_DOCK_COUNCIL_V233.md` is the chapter (Persian, like the council's record). The
+same five-role panel reconvened for three complaints: **Persian was incomplete**, **the connection
+buttons were one button wearing different clothes**, and **the active tab's little blue line sat in
+the wrong place**. The findings were structural. `ProvideMarbleLanguage` lived inside `MarbleApp`
+while `ConnectionPermissionDialog` was its sibling, so the permission dialog always fell back to the
+static English `CompositionLocal`; 418 `trx("…")` literals and 72 repository messages had no lexicon
+key at all, so V232's correct "never transliterate an unknown string" rule silently printed English;
+and the Quick Settings tile lives outside Compose, so it had never seen a translation. The rebuild
+moves language and text scale to the activity root (with an idempotent scale provider so a second
+installation cannot square the factor), adds 564 friendly whole-sentence translations plus a
+whole-string `FaFriendlyVoice` layer and a `" • "` segment translator that isolates live server
+names with FSI/PDI, and puts every system-tile string behind the pure-Kotlin `QuickTileCopy`.
+
+Three buttons now own three different repository entry points — `reconnectLastOrAuto`, the
+auto-selector winner, and a local-SOCKS-only `auto()` — and three different lights (a breathing
+ignition core, a sweeping orbit, and two travelling ripples), each drawn with plain Compose Canvas
+and pinned by `ConnectDeckActionV233Test`. The dock line is no longer an unmeasured child of the
+icon box pushed down by `offset(y = 10.dp)`: `DockIndicatorSpec` owns an 18×3dp line inside a 6dp
+slot that **every** tab reserves, the compact bar grew 52→56dp, and `DockIndicatorSpecV233Test`
+proves the content fits all three sizes, all four icon/label combinations and all seven text-scale
+steps. A new integrity block gates lexicon completeness, so a future literal cannot quietly ship in
+English again.
+
 ### The V215 pass — Settings, text size, and a steadier Home
 
 `docs/SETTINGS_TREE_TEXT_SCALE_V215.md` is the chapter. Settings is regrouped so every sub-section

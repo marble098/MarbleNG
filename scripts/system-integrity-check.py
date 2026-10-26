@@ -349,6 +349,36 @@ files = {
     "persianTest": read("app/src/test/java/com/marbleng/app/ui/PersianLocalizationV232Test.kt"),
     "dockCouncilDoc": read("docs/PERSIAN_DOCK_AND_SHADE_COUNCIL_V232.md"),
     "receiver": read("app/src/main/java/com/marbleng/app/MarblePackageReplacedReceiver.kt"),
+    # MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — the complete-coverage gate, three independent
+    # connect buttons and the measured dock indicator.
+    "v233PermissionDialog": read(
+        "app/src/main/java/com/marbleng/app/ui/MarblePermissionOnboarding.kt"
+    ),
+    "v233QuickTileCopy": read(
+        "app/src/main/java/com/marbleng/app/core/QuickTileCopy.kt"
+    ),
+    "v233ConnectDeckModel": read(
+        "app/src/main/java/com/marbleng/app/model/ConnectDeck.kt"
+    ),
+    "v233ConnectDeckUi": read(
+        "app/src/main/java/com/marbleng/app/ui/MarbleConnectDeck.kt"
+    ),
+    "v233DockSpec": read(
+        "app/src/main/java/com/marbleng/app/model/DockIndicatorSpec.kt"
+    ),
+    "v233PersianTest": read(
+        "app/src/test/java/com/marbleng/app/ui/PersianCoverageV233Test.kt"
+    ),
+    "v233QuickTileTest": read(
+        "app/src/test/java/com/marbleng/app/core/QuickTileCopyV233Test.kt"
+    ),
+    "v233DeckTest": read(
+        "app/src/test/java/com/marbleng/app/model/ConnectDeckActionV233Test.kt"
+    ),
+    "v233DockTest": read(
+        "app/src/test/java/com/marbleng/app/model/DockIndicatorSpecV233Test.kt"
+    ),
+    "v233CouncilDoc": read("docs/PERSIAN_CONNECT_DOCK_COUNCIL_V233.md"),
     # MARBLE_MULTI_SOURCE_ROUTING_V212 — the geo source set, the curated domestic knowledge, the
     # routing engine that reads both, and the three tests that pin them.
     "geoRegistry": read("app/src/main/java/com/marbleng/app/core/GeoAssetRegistry.kt"),
@@ -3315,6 +3345,149 @@ check(
     and "| نرگس |" in files["dockCouncilDoc"]
     and "رأی: **۵ از ۵**" in files["dockCouncilDoc"]
     and "PERSIAN_DOCK_AND_SHADE_COUNCIL_V232.md" in files["readme"],
+)
+
+# MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — Persian is complete, the three buttons are
+# independent, and the dock line has a measured home.
+
+def v233_lexicon_keys():
+    """Every whole-string key of the base dictionary AND the warm-voice layer."""
+    return set(
+        re.findall(
+            r'^\s*"((?:[^"\\]|\\.)*)"\s+to\s+',
+            files["persianLexicon"],
+            re.M,
+        )
+    )
+
+
+v233_known = v233_lexicon_keys()
+v233_known_lower = {key.lower() for key in v233_known}
+v233_ui_sources = sorted(
+    (ROOT / "app/src/main/java/com/marbleng/app/ui").glob("*.kt")
+)
+v233_trx_literal = re.compile(r'\btrx\(\s*"((?:[^"\\]|\\.)*)"\s*\)')
+v233_message_literal = re.compile(r'\b(?:message|setRuntimeMessage)\s*(?:=\s*|\(\s*)"((?:[^"\\]|\\.)*)"')
+
+v233_untranslated = set()
+for v233_path in v233_ui_sources:
+    if v233_path.name in ("MarblePersianLexicon.kt", "MarbleStrings.kt"):
+        continue
+    v233_source = v233_path.read_text(encoding="utf-8")
+    for v233_pattern in (v233_trx_literal, v233_message_literal):
+        for v233_literal in v233_pattern.findall(v233_source):
+            if "$" in v233_literal or "\\" in v233_literal or not v233_literal.strip():
+                continue
+            if v233_literal in v233_known or v233_literal.lower() in v233_known_lower:
+                continue
+            v233_untranslated.add(v233_literal)
+
+for v233_source_key in ("repo", "main"):
+    for v233_literal in v233_message_literal.findall(files[v233_source_key]):
+        if "$" in v233_literal or "\\" in v233_literal or not v233_literal.strip():
+            continue
+        if v233_literal in v233_known or v233_literal.lower() in v233_known_lower:
+            continue
+        v233_untranslated.add(v233_literal)
+
+# The permission dialog builds its strings inside trx(if (...) ... else ...), so the single-literal
+# scanner above cannot see them. They are named explicitly here.
+v233_permission_copy = [
+    "Allow VPN connection",
+    "Allow notifications",
+    "MarbleNG needs Android's VPN permission to establish a protected tunnel on this device.",
+    "Allow status notifications so Android keeps your active VPN session visible and reliable.",
+    "Your traffic stays private on-device and only leaves through the server you choose.",
+    "You can customize or mute optional alerts anytime in Settings.",
+]
+
+check(
+    "V233 every UI literal and every repository message has a real Persian sentence",
+    len(v233_known) >= 1900
+    and not v233_untranslated
+    and all(copy in v233_known for copy in v233_permission_copy),
+)
+
+check(
+    "V233 the friendly voice and the live-message engine are real layers",
+    "private val FaFriendlyVoice" in files["persianLexicon"]
+    and "private val FaEffectiveLexicon: Map<String, String> = FaLexicon + FaFriendlyVoice"
+    in files["persianLexicon"]
+    and "private fun faTranslateDynamic" in files["persianLexicon"]
+    and "private val FaRuntimePatterns" in files["persianLexicon"]
+    and 'private const val FA_SEGMENT = " • "' in files["persianLexicon"]
+    and "fun faIsolate" in files["persianLexicon"]
+    and '"Connect" to "بزن وصل شو"' in files["persianLexicon"]
+    and "connect = \"بزن وصل شو\"" in files["strings"]
+    and "readyToConnect = \"آمادهای؟ بزن بریم\"" in files["strings"],
+)
+
+check(
+    "V233 language is provided to the whole window, not just one page",
+    "ProvideMarbleLanguage(app.repo.settings.appLanguage)" in files["main"]
+    and "ProvideMarbleTextScale(app.repo.settings.textScalePercent)" in files["main"]
+    and "ConnectionPermissionDialog(" in files["main"]
+    and "fun ProvideMarbleLanguage(" in files["strings"]
+    and "LocalMarbleTextScaleApplied" in files["textScale"]
+    and "trx(error)" in files["v233PermissionDialog"],
+)
+
+check(
+    "V233 the Quick Settings tile speaks the selected language",
+    "object QuickTileCopy" in files["v233QuickTileCopy"]
+    and "NotificationCopy.languageFor(appLanguageId, deviceLanguage)" in files["v233QuickTileCopy"]
+    and "QuickTileCopy.label(repo.state, language)" in files["tile"]
+    and "QuickTileCopy.subtitle(repo.state, repo.stateDetail, lastName, language)" in files["tile"]
+    and "QuickTileCopy.contentDescription(" in files["tile"]
+    and '"MarbleNG • Connecting"' not in files["tile"]
+    and '"Connect once in app"' not in files["tile"]
+    and "class QuickTileCopyV233Test" in files["v233QuickTileTest"],
+)
+
+check(
+    "V233 three connect buttons have three behaviours and three lights",
+    "enum class ConnectDeckAction" in files["v233ConnectDeckModel"]
+    and "enum class ConnectDeckLight" in files["v233ConnectDeckModel"]
+    and "behavior = \"reconnect_last_or_auto\"" in files["v233ConnectDeckModel"]
+    and "behavior = \"auto_selector_winner\"" in files["v233ConnectDeckModel"]
+    and "behavior = \"local_proxy_only\"" in files["v233ConnectDeckModel"]
+    and "fun isIndependent(): Boolean" in files["v233ConnectDeckModel"]
+    and "fun ConnectDeckSection(" in files["v233ConnectDeckUi"]
+    and "ConnectDeckLight.IGNITION" in files["v233ConnectDeckUi"]
+    and "ConnectDeckLight.ORBIT" in files["v233ConnectDeckUi"]
+    and "ConnectDeckLight.RIPPLE" in files["v233ConnectDeckUi"]
+    and "rememberInfiniteTransition(" in files["v233ConnectDeckUi"]
+    and 'item(key = "home-connect-deck")' in files["homeScreen"]
+    and "ConnectDeckSection(" in files["homeScreen"]
+    and "litDeckId" in files["homeScreen"]
+    and "repo.runAutoServerSelection(reason = \"connect-deck\")" in files["homeScreen"]
+    and "repo.setConnectionMode(ConnectionMode.LOCAL_PROXY)" in files["homeScreen"]
+    and "class ConnectDeckActionV233Test" in files["v233DeckTest"],
+)
+
+check(
+    "V233 the active dock line is measured, centred and no longer offset",
+    "object DockIndicatorSpec" in files["v233DockSpec"]
+    and "const val SLOT_DP: Int = 6" in files["v233DockSpec"]
+    and "const val WIDTH_DP: Int = 18" in files["v233DockSpec"]
+    and "fun allFit(): Boolean" in files["v233DockSpec"]
+    and "fun DockActiveIndicator(visible: Boolean, color: Color)" in files["marbleApp"]
+    and "DockIndicatorSpec.SLOT_DP.dp" in files["marbleApp"]
+    and "DockIndicatorSpec.barHeightDp(size).dp" in files["marbleApp"]
+    and "DockActiveIndicator(visible = isSelected, color = activeColor)" in files["marbleApp"]
+    and "offset(y = 10.dp)" not in files["marbleApp"]
+    and "Spacer(Modifier.height(3.dp))" not in files["marbleApp"]
+    and "class DockIndicatorSpecV233Test" in files["v233DockTest"],
+)
+
+check(
+    "V233 the five-role council, its copy, and its regression tests are recorded",
+    "| نرگس |" in files["v233CouncilDoc"]
+    and "رأی: **۵ از ۵**" in files["v233CouncilDoc"]
+    and "## ۵. جدول اجرا" in files["v233CouncilDoc"]
+    and "PERSIAN_CONNECT_DOCK_COUNCIL_V233.md" in files["readme"]
+    and "class PersianCoverageV233Test" in files["v233PersianTest"]
+    and "fun theLabelsThatUsedToStayEnglishNowHaveRealPersianSentences()" in files["v233PersianTest"],
 )
 
 failed = [name for name, passed in checks if not passed]

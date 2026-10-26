@@ -26,6 +26,8 @@ import com.marbleng.app.quicktile.MarbleQuickTileService
 import com.marbleng.app.ui.ConnectionPermissionDialog
 import com.marbleng.app.ui.ConnectionPermissionStep
 import com.marbleng.app.ui.MarbleApp
+import com.marbleng.app.ui.ProvideMarbleLanguage
+import com.marbleng.app.ui.ProvideMarbleTextScale
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -165,22 +167,31 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            MarbleApp(
-                repo = app.repo,
-                onConnect = ::connect,
-                onImportFile = {
-                    openFile.launch(
-                        arrayOf("text/*", "application/json", "application/octet-stream")
+            // MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — the language and text scale belong to the
+            // whole window, not to one screen inside it. The permission dialog is a sibling of
+            // MarbleApp (it is shown above every page), so when the providers lived only inside
+            // MarbleApp the dialog fell back to the static English CompositionLocal and stayed
+            // English on a fully Persian phone. Provide them once, here, at the activity root.
+            ProvideMarbleLanguage(app.repo.settings.appLanguage) {
+                ProvideMarbleTextScale(app.repo.settings.textScalePercent) {
+                    MarbleApp(
+                        repo = app.repo,
+                        onConnect = ::connect,
+                        onImportFile = {
+                            openFile.launch(
+                                arrayOf("text/*", "application/json", "application/octet-stream")
+                            )
+                        }
                     )
+                    permissionStep?.let { step ->
+                        ConnectionPermissionDialog(
+                            step = step,
+                            error = permissionError,
+                            onContinue = ::requestCurrentPermission,
+                            onDismiss = ::cancelConnectionPermission
+                        )
+                    }
                 }
-            )
-            permissionStep?.let { step ->
-                ConnectionPermissionDialog(
-                    step = step,
-                    error = permissionError,
-                    onContinue = ::requestCurrentPermission,
-                    onDismiss = ::cancelConnectionPermission
-                )
             }
         }
         handleNotificationIntent(intent)

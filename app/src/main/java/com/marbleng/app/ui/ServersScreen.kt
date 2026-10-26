@@ -610,7 +610,7 @@ private fun ServerGroupCard(
         sub != null && sub.totalBytes > 0L ->
             "${bucket.profiles.size} ${strings.serversUnit} · ${formatBytes(usedBytes)} / ${formatBytes(sub.totalBytes)}"
         sub != null && sub.updatedAt > 0L ->
-            "${bucket.profiles.size} ${strings.serversUnit} · ${relativeTimeLabel(sub.updatedAt)}"
+            "${bucket.profiles.size} ${strings.serversUnit} · ${trx(relativeTimeLabel(sub.updatedAt))}"
         else ->
             "${bucket.profiles.size} ${strings.serversUnit}"
     }
@@ -734,7 +734,7 @@ private fun ServerRowItem(
     onMore: () -> Unit
 ) {
     val colors = IosTheme.colors
-    val pingText = pingBadgeText(result, probeState)
+    val pingText = trx(pingBadgeText(result, probeState))
     val pingTone = pingBadgeColor(result, probeState)
     val quietFailure = result != null && (result.success <= 0 || result.latencyMs <= 0.0)
     val subtitleText = buildString {

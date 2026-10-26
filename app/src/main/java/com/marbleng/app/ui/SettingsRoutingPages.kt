@@ -160,7 +160,7 @@ fun SettingsRoutingPage(
                 IosCard {
                     IosListItem(
                         title = "GeoIP · ${if (assets.geoIpReady) formatBytes(assets.geoIpBytes) else trx("Missing")}",
-                        subtitle = if (assets.geoIpReady) relativeTimeLabel(assets.geoIpUpdatedAt) else trx("Download required"),
+                        subtitle = if (assets.geoIpReady) trx(relativeTimeLabel(assets.geoIpUpdatedAt)) else trx("Download required"),
                         glyph = MarbleGlyph.GLOBE,
                         squircleColor = if (assets.geoIpReady) colors.green else colors.orange,
                         showChevron = false
@@ -168,7 +168,7 @@ fun SettingsRoutingPage(
                     IosDivider()
                     IosListItem(
                         title = "GeoSite · ${if (assets.geoSiteReady) formatBytes(assets.geoSiteBytes) else trx("Missing")}",
-                        subtitle = if (assets.geoSiteReady) relativeTimeLabel(assets.geoSiteUpdatedAt) else trx("Download required"),
+                        subtitle = if (assets.geoSiteReady) trx(relativeTimeLabel(assets.geoSiteUpdatedAt)) else trx("Download required"),
                         glyph = MarbleGlyph.LAYERS,
                         squircleColor = if (assets.geoSiteReady) colors.green else colors.orange,
                         showChevron = false
@@ -287,7 +287,7 @@ fun SettingsRoutingPage(
                             label = trx("Test Hostname or IP"),
                             value = simHost,
                             onValueChange = { simHost = it },
-                            placeholder = "example.com or 1.1.1.1"
+                            placeholder = trx("example.com or 1.1.1.1")
                         )
                         simulation?.let { sim ->
                             val verdictColor = when (sim.verdict) {

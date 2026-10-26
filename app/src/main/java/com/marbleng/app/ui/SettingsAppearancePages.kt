@@ -209,8 +209,8 @@ fun SettingsLanguageAndFontPage(
                 IosCard {
                     listOf(
                         AppLanguage.SYSTEM to (strings.languageSystem to strings.languageSystemDetail),
-                        AppLanguage.ENGLISH to (strings.languageEnglish to "Left-to-right English interface"),
-                        AppLanguage.PERSIAN to (strings.languagePersian to "رابط کاربری راست‌به‌چپ فارسی")
+                        AppLanguage.ENGLISH to (strings.languageEnglish to trx("Left-to-right English interface")),
+                        AppLanguage.PERSIAN to (strings.languagePersian to trx("Right-to-left Persian interface"))
                     ).forEachIndexed { idx, (candidate, labels) ->
                         if (idx > 0) IosDivider()
                         IosChoiceRow(

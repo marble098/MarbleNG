@@ -33,7 +33,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +57,7 @@ import com.marbleng.app.AppRepository
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.coreEngine
 import com.marbleng.app.model.ConnectButtonStyle
+import com.marbleng.app.model.ConnectDeckAction
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.HomePingAction
@@ -106,6 +109,53 @@ fun HomeScreen(
         when {
             connected || connecting -> repo.stopVpn()
             !disconnecting -> repo.reconnectLastOrAuto(onConnect)
+        }
+    }
+
+    // MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — the three deck buttons own independent lights.
+    // Only the button that actually lit the current route stays on; disconnecting clears it.
+    var litDeckId by rememberSaveable { mutableStateOf("") }
+    val litDeckAction = if (litDeckId.isBlank()) {
+        null
+    } else {
+        ConnectDeckAction.fromId(litDeckId)
+    }
+
+    LaunchedEffect(repo.state) {
+        if (repo.state == "DISCONNECTED" || repo.state == "BLOCKED") {
+            litDeckId = ""
+        }
+    }
+
+    val activateDeck: (ConnectDeckAction) -> Unit = { action ->
+        if (!disconnecting) {
+            when {
+                (connected || connecting) && litDeckId == action.id -> {
+                    litDeckId = ""
+                    repo.stopVpn()
+                }
+                else -> {
+                    litDeckId = action.id
+                    when (action) {
+                        ConnectDeckAction.QUICK -> repo.reconnectLastOrAuto(onConnect)
+                        ConnectDeckAction.SMART -> {
+                            val winner = repo.runAutoServerSelection(reason = "connect-deck")?.profile
+                            if (winner != null) {
+                                onConnect(winner)
+                            } else {
+                                litDeckId = ""
+                                repo.setRuntimeMessage(
+                                    "No route to recommend yet — measure a server first"
+                                )
+                            }
+                        }
+                        ConnectDeckAction.LIGHT -> {
+                            repo.setConnectionMode(ConnectionMode.LOCAL_PROXY)
+                            repo.auto(onConnect)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -177,6 +227,16 @@ fun HomeScreen(
                 activeRoute = activeRoute,
                 sliderMode = parseConnectButtonStyle(settings.connectButtonStyle) == ConnectButtonStyle.SLIDE,
                 onToggle = toggleConnection
+            )
+        }
+
+        item(key = "home-connect-deck") {
+            ConnectDeckSection(
+                litAction = litDeckAction,
+                connected = connected,
+                connecting = connecting,
+                disconnecting = disconnecting,
+                onActivate = activateDeck
             )
         }
 
