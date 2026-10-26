@@ -117,7 +117,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Let a decisive scan apply its own prescription" to "بگذار اسکن قطعی نسخهٔ خودش را اعمال کند",
     "Only when the scan names a blocking technique, never on a clean path" to
         "فقط وقتی اسکن یک تکنیک مسدودسازی را نام می‌برد، هرگز روی مسیر پاک",
-    "Apply the prescribed shield" to "اعمال سپر تجویز‌شده",
     "One tap, reversible" to "یک ضربه، قابل بازگشت",
     "Fragmentation runs on sing-box extended; Xray keeps its own socket treatment." to
         "تکه‌تکه‌سازی روی sing-box extended اجرا می‌شود؛ Xray روش سوکت خودش را دارد.",
@@ -140,7 +139,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "SOCKS5 Proxy" to "پروکسی SOCKS5",
     "SOCKS proxy address copied" to "آدرس پروکسی SOCKS کپی شد",
     "Quick Add & Connect" to "افزودن سریع و اتصال",
-    "Slide to connect" to "برای اتصال بکشید",
+    "Slide to connect" to "کشیدن برای اتصال",
     "Slide to disconnect" to "برای قطع اتصال بکشید",
     "Customize Layout" to "شخصی‌سازی چیدمان",
     "Enable Custom Routing" to "فعال‌سازی مسیریابی سفارشی",
@@ -266,7 +265,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Always" to "همیشه",
     "Off" to "خاموش",
     "On" to "روشن",
-    "Custom" to "سفارشی",
     "Default" to "پیش‌فرض",
     "Device" to "دستگاه",
     "Local" to "محلی",
@@ -301,10 +299,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Colored" to "رنگی",
     "Plain" to "ساده",
 
-    "Connect button" to "دکمه اتصال",
     "One silhouette for every Home style" to "یک طرح واحد برای همه استایل‌های خانه",
     "Round shutter" to "دکمه‌ٔ گرد",
-    "Slide to connect" to "کشیدن برای اتصال",
     "Classic switch" to "کلید کلاسیک",
     "Large round shutter, centred in the hero (default)" to "دکمهٔ گرد بزرگ، در مرکز بخش اصلی (پیش‌فرض)",
     "Wide slide track, docked at the hero floor" to "نوار کشویی پهن، در کف بخش اصلی",
@@ -464,7 +460,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Select one subscription or show everything" to "یک اشتراک را انتخاب کنید یا همه را ببینید",
     "Fastest, strongest or easiest to find" to "سریع‌ترین، قوی‌ترین یا آسان‌ترین برای یافتن",
     "VIEW SERVERS" to "مشاهده سرورها",
-    "Remove failed" to "حذف ناموفق‌ها",
+    "Remove failed" to "حذف موارد ناموفق",
     "Delete source" to "حذف منبع",
     "Copy URL" to "کپی لینک",
     "Subscription URL copied" to "لینک اشتراک کپی شد",
@@ -792,7 +788,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "NO KILL SWITCH" to "بدون کلید اضطراری",
 
     "Recommended Iran policy" to "سیاست پیشنهادی ایران",
-    "Iran direct" to "ایران مستقیم",
     "Iran proxied" to "ایران از پروکسی",
     "Ads blocked" to "تبلیغات مسدود",
     "Ads allowed" to "تبلیغات مجاز",
@@ -801,8 +796,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     ".ir direct, rest proxied" to "‏.ir مستقیم، بقیه از پروکسی",
     "Aggressive ad blocking" to "مسدودسازی تهاجمی تبلیغات",
     "Block ads before other rules" to "مسدودسازی تبلیغات پیش از قواعد دیگر",
-    "Routing mode" to "حالت مسیریابی",
-    "Proxy all" to "همه از پروکسی",
     "Private direct" to "خصوصی مستقیم",
     "Geo direct" to "جغرافیایی مستقیم",
     "Geo data" to "داده جغرافیایی",
@@ -814,7 +807,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "GeoSite direct tags" to "برچسب‌های مستقیم GeoSite",
     "Bypass private networks" to "دورزدن شبکه‌های خصوصی",
     "LAN stays direct" to "شبکه محلی مستقیم می‌ماند",
-    "Domain strategy" to "راهبرد دامنه",
     "Ad geosite category" to "دسته تبلیغات geosite",
     "Exceptions & advanced rules" to "استثناها و قواعد پیشرفته",
     "Always proxy domains / geosite tags" to "دامنه‌ها / برچسب‌های همیشه از پروکسی",
@@ -852,7 +844,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Most accurate" to "دقیق‌ترین",
     "Fastest" to "سریع‌ترین",
     "Classic ping" to "پینگ کلاسیک",
-    "Samples per server" to "نمونه برای هر سرور",
+    "Samples per server" to "تعداد نمونه هر سرور",
     "Timeout per try" to "مهلت هر تلاش",
     "Servers per test run" to "سرور در هر دور تست",
     "Also measure download speed" to "اندازه‌گیری سرعت دانلود هم",
@@ -1147,7 +1139,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Local SOCKS address" to "نشانی SOCKS محلی",
     "Show the proxy endpoint other apps can use" to "نشانی پروکسی برای استفاده در برنامه‌های دیگر",
     "The connect button is always shown." to "دکمه اتصال همیشه نمایش داده می‌شود.",
-    "Reset layout" to "بازنشانی چیدمان",
 
     "Navigation bar" to "نوار پایین",
     "The bottom bar of the app: what it shows and how much room it takes." to
@@ -1166,7 +1157,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Servers at once" to "سرورهای هم‌زمان",
     "Parallel measurements. Fewer is slower but far more accurate on a weak link" to
         "اندازه‌گیری موازی. کمتر یعنی کندتر ولی روی اینترنت ضعیف بسیار دقیق‌تر",
-    "Samples per server" to "تعداد نمونه هر سرور",
     "The published latency is the median; the warm-up sample is discarded" to
         "عدد نهایی میانه نمونه‌هاست؛ نمونه اول (گرم‌کردن) کنار گذاشته می‌شود",
     "Worst case per server" to "بدترین حالت برای هر سرور",
@@ -1215,7 +1205,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "TCP (recommended) ping" to "پینگ TCP (پیشنهادی)",
     "HTTP GET ping" to "پینگ GET",
     "HTTP HEAD ping" to "پینگ HEAD",
-    "ICMP ping" to "پینگ ICMP",
     "Verified TCP + TLS gate to the server address; fast and safer than raw connect" to
         "دروازه تأییدشده TCP + TLS با آدرس سرور؛ سریع و مطمئن‌تر از اتصال خام",
     "Full HTTPS GET through the selected route; real response time" to
@@ -1376,7 +1365,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Tools" to "ابزارها",
 
     "Library" to "کتابخانه",
-    "Diagnostics" to "عیب‌یابی",
     "Route quality" to "کیفیت مسیر",
     "Not measured yet" to "هنوز اندازه‌گیری نشده",
     "Connect fastest" to "اتصال به سریع‌ترین",
@@ -1433,7 +1421,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Remove failed Smart" to "حذف موارد ناموفق هوشمند",
     "Remove failed tunnel" to "حذف موارد ناموفق تونل",
     "Remove failed everywhere" to "حذف موارد ناموفق از همه‌جا",
-    "Remove failed" to "حذف موارد ناموفق",
     "Confidence" to "اطمینان",
     "Filtered" to "فیلترشده",
     "Mode" to "حالت",
@@ -1502,9 +1489,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "GeoSite" to "جئوسایت",
     "sing-box core" to "هسته سینگ‌باکس",
     "ORDERED HOPS" to "گام‌های مرتب",
-    "Route details" to "جزئیات مسیر",
-    "Unlimited" to "نامحدود",
-    "Expired" to "منقضی‌شده",
 
     "Measure this server" to "اندازه‌گیری این سرور",
     "Measuring this server" to "در حال اندازه‌گیری این سرور",
@@ -1542,7 +1526,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Language & text" to "زبان و متن",
     "The face and the language of every screen" to "قلم و زبان همهٔ صفحه‌ها",
     "Alerts, background access and the app itself" to "هشدارها، دسترسی پس‌زمینه و خود برنامه",
-    "Alerts" to "هشدارها",
     "What MarbleNG is allowed to tell you" to "ماربل اجازه دارد چه چیزهایی را اعلام کند",
     "About" to "درباره",
     "Versions, diagnostics and the report an issue asks for" to
@@ -1600,6 +1583,67 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Where servers come from and how often they refresh" to "سرورها از کجا می‌آیند و هر چند وقت به‌روز می‌شوند",
     "National filtering detected" to "فیلترینگ ملی شناسایی شد",
     "ranking frozen" to "رتبه‌بندی متوقف شد",
+
+    // MARBLE_NOTIFICATION_COUNCIL_V231 — the notification page reads like the shade, so every
+    // string here is also a string a notification can print.
+    "Live Preview" to "پیش‌نمایش زنده",
+    "State first, route second, measurement last. The session clock is Android's own chronometer, so it keeps counting without reposting." to
+        "اول وضعیت، بعد مسیر، آخر اندازه‌گیری. ساعت نشست همان کرونومتر اندروید است؛ بدون ارسال دوباره اعلان می‌شمارد.",
+    "Tunnel status" to "وضعیت تونل",
+    "Route alerts" to "هشدارهای مسیر",
+    "Privacy alarms" to "هشدارهای حریم خصوصی",
+    "Updates" to "به‌روزرسانی‌ها",
+    "Silent · no badge" to "بی‌صدا · بدون نشان",
+    "Default · badge" to "معمولی · با نشان",
+    "Heads-up · sound" to "نمایان · با صدا",
+    "Quiet · badge" to "آرام · با نشان",
+    "Android stores these four channels on the device. Muting one here is the same as muting it in system settings." to
+        "اندروید این چهار کانال را روی دستگاه نگه می‌دارد. بی‌صداکردن هر کدام اینجا همان بی‌صداکردن آن در تنظیمات سیستم است.",
+    "Session Clock" to "ساعت نشست",
+    "A live chronometer in the ongoing item, drawn by Android, never reposted" to
+        "کرونومتر زنده در آیتم همیشگی، کشیده‌شده توسط اندروید و بدون ارسال دوباره",
+    "Privacy Alarms Can Interrupt" to "هشدار حریم خصوصی می‌تواند مزاحم شود",
+    "Their own channel: sound, vibration and a lock-screen banner" to
+        "کانال جداگانه: صدا، لرزش و بنر روی صفحه قفل",
+    "Network Changes" to "تغییرات شبکه",
+    "Core & App Updates" to "به‌روزرسانی هسته و برنامه",
+    "A newer build or a core refresh worth installing" to "نسخه تازه‌تر یا هسته‌ای که ارزش نصب دارد",
+    "Minimum gap between two alerts of the same kind" to "کمترین فاصله بین دو هشدار از یک نوع",
+    "Smart Event Alerts" to "هشدارهای هوشمند رویدادها",
+    "Notification Permission" to "دسترسی اعلان",
+    "Android has not granted notifications to MarbleNG yet" to "اندروید هنوز اجازه اعلان به MarbleNG نداده است",
+    "Notifications are switched off for MarbleNG in Android" to "اعلان‌های MarbleNG در اندروید خاموش شده است",
+    "Allowed by Android — the tunnel item and alerts can appear" to
+        "اندروید اجازه داده است — آیتم تونل و هشدارها می‌توانند نمایش داده شوند",
+    "Open Android notification settings" to "بازکردن تنظیمات اعلان اندروید",
+    "The only place a blocked permission can be restored" to
+        "تنها جایی که دسترسی مسدودشده بازمی‌گردد",
+    "Android is blocking notifications, so no test can be delivered" to
+        "اندروید اعلان‌ها را مسدود کرده است؛ اعلان آزمایشی نمی‌رسد",
+    "Turn on Smart Event Alerts to send a test" to "برای ارسال آزمایشی، هشدارهای هوشمند را روشن کنید",
+    "ASK" to "درخواست",
+    "MUTED" to "بی‌صدا",
+    "LOUD" to "پرصدا",
+    "QUIET" to "آرام",
+    "LIVE" to "زنده",
+    "SESSION TIMER" to "ساعت نشست",
+    "ALERTS ON" to "هشدار روشن",
+    "Connecting…" to "در حال اتصال…",
+    "Reconnecting…" to "اتصال دوباره…",
+    "Traffic blocked" to "ترافیک مسدود شد",
+    "Disconnected" to "قطع شد",
+    "Idle" to "بی‌کار",
+    "Your traffic leaves through this route" to "ترافیک شما از این مسیر خارج می‌شود",
+    "Negotiating the route — traffic waits until it is up" to
+        "در حال آماده‌سازی مسیر — ترافیک تا آماده‌شدن منتظر می‌ماند",
+    "Moving traffic to another route" to "انتقال ترافیک به مسیر دیگر",
+    "No tunnel is active" to "هیچ تونلی فعال نیست",
+    "Android is not letting MarbleNG post notifications" to
+        "اندروید اجازه نمی‌دهد MarbleNG اعلان منتشر کند",
+    "Smart alerts are switched off" to "هشدارهای هوشمند خاموش است",
+    "The test alert could not be posted" to "اعلان آزمایشی منتشر نشد",
+    "Choose and connect a server once to enable Reconnect" to
+        "برای فعال‌شدن «اتصال دوباره» یک‌بار سرور را انتخاب و وصل کنید",
 )
 
 private val FaLexiconLower: Map<String, String> =

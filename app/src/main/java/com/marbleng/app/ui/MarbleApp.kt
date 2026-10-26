@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
+import com.marbleng.app.core.NotificationRoute
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.dockShowsIcons
@@ -145,6 +146,25 @@ private fun MarbleIosRootShell(
                 repo.clearMessage()
             }
         }
+    }
+
+    // MARBLE_NOTIFICATION_COUNCIL_V231 — a tap on a notification names the page it belongs to; the
+    // activity records it and this shell performs the navigation exactly once.
+    LaunchedEffect(repo.pendingNotificationPage) {
+        val routeId = repo.pendingNotificationPage
+        if (routeId.isBlank()) return@LaunchedEffect
+        repo.consumeNotificationPage()
+        val route = NotificationRoute.fromId(routeId)
+        inspectingProfileId = ""
+        inspectingProfileSource = ""
+        val destination = when (route) {
+            NotificationRoute.DASHBOARD -> null
+            NotificationRoute.NOTIFICATIONS -> SettingsDestination.NOTIFICATIONS_BG
+            NotificationRoute.DIAGNOSTICS -> SettingsDestination.DIAGNOSTICS
+            NotificationRoute.SUBSCRIPTIONS -> SettingsDestination.SUBSCRIPTIONS_DATA
+        }
+        rememberedTab = if (destination == null) IosRootTab.HOME else IosRootTab.SETTINGS
+        activeSettingsPage = destination
     }
 
     val openDetail: (ProxyProfile) -> Unit = { profile ->

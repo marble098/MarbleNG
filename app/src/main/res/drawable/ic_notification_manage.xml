@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MARBLE_NOTIFICATION_COUNCIL_V231 — the "manage alerts" action mark.
+
+     Three slider rails: the action opens Android's own channel screen for this notification, which
+     is where a user actually mutes it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M4,7.2 L20,7.2 M4,12 L20,12 M4,16.8 L20,16.8"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeAlpha="0.55"
+        android:strokeLineCap="round"
+        android:strokeWidth="1.6" />
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M8.1,7.2 m-2.3,0 a2.3,2.3 0 1,0 4.6,0 a2.3,2.3 0 1,0 -4.6,0" />
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M15.9,12 m-2.3,0 a2.3,2.3 0 1,0 4.6,0 a2.3,2.3 0 1,0 -4.6,0" />
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M8.1,16.8 m-2.3,0 a2.3,2.3 0 1,0 4.6,0 a2.3,2.3 0 1,0 -4.6,0" />
+</vector>

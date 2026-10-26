@@ -1,6 +1,8 @@
 package com.marbleng.app.ui
 
 import android.Manifest
+import android.app.Activity
+import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,17 +24,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import com.marbleng.app.AppRepository
 import com.marbleng.app.BuildConfig
 import com.marbleng.app.core.BugSeverity
+import com.marbleng.app.core.ConnectionStatus
+import com.marbleng.app.core.NotificationChannelKey
+import com.marbleng.app.core.NotificationCopy
+import com.marbleng.app.core.NotificationLanguage
 
 @Composable
 fun SettingsSubscriptionsPage(
@@ -143,27 +152,86 @@ fun SettingsNotificationsPage(
     val colors = IosTheme.colors
     val context = LocalContext.current
     val s = repo.settings
+    val activity = context as? Activity
 
     fun runtimeGranted(): Boolean =
         Build.VERSION.SDK_INT < 33 ||
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
 
-    fun notificationsEnabled(): Boolean =
-        runtimeGranted() && NotificationManagerCompat.from(context).areNotificationsEnabled()
+    fun appLevelEnabled(): Boolean =
+        NotificationManagerCompat.from(context).areNotificationsEnabled()
 
-    var notifGranted by remember { mutableStateOf(notificationsEnabled()) }
+    fun channelImportance(channelId: String): Int {
+        if (Build.VERSION.SDK_INT < 26) return NotificationManager.IMPORTANCE_DEFAULT
+        val manager = context.getSystemService(NotificationManager::class.java)
+            ?: return NotificationManager.IMPORTANCE_UNSPECIFIED
+        return manager.getNotificationChannel(channelId)?.importance
+            ?: NotificationManager.IMPORTANCE_UNSPECIFIED
+    }
+
+    var notifGranted by remember { mutableStateOf(runtimeGranted() && appLevelEnabled()) }
+    var deniedOnce by rememberSaveable { mutableStateOf(false) }
     var bgGranted by remember { mutableStateOf(repo.backgroundExemptionGranted()) }
 
     val notifLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) {
-        notifGranted = notificationsEnabled()
+    ) { granted ->
+        notifGranted = granted && appLevelEnabled()
+        if (!notifGranted) deniedOnce = true
     }
     val sysSettingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        notifGranted = notificationsEnabled()
+        notifGranted = runtimeGranted() && appLevelEnabled()
         bgGranted = repo.backgroundExemptionGranted()
+    }
+
+    val canAskAndroid = Build.VERSION.SDK_INT >= 33 && !runtimeGranted() && !deniedOnce &&
+        activity?.let {
+            androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
+                it,
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+        } != false
+
+    fun openAppNotificationSettings() {
+        runCatching {
+            sysSettingsLauncher.launch(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            )
+        }
+    }
+
+    fun openChannelSettings(channelId: String) {
+        if (Build.VERSION.SDK_INT < 26) return
+        runCatching {
+            sysSettingsLauncher.launch(
+                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    .putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
+            )
+        }
+    }
+
+    // MARBLE_NOTIFICATION_COUNCIL_V231 — the page reads like the shade: permission, then what the
+    // user will actually see, then the four channels Android owns, then the app's own switches.
+    val permissionBadge = when {
+        !runtimeGranted() -> "ASK"
+        !appLevelEnabled() -> "BLOCKED"
+        else -> "ON"
+    }
+    val permissionTint = when {
+        !runtimeGranted() || !appLevelEnabled() -> colors.orange
+        else -> colors.green
+    }
+    val permissionSubtitle = when {
+        !runtimeGranted() ->
+            trx("Android has not granted notifications to MarbleNG yet")
+        !appLevelEnabled() ->
+            trx("Notifications are switched off for MarbleNG in Android")
+        else -> trx("Allowed by Android — the tunnel item and alerts can appear")
     }
 
     IosSubPageScaffold(
@@ -172,34 +240,41 @@ fun SettingsNotificationsPage(
     ) {
         item(key = "permissions-status") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("System Permissions"))
+                IosSectionHeader(
+                    title = trx("System Permissions"),
+                    badge = permissionBadge,
+                    badgeColor = permissionTint
+                )
                 IosCard {
                     IosListItem(
                         title = trx("Notification Permission"),
-                        subtitle = if (notifGranted) {
-                            trx("Allowed by Android")
-                        } else {
-                            trx("Tap to allow live VPN status notifications")
-                        },
+                        subtitle = permissionSubtitle,
                         glyph = MarbleGlyph.BELL,
                         squircleColor = if (notifGranted) colors.green else colors.orange,
                         trailing = {
                             IosBadge(
-                                text = if (notifGranted) "ON" else "OFF",
-                                color = if (notifGranted) colors.green else colors.orange
+                                text = permissionBadge,
+                                color = permissionTint
                             )
                         },
                         onClick = {
-                            if (Build.VERSION.SDK_INT >= 33 && !runtimeGranted()) {
+                            if (canAskAndroid) {
                                 notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             } else {
-                                sysSettingsLauncher.launch(
-                                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                )
+                                openAppNotificationSettings()
                             }
                         }
                     )
+                    if (!notifGranted) {
+                        IosDivider()
+                        IosListItem(
+                            title = trx("Open Android notification settings"),
+                            subtitle = trx("The only place a blocked permission can be restored"),
+                            glyph = MarbleGlyph.INFO,
+                            squircleColor = colors.red,
+                            onClick = { openAppNotificationSettings() }
+                        )
+                    }
                     IosDivider()
                     IosListItem(
                         title = trx("Unrestricted Background Activity"),
@@ -229,9 +304,83 @@ fun SettingsNotificationsPage(
             }
         }
 
+        item(key = "notification-preview") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                IosSectionHeader(
+                    title = trx("Live Preview"),
+                    badge = if (notifGranted) trx("LIVE") else trx("OFF"),
+                    badgeColor = if (notifGranted) colors.green else colors.red
+                )
+                NotificationPreviewCard(repo = repo)
+                IosSectionFooter(
+                    text = trx(
+                        "State first, route second, measurement last. The session clock is Android's own chronometer, so it keeps counting without reposting."
+                    )
+                )
+            }
+        }
+
+        item(key = "notification-channels") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                IosSectionHeader(
+                    title = trx("Channels"),
+                    badge = NotificationChannelKey.menuOrder.size.toString(),
+                    badgeColor = colors.blue
+                )
+                IosCard {
+                    NotificationChannelKey.menuOrder.forEachIndexed { index, key ->
+                        if (index > 0) IosDivider()
+                        val importance = channelImportance(key.id)
+                        val state = when {
+                            !notifGranted -> "OFF" to colors.red
+                            importance == NotificationManager.IMPORTANCE_UNSPECIFIED ->
+                                "—" to colors.subtitle
+                            importance == NotificationManager.IMPORTANCE_NONE ->
+                                "MUTED" to colors.red
+                            importance >= NotificationManager.IMPORTANCE_HIGH ->
+                                "LOUD" to colors.green
+                            importance >= NotificationManager.IMPORTANCE_DEFAULT ->
+                                "ON" to colors.green
+                            else -> "QUIET" to colors.orange
+                        }
+                        IosListItem(
+                            title = trx(NotificationCopy.channelTitle(key, NotificationLanguage.EN)),
+                            subtitle = trx(NotificationCopy.channelFocus(key, NotificationLanguage.EN)),
+                            glyph = when (key) {
+                                NotificationChannelKey.CONNECTION -> MarbleGlyph.TUNNEL
+                                NotificationChannelKey.ALERTS -> MarbleGlyph.ROUTE
+                                NotificationChannelKey.PRIVACY -> MarbleGlyph.SHIELD
+                                NotificationChannelKey.UPDATES -> MarbleGlyph.DOWNLOAD
+                            },
+                            squircleColor = when (key) {
+                                NotificationChannelKey.CONNECTION -> colors.teal
+                                NotificationChannelKey.ALERTS -> colors.blue
+                                NotificationChannelKey.PRIVACY -> colors.red
+                                NotificationChannelKey.UPDATES -> colors.purple
+                            },
+                            trailing = {
+                                IosBadge(text = state.first, color = state.second)
+                            },
+                            enabled = Build.VERSION.SDK_INT >= 26,
+                            onClick = { openChannelSettings(key.id) }
+                        )
+                    }
+                }
+                IosSectionFooter(
+                    text = trx(
+                        "Android stores these four channels on the device. Muting one here is the same as muting it in system settings."
+                    )
+                )
+            }
+        }
+
         item(key = "smart-notifications") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Notification Preferences"))
+                IosSectionHeader(
+                    title = trx("Notification Preferences"),
+                    badge = if (s.smartNotificationsEnabled) trx("SMART ALERTS ON") else trx("SMART ALERTS OFF"),
+                    badgeColor = if (s.smartNotificationsEnabled) colors.green else colors.orange
+                )
                 IosCard {
                     IosSwitchRow(
                         title = trx("Live Telemetry in Ongoing Notification"),
@@ -243,6 +392,15 @@ fun SettingsNotificationsPage(
                     )
                     IosDivider()
                     IosSwitchRow(
+                        title = trx("Session Clock"),
+                        subtitle = trx("A live chronometer in the ongoing item, drawn by Android, never reposted"),
+                        checked = s.notificationSessionTimer,
+                        glyph = MarbleGlyph.RADAR,
+                        squircleColor = colors.teal,
+                        onCheckedChange = { repo.updateSettings(s.copy(notificationSessionTimer = it)) }
+                    )
+                    IosDivider()
+                    IosSwitchRow(
                         title = trx("Smart Event Alerts"),
                         subtitle = trx("Notify on route recovery, privacy warnings or subscription updates"),
                         checked = s.smartNotificationsEnabled,
@@ -250,58 +408,95 @@ fun SettingsNotificationsPage(
                         squircleColor = colors.red,
                         onCheckedChange = { repo.updateSettings(s.copy(smartNotificationsEnabled = it)) }
                     )
-                    if (s.smartNotificationsEnabled) {
-                        IosDivider()
-                        IosSwitchRow(
-                            title = trx("Connection Events"),
-                            checked = s.notifyConnectionEvents,
-                            glyph = MarbleGlyph.TUNNEL,
-                            squircleColor = colors.teal,
-                            onCheckedChange = { repo.updateSettings(s.copy(notifyConnectionEvents = it)) }
-                        )
-                        IosDivider()
-                        IosSwitchRow(
-                            title = trx("Failover & Recovery"),
-                            checked = s.notifyRecoveryEvents,
-                            glyph = MarbleGlyph.REFRESH,
-                            squircleColor = colors.orange,
-                            onCheckedChange = { repo.updateSettings(s.copy(notifyRecoveryEvents = it)) }
-                        )
-                        IosDivider()
-                        IosSwitchRow(
-                            title = trx("Privacy & Kill Switch Warnings"),
-                            checked = s.notifyPrivacyWarnings,
-                            glyph = MarbleGlyph.SHIELD,
-                            squircleColor = colors.red,
-                            onCheckedChange = { repo.updateSettings(s.copy(notifyPrivacyWarnings = it)) }
-                        )
-                        IosDivider()
-                        IosSwitchRow(
-                            title = trx("Subscription Refreshes"),
-                            checked = s.notifySubscriptionEvents,
-                            glyph = MarbleGlyph.LAYERS,
-                            squircleColor = colors.indigo,
-                            onCheckedChange = { repo.updateSettings(s.copy(notifySubscriptionEvents = it)) }
-                        )
-                        IosDivider()
-                        IosNumberStepperRow(
-                            title = trx("Alert Cooldown"),
-                            value = s.notificationCooldownSec,
-                            range = 5..300,
-                            step = 5,
-                            suffix = "s",
-                            glyph = MarbleGlyph.TUNERS,
-                            squircleColor = colors.purple,
-                            onValueChange = { repo.updateSettings(s.copy(notificationCooldownSec = it)) }
-                        )
-                    }
+                    IosDivider()
+                    IosSwitchRow(
+                        title = trx("Connection Events"),
+                        enabled = s.smartNotificationsEnabled,
+                        checked = s.notifyConnectionEvents,
+                        glyph = MarbleGlyph.TUNNEL,
+                        squircleColor = colors.teal,
+                        onCheckedChange = { repo.updateSettings(s.copy(notifyConnectionEvents = it)) }
+                    )
+                    IosDivider()
+                    IosSwitchRow(
+                        title = trx("Failover & Recovery"),
+                        enabled = s.smartNotificationsEnabled,
+                        checked = s.notifyRecoveryEvents,
+                        glyph = MarbleGlyph.REFRESH,
+                        squircleColor = colors.orange,
+                        onCheckedChange = { repo.updateSettings(s.copy(notifyRecoveryEvents = it)) }
+                    )
+                    IosDivider()
+                    IosSwitchRow(
+                        title = trx("Privacy & Kill Switch Warnings"),
+                        enabled = s.smartNotificationsEnabled,
+                        checked = s.notifyPrivacyWarnings,
+                        glyph = MarbleGlyph.SHIELD,
+                        squircleColor = colors.red,
+                        onCheckedChange = { repo.updateSettings(s.copy(notifyPrivacyWarnings = it)) }
+                    )
+                    IosDivider()
+                    IosSwitchRow(
+                        title = trx("Privacy Alarms Can Interrupt"),
+                        subtitle = trx("Their own channel: sound, vibration and a lock-screen banner"),
+                        enabled = s.smartNotificationsEnabled && s.notifyPrivacyWarnings,
+                        checked = s.notifyPrivacyHeadsUp,
+                        glyph = MarbleGlyph.RADAR,
+                        squircleColor = colors.red,
+                        onCheckedChange = { repo.updateSettings(s.copy(notifyPrivacyHeadsUp = it)) }
+                    )
+                    IosDivider()
+                    IosSwitchRow(
+                        title = trx("Network Changes"),
+                        enabled = s.smartNotificationsEnabled,
+                        checked = s.notifyNetworkChanges,
+                        glyph = MarbleGlyph.GLOBE,
+                        squircleColor = colors.blue,
+                        onCheckedChange = { repo.updateSettings(s.copy(notifyNetworkChanges = it)) }
+                    )
+                    IosDivider()
+                    IosSwitchRow(
+                        title = trx("Subscription Refreshes"),
+                        enabled = s.smartNotificationsEnabled,
+                        checked = s.notifySubscriptionEvents,
+                        glyph = MarbleGlyph.LAYERS,
+                        squircleColor = colors.indigo,
+                        onCheckedChange = { repo.updateSettings(s.copy(notifySubscriptionEvents = it)) }
+                    )
+                    IosDivider()
+                    IosSwitchRow(
+                        title = trx("Core & App Updates"),
+                        subtitle = trx("A newer build or a core refresh worth installing"),
+                        enabled = s.smartNotificationsEnabled,
+                        checked = s.notifyCoreUpdates,
+                        glyph = MarbleGlyph.DOWNLOAD,
+                        squircleColor = colors.purple,
+                        onCheckedChange = { repo.updateSettings(s.copy(notifyCoreUpdates = it)) }
+                    )
+                    IosDivider()
+                    IosNumberStepperRow(
+                        title = trx("Alert Cooldown"),
+                        subtitle = trx("Minimum gap between two alerts of the same kind"),
+                        value = s.notificationCooldownSec,
+                        range = 5..300,
+                        step = 5,
+                        suffix = "s",
+                        glyph = MarbleGlyph.TUNERS,
+                        squircleColor = colors.purple,
+                        onValueChange = { repo.updateSettings(s.copy(notificationCooldownSec = it)) }
+                    )
                 }
+            }
+        }
 
+        item(key = "notification-actions") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val canTest = notifGranted && s.smartNotificationsEnabled
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     IosButton(
                         label = trx("Send Test Alert"),
                         style = IosButtonStyle.TINTED,
-                        enabled = notifGranted && s.smartNotificationsEnabled,
+                        enabled = canTest,
                         onClick = { repo.testSmartNotification() },
                         modifier = Modifier.weight(1f)
                     )
@@ -311,6 +506,115 @@ fun SettingsNotificationsPage(
                         onClick = { repo.clearSmartNotifications() },
                         modifier = Modifier.weight(1f)
                     )
+                }
+                if (!canTest) {
+                    IosSectionFooter(
+                        text = if (!notifGranted) {
+                            trx("Android is blocking notifications, so no test can be delivered")
+                        } else {
+                            trx("Turn on Smart Event Alerts to send a test")
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * MARBLE_NOTIFICATION_COUNCIL_V231 — a preview built from the same strings the shade receives.
+ *
+ * The page previously described the notification in prose; a user cannot proof-read
+ * `"Protected • Frankfurt • 42 ms"` in their head. This renders the real vocabulary, the real
+ * measurement formatting and the real subtext, so what is on screen is what will be posted.
+ */
+@Composable
+private fun NotificationPreviewCard(repo: AppRepository) {
+    val colors = IosTheme.colors
+    val s = repo.settings
+    val status = when (repo.state) {
+        "CONNECTED" -> ConnectionStatus.PROTECTED
+        "CONNECTING" -> ConnectionStatus.CONNECTING
+        "BLOCKED" -> ConnectionStatus.BLOCKED
+        else -> ConnectionStatus.DISCONNECTED
+    }
+    val route = repo.profile(repo.selectedProfileId)?.name.orEmpty()
+    val detail = if (route.isBlank()) {
+        NotificationCopy.statusDetail(status, NotificationLanguage.EN)
+    } else {
+        route
+    }
+    val metrics = NotificationCopy.telemetryCompact(
+        NotificationLanguage.EN,
+        repo.livePingMs,
+        repo.liveDownBps,
+        repo.liveUpBps
+    )
+
+    IosCard {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                IosSquircleIcon(
+                    glyph = MarbleGlyph.BELL,
+                    backgroundColor = colors.blue,
+                    size = 30.dp,
+                    glyphSize = 16.dp
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = trx(NotificationCopy.statusTitle(status, NotificationLanguage.EN)),
+                        color = colors.title,
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = trx(detail),
+                        color = colors.subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = "MarbleNG",
+                    color = colors.subtitle,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+            IosFadeDivider()
+            if (s.notificationLiveStats) {
+                Text(
+                    text = metrics,
+                    color = colors.title,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = FontFamily.Monospace
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IosBadge(
+                    text = trx(NotificationCopy.statusSubText(status, NotificationLanguage.EN)),
+                    color = when (status) {
+                        ConnectionStatus.PROTECTED -> colors.green
+                        ConnectionStatus.BLOCKED -> colors.red
+                        ConnectionStatus.DISCONNECTED -> colors.subtitle
+                        else -> colors.orange
+                    }
+                )
+                if (s.notificationSessionTimer) {
+                    IosBadge(text = trx("SESSION TIMER"), color = colors.teal)
+                }
+                if (s.smartNotificationsEnabled) {
+                    IosBadge(text = trx("ALERTS ON"), color = colors.purple)
                 }
             }
         }

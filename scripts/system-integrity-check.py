@@ -330,6 +330,16 @@ files = {
     # MARBLE_NOTIFICATION_CHANNELS_ONCE_V206 — the notifier is a production source too: it was
     # rebuilt on every settings write, i.e. on every keystroke of every settings field.
     "notifier": read("app/src/main/java/com/marbleng/app/core/SmartNotifier.kt"),
+    # MARBLE_NOTIFICATION_COUNCIL_V231 — the notification app's copy engine, the test that pins
+    # it and the chapter that explains the five-expert review behind it.
+    "notificationCopy": read(
+        "app/src/main/java/com/marbleng/app/core/NotificationCopy.kt"
+    ),
+    "notificationTest": read(
+        "app/src/test/java/com/marbleng/app/core/NotificationCopyV231Test.kt"
+    ),
+    "notificationDoc": read("docs/NOTIFICATION_COUNCIL_V231.md"),
+    "receiver": read("app/src/main/java/com/marbleng/app/MarblePackageReplacedReceiver.kt"),
     # MARBLE_MULTI_SOURCE_ROUTING_V212 — the geo source set, the curated domestic knowledge, the
     # routing engine that reads both, and the three tests that pin them.
     "geoRegistry": read("app/src/main/java/com/marbleng/app/core/GeoAssetRegistry.kt"),
@@ -2900,7 +2910,10 @@ check(
     "const val ACCENT = 0xFF0066CC.toInt()" in files["notifier"]
     and ".setColor(ACCENT)" in files["notifier"]
     and ".setSubText(statusSubText(text))" in files["notifier"]
-    and ".setSubText(kindSubText(kind))" in files["notifier"]
+    # V231 localizes the kind subtext: `kindSubText(kind)` is still the dictionary key, the
+    # expression that reaches the builder is its translation.
+    and ".setSubText(subText)" in files["notifier"]
+    and "val subText = NotificationCopy.translate(kindLabel, language)" in files["notifier"]
     and ".setGroup(GROUP_ID)" in files["notifier"]
     and ".setLocalOnly(true)" in files["notifier"]
     and "setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)" in files["notifier"]
@@ -3084,6 +3097,175 @@ check(
             "SettingsAboutPage",
         )
     ),
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_NOTIFICATION_COUNCIL_V231 — the notification app, audited by five experts
+# ---------------------------------------------------------------------------
+# The critique's verdict was that the notification *system* existed but the notification *app* did
+# not: one English voice for a bilingual product, three channels for five kinds of event, no
+# grouping, no state, no count, an unbounded cooldown table, and a settings page that described a
+# notification it never showed. The invariants below pin the rebuilt pieces, each one traceable to a
+# finding in `docs/NOTIFICATION_COUNCIL_V231.md`.
+
+check(
+    "V231 the channel taxonomy is one table of four channels",
+    "enum class NotificationChannelKey(val id: String)" in files["notificationCopy"]
+    and 'CONNECTION("marbleng-vpn")' in files["notificationCopy"]
+    and 'ALERTS("marbleng-smart")' in files["notificationCopy"]
+    and 'PRIVACY("marbleng-privacy")' in files["notificationCopy"]
+    and 'UPDATES("marbleng-updates")' in files["notificationCopy"]
+    and "val menuOrder: List<NotificationChannelKey> = listOf(CONNECTION, ALERTS, PRIVACY, UPDATES)"
+    in files["notificationCopy"]
+    # Android stores the ids on the installed device: a renamed channel is a second channel.
+    and 'const val CHANNEL_CONNECTION = "marbleng-vpn"' in files["notifier"]
+    and 'const val CHANNEL_PRIVACY = "marbleng-privacy"' in files["notifier"],
+)
+
+check(
+    "V231 one word per connection state, in both languages",
+    "enum class ConnectionStatus" in files["notifier"]
+    and "fun statusTitle(status: ConnectionStatus, language: NotificationLanguage): String"
+    in files["notificationCopy"]
+    and "fun statusSubText(status: ConnectionStatus, language: NotificationLanguage): String"
+    in files["notificationCopy"]
+    and "data class ConnectionNotificationState(" in files["notifier"]
+    and "fun signature(language: NotificationLanguage): String" in files["notifier"],
+)
+
+check(
+    "V231 the ongoing item is built from state, not from a joined string",
+    "fun connectionNotification(" in files["notifier"]
+    and "state: ConnectionNotificationState" in files["notifier"]
+    and ".setUsesChronometer(true)" in files["notifier"]
+    and ".setProgress(0, 0, true)" in files["notifier"]
+    and "R.drawable.ic_notification_reconnect" in files["notifier"]
+    and "ACTION_RECONNECT_LAST" in files["notifier"]
+    and "ACTION_RECONNECT_LAST" in files["main"]
+    # A notification may not write its own metrics: the service hands over the state.
+    and "private fun connectionState(" in files["vpn"]
+    and "private fun publishStatus(" in files["vpn"]
+    and "private fun promoteStatus(" in files["vpn"]
+    and "publishStatus(ConnectionStatus.PROTECTED)" in files["vpn"]
+    and "notifier.updateConnection(NOTIFY, connectionState(" in files["vpn"]
+    and "SmartNotifier.formatRate(" not in files["vpn"],
+)
+
+check(
+    "V231 an unchanged status never reaches SystemUI",
+    "class ConnectionSignatureGate" in files["notificationCopy"]
+    and "connectionGate.allow(state.signature(language), now)" in files["notifier"]
+    and "if (!connectionGate.allow(" in files["notifier"],
+)
+
+check(
+    "V231 alerts are grouped, counted, bounded and id-stable",
+    "fun postSummary(language: NotificationLanguage)" in files["notifier"]
+    and ".setGroupSummary(true)" in files["notifier"]
+    and "class NotificationCooldown" in files["notificationCopy"]
+    and "private val cooldowns = NotificationCooldown()" in files["notifier"]
+    and "class NotificationIdAllocator" in files["notificationCopy"]
+    and "private val ids = NotificationIdAllocator(" in files["notifier"]
+    # The unbounded table and the hash-only id are what the council removed.
+    and "ConcurrentHashMap<String, Long>" not in files["notifier"]
+    and "eventKey.hashCode()" not in files["notifier"],
+)
+
+check(
+    "V231 privacy has its own channel and can be told to stay quiet",
+    "NotificationManager.IMPORTANCE_HIGH" in files["notifier"]
+    and "NotificationChannelKey.PRIVACY" in files["notifier"]
+    and "if (s.notifyPrivacyHeadsUp) CHANNEL_PRIVACY else CHANNEL_SMART" in files["notifier"]
+    and "val notifyPrivacyHeadsUp: Boolean = true" in files["models"]
+    and 'prefs.getBoolean("notifyPrivacyHeadsUp", true)' in files["store"]
+    and '.putBoolean("notifyPrivacyHeadsUp", s.notifyPrivacyHeadsUp)' in files["store"],
+)
+
+check(
+    "V231 the session clock is a switch and a platform chronometer",
+    "val notificationSessionTimer: Boolean = true" in files["models"]
+    and 'prefs.getBoolean("notificationSessionTimer", true)' in files["store"]
+    and '.putBoolean("notificationSessionTimer", s.notificationSessionTimer)' in files["store"]
+    and "showTimer = current.notificationSessionTimer" in files["vpn"]
+    and "Session Clock" in files["settingsSystem"],
+)
+
+check(
+    "V231 a Persian app posts Persian notifications, bidi-safe",
+    "fun languageFor(appLanguageId: String?, deviceLanguage: String?): NotificationLanguage"
+    in files["notificationCopy"]
+    and "fun isolate(text: String): String" in files["notificationCopy"]
+    and "const val RLM: Char = " in files["notificationCopy"]
+    and "fun translate(text: String, language: NotificationLanguage): String"
+    in files["notificationCopy"]
+    and "private val FaCopy: Map<String, String>" in files["notificationCopy"]
+    # The channel table is rewritten when the language changes, so Android's own screen agrees.
+    and "fun ensureChannels(language: NotificationLanguage = resolveLanguage())" in files["notifier"]
+    and "channelsLanguage == language" in files["notifier"]
+    and "NotificationCopy.channelTitle(NotificationChannelKey.CONNECTION, language)"
+    in files["notifier"]
+    and "SmartNotifier(context) { settings.appLanguage }" in files["repo"]
+    and "SmartNotifier(this) {" in files["vpn"],
+)
+
+check(
+    "V231 a notification tap opens the page that can act on it",
+    "const val EXTRA_PAGE = " in files["notifier"]
+    and "private fun openAppIntent(route: NotificationRoute, language: NotificationLanguage)"
+    in files["notifier"]
+    and ".setData(Uri.parse(" in files["notifier"]
+    # Distinct request codes per route: FLAG_UPDATE_CURRENT on one code would rewrite the extras
+    # of every notification already in the shade.
+    and "REQUEST_OPEN_BASE + route.ordinal" in files["notifier"]
+    and "handleNotificationIntent(" in files["main"]
+    and "app.repo.requestNotificationPage(page)" in files["main"]
+    and "repo.consumeNotificationPage()" in files["marbleApp"]
+    and "SettingsDestination.NOTIFICATIONS_BG" in files["marbleApp"],
+)
+
+check(
+    "V231 the settings page shows what the shade will show",
+    "fun SettingsNotificationsPage(" in files["settingsSystem"]
+    and "private fun NotificationPreviewCard(repo: AppRepository)" in files["settingsSystem"]
+    and "NotificationCopy.telemetryCompact(" in files["settingsSystem"]
+    and "NotificationCopy.statusTitle(status, NotificationLanguage.EN)" in files["settingsSystem"]
+    and "NotificationChannelKey.menuOrder.forEachIndexed" in files["settingsSystem"]
+    and "Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS" in files["settingsSystem"]
+    and "Settings.EXTRA_CHANNEL_ID" in files["settingsSystem"]
+    and "s.notifyNetworkChanges" in files["settingsSystem"]
+    and "s.notifyCoreUpdates" in files["settingsSystem"]
+    and "s.notifyPrivacyHeadsUp" in files["settingsSystem"]
+    and "s.notificationSessionTimer" in files["settingsSystem"]
+    and "Turn on Smart Event Alerts to send a test" in files["settingsSystem"],
+)
+
+check(
+    "V231 the switches that had no producer now have one",
+    # `notifyCoreUpdates` was a switch no code ever raised an alert for.
+    "notifier.alert(\n                    SmartNotificationKind.CORE" in files["repo"]
+    and '"App update available"' in files["repo"]
+    # The post-update notice was a silent-channel alert with no action.
+    and "SmartNotifier(context) { language }.restoreNotice()" in files["receiver"]
+    and "fun restoreNotice(language: NotificationLanguage = resolveLanguage())" in files["notifier"]
+    and "NotificationCopy.actionRestore(language)" in files["notifier"],
+)
+
+check(
+    "V231 the copy engine is tested on the host JVM",
+    "class NotificationCopyV231Test" in files["notificationTest"]
+    and "fun anUnchangedStatusNeverReachesSystemUi()" in files["notificationTest"]
+    and "fun everyEventKeyKeepsAStableCollisionFreeId()" in files["notificationTest"]
+    and "fun thePersianDictionaryTranslatesKnownCopyAndNeverTransliterates()"
+    in files["notificationTest"]
+    and "fun ellipsisNeverSplitsAGraphemeAndNeverLeavesADanglingWord()" in files["notificationTest"],
+)
+
+check(
+    "V231 the council chapter is written down and linked",
+    "MARBLE_NOTIFICATION_COUNCIL_V231" in files["notificationCopy"]
+    and "NOTIFICATION_COUNCIL_V231.md" in files["readme"]
+    and "## ۱. ترکیب شورا" in files["notificationDoc"]
+    and "## ۴. جدول اجرا" in files["notificationDoc"],
 )
 
 failed = [name for name, passed in checks if not passed]

@@ -37,6 +37,8 @@ import com.marbleng.app.core.RecoveryBackoffPolicy
 import com.marbleng.app.core.ResolverEvidencePolicy
 import com.marbleng.app.core.RuntimeDiagnostics
 import com.marbleng.app.core.SocksHttpClient
+import com.marbleng.app.core.ConnectionNotificationState
+import com.marbleng.app.core.ConnectionStatus
 import com.marbleng.app.core.SmartNotificationKind
 import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.core.TransportTelemetry
@@ -257,6 +259,9 @@ class MarbleVpnService : VpnService() {
     @Volatile private var activeProfileId = ""
     @Volatile private var activeProfileSourceId = ""
     @Volatile private var activeSettings: AppSettings? = null
+
+    /** MARBLE_NOTIFICATION_COUNCIL_V231 — the session clock the shade's chronometer counts from. */
+    @Volatile private var sessionStartedAtMs = 0L
     @Volatile private var hevActive = false
     @Volatile private var activeMtu = 1500
     @Volatile private var connectStartedNs = 0L
@@ -348,7 +353,9 @@ class MarbleVpnService : VpnService() {
         xray = app.xray
         singBox = app.repo.singBox
         diag = RuntimeDiagnostics(this)
-        notifier = SmartNotifier(this)
+        notifier = SmartNotifier(this) {
+            (activeSettings ?: (application as MarbleApplication).repo.settings).appLanguage
+        }
         notifier.ensureChannels()
         routeOptimizer = ContinuousRouteOptimizer(app.repo.intelligence, ProfileFlapGuard(iranAware = true))
         tuner = ConnectionTuner(xray, app.repo.intelligence)
@@ -410,7 +417,7 @@ class MarbleVpnService : VpnService() {
                         val requestedMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_TUN
                         val requestGeneration = startCommandGeneration.incrementAndGet()
 
-                        if (!promoteForeground("Preparing secure route", ongoing = true)) {
+                        if (!promoteStatus(ConnectionStatus.CONNECTING)) {
                             failBeforeTunnel("Android rejected foreground-service startup")
                         } else {
                             controlWorker.execute {
@@ -553,11 +560,9 @@ class MarbleVpnService : VpnService() {
             "network" to app.repo.intelligence.currentSnapshot().label
         )
 
-        val promoted = promoteForeground(
-            if (normalizedMode == MODE_PROXY) "Starting local proxy • ${profile.name}"
-            else "Securing device route • ${profile.name}",
-            ongoing = true
-        )
+        sessionStartedAtMs = 0L
+        notifier.resetConnectionGate()
+        val promoted = promoteStatus(ConnectionStatus.CONNECTING, routeName = profile.name)
         if (!promoted) {
             failBeforeTunnel("Android rejected foreground-service startup")
             return
@@ -775,7 +780,12 @@ class MarbleVpnService : VpnService() {
             tunReadyPublished.set(true)
             app.repo.markConnected(profile)
             app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
-            notifyNow("SOCKS5 • 127.0.0.1:$port • ${profile.name}", true)
+            sessionStartedAtMs = System.currentTimeMillis()
+            publishStatus(
+                ConnectionStatus.PROTECTED,
+                routeName = profile.name,
+                detail = "SOCKS5 • 127.0.0.1:$port"
+            )
             notifier.alert(
                 SmartNotificationKind.CONNECTION,
                 "proxy-ready:$session:${profile.id}",
@@ -1111,11 +1121,8 @@ class MarbleVpnService : VpnService() {
                 recoveryBackoff = RecoveryBackoffPolicy.reset()
                 app.repo.markConnected(profile)
                 app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
-                val iran = app.repo.iranMode
-                notifyNow(
-                    if (iran.active) "Protected • ${profile.name} • Iran Mode ${iran.ispShortName}".trimEnd()
-                    else "Protected • ${profile.name}", true
-                )
+                sessionStartedAtMs = System.currentTimeMillis()
+                publishStatus(ConnectionStatus.PROTECTED, routeName = profile.name)
                 notifier.alert(
                     if (recovering) SmartNotificationKind.RECOVERY else SmartNotificationKind.CONNECTION,
                     if (recovering) "recovered:$session:${profile.id}" else "connected:$session:${profile.id}",
@@ -1419,14 +1426,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 maybeAccelerate(session, generation)
                 maybeScheduleOptimizer(session, generation)
 
-                if (tick % 5 == 0 && (activeSettings ?: repo.settings).notificationLiveStats) {
-                    val name = repo.profile(activeProfileId)?.name ?: "Active route"
-                    val ping = repo.livePingMs.takeIf { it > 0 }?.let { "${it} ms" } ?: "— ms"
-                    notifyNow(
-                        "Protected • $name",
-                        true,
-                        "$ping • ↓ ${SmartNotifier.formatRate(repo.liveDownBps)} • ↑ ${SmartNotifier.formatRate(repo.liveUpBps)}"
-                    )
+                // MARBLE_NOTIFICATION_COUNCIL_V231 — the tick still drives the update, but the
+                // content signature decides whether SystemUI sees a new notification at all.
+                if (tick % 5 == 0) {
+                    publishStatus(ConnectionStatus.PROTECTED)
                 }
 
                 if (tick % RESOLVER_EVIDENCE_INTERVAL_TICKS == 0) {
@@ -3009,10 +3012,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     reason
             )
 
-            promoteForeground(
-                "BLOCKED • " +
-                    "Kill switch holding traffic",
-                ongoing = true
+            promoteStatus(
+                ConnectionStatus.BLOCKED,
+                detail = "Kill switch is holding traffic"
             )
 
             notifier.alert(
@@ -3034,7 +3036,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             tunReadyPublished.set(false)
             running.set(false)
             repo.setRuntimeState("BLOCKED", "$faultClass • $reason")
-            if (holdTun) promoteForeground("BLOCKED • $faultClass • tap Retry", ongoing = true)
+            if (holdTun) promoteStatus(ConnectionStatus.BLOCKED, detail = faultClass)
             else {
                 runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
                 stopSelf()
@@ -3049,7 +3051,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             if (holdTun) {
                 running.set(false)
                 repo.setRuntimeState("BLOCKED", "Kill switch active • $reason")
-                promoteForeground("BLOCKED • Startup timed out • tap Retry", ongoing = true)
+                promoteStatus(ConnectionStatus.BLOCKED, detail = "Startup timed out")
                 diag.event(
                     "VPN", "startup-timeout-held",
                     "session" to activeSession,
@@ -3087,10 +3089,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     "BLOCKED",
                     "Startup failed • Kill switch active • $reason"
                 )
-                promoteForeground(
-                    "BLOCKED • Startup failed • tap Retry",
-                    ongoing = true
-                )
+                promoteStatus(ConnectionStatus.BLOCKED, detail = "Startup failed")
                 return
             }
 
@@ -3104,7 +3103,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (holdTun && !settings.autoReconnectAfterKillSwitch) {
             recoveryScheduled.set(false)
             repo.setRuntimeState("BLOCKED", "Kill switch active • manual reconnect required")
-            promoteForeground("BLOCKED • Tap Connect to retry", ongoing = true)
+            promoteStatus(
+                ConnectionStatus.BLOCKED,
+                detail = "Automatic reconnect is disabled"
+            )
             notifier.alert(
                 SmartNotificationKind.PRIVACY,
                 "manual-hold:${activeSession}:$failedId",
@@ -3155,10 +3157,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     "CONNECTING",
                     "Identity Guard • retry $attempt/$maxRetries • ${pinned.name}"
                 )
-                promoteForeground(
-                    "Identity Guard • recovering pinned route",
-                    ongoing = true
-                )
+                promoteStatus(ConnectionStatus.RECOVERING, routeName = pinned.name)
 
                 notifier.alert(
                     SmartNotificationKind.RECOVERY,
@@ -3224,9 +3223,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     "BLOCKED",
                     "Identity Guard • pinned route unavailable • public IP not changed"
                 )
-                promoteForeground(
-                    "BLOCKED • Identity Guard holding traffic",
-                    ongoing = true
+                promoteStatus(
+                    ConnectionStatus.BLOCKED,
+                    routeName = pinned.name,
+                    detail = "Pinned exit is unavailable"
                 )
                 notifier.alert(
                     SmartNotificationKind.PRIVACY,
@@ -3275,10 +3275,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         "BLOCKED",
                         "Automatic recovery paused • repeated failures • tap Connect to retry"
                     )
-                    promoteForeground(
-                        "BLOCKED • Recovery paused • tap Connect",
-                        ongoing = true
-                    )
+                    promoteStatus(ConnectionStatus.BLOCKED, detail = "Recovery paused")
                     notifier.alert(
                         SmartNotificationKind.PRIVACY,
                         "recovery-circuit:${activeSession}:$failedId",
@@ -3354,11 +3351,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         next.name
                 )
 
-                promoteForeground(
-                    "Recovering • " +
-                        next.name,
-                    ongoing = true
-                )
+                promoteStatus(ConnectionStatus.RECOVERING, routeName = next.name)
 
                 notifier.alert(
                     SmartNotificationKind.RECOVERY,
@@ -3587,7 +3580,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             updateSentinel(killSwitch = true)
             repo.setRuntimeState("BLOCKED", "Kill switch active • $concise")
             if (loud) repo.setRuntimeMessage(concise)
-            promoteForeground("BLOCKED • Kill switch holding traffic", ongoing = true)
+            promoteStatus(
+                ConnectionStatus.BLOCKED,
+                detail = "Kill switch is holding traffic"
+            )
             diag.event("VPN", "preflight-failed-tun-held", "reason" to concise)
             return
         }
@@ -3834,17 +3830,63 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         false
     }
 
-    private fun promoteForeground(text: String, ongoing: Boolean): Boolean {
-        val notification = notifier.connectionNotification("MarbleNG", text, ongoing)
+    /**
+     * MARBLE_NOTIFICATION_COUNCIL_V231 — one derivation of the ongoing notification's state.
+     *
+     * Before this, eleven call sites each hand-joined `"STATE • route • metric"` into a string and
+     * the shade had to guess what it was reading. Now the state is a value, the metrics come from
+     * the repository's live store, the language and the two new switches come from the effective
+     * settings, and every surface renders the same thing.
+     */
+    private fun connectionState(
+        status: ConnectionStatus,
+        routeName: String = activeRouteName(),
+        detail: String = ""
+    ): ConnectionNotificationState {
+        val repo = (application as MarbleApplication).repo
+        val current = activeSettings ?: repo.settings
+        val iran = repo.iranMode
+        return ConnectionNotificationState(
+            status = status,
+            routeName = routeName,
+            pingMs = repo.livePingMs,
+            downBps = repo.liveDownBps,
+            upBps = repo.liveUpBps,
+            showTelemetry = current.notificationLiveStats,
+            showTimer = current.notificationSessionTimer,
+            sessionStartedAtMs = sessionStartedAtMs,
+            iranModeLabel = if (iran.active) iran.ispShortName.trim() else "",
+            detail = detail
+        )
+    }
+
+    private fun activeRouteName(): String {
+        val repo = (application as MarbleApplication).repo
+        return repo.profile(activeProfileId)?.name
+            ?: repo.profile(repo.selectedProfileId)?.name
+            ?: ""
+    }
+
+    /** Update the shade only when the state it would show has changed. */
+    private fun publishStatus(
+        status: ConnectionStatus,
+        routeName: String = activeRouteName(),
+        detail: String = ""
+    ) {
+        notifier.updateConnection(NOTIFY, connectionState(status, routeName, detail))
+    }
+
+    /** Promote/replace the foreground item with the same structured state. */
+    private fun promoteStatus(
+        status: ConnectionStatus,
+        routeName: String = activeRouteName(),
+        detail: String = ""
+    ): Boolean {
+        val notification = notifier.connectionNotification(connectionState(status, routeName, detail))
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         return runCatching { ServiceCompat.startForeground(this, NOTIFY, notification, type) }
             .onFailure { diag.error("VPN", "foreground-start-failed", it, "sdk" to Build.VERSION.SDK_INT) }
             .isSuccess
-    }
-
-    private fun notifyNow(text: String, ongoing: Boolean, detail: String? = null) {
-        val body = if (detail.isNullOrBlank()) text else "$text • $detail"
-        notifier.updateConnection(NOTIFY, "MarbleNG", body, ongoing)
     }
 
     private fun safeMessage(t: Throwable): String =

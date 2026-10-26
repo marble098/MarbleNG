@@ -528,6 +528,39 @@ No new dependency, no second design system, no structural change: every V210/V21
 the collapsed-keys policy, the server-box truth rules, one ping verb per surface, the depth
 contract — is still enforced by its own check.
 
+### The V231 pass — the notification app, reviewed by five experts
+
+`docs/NOTIFICATION_COUNCIL_V231.md` is the chapter (Persian, as the council's record). V213 filled
+the fields Android defines; **V231 made the notification an app instead of a helper function.** A
+five-expert panel — UX research, product design, Android's notification platform, product/IA, and
+accessibility/i18n — audited every notification surface with code as evidence, and the verdict was
+structural: eleven call sites hand-joined `"STATE • route • metric"` into a string, so the shade
+never knew which part was the state; the title always read `MarbleNG`; the privacy alarm sat on the
+same default-importance channel as a subscription refresh (and `PRIORITY` is ignored above API 25, so
+"important" was never important); `.setGroup` had no summary; the cooldown table and the id set were
+unbounded maps keyed by session; ids were `hash % 1200` and could overwrite each other; every
+notification shared one `PendingIntent` request code; and the settings page described a notification
+it never showed while two of its switches (`notifyNetworkChanges`, `notifyCoreUpdates`) had no row —
+and one of them had no producer at all.
+
+The rebuild: `ConnectionNotificationState` with five states in both languages, so the ongoing item
+now says **what is true** (title), **where** (text), **how it measures** (one bidi-isolated segment)
+and **for how long** (Android's own `setUsesChronometer`, which costs zero notifications); a
+signature gate so an unchanged status never reaches SystemUI and a changed one is posted at most once
+a second; four channels with localized names (`Tunnel status` silent and badge-free, `Route alerts`,
+`Privacy alarms` at `IMPORTANCE_HIGH`, `Updates`) re-created when the app language changes; a silent
+group summary that counts what is waiting; a collision-free bounded id allocator and a TTL'd bounded
+cooldown table; per-kind status-bar silhouettes; a `Manage` action that deep-links to the channel's
+own Android screen and a `Reconnect` verb that goes through the same permission gate as the Quick
+Tile; notification taps that land on the page that can act on the alert (privacy → Diagnostics,
+subscription → Subscriptions) with a distinct request code per route; `notifyCoreUpdates` wired to
+the update check; the post-update notice moved off the silent channel and given a Restore action; and
+a settings page that renders the real notification from the real formatters, lists all four channels
+with their live importance (`ON`/`LOUD`/`QUIET`/`MUTED`) and deep-links into each one. The copy half
+lives in `core/NotificationCopy.kt` — no `Context`, so `NotificationCopyV231Test` can pin the bidi
+isolation, the grapheme-safe ellipsis, the Persian dictionary (unknown copy stays English rather than
+being transliterated) and the bounded collections on the host JVM.
+
 ### The V215 pass — Settings, text size, and a steadier Home
 
 `docs/SETTINGS_TREE_TEXT_SCALE_V215.md` is the chapter. Settings is regrouped so every sub-section

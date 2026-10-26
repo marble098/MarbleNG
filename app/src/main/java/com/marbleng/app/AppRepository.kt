@@ -131,7 +131,6 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         singBox.intelligence = it
         xray.intelligence = it
     }
-    private val notifier = SmartNotifier(context)
     private val iranDetector = IranModeDetector(context, intelligence)
     private val bugFinder = BugFinder(context, xray, singBox)
     private val diagnostics = RuntimeDiagnostics(context)
@@ -141,6 +140,10 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     val history = mutableStateListOf<ConnectionRecord>().apply { addAll(store.loadHistory()) }
 
     var settings by mutableStateOf(store.settings()); private set
+
+    // MARBLE_NOTIFICATION_COUNCIL_V231 — the notifier speaks the language the app speaks, resolved
+    // lazily so a language change in Settings reaches the next notification, not the next launch.
+    private val notifier = SmartNotifier(context) { settings.appLanguage }
 
     private fun normalizeLibrarySourceFilter(id: String): String = when {
         id == "all" -> "all"
@@ -359,6 +362,25 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var busy by mutableStateOf(false); private set
 
     private var messageState by mutableStateOf("")
+
+    /**
+     * MARBLE_NOTIFICATION_COUNCIL_V231 — a notification tap names the page it wants. The activity
+     * writes it here, the root shell consumes it once and does the navigation; no notification
+     * knows how the app's navigation graph is built.
+     */
+    var pendingNotificationPage by mutableStateOf(""); private set
+
+    fun requestNotificationPage(routeId: String) {
+        if (routeId.isBlank()) return
+        pendingNotificationPage = routeId.trim()
+    }
+
+    fun consumeNotificationPage(): String {
+        val page = pendingNotificationPage
+        pendingNotificationPage = ""
+        return page
+    }
+
     var message: String
         get() = messageState
         private set(value) {
@@ -1398,6 +1420,17 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                         availableUpdate = release
                     }
                 }
+                // MARBLE_NOTIFICATION_COUNCIL_V231 — `notifyCoreUpdates` existed in Settings and no
+                // code ever raised a CORE alert, so the switch was dead. An available build is the
+                // one event that switch was always meant to describe.
+                notifier.alert(
+                    SmartNotificationKind.CORE,
+                    "app:${release.tag}",
+                    "App update available",
+                    "MarbleNG ${release.version} is ready to install",
+                    settings,
+                    minIntervalOverrideMs = 6 * 60 * 60 * 1000L
+                )
                 diagnostics.event(
                     "UPDATE",
                     "available",
@@ -2064,7 +2097,12 @@ private fun postToMain(block: () -> Unit) {
             settings,
             minIntervalOverrideMs = 0L
         )
-        message = if (posted) "Smart test alert sent" else "Notification permission or smart alerts are disabled"
+        message = when {
+            posted -> "Smart test alert sent"
+            !notifier.optionalPermissionGranted() -> "Android is not letting MarbleNG post notifications"
+            !settings.smartNotificationsEnabled -> "Smart alerts are switched off"
+            else -> "The test alert could not be posted"
+        }
     }
 
     fun clearSmartNotifications() {
