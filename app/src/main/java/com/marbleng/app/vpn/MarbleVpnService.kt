@@ -3225,7 +3225,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 )
                 promoteStatus(
                     ConnectionStatus.BLOCKED,
-                    routeName = pinned.name,
+                    routeName = pinned?.name.orEmpty(),
                     detail = "Pinned exit is unavailable"
                 )
                 notifier.alert(
