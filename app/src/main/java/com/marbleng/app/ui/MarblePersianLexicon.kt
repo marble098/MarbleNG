@@ -1148,8 +1148,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "The connect button is always shown." to "دکمه اتصال همیشه نمایش داده می‌شود.",
 
     "Navigation bar" to "نوار پایین",
-    "The bottom bar of the app: what it shows and how much room it takes." to
-        "نوار پایین برنامه: چه چیزی نشان دهد و چقدر جا بگیرد.",
     "Show labels" to "نمایش نوشته‌ها",
     "Tab captions under the bar's glyphs" to "نام تب‌ها کنار آیکون‌ها",
     "Show icons" to "نمایش آیکون‌ها",

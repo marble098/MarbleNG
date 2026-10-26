@@ -40,6 +40,7 @@ import com.marbleng.app.model.dockShowsLabels
 import com.marbleng.app.model.parseAppFont
 import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseConnectButtonStyle
+import com.marbleng.app.model.encodeDockPreference
 import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSize
 import com.marbleng.app.model.parseDockSlotAccent
@@ -288,7 +289,7 @@ fun SettingsTabBarPage(
     val colors = IosTheme.colors
     val s = repo.settings
     val dockSize = parseDockSize(s.dockSize)
-    val dockPresentation = parseDockPresentation(s.dockPresentation)
+    val dockPresentation = parseDockPresentation(s.dockSize)
     val slotKind = parseDockSlotKind(s.dockSlotKind)
     val slotIcon = parseDockSlotIcon(s.dockSlotIcon)
     val slotAccent = parseDockSlotAccent(s.dockSlotAccent)
@@ -309,7 +310,11 @@ fun SettingsTabBarPage(
                         DockSize.LARGE to trx("Large")
                     ),
                     selected = dockSize,
-                    onSelect = { repo.updateSettings(s.copy(dockSize = it.id)) }
+                    onSelect = {
+                        repo.updateSettings(
+                            s.copy(dockSize = encodeDockPreference(it, parseDockPresentation(s.dockSize)))
+                        )
+                    }
                 )
                 IosSectionHeader(title = trx("Bottom Bar Position"))
                 IosSegmentedControl(
@@ -318,7 +323,11 @@ fun SettingsTabBarPage(
                         DockPresentation.FLOATING to trx("Floating above bottom")
                     ),
                     selected = dockPresentation,
-                    onSelect = { repo.updateSettings(s.copy(dockPresentation = it.id)) }
+                    onSelect = {
+                        repo.updateSettings(
+                            s.copy(dockSize = encodeDockPreference(dockSize, it))
+                        )
+                    }
                 )
                 IosCard {
                     IosSwitchRow(

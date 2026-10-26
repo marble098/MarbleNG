@@ -330,7 +330,7 @@ private fun IosBottomTabBar(
     val strings = Tr.now
     val s = repo.settings
     val size = parseDockSize(s.dockSize)
-    val presentation = parseDockPresentation(s.dockPresentation)
+    val presentation = parseDockPresentation(s.dockSize)
     val floating = presentation == DockPresentation.FLOATING
     val showIcons = dockShowsIcons(s.dockShowIcons, s.dockShowLabels)
     val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)

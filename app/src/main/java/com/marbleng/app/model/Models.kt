@@ -765,9 +765,14 @@ enum class DockPresentation(val id: String) {
     FLOATING("floating")
 }
 
-fun parseDockPresentation(raw: String): DockPresentation =
-    DockPresentation.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+fun parseDockPresentation(raw: String): DockPresentation {
+    val encoded = raw.substringAfter('|', DockPresentation.ATTACHED.id).trim()
+    return DockPresentation.entries.firstOrNull { it.id.equals(encoded, ignoreCase = true) }
         ?: DockPresentation.ATTACHED
+}
+
+fun encodeDockPreference(size: DockSize, presentation: DockPresentation): String =
+    "${size.id}|${presentation.id}"
 
 enum class DockSize(val id: String) {
     SMALL("small"),
@@ -775,13 +780,15 @@ enum class DockSize(val id: String) {
     LARGE("large")
 }
 
-fun parseDockSize(raw: String): DockSize =
-    DockSize.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
-        ?: when (raw.trim().uppercase()) {
+fun parseDockSize(raw: String): DockSize {
+    val sizeId = raw.substringBefore('|').trim()
+    return DockSize.entries.firstOrNull { it.id.equals(sizeId, ignoreCase = true) }
+        ?: when (sizeId.uppercase()) {
             "COMPACT" -> DockSize.SMALL
             "SPACIOUS", "BIG" -> DockSize.LARGE
             else -> DockSize.MEDIUM
         }
+}
 
 enum class DockSlotKind(val id: String) {
     PULSE("pulse"),
@@ -1302,7 +1309,6 @@ data class AppSettings(
     val dockShowLabels: Boolean = true,
     val dockShowIcons: Boolean = true,
     val dockSize: String = DockSize.MEDIUM.id,
-    val dockPresentation: String = DockPresentation.ATTACHED.id,
 
     val dockSlotEnabled: Boolean = true,
     val dockSlotKind: String = DockSlotKind.DEFAULT.id,

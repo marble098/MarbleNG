@@ -5,16 +5,20 @@ import org.junit.Test
 
 class DockPresentationV232Test {
     @Test
-    fun invalidOrMissingPresentationFallsBackToAttached() {
-        assertEquals(DockPresentation.ATTACHED, parseDockPresentation(""))
-        assertEquals(DockPresentation.ATTACHED, parseDockPresentation("unknown"))
+    fun legacyAndMalformedPreferencesFallBackToAttached() {
+        assertEquals(DockPresentation.ATTACHED, parseDockPresentation("medium"))
+        assertEquals(DockPresentation.ATTACHED, parseDockPresentation("medium|unknown"))
+        assertEquals(DockSize.MEDIUM, parseDockSize("unknown|floating"))
     }
 
     @Test
-    fun bothDockLayoutsRoundTripFromPreferenceIds() {
-        DockPresentation.entries.forEach { presentation ->
-            assertEquals(presentation, parseDockPresentation(presentation.id))
+    fun sizeAndPresentationShareTheExistingPreferenceWithoutLoss() {
+        DockSize.entries.forEach { size ->
+            DockPresentation.entries.forEach { presentation ->
+                val encoded = encodeDockPreference(size, presentation)
+                assertEquals(size, parseDockSize(encoded))
+                assertEquals(presentation, parseDockPresentation(encoded))
+            }
         }
-        assertEquals(DockPresentation.FLOATING, parseDockPresentation("FLOATING"))
     }
 }

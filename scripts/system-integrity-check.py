@@ -3289,12 +3289,13 @@ check(
 check(
     "V232 the bottom dock is selectable, persisted and defaults to attached",
     "enum class DockPresentation" in files["dockModel"]
-    and 'val dockPresentation: String = DockPresentation.ATTACHED.id' in files["dockModel"]
-    and 'prefs.getString("dockPresentation", DockPresentation.ATTACHED.id)' in files["dockStore"]
-    and '.putString("dockPresentation", parseDockPresentation(s.dockPresentation).id)' in files["dockStore"]
+    and "fun encodeDockPreference(size: DockSize, presentation: DockPresentation)" in files["dockModel"]
+    and "encodeDockPreference(parseDockSize(" in files["dockStore"]
+    and '"dockSize",' in files["dockStore"]
+    and "parseDockPresentation(s.dockSize)" in files["marbleApp"]
     and "DockPresentation.FLOATING" in files["marbleApp"]
     and "Bottom Bar Position" in files["dockSettings"]
-    and "bothDockLayoutsRoundTripFromPreferenceIds" in files["dockTest"],
+    and "sizeAndPresentationShareTheExistingPreferenceWithoutLoss" in files["dockTest"],
 )
 
 check(
