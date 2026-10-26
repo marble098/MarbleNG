@@ -530,7 +530,7 @@ contract — is still enforced by its own check.
 
 ### The V231 pass — the notification app, reviewed by five experts
 
-`docs/NOTIFICATION_COUNCIL_V231.md` is the chapter (Persian, as the council's record). V213 filled
+`docs/NOTIFICATION_COUNCIL_V231.md` is the chapter (Persian, as the council's record). V232 records the five-role Persian, bottom-dock and notification review in `docs/PERSIAN_DOCK_AND_SHADE_COUNCIL_V232.md`. V213 filled
 the fields Android defines; **V231 made the notification an app instead of a helper function.** A
 five-expert panel — UX research, product design, Android's notification platform, product/IA, and
 accessibility/i18n — audited every notification surface with code as evidence, and the verdict was

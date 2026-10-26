@@ -665,6 +665,10 @@ class AppStore(context: Context) {
         dockShowLabels = prefs.getBoolean("dockShowLabels", true),
         dockShowIcons = prefs.getBoolean("dockShowIcons", true),
         dockSize = parseDockSize(prefs.getString("dockSize", DockSize.MEDIUM.id) ?: DockSize.MEDIUM.id).id,
+        dockPresentation = parseDockPresentation(
+            prefs.getString("dockPresentation", DockPresentation.ATTACHED.id)
+                ?: DockPresentation.ATTACHED.id
+        ).id,
 
         dockSlotEnabled = prefs.getBoolean("dockSlotEnabled", true),
         dockSlotKind = parseDockSlotKind(prefs.getString("dockSlotKind", DockSlotKind.DEFAULT.id) ?: DockSlotKind.DEFAULT.id).id,
@@ -888,6 +892,7 @@ class AppStore(context: Context) {
         .putBoolean("dockShowLabels", s.dockShowLabels)
         .putBoolean("dockShowIcons", s.dockShowIcons)
         .putString("dockSize", parseDockSize(s.dockSize).id)
+        .putString("dockPresentation", parseDockPresentation(s.dockPresentation).id)
         .putBoolean("dockSlotEnabled", s.dockSlotEnabled)
         .putString("dockSlotKind", parseDockSlotKind(s.dockSlotKind).id)
         .putString("dockSlotSourceId", s.dockSlotSourceId.trim())

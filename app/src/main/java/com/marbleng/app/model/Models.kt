@@ -760,6 +760,15 @@ fun AppSettings.pingWorkers(cores: Int, memoryMb: Long, method: ProbeMethod = pr
 fun AppSettings.pingSampleSpacingMs(): Long =
     (PingBudget.SAMPLE_SPACING_MS / pingSpeedFactor()).roundToLong().coerceIn(20L, 300L)
 
+enum class DockPresentation(val id: String) {
+    ATTACHED("attached"),
+    FLOATING("floating")
+}
+
+fun parseDockPresentation(raw: String): DockPresentation =
+    DockPresentation.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
+        ?: DockPresentation.ATTACHED
+
 enum class DockSize(val id: String) {
     SMALL("small"),
     MEDIUM("medium"),
@@ -1293,6 +1302,7 @@ data class AppSettings(
     val dockShowLabels: Boolean = true,
     val dockShowIcons: Boolean = true,
     val dockSize: String = DockSize.MEDIUM.id,
+    val dockPresentation: String = DockPresentation.ATTACHED.id,
 
     val dockSlotEnabled: Boolean = true,
     val dockSlotKind: String = DockSlotKind.DEFAULT.id,

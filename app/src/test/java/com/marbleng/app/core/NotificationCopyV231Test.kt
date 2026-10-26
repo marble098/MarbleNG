@@ -154,6 +154,9 @@ class NotificationCopyV231Test {
         }
         assertEquals(NotificationRoute.DASHBOARD, NotificationRoute.fromId(""))
         assertEquals(NotificationRoute.DASHBOARD, NotificationRoute.fromId("nonsense"))
+        assertEquals(NotificationRoute.SERVERS, NotificationRoute.fromId("servers"))
+        assertEquals("سرور", NotificationCopy.actionChangeServer(NotificationLanguage.FA))
+        assertEquals("اشتراک", NotificationCopy.actionChangeSubscription(NotificationLanguage.FA))
     }
 
     @Test

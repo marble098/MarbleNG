@@ -278,18 +278,33 @@ class SmartNotifier(
             builder.setProgress(0, 0, true)
         }
 
-        if (state.status == ConnectionStatus.BLOCKED) {
+        if (state.ongoing) {
+            // Direct shortcuts keep route management one tap away from the system shade; they
+            // open the app on the picker rather than silently switching a live tunnel.
             builder.addAction(
-                R.drawable.ic_notification_reconnect,
-                NotificationCopy.actionReconnect(language),
-                reconnectIntent(language)
+                R.drawable.ic_notification_manage,
+                NotificationCopy.actionChangeServer(language),
+                openAppIntent(NotificationRoute.SERVERS, language)
             )
+            builder.addAction(
+                R.drawable.ic_notification_update,
+                NotificationCopy.actionChangeSubscription(language),
+                openAppIntent(NotificationRoute.SUBSCRIPTIONS, language)
+            )
+            if (state.status == ConnectionStatus.BLOCKED) {
+                builder.addAction(
+                    R.drawable.ic_notification_reconnect,
+                    NotificationCopy.actionReconnect(language),
+                    reconnectIntent(language)
+                )
+            } else {
+                builder.addAction(
+                    R.drawable.ic_notification_stop,
+                    NotificationCopy.actionDisconnect(language),
+                    stopServiceIntent()
+                )
+            }
         }
-        builder.addAction(
-            R.drawable.ic_notification_stop,
-            NotificationCopy.actionDisconnect(language),
-            stopServiceIntent()
-        )
 
         return builder.build()
     }

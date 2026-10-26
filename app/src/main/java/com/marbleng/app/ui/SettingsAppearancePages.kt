@@ -28,6 +28,7 @@ import com.marbleng.app.model.AppFont
 import com.marbleng.app.model.AppLanguage
 import com.marbleng.app.model.ConnectButtonStyle
 import com.marbleng.app.model.DOCK_SLOT_CAPTION_MAX
+import com.marbleng.app.model.DockPresentation
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.DockSlotAccent
 import com.marbleng.app.model.DockSlotIcon
@@ -39,6 +40,7 @@ import com.marbleng.app.model.dockShowsLabels
 import com.marbleng.app.model.parseAppFont
 import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseConnectButtonStyle
+import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSize
 import com.marbleng.app.model.parseDockSlotAccent
 import com.marbleng.app.model.parseDockSlotIcon
@@ -286,6 +288,7 @@ fun SettingsTabBarPage(
     val colors = IosTheme.colors
     val s = repo.settings
     val dockSize = parseDockSize(s.dockSize)
+    val dockPresentation = parseDockPresentation(s.dockPresentation)
     val slotKind = parseDockSlotKind(s.dockSlotKind)
     val slotIcon = parseDockSlotIcon(s.dockSlotIcon)
     val slotAccent = parseDockSlotAccent(s.dockSlotAccent)
@@ -307,6 +310,15 @@ fun SettingsTabBarPage(
                     ),
                     selected = dockSize,
                     onSelect = { repo.updateSettings(s.copy(dockSize = it.id)) }
+                )
+                IosSectionHeader(title = trx("Bottom Bar Position"))
+                IosSegmentedControl(
+                    options = listOf(
+                        DockPresentation.ATTACHED to trx("Attached to bottom"),
+                        DockPresentation.FLOATING to trx("Floating above bottom")
+                    ),
+                    selected = dockPresentation,
+                    onSelect = { repo.updateSettings(s.copy(dockPresentation = it.id)) }
                 )
                 IosCard {
                     IosSwitchRow(

@@ -24,12 +24,19 @@ internal fun faTranslate(text: String): String {
 
     FaLexiconLower[trimmed.lowercase()]?.let { return it }
     faPattern(trimmed)?.let { return it }
-    return faFallback(text)
+    // Unknown copy must remain legible in its source language. Transliteration produced strings
+    // that looked Persian but had no meaning; add a real phrase translation to FaLexicon instead.
+    return text
 }
 
 private val FaLexicon: Map<String, String> = mapOf(
 
     // MARBLE_MERIDIAN_V221 — the flat chapter speaks Persian too.
+    "Bottom Bar Position" to "جای نوار پایین",
+    "Attached to bottom" to "چسبیده به پایین",
+    "Floating above bottom" to "شناور بالای نوار پایین گوشی",
+    "The bottom bar of the app: what it shows and how much room it takes." to
+        "نوار پایین برنامه را مطابق سلیقه‌تان بچینید و اندازه‌اش را انتخاب کنید.",
     "Interface" to "رابط کاربری",
     "Surfaces, accent and how hard the cores work" to "ظاهر، رنگ و توان هسته‌ها",
     "Surfaces" to "ظاهر سطوح",
@@ -1652,54 +1659,6 @@ private val FaLexiconLower: Map<String, String> =
 internal fun isFaLexiconKey(text: String): Boolean =
     FaLexicon.containsKey(text) || FaLexiconLower.containsKey(text.lowercase())
 
-private val FaFallbackWords: Map<String, String> = mapOf(
-    "add" to "افزودن", "all" to "همه", "and" to "و", "app" to "برنامه", "auto" to "خودکار",
-    "best" to "بهترین", "button" to "دکمه", "cancel" to "لغو", "chain" to "زنجیره",
-    "config" to "کانفیگ", "connect" to "اتصال", "connection" to "اتصال", "core" to "هسته",
-    "custom" to "سفارشی", "data" to "داده", "delete" to "حذف", "details" to "جزئیات",
-    "disabled" to "غیرفعال", "download" to "دریافت", "enabled" to "فعال", "error" to "خطا",
-    "failed" to "ناموفق", "file" to "فایل", "group" to "گروه", "home" to "خانه",
-    "import" to "وارد کردن", "information" to "اطلاعات", "language" to "زبان", "light" to "روشن",
-    "manual" to "دستی", "mode" to "حالت", "network" to "شبکه", "new" to "جدید",
-    "off" to "خاموش", "on" to "روشن", "open" to "باز کردن", "page" to "صفحه",
-    "ping" to "پینگ", "profile" to "پروفایل", "remove" to "حذف", "reset" to "بازنشانی",
-    "route" to "مسیر", "save" to "ذخیره", "scan" to "پویش", "server" to "سرور",
-    "settings" to "تنظیمات", "show" to "نمایش", "smart" to "هوشمند", "source" to "منبع", "speed" to "سرعت",
-    "status" to "وضعیت", "subscription" to "اشتراک", "system" to "سیستم", "test" to "تست",
-    "theme" to "پوسته", "tunnel" to "تونل", "update" to "به‌روزرسانی", "upload" to "ارسال",
-    "use" to "استفاده", "visible" to "نمایان", "warning" to "هشدار", "tab" to "تب",
-    "switch" to "کلید", "slider" to "لغزنده", "floating" to "شناور",
-    "http" to "اچ‌تی‌تی‌پی", "https" to "اچ‌تی‌تی‌پی‌اس", "tcp" to "تی‌سی‌پی",
-    "udp" to "یو‌دی‌پی", "dns" to "دی‌ان‌اس", "ip" to "آی‌پی", "ipv4" to "آی‌پی‌نسخه۴",
-    "ipv6" to "آی‌پی‌نسخه۶", "json" to "جیسون", "mtu" to "ام‌تی‌یو", "xray" to "ایکس‌ری",
-    "vless" to "وی‌لس", "vmess" to "وی‌مس", "socks" to "ساکس", "ssh" to "اس‌اس‌اچ",
-    "wireguard" to "وایرگارد", "sing" to "سینگ", "box" to "باکس"
-)
-
-private val LatinUiToken = Regex("[A-Za-z][A-Za-z0-9_-]*")
-
-private fun faFallback(text: String): String {
-    if ("://" in text || text.contains("@") || text.matches(Regex(".*\\d+\\.\\d+\\.\\d+\\.\\d+.*"))) return text
-    return LatinUiToken.replace(text) { match ->
-        val token = match.value
-        FaFallbackWords[token.lowercase()] ?: faTransliterate(token)
-    }
-}
-
-private fun faTransliterate(token: String): String = buildString {
-    token.forEach { char ->
-        append(
-            when (char.lowercaseChar()) {
-                'a' -> "ا"; 'b' -> "ب"; 'c' -> "ک"; 'd' -> "د"; 'e' -> "ی"; 'f' -> "ف"
-                'g' -> "گ"; 'h' -> "ه"; 'i' -> "ی"; 'j' -> "ج"; 'k' -> "ک"; 'l' -> "ل"
-                'm' -> "م"; 'n' -> "ن"; 'o' -> "و"; 'p' -> "پ"; 'q' -> "ک"; 'r' -> "ر"
-                's' -> "س"; 't' -> "ت"; 'u' -> "و"; 'v' -> "و"; 'w' -> "و"; 'x' -> "اکس"
-                'y' -> "ی"; 'z' -> "ز"; '-' -> "‌"; '_' -> "‌"; else -> char.toString()
-            }
-        )
-    }
-}
-
 private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     Regex("""^(\d+) servers$""") to { m -> "${m.groupValues[1]} سرور" },
 
@@ -1728,14 +1687,14 @@ private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
     Regex("""^Remove failed ping \((\d+)\)$""") to { m -> "حذف پینگ ناموفق (${m.groupValues[1]})" },
     Regex("""^Remove failed tunnel \((\d+)\)$""") to { m -> "حذف تونل ناموفق (${m.groupValues[1]})" },
     Regex("""^Remove failed (.+) servers\?$""") to { m ->
-        "سرورهای ناموفق ${faFallback(m.groupValues[1])} حذف شوند؟"
+        "سرورهای ناموفق ${m.groupValues[1]} حذف شوند؟"
     },
-    Regex("""^Delete (.+)\?$""") to { m -> "${faFallback(m.groupValues[1])} حذف شود؟" },
+    Regex("""^Delete (.+)\?$""") to { m -> "${m.groupValues[1]} حذف شود؟" },
     Regex("""^Remove failed everywhere \((\d+)\)$""") to { m ->
         "حذف موارد ناموفق از همه‌جا (${m.groupValues[1]})"
     },
     Regex("""^Remove failed (Smart|tunnel) \((\d+)\)$""") to { m ->
-        "حذف ${faFallback(m.groupValues[1])} ناموفق (${m.groupValues[2]})"
+        "حذف ${m.groupValues[1]} ناموفق (${m.groupValues[2]})"
     },
     Regex("""^SAVE (\d+)-HOP CHAIN$""") to { m -> "ذخیره زنجیره ${m.groupValues[1]} گامه" },
     Regex("""^(\d+) ms$""") to { m -> "${m.groupValues[1]} میلی‌ثانیه" },
