@@ -61,7 +61,7 @@ object ConnectDeckCatalog {
         ConnectDeckAction.LIGHT
     )
 
-    fun behaviorOf(id: String?): String = fromId(id).behavior
+    fun behaviorOf(id: String?): String = ConnectDeckAction.fromId(id).behavior
 
     /** True only when every button has its own light and its own repository entry point. */
     fun isIndependent(): Boolean =
