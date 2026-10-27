@@ -2081,6 +2081,19 @@ fun resetTelemetry() {
         runCatching { store.loadCouncilReport() }.getOrNull()
     ); private set
 
+    /**
+     * Whether a finished scan writes its plan by itself. This is a preference about the scanner,
+     * not a dial the cores read, so it lives beside [councilReport] in the store rather than in
+     * [AppSettings] — which is already at the ceiling of what a generated `copy` can carry.
+     */
+    var councilAutoApply by mutableStateOf(runCatching { store.councilAutoApply() }.getOrDefault(true))
+        private set
+
+    fun setCouncilAutoApply(enabled: Boolean) {
+        councilAutoApply = enabled
+        runCatching { store.setCouncilAutoApply(enabled) }
+    }
+
     /** The seat table, ordered, so the page never has to know the enum's order. */
     val councilSeats: List<NetworkCouncil.CouncilSeat>
         get() = NetworkCouncil.CouncilSeat.entries
@@ -2131,7 +2144,7 @@ fun resetTelemetry() {
                         "grade" to plan.metrics.grade,
                         "changes" to plan.changes.size
                     )
-                    if (snapshot.networkCouncilAutoApply && plan.changes.isNotEmpty()) {
+                    if (councilAutoApply && plan.changes.isNotEmpty()) {
                         applyNetworkCouncilPlan(plan)
                     }
                 }.onFailure { error ->

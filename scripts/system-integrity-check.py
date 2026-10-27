@@ -3946,12 +3946,15 @@ check(
     and "fun applyNetworkCouncilPlan(" in files["repo"]
     and "NetworkCouncil.deliberate(" in files["repo"]
     and "updateSettings(target.settings)" in files["repo"]
-    and "if (snapshot.networkCouncilAutoApply && plan.changes.isNotEmpty())" in files["repo"]
+    and "if (councilAutoApply && plan.changes.isNotEmpty())" in files["repo"]
     and "fun loadCouncilReport(): CouncilReport?" in files["store"]
     and "fun saveCouncilReport(report: CouncilReport?)" in files["store"]
-    and "networkCouncilAutoApply = prefs.getBoolean(\"networkCouncilAutoApply\", true)"
+    and "fun councilAutoApply(): Boolean = prefs.getBoolean(\"networkCouncilAutoApply\", true)"
     in files["store"]
-    and "networkCouncilAutoApply" in files["models"]
+    # AppSettings is at the JVM's 255-parameter ceiling, so the switch must not live there: a
+    # 255th property makes `copy` unloadable and every test that touches AppSettings fails with
+    # ClassFormatError. The preference is asserted to stay out of the settings model.
+    and "networkCouncilAutoApply" not in files["models"]
     and "MARBLE_NETWORK_COUNCIL_V236" in files["councilReport"]
     # The report is not settings: a restore must not resurrect an old network.
     and "networkCouncilReport" not in files["store"].split("fun createBackup", 1)[1].split(

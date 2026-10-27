@@ -281,6 +281,17 @@ class AppStore(context: Context) {
             .apply()
     }
 
+    // The auto-apply switch is a preference about the scanner, not a dial the cores read, so it
+    // lives beside the report instead of inside AppSettings — which is already at the JVM's
+    // 255-parameter limit for a generated `copy` and cannot take another property.
+    fun councilAutoApply(): Boolean = prefs.getBoolean("networkCouncilAutoApply", true)
+
+    fun setCouncilAutoApply(enabled: Boolean) {
+        prefs.edit()
+            .putBoolean("networkCouncilAutoApply", enabled)
+            .apply()
+    }
+
     fun lastAppTab(): String = prefs.getString("lastAppTab", "DECK")
         ?.trim()
         .orEmpty()
@@ -731,7 +742,6 @@ class AppStore(context: Context) {
         warmupOnLaunch = prefs.getBoolean("warmupOnLaunch", true),
         censorshipAutoApply = prefs.getBoolean("censorshipAutoApply", false),
         // MARBLE_NETWORK_COUNCIL_V236 — the one switch the scanner owns.
-        networkCouncilAutoApply = prefs.getBoolean("networkCouncilAutoApply", true)
         )
     }
 
@@ -939,7 +949,6 @@ class AppStore(context: Context) {
         .putString("fragmentStrategy", parseFragmentStrategy(s.fragmentStrategy).id)
         .putBoolean("warmupOnLaunch", s.warmupOnLaunch)
         .putBoolean("censorshipAutoApply", s.censorshipAutoApply)
-        .putBoolean("networkCouncilAutoApply", s.networkCouncilAutoApply)
         .apply()
 
     private fun storedFontFamily(): AppFont {

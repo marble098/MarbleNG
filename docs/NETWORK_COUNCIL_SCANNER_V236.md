@@ -93,8 +93,8 @@
 | `core/NetworkCouncil.kt` | ۱۲ کرسی، `NetworkEvidence`، `TuningField`، `Metrics`، `deliberate`/`read`/`write`/`normalize`/`resolve` | قضاوت، **خالص** و قابل تست روی JVM |
 | `core/NetworkScanner.kt` | ضبط لینک (Connectivity/Wi-Fi/Telephony/باتری/دما)، نردبان TCP، DNS، ماتریس پورت، NTP، QUIC VN، نردبان MTU، خانواده‌ها | تنها فایلی که به اندروید دست می‌زند |
 | `core/CouncilReport.kt` | گزارش ذخیره‌شدنی (JSON) بدون نگه‌داشتن شواهد کهنه | «آخرین رأی» بعد از ری‌استارت هم می‌ماند |
-| `data/AppStore.kt` | `networkCouncilAutoApply` + `loadCouncilReport`/`saveCouncilReport` | گزارش بیرون از `marbleng-backup` می‌ماند |
-| `model/Models.kt` | `networkCouncilAutoApply` | تنها سوئیچ کاربر |
+| `data/AppStore.kt` | `councilAutoApply`/`setCouncilAutoApply` + `loadCouncilReport`/`saveCouncilReport` | گزارش و سوئیچ هر دو بیرون از `marbleng-backup` می‌مانند |
+| `model/Models.kt` | **هیچ** — `AppSettings` دست‌نخورده ماند | ۲۵۴ فیلد، سقف ۲۵۵ پارامتر JVM؛ یک فیلد بیشتر `copy` را غیرقابل‌بارگذاری می‌کند |
 | `AppRepository.kt` | `startNetworkCouncilScan`، `applyNetworkCouncilPlan`، `clearNetworkCouncilReport`، وضعیت‌های Compose | یک worker، یک مسیر نوشتن (`updateSettings`) |
 | `ui/SettingsNetworkCouncilPages.kt` | صفحهٔ کامل: لینک، دوازده کرسی، تغییرها با «قبل → بعد»، اندازه‌گیری‌ها، دلایل | هر ادعا کنار عددش |
 | `ui/SettingsScreen.kt` | مقصد `NETWORK_COUNCIL` در گروه تست‌ها + زیرنویس «آخرین رأی» | کشف‌پذیری + حافظه |

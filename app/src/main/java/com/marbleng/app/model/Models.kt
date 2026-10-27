@@ -1355,11 +1355,5 @@ data class AppSettings(
     // scan finds a decisive block.
     val censorshipAutoApply: Boolean = false,
 
-    // MARBLE_NETWORK_COUNCIL_V236 — the twelve-expert scanner in Settings decides *what* the
-    // network can take; this switch only decides whether the verdict lands by itself. It is on by
-    // default because the user asked for one tap, and it is a switch because a plan that rewrites
-    // eleven knobs with no way to decline would be a worse product than one that asks.
-    val networkCouncilAutoApply: Boolean = true,
-
     val debugModeEnabled: Boolean = false
 )

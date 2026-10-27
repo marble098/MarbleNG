@@ -41,7 +41,6 @@ fun SettingsNetworkCouncilPage(
     onBack: () -> Unit
 ) {
     val colors = IosTheme.colors
-    val s = repo.settings
     val plan = repo.councilPlan
     val report = repo.councilReport
     val evidence = repo.councilEvidence
@@ -498,12 +497,10 @@ fun SettingsNetworkCouncilPage(
                         subtitle = trx(
                             "Off: the council still scans and explains, but every change waits for your tap."
                         ),
-                        checked = s.networkCouncilAutoApply,
+                        checked = repo.councilAutoApply,
                         glyph = MarbleGlyph.CHECK,
                         squircleColor = colors.teal,
-                        onCheckedChange = {
-                            repo.updateSettings(s.copy(networkCouncilAutoApply = it))
-                        }
+                        onCheckedChange = { repo.setCouncilAutoApply(it) }
                     )
                     IosDivider()
                     IosSwitchRow(
