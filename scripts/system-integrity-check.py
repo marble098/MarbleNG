@@ -459,6 +459,14 @@ files = {
     "iosTest": read("app/src/test/java/com/marbleng/app/ui/IosDesignSystemTest.kt"),
     "colorsXml": read("app/src/main/res/values/colors.xml"),
     "stylesXml": read("app/src/main/res/values/styles.xml"),
+    # MARBLE_NETWORK_COUNCIL_V236 — the twelve-expert scanner: the pure judgement, the one file
+    # that touches Android, the persisted verdict, the page, the test and the chapter.
+    "council": read("app/src/main/java/com/marbleng/app/core/NetworkCouncil.kt"),
+    "councilScanner": read("app/src/main/java/com/marbleng/app/core/NetworkScanner.kt"),
+    "councilReport": read("app/src/main/java/com/marbleng/app/core/CouncilReport.kt"),
+    "councilPage": read("app/src/main/java/com/marbleng/app/ui/SettingsNetworkCouncilPages.kt"),
+    "councilTest": read("app/src/test/java/com/marbleng/app/core/NetworkCouncilV236Test.kt"),
+    "councilDoc": read("docs/NETWORK_COUNCIL_SCANNER_V236.md"),
 }
 
 workflow_sources = "\n".join(
@@ -3830,6 +3838,155 @@ check(
     and "LATEST_VERSION_RULE_AND_WEIGHT_LADDER_V235.md" in files["readme"]
     and "MARBLE_LATEST_VERSION_RULE_V235" in files["latestRule"]
     and "MARBLE_WEIGHT_LADDER_V235" in files["iosTheme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_NETWORK_COUNCIL_V236 — twelve specialists, one scan, one applied plan
+# ---------------------------------------------------------------------------
+# The request was one button that studies the network the phone is actually on and then writes the
+# best settings it can justify. These invariants pin the five promises that make that safe: the
+# judgement is pure, the seats own named knobs only, no forbidden surface is reachable, the plan is
+# bounded, and the page/report/test/chapter all exist and are linked.
+
+_v236_fields = set(
+    re.findall(r"^        ([A-Z0-9_]+)\((?:[^)]*)\),?$", files["council"], re.M)
+)
+_v236_seats = set(
+    re.findall(
+        r'^        ([A-Z_]+)\("(?:[^"]*)", "(?:[^"]*)"\)[,;]?$',
+        files["council"].split("enum class CouncilSeat", 1)[1].split("\n    }", 1)[0],
+        re.M,
+    )
+)
+
+check(
+    "V236 the council is a pure judgement over twelve seated specialists",
+    "MARBLE_NETWORK_COUNCIL_V236" in files["council"]
+    and "object NetworkCouncil" in files["council"]
+    and "enum class CouncilSeat" in files["council"]
+    and len(_v236_seats) == 12
+    and "fun deliberate(" in files["council"]
+    and "fun measure(evidence: NetworkEvidence): Metrics" in files["council"]
+    and "fun resolve(proposals: List<Proposal>): List<Proposal>" in files["council"]
+    and "fun normalize(settings: AppSettings): AppSettings" in files["council"]
+    # Pure means pure: no Android type and no socket in the judgement, which is exactly what makes
+    # `NetworkCouncilV236Test` possible on a host JVM.
+    and "import android." not in files["council"]
+    and "java.net" not in files["council"]
+    and "System.currentTimeMillis" not in files["council"],
+)
+
+check(
+    "V236 every seat owns a named knob and the forbidden surfaces have no knob at all",
+    len(_v236_fields) >= 30
+    and "enum class TuningField(val label: String, val kind: FieldKind)" in files["council"]
+    and "TuningField.FRAGMENT" in files["council"]
+    and "TuningField.MUX" in files["council"]
+    and "TuningField.ADDRESS_FAMILY" in files["council"]
+    # Routing, split tunnelling, identity, certificate verification and the DNS fail-closed
+    # posture are not reachable by a plan: there is no field to write them with.
+    and not any(
+        banned in _v236_fields
+        for banned in (
+            "ROUTING",
+            "SPLIT_TUNNEL",
+            "IDENTITY",
+            "CERTIFICATE",
+            "ROUTE_BLOCK",
+            "SOCKS_PORT",
+            "LOCAL_PROXY_PORT",
+            "ALLOW_UNENCRYPTED",
+        )
+    )
+    and "theCouncilNeverTouchesRoutingIdentityOrSplitTunnelling" in files["councilTest"],
+)
+
+check(
+    "V236 the constitution is enforced in code, not prose",
+    # measured evidence outranks the operator table
+    "inconclusive" in files["council"]
+    and "IranNetworkRegistry.byOrganisation" in files["council"]
+    # a clean path never buys the heavy treatment
+    and "FragmentStrategy.AUTO" in files["council"]
+    # mux never lands on a route that cannot carry it
+    and "muxSafe" in files["council"]
+    and "muxSafe = CorePower.muxSafeFor(route)" in files["repo"]
+    # IPv6 is preferred, never switched off, to hide a dead AAAA
+    and 'TuningField.IPV6,\n            "true"' in files["council"]
+    and "PREFER_IPV4" in files["council"]
+    and len(re.findall(r"fun seat[A-Z][A-Za-z]*\(", files["council"])) == 12,
+)
+
+check(
+    "V236 the scan measures the link, the operator, the path and the device",
+    "MARBLE_NETWORK_COUNCIL_V236" in files["councilScanner"]
+    and "object NetworkScanner" in files["councilScanner"]
+    and "fun captureEnvironment(context: Context)" in files["councilScanner"]
+    and "TelephonyManager" in files["councilScanner"]
+    and "ConnectivityManager" in files["councilScanner"]
+    and "currentThermalStatus" in files["councilScanner"]
+    and "DnsWireCodec.buildQuery" in files["councilScanner"]
+    and "MultiVectorReachability.probe(" in files["councilScanner"]
+    and "fun probeQuic()" in files["councilScanner"]
+    and "fun probeMtu()" in files["councilScanner"]
+    and "fun probePorts()" in files["councilScanner"]
+    and "fun probeLatency()" in files["councilScanner"]
+    and "fun dialFamilies()" in files["councilScanner"]
+    # No bulk download: the throughput figure is the platform's own estimate.
+    and "HttpURLConnection" not in files["councilScanner"]
+    and "throughputDownKbps = environment.linkDownKbps" in files["councilScanner"]
+    # Honest MTU: an unmeasured rung is reported as unmeasured.
+    and "if (largest == 0) return 0 to 0.0" in files["councilScanner"]
+    and "ACCESS_WIFI_STATE" in files["manifest"],
+)
+
+check(
+    "V236 the plan lands through updateSettings and the verdict survives a restart",
+    "fun startNetworkCouncilScan()" in files["repo"]
+    and "fun applyNetworkCouncilPlan(" in files["repo"]
+    and "NetworkCouncil.deliberate(" in files["repo"]
+    and "updateSettings(target.settings)" in files["repo"]
+    and "if (snapshot.networkCouncilAutoApply && plan.changes.isNotEmpty())" in files["repo"]
+    and "fun loadCouncilReport(): CouncilReport?" in files["store"]
+    and "fun saveCouncilReport(report: CouncilReport?)" in files["store"]
+    and "networkCouncilAutoApply = prefs.getBoolean(\"networkCouncilAutoApply\", true)"
+    in files["store"]
+    and "networkCouncilAutoApply" in files["models"]
+    and "MARBLE_NETWORK_COUNCIL_V236" in files["councilReport"]
+    # The report is not settings: a restore must not resurrect an old network.
+    and "networkCouncilReport" not in files["store"].split("fun createBackup", 1)[1].split(
+        "fun loadProfiles", 1
+    )[0],
+)
+
+check(
+    "V236 the page is reachable from Settings and speaks Persian",
+    "SettingsDestination.NETWORK_COUNCIL" in files["settingsScreen"]
+    and "SettingsNetworkCouncilPage(" in files["settingsScreen"]
+    and "fun SettingsNetworkCouncilPage(" in files["councilPage"]
+    and "NetworkCouncil.CouncilSeat.entries.forEachIndexed" in files["councilPage"]
+    and "plan.changes.forEachIndexed" in files["councilPage"]
+    and "repo.startNetworkCouncilScan()" in files["councilPage"]
+    and "repo.applyNetworkCouncilPlan()" in files["councilPage"]
+    and "Network Council Scanner" in files["persianLexicon"]
+    and "اسکنر شورای شبکه" in files["persianLexicon"]
+    and "دوازده کرسی شورا" in files["persianLexicon"],
+)
+
+check(
+    "V236 the chapter, the tests and the README record the pass",
+    "MARBLE_NETWORK_COUNCIL_V236" in files["councilDoc"]
+    and "## ۱. ترکیب شورا" in files["councilDoc"]
+    and "## ۳. قانون اساسی شورا" in files["councilDoc"]
+    and "## ۵. جدول اجرا" in files["councilDoc"]
+    and "## ۶. آنچه عمداً انجام نشد" in files["councilDoc"]
+    and "NETWORK_COUNCIL_SCANNER_V236.md" in files["readme"]
+    and "class NetworkCouncilV236Test" in files["councilTest"]
+    and "fun anInjectedResetBuysFullFragmentationAndPadding()" in files["councilTest"]
+    and "fun theOperatorTableMayAdviseButNeverOverrulesACompletedHandshake()" in files["councilTest"]
+    and "fun everyAppliedValueIsBoundedToWhatTheCoresAccept()" in files["councilTest"]
+    and "fun theSavedVerdictRoundTripsThroughItsJsonForm()" in files["councilTest"]
+    and "fun theCouncilNeverTouchesRoutingIdentityOrSplitTunnelling()" in files["councilTest"],
 )
 
 failed = [name for name, passed in checks if not passed]

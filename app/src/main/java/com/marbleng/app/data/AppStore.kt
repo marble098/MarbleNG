@@ -1,6 +1,7 @@
 package com.marbleng.app.data
 
 import android.content.Context
+import com.marbleng.app.core.CouncilReport
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.IpFamilyScan
 import com.marbleng.app.core.Tun2SocksPolicy
@@ -267,6 +268,18 @@ class AppStore(context: Context) {
         prefs.edit()
             .putStringSet("settingsCollapsedGroups", collapsed)
             .apply()
+
+    // MARBLE_NETWORK_COUNCIL_V236 — the last applied verdict, in its own JSON document. It is a
+    // report, not settings: restoring a backup must not resurrect a scan that described a network
+    // the user left weeks ago, so it lives outside the `marbleng-backup` envelope.
+    fun loadCouncilReport(): CouncilReport? =
+        CouncilReport.fromJson(prefs.getString("networkCouncilReport", "") ?: "")
+
+    fun saveCouncilReport(report: CouncilReport?) {
+        prefs.edit()
+            .putString("networkCouncilReport", report?.toJson() ?: "")
+            .apply()
+    }
 
     fun lastAppTab(): String = prefs.getString("lastAppTab", "DECK")
         ?.trim()
@@ -716,7 +729,9 @@ class AppStore(context: Context) {
                 ?: FragmentStrategy.DEFAULT.id
         ).id,
         warmupOnLaunch = prefs.getBoolean("warmupOnLaunch", true),
-        censorshipAutoApply = prefs.getBoolean("censorshipAutoApply", false)
+        censorshipAutoApply = prefs.getBoolean("censorshipAutoApply", false),
+        // MARBLE_NETWORK_COUNCIL_V236 — the one switch the scanner owns.
+        networkCouncilAutoApply = prefs.getBoolean("networkCouncilAutoApply", true)
         )
     }
 
@@ -924,6 +939,7 @@ class AppStore(context: Context) {
         .putString("fragmentStrategy", parseFragmentStrategy(s.fragmentStrategy).id)
         .putBoolean("warmupOnLaunch", s.warmupOnLaunch)
         .putBoolean("censorshipAutoApply", s.censorshipAutoApply)
+        .putBoolean("networkCouncilAutoApply", s.networkCouncilAutoApply)
         .apply()
 
     private fun storedFontFamily(): AppFont {

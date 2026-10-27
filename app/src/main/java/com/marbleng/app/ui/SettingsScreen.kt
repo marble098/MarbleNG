@@ -43,6 +43,7 @@ enum class SettingsDestination {
     SPLIT_TUNNEL,
     CENSORSHIP_LAB,
     PING_TESTING,
+    NETWORK_COUNCIL,
     AUTO_SELECTOR,
     IDENTITY_LOCATION,
     APPEARANCE,
@@ -83,6 +84,7 @@ fun SettingsScreen(
             SettingsDestination.SPLIT_TUNNEL -> SettingsSplitTunnelPage(repo, onCloseDestination)
             SettingsDestination.CENSORSHIP_LAB -> SettingsCensorshipLabPage(repo, onCloseDestination)
             SettingsDestination.PING_TESTING -> SettingsPingTestingPage(repo, onCloseDestination)
+            SettingsDestination.NETWORK_COUNCIL -> SettingsNetworkCouncilPage(repo, onCloseDestination)
             SettingsDestination.AUTO_SELECTOR -> SettingsAutoSelectorPage(repo, onCloseDestination)
             SettingsDestination.IDENTITY_LOCATION -> SettingsIdentityLocationPage(repo, onCloseDestination)
             SettingsDestination.APPEARANCE -> SettingsAppearancePage(repo, onCloseDestination)
@@ -194,6 +196,15 @@ fun SettingsScreen(
             },
             glyph = MarbleGlyph.GAUGE,
             squircleColor = colors.green
+        ),
+        SettingsRowSpec(
+            destination = SettingsDestination.NETWORK_COUNCIL,
+            title = trx("Network Council Scanner"),
+            subtitle = repo.councilReport?.let {
+                "${trx("Last verdict")} · ${it.score} ${it.grade} · ${it.changes.size} " + trx("settings")
+            } ?: trx("12 experts measure this link, then apply the best settings"),
+            glyph = MarbleGlyph.RADAR,
+            squircleColor = colors.cyan
         ),
         SettingsRowSpec(
             destination = SettingsDestination.AUTO_SELECTOR,

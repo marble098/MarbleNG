@@ -2053,6 +2053,152 @@ fun resetTelemetry() {
         )
     }
 
+    // ==========================================================================================
+    // MARBLE_NETWORK_COUNCIL_V236 — twelve specialists, one scan, one applied plan
+    // ==========================================================================================
+    // The repository owns three things the pure council cannot: the worker that runs the blocking
+    // probe, the Compose state the page reads, and the single call that writes the plan back
+    // through `updateSettings` (so every existing side effect — effective-settings projection,
+    // debounced persistence, connected-route rebuild — still happens exactly once).
+
+    private val councilWorker = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "marble-network-council").apply { isDaemon = true }
+    }
+
+    private val councilScanInFlight = AtomicBoolean(false)
+
+    var councilRunning by mutableStateOf(false); private set
+
+    var councilStage by mutableStateOf(""); private set
+
+    var councilProgress by mutableStateOf(0f); private set
+
+    var councilEvidence by mutableStateOf<NetworkCouncil.NetworkEvidence?>(null); private set
+
+    var councilPlan by mutableStateOf<NetworkCouncil.Plan?>(null); private set
+
+    var councilReport by mutableStateOf(
+        runCatching { store.loadCouncilReport() }.getOrNull()
+    ); private set
+
+    /** The seat table, ordered, so the page never has to know the enum's order. */
+    val councilSeats: List<NetworkCouncil.CouncilSeat>
+        get() = NetworkCouncil.CouncilSeat.entries
+
+    fun councilVerdict(seat: NetworkCouncil.CouncilSeat): NetworkCouncil.CouncilSeverity =
+        councilPlan?.seatVerdicts?.get(seat) ?: NetworkCouncil.CouncilSeverity.GOOD
+
+    fun startNetworkCouncilScan() {
+        if (!councilScanInFlight.compareAndSet(false, true)) return
+        val snapshot = settings
+        postToMain {
+            councilRunning = true
+            councilStage = "Reading the link"
+            councilProgress = 0f
+            councilEvidence = null
+            councilPlan = null
+        }
+        diagnostics.event("COUNCIL", "scan-started", "transport" to snapshot.connectionMode.name)
+
+        councilWorker.execute {
+            val outcome = runCatching {
+                NetworkScanner.scan(context, snapshot) { stage ->
+                    postToMain {
+                        councilStage = stage.label
+                        councilProgress = stage.fraction.coerceIn(0f, 1f)
+                    }
+                }
+            }
+            postToMain {
+                councilScanInFlight.set(false)
+                councilRunning = false
+                councilStage = ""
+                councilProgress = 1f
+                outcome.onSuccess { evidence ->
+                    val route = profile(selectedProfileId, selectedProfileSourceId)
+                        ?: profile(activeProfileId, activeProfileSourceId)
+                    val plan = NetworkCouncil.deliberate(
+                        evidence = evidence,
+                        base = snapshot,
+                        muxSafe = CorePower.muxSafeFor(route)
+                    )
+                    councilEvidence = evidence
+                    councilPlan = plan
+                    diagnostics.event(
+                        "COUNCIL",
+                        "scan-finished",
+                        "score" to plan.metrics.score,
+                        "grade" to plan.metrics.grade,
+                        "changes" to plan.changes.size
+                    )
+                    if (snapshot.networkCouncilAutoApply && plan.changes.isNotEmpty()) {
+                        applyNetworkCouncilPlan(plan)
+                    }
+                }.onFailure { error ->
+                    councilStage = ""
+                    message = "Network council could not finish: " +
+                        (error.message ?: error.javaClass.simpleName)
+                    diagnostics.error("COUNCIL", "scan-failed", error)
+                }
+            }
+        }
+    }
+
+    /**
+     * Write the plan. This is the only entry point, and it goes through [updateSettings] so the
+     * plan inherits every guarantee a hand-edited setting already has.
+     */
+    fun applyNetworkCouncilPlan(plan: NetworkCouncil.Plan? = councilPlan): Boolean {
+        val target = plan ?: return false
+        if (target.changes.isEmpty()) {
+            message = "Network council found nothing to change"
+            return false
+        }
+        updateSettings(target.settings)
+        val report = CouncilReport(
+            atMs = System.currentTimeMillis(),
+            transport = councilEvidence?.radio?.transport ?: NetworkCouncil.LinkTransport.NONE,
+            operatorName = councilEvidence?.radio?.operatorName.orEmpty(),
+            networkType = councilEvidence?.radio?.networkType.orEmpty(),
+            score = target.metrics.score,
+            grade = target.metrics.grade,
+            applied = true,
+            findings = target.findings,
+            changes = target.changes
+        )
+        councilReport = report
+        runCatching { store.saveCouncilReport(report) }
+        diagnostics.event(
+            "COUNCIL",
+            "plan-applied",
+            "score" to target.metrics.score,
+            "changes" to target.changes.size
+        )
+        message = "Network council applied ${target.changes.size} settings • ${target.metrics.grade}"
+        return true
+    }
+
+    fun clearNetworkCouncilReport() {
+        councilReport = null
+        councilEvidence = null
+        councilPlan = null
+        councilProgress = 0f
+        councilStage = ""
+        runCatching { store.saveCouncilReport(null) }
+    }
+
+    fun councilScanAgeLabel(nowMs: Long = System.currentTimeMillis()): String {
+        val at = councilReport?.atMs ?: return ""
+        if (at <= 0L) return ""
+        val minutes = ((nowMs - at) / 60_000L).coerceAtLeast(0L)
+        return when {
+            minutes < 1L -> "just now"
+            minutes < 60L -> "$minutes min ago"
+            minutes < 1_440L -> "${minutes / 60L}h ago"
+            else -> "${minutes / 1_440L}d ago"
+        }
+    }
+
 private fun postToMain(block: () -> Unit) {
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
             block()
