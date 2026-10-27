@@ -44,6 +44,7 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **Material 3 Expressive motion** — stretching loaders, cascading arrivals, rolling readouts and springy releases on every control.
 - **A living, layered surface** — a slowly breathing brand aurora behind every page, and one cool-shadow depth system above it, so nothing floats on a dead flat field.
 - **A Servers page that shows its hierarchy** — subscription cards with a real usage bar, and their servers nested inside them, smaller in every dimension.
+- **A twelve-expert network council in Settings** — one scan reads the link, the operator, ping, TCP, UDP, DNS, ports, MTU and both address families, then applies the settings it can defend on both cores — with a dissent line for every seat that lost the argument.
 
 ## The surface, the icons, and the whole window
 
@@ -667,6 +668,32 @@ components were retuned to them (rows step down to 600, trailing values up to 50
 release as the other four), backs the DISPLAY rung — no synthesised weights. Light/Thin were
 deliberately not shipped: the app has no large quiet text to give them, and thin strokes at caption
 sizes are where Persian legibility dies first. `MarbleWeightLadderV235Test` pins the ladder.
+
+### The V236 pass — a twelve-expert network council that scans and then tunes
+
+`docs/NETWORK_COUNCIL_SCANNER_V236.md` is the chapter (Persian, like every council record). Settings
+gains one row — **Network Council Scanner** — and one button. Press it, and twelve specialists read
+the network the phone is actually on: the link and its ceiling (Wi-Fi or mobile data, band, signal,
+link estimate, interface MTU, metered and validated state), the operator behind it (name and
+MCC/MNC, resolved against the offline registry), the latency ladder, jitter, loss, DNS honesty, a
+port matrix, UDP/QUIC reachability, an MTU ladder, IPv4 and IPv6 separately, TLS interference and the
+device's own thermal and memory limits. Then each seat writes the knobs it owns — power and workload
+profile, mux and its concurrency, buffers, fast open, MTU, keep-alive, connect timeouts, UDP
+mapping timeout, fallback width, resolvers and their DoH endpoints, the DNS query strategy, the
+address family and the Happy Eyeballs delay, fragmentation and mux padding, and the measurement
+budgets — and the plan lands through the same `updateSettings` a hand-edited switch uses.
+
+**The judgement is pure Kotlin.** `core/NetworkCouncil.kt` owns the twelve seats, the confidence
+each one speaks with and the arithmetic behind the score and the grade; `NetworkScanner.kt` is the
+only file that touches Android; `CouncilReport.kt` persists the verdict (never the stale evidence)
+outside the backup envelope. Every seat owns a named set of `TuningField`s, so the constitution is
+code rather than prose: routing, split tunnelling, identity, certificate verification and the DNS
+fail-closed posture have no field at all. A disagreement is resolved by measured confidence — a
+completed handshake beats the operator table, an inconclusive one lets it speak — and the loser is
+quoted in the UI as a dissent line instead of being deleted. A clean path never buys the heavy
+fragmentation, IPv6 is never switched off to hide a dead AAAA, mux is never enabled on a transport
+that cannot carry it, and the scan downloads nothing: throughput is the link's own estimate.
+`NetworkCouncilV236Test` pins all of it, twenty-four tests deep.
 
 ### The V215 pass — Settings, text size, and a steadier Home
 
