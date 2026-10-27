@@ -500,7 +500,7 @@ fun SettingsNetworkCouncilPage(
                         checked = repo.councilAutoApply,
                         glyph = MarbleGlyph.CHECK,
                         squircleColor = colors.teal,
-                        onCheckedChange = { repo.setCouncilAutoApply(it) }
+                        onCheckedChange = { repo.updateCouncilAutoApply(it) }
                     )
                     IosDivider()
                     IosSwitchRow(

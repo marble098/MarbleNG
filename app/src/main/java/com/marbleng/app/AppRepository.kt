@@ -2089,7 +2089,8 @@ fun resetTelemetry() {
     var councilAutoApply by mutableStateOf(runCatching { store.councilAutoApply() }.getOrDefault(true))
         private set
 
-    fun setCouncilAutoApply(enabled: Boolean) {
+    /** Named `update…`, not `set…`: a `setX` here would collide with the property's own setter. */
+    fun updateCouncilAutoApply(enabled: Boolean) {
         councilAutoApply = enabled
         runCatching { store.setCouncilAutoApply(enabled) }
     }
