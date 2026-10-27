@@ -137,11 +137,15 @@ class NetworkCouncilV236Test {
             FragmentStrategy.AUTO.id,
             parseFragmentStrategy(plan.settings.fragmentStrategy).id
         )
-        val fragment = change(plan, NetworkCouncil.TuningField.FRAGMENT)
-        assertEquals(NetworkCouncil.CouncilSeat.DPI, fragment?.seat)
+        // Resolve the raw proposals, not the change list: the winner here agrees with the shipped
+        // value, so there is nothing to write — but the disagreement still has to be recorded.
+        val winner = NetworkCouncil.resolve(plan.proposals)
+            .first { it.field == NetworkCouncil.TuningField.FRAGMENT }
+        assertEquals(NetworkCouncil.CouncilSeat.DPI, winner.seat)
+        assertEquals(FragmentStrategy.AUTO.id, winner.value)
         assertTrue(
-            "the losing seat is recorded, not deleted: ${fragment?.dissent}",
-            fragment?.dissent?.contains("Operator & carrier") == true
+            "the losing seat is quoted, not deleted: ${NetworkCouncil.dissentFor(winner, plan.proposals)}",
+            NetworkCouncil.dissentFor(winner, plan.proposals).contains("Operator & carrier")
         )
         assertEquals(
             NetworkCouncil.CouncilSeverity.WARNING,
