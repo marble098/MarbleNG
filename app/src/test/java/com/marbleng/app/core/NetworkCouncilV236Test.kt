@@ -131,21 +131,24 @@ class NetworkCouncilV236Test {
                 networkType = "LTE"
             )
         )
-        val plan = NetworkCouncil.deliberate(evidence, AppSettings())
+        // The user's own settings carry the heavy treatment; the clean handshake must relax it,
+        // and the operator's advice must be quoted as a minority note rather than followed.
+        val plan = NetworkCouncil.deliberate(
+            evidence,
+            AppSettings(fragmentStrategy = FragmentStrategy.FULL.id)
+        )
 
         assertEquals(
             FragmentStrategy.AUTO.id,
             parseFragmentStrategy(plan.settings.fragmentStrategy).id
         )
-        // Resolve the raw proposals, not the change list: the winner here agrees with the shipped
-        // value, so there is nothing to write — but the disagreement still has to be recorded.
-        val winner = NetworkCouncil.resolve(plan.proposals)
-            .first { it.field == NetworkCouncil.TuningField.FRAGMENT }
-        assertEquals(NetworkCouncil.CouncilSeat.DPI, winner.seat)
-        assertEquals(FragmentStrategy.AUTO.id, winner.value)
+        val fragment = change(plan, NetworkCouncil.TuningField.FRAGMENT)
+        assertEquals(NetworkCouncil.CouncilSeat.DPI, fragment?.seat)
+        assertEquals(FragmentStrategy.FULL.id, fragment?.previous)
+        assertEquals(FragmentStrategy.AUTO.id, fragment?.value)
         assertTrue(
-            "the losing seat is quoted, not deleted: ${NetworkCouncil.dissentFor(winner, plan.proposals)}",
-            NetworkCouncil.dissentFor(winner, plan.proposals).contains("Operator & carrier")
+            "the losing seat is quoted, not deleted: ${fragment?.dissent}",
+            fragment?.dissent?.contains("Operator & carrier") == true
         )
         assertEquals(
             NetworkCouncil.CouncilSeverity.WARNING,
