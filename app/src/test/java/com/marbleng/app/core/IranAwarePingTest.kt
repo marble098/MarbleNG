@@ -278,7 +278,11 @@ class IranAwarePingTest {
         val evidence = LinkEvidence(rttMs = 400.0, tailRttMs = 520.0, jitterMs = 30.0, samples = 6)
         val budget = LinkDeadlinePolicy.httpsProbeTimeoutMs(evidence)
 
-        assertTrue(budget > LinkDeadlinePolicy.PRIMARY_DNS_FLOOR_MS)
+        // MARBLE_DNS_DEADLINE_V238 — the probe budget's own floor is 1 800 ms (its ceiling is
+        // separate from the DNS floor); what a measurement must guarantee is that the budget
+        // beats the unmeasured constant and covers three tail round trips.
+        assertTrue(budget > LinkDeadlinePolicy.httpsProbeTimeoutMs(LinkEvidence.UNKNOWN))
+        assertTrue(budget >= 3 * evidence.tailRttMs.toLong())
     }
 
     @Test

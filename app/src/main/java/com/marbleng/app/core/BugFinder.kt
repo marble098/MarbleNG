@@ -341,12 +341,19 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             allRuntime.lastIndexOf("TUN2SOCKS | ready")
         )
         val latestReady = maxOf(latestSocksReady, latestHevReady)
-        val latestVerifiedLatencySample = allRuntime.lastIndexOf(
-            "method=verified-https-ttfb-rolling-ipdv-loss-p90"
+        // MARBLE_BUGFINDER_RING_TRUTH_V238 — the check used to look for a method tag the probe
+        // stopped writing long ago (`…-rolling-ipdv-loss-p90`), so a session full of
+        // latency-sample lines still reported "the first verified RTT sample is pending"
+        // (report P0-4). The tag searched here is the tag the probe logs today, with the two
+        // retired spellings kept as history so an older log tail still reads truthfully.
+        val latestVerifiedLatencySample = maxOf(
+            allRuntime.lastIndexOf("method=verified-https-ttfb-robust-ipdv-loss-tail"),
+            allRuntime.lastIndexOf("method=verified-https-ttfb-rolling-ipdv-loss-p90")
         )
 
-        val latestLegacyConnectEstimate = allRuntime.lastIndexOf(
-            "method=socks-connect-estimate-rolling-ipdv-loss-p90"
+        val latestLegacyConnectEstimate = maxOf(
+            allRuntime.lastIndexOf("method=socks-connect-estimate-rolling-ipdv-loss-p90"),
+            allRuntime.lastIndexOf("method=socks-connect-estimate")
         )
         val latestProbeFailure = maxOf(
             allRuntime.lastIndexOf("verified RTT endpoints are blocked or timing out"),

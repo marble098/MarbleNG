@@ -8,6 +8,7 @@ import com.marbleng.app.core.Tun2SocksPolicy
 import com.marbleng.app.core.TunnelCore
 import com.marbleng.app.core.parseCoreEngine
 import com.marbleng.app.core.parseTunnelCore
+import com.marbleng.app.jitter.JitterAutoTuner
 import com.marbleng.app.model.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -423,7 +424,6 @@ class AppStore(context: Context) {
         connectionMode = enumValue("connectionMode", ConnectionMode.FULL_TUN),
 
         probeMethod = probeMethod(),
-        probeSpeedTest = prefs.getBoolean("probeSpeedTest", false),
 
         delayTestUrl = DelayTest.url(prefs.getString("delayTestUrl", DelayTest.URL) ?: DelayTest.URL),
         coreEngineId = parseCoreEngine(prefs.getString("coreEngineId", CoreEngine.XRAY.id) ?: CoreEngine.XRAY.id).id,
@@ -612,7 +612,6 @@ class AppStore(context: Context) {
         iranModePolicy = enumValue("iranModePolicy", IranModePolicy.OFF),
         iranModeCountermeasures = prefs.getBoolean("iranModeCountermeasures", true),
         iranDomesticDirect = prefs.getBoolean("iranDomesticDirect", true),
-        iranDeepProbeEnabled = prefs.getBoolean("iranDeepProbeEnabled", true),
 
         intelligenceEnabled = true,
         configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
@@ -705,7 +704,6 @@ class AppStore(context: Context) {
         ).id,
         dockSlotShowStatusBadge = prefs.getBoolean("dockSlotShowStatusBadge", true),
 
-        debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
         textScalePercent = TextScale.clamp(prefs.getInt("textScalePercent", TextScale.DEFAULT_PERCENT)),
 
         autoServerSelectorEnabled = prefs.getBoolean("autoServerSelectorEnabled", false),
@@ -729,9 +727,6 @@ class AppStore(context: Context) {
         // own normaliser, so a backup written by another build (or a hand-edited preference) can
         // never put an unknown id into the settings object.
         flatInterface = prefs.getBoolean("flatInterface", true),
-        accentTheme = parseFlatAccent(
-            prefs.getString("accentTheme", FlatAccent.DEFAULT.id) ?: FlatAccent.DEFAULT.id
-        ).id,
         powerProfile = parsePowerProfile(
             prefs.getString("powerProfile", PowerProfile.DEFAULT.id) ?: PowerProfile.DEFAULT.id
         ).id,
@@ -739,8 +734,34 @@ class AppStore(context: Context) {
             prefs.getString("fragmentStrategy", FragmentStrategy.DEFAULT.id)
                 ?: FragmentStrategy.DEFAULT.id
         ).id,
-        warmupOnLaunch = prefs.getBoolean("warmupOnLaunch", true),
-        censorshipAutoApply = prefs.getBoolean("censorshipAutoApply", false),
+        // MARBLE_APP_BEHAVIOR_GROUP_V238 — six app-behavior switches, one grouped axis.
+        appBehavior = AppBehaviorPrefs(
+            probeSpeedTest = prefs.getBoolean("probeSpeedTest", false),
+            iranDeepProbeEnabled = prefs.getBoolean("iranDeepProbeEnabled", true),
+            accentTheme = parseFlatAccent(
+                prefs.getString("accentTheme", FlatAccent.DEFAULT.id) ?: FlatAccent.DEFAULT.id
+            ).id,
+            warmupOnLaunch = prefs.getBoolean("warmupOnLaunch", true),
+            censorshipAutoApply = prefs.getBoolean("censorshipAutoApply", false),
+            debugModeEnabled = prefs.getBoolean("debugModeEnabled", false)
+        ),
+        // MARBLE_SMART_JITTER_V238 — the reducer's persisted knobs, one grouped axis.
+        smartJitter = SmartJitterSettings(
+            mode = JitterSmartMode.fromId(
+                prefs.getString("jitterSmartMode", null)
+            ).id,
+            probeHost = (prefs.getString("jitterProbeHost", null) ?: SmartJitterDefaultsKeys.PROBE_HOST_DEFAULT).trim().take(253),
+            probeIntervalSec = prefs.getInt("jitterProbeIntervalSec", SmartJitterDefaultsKeys.INTERVAL_SEC_DEFAULT)
+                .coerceIn(SmartJitterDefaultsKeys.INTERVAL_SEC_MIN, SmartJitterDefaultsKeys.INTERVAL_SEC_MAX),
+            switchImprovePercent = prefs.getInt("jitterSwitchImprovePercent", SmartJitterDefaultsKeys.IMPROVE_PERCENT_DEFAULT)
+                .coerceIn(SmartJitterDefaultsKeys.IMPROVE_PERCENT_MIN, SmartJitterDefaultsKeys.IMPROVE_PERCENT_MAX),
+            switchCooldownSec = prefs.getInt("jitterSwitchCooldownSec", SmartJitterDefaultsKeys.COOLDOWN_SEC_DEFAULT)
+                .coerceIn(SmartJitterDefaultsKeys.COOLDOWN_SEC_MIN, SmartJitterDefaultsKeys.COOLDOWN_SEC_MAX),
+            minSamples = prefs.getInt("jitterMinSamples", SmartJitterDefaultsKeys.MIN_SAMPLES_DEFAULT)
+                .coerceIn(SmartJitterDefaultsKeys.MIN_SAMPLES_MIN, SmartJitterDefaultsKeys.MIN_SAMPLES_MAX),
+            autoTunerEnabled = prefs.getBoolean("jitterAutoTunerEnabled", false),
+            tunerMtu = prefs.getInt("jitterTunerMtu", 0).let { if (it == 0) 0 else JitterAutoTuner.sanitizeOverride(it) ?: 0 }
+        ),
         // MARBLE_NETWORK_COUNCIL_V236 — the one switch the scanner owns.
         )
     }
@@ -949,6 +970,15 @@ class AppStore(context: Context) {
         .putString("fragmentStrategy", parseFragmentStrategy(s.fragmentStrategy).id)
         .putBoolean("warmupOnLaunch", s.warmupOnLaunch)
         .putBoolean("censorshipAutoApply", s.censorshipAutoApply)
+        // MARBLE_SMART_JITTER_V238 — the reducer's persisted knobs.
+        .putString("jitterSmartMode", JitterSmartMode.fromId(s.jitterSmartMode).id)
+        .putString("jitterProbeHost", s.jitterProbeHost.trim().take(253))
+        .putInt("jitterProbeIntervalSec", s.jitterProbeIntervalSec.coerceIn(SmartJitterDefaultsKeys.INTERVAL_SEC_MIN, SmartJitterDefaultsKeys.INTERVAL_SEC_MAX))
+        .putInt("jitterSwitchImprovePercent", s.jitterSwitchImprovePercent.coerceIn(SmartJitterDefaultsKeys.IMPROVE_PERCENT_MIN, SmartJitterDefaultsKeys.IMPROVE_PERCENT_MAX))
+        .putInt("jitterSwitchCooldownSec", s.jitterSwitchCooldownSec.coerceIn(SmartJitterDefaultsKeys.COOLDOWN_SEC_MIN, SmartJitterDefaultsKeys.COOLDOWN_SEC_MAX))
+        .putInt("jitterMinSamples", s.jitterMinSamples.coerceIn(SmartJitterDefaultsKeys.MIN_SAMPLES_MIN, SmartJitterDefaultsKeys.MIN_SAMPLES_MAX))
+        .putBoolean("jitterAutoTunerEnabled", s.jitterAutoTunerEnabled)
+        .putInt("jitterTunerMtu", s.jitterTunerMtu.let { if (it == 0) 0 else JitterAutoTuner.sanitizeOverride(it) ?: 0 })
         .apply()
 
     private fun storedFontFamily(): AppFont {

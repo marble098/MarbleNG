@@ -172,9 +172,12 @@ class LinkDeadlinePolicyTest {
             LinkDeadlinePolicy.dnsServerTimeoutMs(merged, 0, false) >=
                 LinkDeadlinePolicy.dnsServerTimeoutMs(noisyCellular, 0, false)
         )
+        // MARBLE_DNS_DEADLINE_V238 — with the 4 s floor, both the fast link's derived budget and
+        // the merge's clamp to the floor, so "strictly longer" is no longer observable here. The
+        // guarantee that matters — the merge can only hold or lengthen — is the >= above.
         assertTrue(
-            "and it must lengthen it relative to the fast one",
-            LinkDeadlinePolicy.dnsServerTimeoutMs(merged, 0, false) >
+            "and it must hold or lengthen it relative to the fast one",
+            LinkDeadlinePolicy.dnsServerTimeoutMs(merged, 0, false) >=
                 LinkDeadlinePolicy.dnsServerTimeoutMs(fast, 0, false)
         )
     }
@@ -182,15 +185,26 @@ class LinkDeadlinePolicyTest {
     @Test
     fun `a first connect with a prior is not sent back to the legacy constants`() {
         val legacy = LinkDeadlinePolicy.dnsServerTimeoutMs(LinkEvidence.UNKNOWN, 0, false)
+        // MARBLE_DNS_DEADLINE_V238 — the floor itself is now 4 s, so a prior whose derived budget
+        // sits below the floor can no longer move the number (the floor is the answer for it).
+        // The prior must still reach the emitted budget when the link genuinely needs more than
+        // the floor — that is the property this test pins.
+        val slowPrior = LinkEvidence(
+            rttMs = 1_400.0,
+            tailRttMs = 1_700.0,
+            jitterMs = 120.0,
+            lossPercent = 2.0,
+            samples = 6
+        )
         val withPrior = LinkDeadlinePolicy.dnsServerTimeoutMs(
-            LinkEvidence.UNKNOWN.conservativeOf(noisyCellular),
+            LinkEvidence.UNKNOWN.conservativeOf(slowPrior),
             0,
             false
         )
         assertEquals(LinkDeadlinePolicy.PRIMARY_DNS_FLOOR_MS, legacy)
         assertTrue("the prior must reach the emitted budget, got $withPrior", withPrior > legacy)
 
-        assertTrue(withPrior >= 3 * noisyCellular.tailRttMs.toLong())
+        assertTrue(withPrior >= 3 * slowPrior.tailRttMs.toLong())
     }
 
     @Test

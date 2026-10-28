@@ -2441,7 +2441,48 @@ private val FaFriendlyVoice: Map<String, String> = mapOf(
     "Text size" to "اندازه نوشتهها",
     "Text & language" to "نوشته و زبان",
     "Size, typeface and language of every screen" to "اندازه، قلم و زبان همه صفحهها",
-    "Search settings" to "دنبال چی میگردی؟"
+    "Search settings" to "دنبال چی میگردی؟",
+
+    // MARBLE_SMART_JITTER_V238 — the Smart Jitter Reducer's own page.
+    "Smart Jitter Reducer" to "کاهشدهنده هوشمند لرزش",
+    "Off · the network policy stays untouched" to "خاموش · سیاست شبکه دستنخورده میمونه",
+    "Live route quality" to "کیفیت زنده مسیر",
+    "Module is off" to "ماژول خاموشه",
+    "Measuring the live tunnel" to "در حال اندازهگیری تونل زنده",
+    "Waiting for a live tunnel" to "در انتظار یه تونل زنده",
+    "Mean RTT" to "میانگین پینگ",
+    "Last two minutes" to "دو دقیقه اخیر",
+    "Samples" to "نمونهها",
+    "Calm streak" to "پشتسرهم آرام",
+    "Power saving: probing less" to "ذخیره باتری: پروب کمتر",
+    "Switch log" to "گزارش جابهجاییها",
+    "No switches yet — the current route is holding" to "هنوز جابهجایی نبوده — مسیر فعلی سر جاشه",
+    "No probe, no switch, no lock" to "نه پروب، نه جابهجایی، نه قفل",
+    "Adaptive probe; switches only on clear, repeated evidence" to
+        "پروب تطبیقی؛ جابهجایی فقط با شواهد روشن و تکرارشده",
+    "Aggressive (calls & games)" to "تهاجمی (تماس و بازی)",
+    "Fast probe, sensitive trigger, low-latency Wi-Fi lock" to "پروب سریع، آستانه حساس، قفل وایفای کمتاخیر",
+    "Probe budget" to "مصرف پروب",
+    "Probe endpoint (host)" to "مقصد پروب (هاست)",
+    "A light HTTPS HEAD/204 request through the live tunnel — never ICMP, never user data" to
+        "یه درخواست سبک HTTPS از داخل تونل زنده — هیچوقت ICMP، هیچوقت داده شخصی",
+    "Probe interval" to "فاصله پروب",
+    "Stretches automatically while the network is calm" to "وقتی شبکه آرامه خودش کش میاد",
+    "Minimum samples" to "حداقل نمونهها",
+    "No decision before this many valid probes" to "قبل از این تعداد پروب معتبر هیچ تصمیمی گرفته نمیشه",
+    "Switch guard rails" to "ضدهای ایمنی جابهجایی",
+    "Minimum improvement" to "حداقل بهبود",
+    "A challenger must beat the live route by this much" to "مسیر رقیب باید به این اندازه از مسیر فعلی بهتر باشه",
+    "Switch cooldown" to "فاصله حداقلی جابهجایی",
+    "No two switches closer than this — no flapping" to "دو جابهجایی نزدیکتر از این نمیشه — نه بالا پایین شدن مداوم",
+    "Auto-Tuner (experimental)" to "تنظیمگر خودکار (آزمایشی)",
+    "MTU Auto-Tuner" to "تنظیمگر خودکار MTU",
+    "Off by default. When on, a confirmed recommendation can be applied to the profile and is reversible." to
+        "بهصورت پیشفرض خاموشه. وقتی روشن باشه، یه پیشنهاد تأییدشده میتونه روی پروفایل اعمال بشه و برگشتنیه.",
+    "Applied MTU override" to "MTU دستیِ اعمالشده",
+    "No MTU override applied — the adaptive policy decides" to
+        "هیچ MTU دستی اعمال نشده — سیاست تطبیقی تصمیم میگیره",
+    "Set to 0 to return to the adaptive policy" to "برای برگشتن به سیاست تطبیقی صفرش کن"
 )
 
 /** The dictionary the whole product reads: base entries with the warm voice on top. */

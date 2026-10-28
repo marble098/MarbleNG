@@ -15,12 +15,15 @@ import com.marbleng.app.MarbleApplication
 import com.marbleng.app.core.AccelerationPlan
 import com.marbleng.app.core.ActiveRouteQuality
 import com.marbleng.app.core.AddressFamilyPolicy
+import com.marbleng.app.core.AdaptiveProbeCadence
 import com.marbleng.app.core.BenchmarkEngine
 import com.marbleng.app.core.ConnectionTuner
 import com.marbleng.app.core.ContinuousRouteOptimizer
 import com.marbleng.app.core.ConnectivityDiagnosticsObserver
 import com.marbleng.app.core.DataStallGuard
 import com.marbleng.app.core.ConfigBlockGuard
+import com.marbleng.app.core.FakeIpPolicy
+import com.marbleng.app.core.RouteSampleWindows
 import com.marbleng.app.core.HevTunnelPolicy
 import com.marbleng.app.core.HighJitterShield
 import com.marbleng.app.core.Ipv6FallbackLadder
@@ -94,6 +97,15 @@ class MarbleVpnService : VpnService() {
          */
         const val ACTION_CYCLE_SERVER = "com.marbleng.CYCLE_SERVER"
         const val ACTION_CYCLE_SUBSCRIPTION = "com.marbleng.CYCLE_SUBSCRIPTION"
+
+        /**
+         * MARBLE_NOTIFICATION_PICKER_V238 — the picker's tap: make *this named* route live.
+         * The profile id travels in the extras and the data URI, so a re-created intent still
+         * knows the exact row it was built for.
+         */
+        const val ACTION_SELECT_ROUTE = "com.marbleng.SELECT_ROUTE"
+        const val EXTRA_SELECT_PROFILE = "selectProfile"
+        const val EXTRA_SELECT_SOURCE = "selectSource"
         const val EXTRA_PROFILE = "profile"
         const val EXTRA_PROFILE_SOURCE = "profileSource"
         const val EXTRA_MODE = "mode"
@@ -179,6 +191,19 @@ class MarbleVpnService : VpnService() {
          * ignored the second tap.
          */
         private const val CYCLE_MIN_INTERVAL_MS = 1_500L
+
+        /**
+         * MARBLE_SWITCH_DEBOUNCE_V238 — two starts of the same profile inside this window are
+         * one intent (report P1-6's CONNECTED→DISCONNECTING→CONNECT flap one second apart).
+         */
+        private const val START_DEBOUNCE_MS = 700L
+
+        /**
+         * MARBLE_UNDERLAY_GATE_V238 — how long a start waits for an address-bearing underlay
+         * before proceeding anyway, and how often it re-checks while waiting.
+         */
+        private const val UNDERLAY_WAIT_TIMEOUT_MS = 8_000L
+        private const val UNDERLAY_WAIT_POLL_MS = 400L
 
         /** How long the "there is nothing else to switch to" answer stays on the shade. */
         private const val CYCLE_NOTICE_MS = 8_000L
@@ -326,7 +351,13 @@ class MarbleVpnService : VpnService() {
     @Volatile private var activeMethodId = AccelerationPlan.DIRECT
 
     private val recoveryTried = linkedSetOf<String>()
-    private val routeOutcomeWindow = ArrayDeque<Int>()
+
+    /**
+     * MARBLE_PROBE_TARGET_WINDOWS_V238 — one window per probe target (report P0-2): a pivot to
+     * another provider no longer erases the evidence of the first, and returning to it restores
+     * its window instead of interleaving two providers in one statistic.
+     */
+    private val routeSampleWindows = RouteSampleWindows(windowSize = ROUTE_WINDOW_SIZE)
     @Volatile private var jitterProbeHost = JITTER_PRIMARY_HOST
 
     /**
@@ -342,6 +373,12 @@ class MarbleVpnService : VpnService() {
      * a target change. Zero means "the window is worth scoring".
      */
     @Volatile private var routeQualityHoldSamples = 0
+
+    /**
+     * MARBLE_PROBE_CADENCE_V238 — consecutive calm probe cycles stretch the sampling interval;
+     * one unsettled cycle returns it to the fast cadence.
+     */
+    @Volatile private var probeCalmStreak = 0
 
     private val routeProbeRacePool by lazy {
         Executors.newFixedThreadPool(PIVOT_RACE_TARGETS) { runnable ->
@@ -390,6 +427,9 @@ class MarbleVpnService : VpnService() {
     @Volatile private var egressObservationState = EgressObservationPolicy.State()
     @Volatile private var pathMtuState = PathMtuPolicy.State()
     private val tcpStressMonitor = TcpStressMonitor()
+
+    /** MARBLE_TCP_INFO_TRUTH_V238 — `stressed` needs consecutive pressured snapshots. */
+    private val tcpPressureGate = TcpStressTelemetryPolicy.PressureGate()
     @Volatile private var goodRouteTicks = 0
 
     override fun onCreate() {
@@ -469,6 +509,20 @@ class MarbleVpnService : VpnService() {
                     controlWorker.execute {
                         runCatching { cycleRoute(kind) }
                             .onFailure { diag.error("VPN", "async-cycle-failed", it, "kind" to kind.id) }
+                    }
+                }
+                ACTION_SELECT_ROUTE -> {
+                    // MARBLE_NOTIFICATION_PICKER_V238 — a named row tap from the shade.
+                    val profileId = intent.getStringExtra(EXTRA_SELECT_PROFILE)
+                        ?: intent.data?.path?.trimStart('/') ?: ""
+                    val sourceId = intent.getStringExtra(EXTRA_SELECT_SOURCE)
+                    if (profileId.isBlank()) {
+                        diag.event("VPN", "select-route-ignored", "reason" to "no-profile")
+                    } else {
+                        controlWorker.execute {
+                            runCatching { selectRouteFromShade(profileId, sourceId) }
+                                .onFailure { diag.error("VPN", "async-select-failed", it) }
+                        }
                     }
                 }
                 ACTION_START -> {
@@ -592,14 +646,105 @@ class MarbleVpnService : VpnService() {
         startConnection(target.id, target.subscriptionId, activeMode)
     }
 
-    @Synchronized
-    private fun startConnection(id: String, sourceId: String?, mode: String) {
-        val replacingFullTun = tun != null && mode != MODE_PROXY
-        if (running.get() || tun != null || hevActive || coreAlive) {
-            cleanupRuntime(setDisconnected = false, preserveTun = replacingFullTun)
+    /**
+     * MARBLE_NOTIFICATION_PICKER_V238 — the picker's named tap, applied.
+     *
+     * Same three rules as [cycleRoute] (only a live tunnel switches, one tap at a time, and an
+     * impossible tap says so) plus one of its own: a row the library no longer contains answers
+     * on the shade instead of failing silently. The picker shares the cycle path's throttle
+     * because from the tunnel's point of view both are "rebuild for a new route".
+     */
+    private fun selectRouteFromShade(profileId: String, sourceId: String?) {
+        val repo = (application as MarbleApplication).repo
+        if (!running.get() && activeSession.isBlank()) {
+            diag.event("VPN", "select-route-ignored", "reason" to "no-session")
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            runCatching { stopSelf() }
+            return
         }
 
+        val now = SystemClock.elapsedRealtime()
+        if (lastCycleSwitchAtMs > 0L && now - lastCycleSwitchAtMs < CYCLE_MIN_INTERVAL_MS) {
+            diag.event(
+                "VPN",
+                "select-route-throttled",
+                "sinceMs" to (now - lastCycleSwitchAtMs)
+            )
+            return
+        }
+        lastCycleSwitchAtMs = now
+
+        val target = repo.notificationSelectRoute(profileId, sourceId)
+        if (target == null) {
+            val detail = "Route is no longer in the library"
+            diag.event("VPN", "select-route-missing", "profile" to profileId.take(12))
+            repo.setRuntimeMessage(detail)
+            cycleNoticeDetail = detail
+            cycleNoticeUntilMs = now + CYCLE_NOTICE_MS
+            publishStatus(lastPublishedStatus, detail = detail)
+            return
+        }
+        cycleNoticeDetail = ""
+        cycleNoticeUntilMs = 0L
+
+        diag.event(
+            "VPN",
+            "select-route-switch",
+            "session" to activeSession,
+            "profile" to target.id.take(12),
+            "name" to target.name.take(80),
+            "source" to target.subscriptionName.take(60)
+        )
+        repo.setRuntimeState("CONNECTING", target.name)
+        startConnection(target.id, target.subscriptionId, activeMode)
+    }
+
+    @Volatile private var lastStartCommandAtMs = 0L
+    @Volatile private var lastStartCommandProfile = ""
+
+    private fun startConnection(id: String, sourceId: String?, mode: String) {
+        // MARBLE_SWITCH_DEBOUNCE_V238 — the report caught CONNECTED → DISCONNECTING → CONNECT
+        // flapping one second apart (report P1-6). A start for the *same* profile arriving
+        // within [START_DEBOUNCE_MS] of the previous one is a double tap or a racing
+        // reconnect, and rebuilding a healthy tunnel for it is how the flap is born. A start
+        // for a different profile is user intent and always wins.
+        val now = SystemClock.elapsedRealtime()
+        if (id == lastStartCommandProfile &&
+            lastStartCommandAtMs > 0L &&
+            now - lastStartCommandAtMs < START_DEBOUNCE_MS &&
+            (running.get() || coreAlive || hevActive)
+        ) {
+            diag.event(
+                "VPN", "start-debounced",
+                "profile" to id.take(12),
+                "sinceMs" to (now - lastStartCommandAtMs)
+            )
+            return
+        }
+        lastStartCommandAtMs = now
+        lastStartCommandProfile = id
+
         val app = application as MarbleApplication
+        val replacingFullTun = tun != null && mode != MODE_PROXY
+        // MARBLE_FAKEIP_REBUILD_V238 — Xray's FakeDNS map lives only inside the core process.
+        // When a switch preserves the TUN and restarts only the core, apps that cached a fake
+        // address keep dialing a mapping that no longer exists — the classic
+        // "general SOCKS server failure" on 198.19.x.x. When the fake-DNS path is armed on the
+        // Xray engine, a rebuild therefore tears the TUN down with the core: cached app sockets
+        // die with it, and the next resolve gets a fresh mapping. sing-box persists its map
+        // (`store_fakeip`), so it keeps the cheaper preserve path.
+        val fakeIpArmed = FakeIpPolicy.isDnsPathArmed(activeSettings ?: app.repo.settings)
+        val preserveTun = replacingFullTun &&
+            (!fakeIpArmed || activeEngine == CoreEngine.SINGBOX)
+        if (running.get() || tun != null || hevActive || coreAlive) {
+            cleanupRuntime(setDisconnected = false, preserveTun = preserveTun)
+        }
+        if (replacingFullTun && !preserveTun) {
+            diag.event(
+                "TUN", "tun-rebuilt-for-fakeip",
+                "reason" to "fake-dns map dies with the core; cached fake addresses must not survive"
+            )
+        }
 
         if (mode != MODE_PROXY && !app.repo.settings.dnsHijackEnabled) {
             failBeforeTunnel("Full VPN requires DNS hijacking to prevent plaintext DNS; enable DNS hijack in settings")
@@ -641,6 +786,13 @@ class MarbleVpnService : VpnService() {
         consecutiveProbeFailures = 0
         identityRecoveryAttempts = 0
 
+        // MARBLE_UNDERLAY_GATE_V238 — the report (P1-5) caught starts firing while the underlay
+        // had no address at all ("network=UNKNOWN • NO IP"), then the egress observer declaring
+        // the route suspect minutes later. Before the core is launched, give a transient
+        // underlay one bounded chance to come back; a network that never returns fails into the
+        // existing recovery path exactly as before.
+        waitForUsableUnderlay(session)
+
         recoveryBackoff = RecoveryBackoffPolicy.reset()
         ipv6RouteCaptured = tun != null
         pinnedExitV4 = ""
@@ -660,7 +812,10 @@ class MarbleVpnService : VpnService() {
             recoveryTried.clear()
             recoveryTried += profile.id
         }
-        synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
+        // MARBLE_PROBE_TARGET_WINDOWS_V238 — a new session is a new path: every target window
+        // starts empty again.
+        routeSampleWindows.clear()
+        probeCalmStreak = 0
         jitterProbeHost = JITTER_PRIMARY_HOST
         lastRouteCycleVerified = true
         routeQualityHoldSamples = 0
@@ -906,6 +1061,8 @@ class MarbleVpnService : VpnService() {
             app.repo.markConnected(profile)
             app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
             sessionStartedAtMs = System.currentTimeMillis()
+            app.repo.noteSessionStarted(sessionStartedAtMs)
+            app.repo.startJitterReducer(profile.name)
             publishStatus(
                 ConnectionStatus.PROTECTED,
                 routeName = profile.name,
@@ -1092,6 +1249,48 @@ class MarbleVpnService : VpnService() {
         return true
     }
 
+    /**
+     * MARBLE_UNDERLAY_GATE_V238 — bounded wait for an underlay that can actually carry the
+     * tunnel. A momentary loss of both families (Wi-Fi handover, airplane-mode toggle) must not
+     * start a core it will immediately have to recover; when the wait expires the connect
+     * proceeds anyway and the normal failure handling owns the outcome.
+     */
+    private fun waitForUsableUnderlay(session: String) {
+        val repo = (application as MarbleApplication).repo
+        var waitedMs = 0L
+        var waited = false
+        while (waitedMs < UNDERLAY_WAIT_TIMEOUT_MS) {
+            val snapshot = repo.intelligence.currentSnapshot()
+            if (snapshot.hasIpv4 || snapshot.hasIpv6) {
+                if (waited) {
+                    diag.event(
+                        "NETWORK", "underlay-returned",
+                        "session" to session,
+                        "network" to snapshot.label,
+                        "waitedMs" to waitedMs,
+                        "validated" to snapshot.validated
+                    )
+                }
+                if (!snapshot.validated) {
+                    diag.event(
+                        "NETWORK", "underlay-unvalidated-start",
+                        "session" to session,
+                        "network" to snapshot.label
+                    )
+                }
+                return
+            }
+            waited = true
+            Thread.sleep(UNDERLAY_WAIT_POLL_MS)
+            waitedMs += UNDERLAY_WAIT_POLL_MS
+        }
+        diag.event(
+            "NETWORK", "underlay-wait-timeout",
+            "session" to session,
+            "timeoutMs" to UNDERLAY_WAIT_TIMEOUT_MS
+        )
+    }
+
     private fun usableUpstreamNetworks(candidates: List<Network>): List<Network> {
         if (candidates.isEmpty()) return emptyList()
         val connectivity = runCatching {
@@ -1247,6 +1446,8 @@ class MarbleVpnService : VpnService() {
                 app.repo.markConnected(profile)
                 app.repo.intelligence.recordConnect(profile.id, true, elapsedConnectMs(), settings)
                 sessionStartedAtMs = System.currentTimeMillis()
+                app.repo.noteSessionStarted(sessionStartedAtMs)
+                app.repo.startJitterReducer(profile.name)
                 publishStatus(ConnectionStatus.PROTECTED, routeName = profile.name)
                 notifier.alert(
                     if (recovering) SmartNotificationKind.RECOVERY else SmartNotificationKind.CONNECTION,
@@ -1333,6 +1534,23 @@ private fun startProxyMonitor(session: String, port: Int, generation: Int) {
                 val routeProbeNow = routeProbeRequested.getAndSet(false)
                 if (shouldSampleRoute(tick) || routeProbeNow) {
                     sampleRouteLatency(session, port, generation)
+                }
+                // MARBLE_SMART_JITTER_V238 — the same switch handoff the TUN loop runs.
+                (application as MarbleApplication).repo.consumeJitterSwitchRequest()?.let { (profileId, sourceId) ->
+                    val repoNow = (application as MarbleApplication).repo
+                    val target = repoNow.profile(profileId, sourceId.ifBlank { null })
+                        ?: repoNow.profile(profileId)
+                    if (target != null && target.id != activeProfileId && running.get()) {
+                        diag.event(
+                            "JITTER", "switch-applying",
+                            "session" to session,
+                            "to" to target.id.take(12),
+                            "name" to target.name.take(60)
+                        )
+                        repoNow.setRuntimeState("CONNECTING", target.name)
+                        startConnection(target.id, target.subscriptionId, activeMode)
+                        return@execute
+                    }
                 }
                 if (
                     (tick == 12 || (tick > 0 && tick % EXIT_IDENTITY_PROBE_INTERVAL_TICKS == 0)) &&
@@ -1459,7 +1677,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                             activeMtu = activeMtu,
                             hasIpv6 = liveNetwork.hasIpv6
                         )
-                        val stressed = assessment.stressed
+                        // MARBLE_TCP_INFO_TRUTH_V238 — the probe/rerank trigger asks for N
+                        // consecutive pressured snapshots, not one spiking rttvar (report P0-1).
+                        val stressed = tcpPressureGate.observe(assessment.stressed)
                         if (stressed) routeProbeRequested.set(true)
 
                         tcpStressMonitor.observe(
@@ -1521,7 +1741,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                             }
                         }
                         if (tick % 10 == 0) diag.event(coreTag, "tcp-info", "session" to session,
-                            "sockets" to transport.sockets, "rttMs" to transport.rttMs,
+                            "sockets" to transport.sockets,
+                            "validSockets" to assessment.validSockets,
+                            "rttMs" to transport.rttMs,
                             "p95RttMs" to transport.p95RttMs, "rttVarMs" to transport.rttVarMs,
                             "retransDelta" to transport.retransDelta, "lost" to transport.lost,
                             "lostDelta" to transport.lostDelta,
@@ -1561,6 +1783,27 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     harvestResolverEvidence(session)
                 }
 
+                // MARBLE_SMART_JITTER_V238 — the reducer's switch handoff: the controller never
+                // touches the tunnel itself, it records a request the service applies here, on
+                // the worker that owns the session lifecycle.
+                repo.consumeJitterSwitchRequest()?.let { (profileId, sourceId) ->
+                    val target = repo.profile(profileId, sourceId.ifBlank { null }) ?: repo.profile(profileId)
+                    if (target != null && target.id != activeProfileId && running.get()) {
+                        diag.event(
+                            "JITTER", "switch-applying",
+                            "session" to session,
+                            "to" to target.id.take(12),
+                            "name" to target.name.take(60)
+                        )
+                        repo.setRuntimeState("CONNECTING", target.name)
+                        startConnection(target.id, target.subscriptionId, activeMode)
+                        return@execute
+                    }
+                }
+                if (tick % 5 == 0) {
+                    repo.refreshJitterReducerTuning()
+                }
+
                 if (tick % 10 == 0) {
                     repo.refreshIntelligenceStatus()
                     updateSentinel(killSwitch = true)
@@ -1575,7 +1818,11 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     private fun activeRouteQuality(): ActiveRouteQuality {
-        val link = LinkQualityEstimator.summarize(synchronized(routeOutcomeWindow) { routeOutcomeWindow.toList() })
+        val (rolling, rollingCold) = routeSampleWindows.outcomesMarked(
+            jitterProbeHost,
+            System.currentTimeMillis()
+        )
+        val link = LinkQualityEstimator.summarizeMarked(rolling, rollingCold)
             ?: return ActiveRouteQuality(0, 0)
         return ActiveRouteQuality(link.medianRttMs, link.successes, link.ewmaJitterMs,
             link.p95RttMs, link.lossPercent, link.spikePercent)
@@ -2193,10 +2440,32 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         return tick > 0 && tick % cadence == 0
     }
 
+    /**
+     * MARBLE_PROBE_CADENCE_V238 — the report's P0-2 measured the probe taking a 12-sample HTTPS
+     * burst every ~10 s on a network that had been calm for hours. The cadence now breathes: a
+     * streak of calm cycles (low jitter, zero loss, healthy success) stretches the interval up
+     * to [AdaptiveProbeCadence.MAX_INTERVAL_TICKS]; one unsettled cycle collapses the streak and
+     * returns to the fast cadence, and jitter control always keeps its fast floor.
+     */
     private fun highJitterProbeCadenceTicks(): Int {
-        val latched = if (jitterControlActive) ROUTE_DEGRADED_PROBE_TICKS else ROUTE_PROBE_INTERVAL_TICKS
+        val latched = AdaptiveProbeCadence.intervalTicks(
+            calmStreak = probeCalmStreak,
+            normalTicks = ROUTE_PROBE_INTERVAL_TICKS,
+            degradedTicks = ROUTE_DEGRADED_PROBE_TICKS,
+            jitterControlActive = jitterControlActive
+        )
         val shield = highJitterPlan ?: return latched
         return minOf(latched, shield.probeEveryTicks).coerceAtLeast(HighJitterShield.MIN_TICKS)
+    }
+
+    private fun observeProbeCalm(link: LinkQualityEstimator.Summary) {
+        probeCalmStreak = AdaptiveProbeCadence.nextStreak(
+            calm = true,
+            currentStreak = probeCalmStreak,
+            jitterMs = link.ewmaJitterMs,
+            lossPercent = link.lossPercent,
+            successPercent = link.successPercent
+        )
     }
 
     private fun resetHighJitterShield() {
@@ -2254,11 +2523,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
     }
 
     private fun resetJitterBaselineForProbeHost(nextHost: String) {
-        synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
-
+        // MARBLE_PROBE_TARGET_WINDOWS_V238 — switching targets no longer clears anything: each
+        // target keeps its own window (bounded, TTL'd), so a one-cycle pivot does not destroy
+        // the measured history of the target the probe will return to. Only the verdict streaks
+        // reset, because a verdict must describe the target being measured right now.
         jitterControlState = jitterControlState.copy(highStreak = 0, lowStreak = 0)
         jitterControlActive = jitterControlState.active
         jitterProbeHost = nextHost
+        routeQualityHoldSamples = maxOf(routeQualityHoldSamples, 1)
         (application as MarbleApplication).repo.invalidateLiveJitter()
     }
 
@@ -2330,14 +2602,37 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         val app = application as MarbleApplication
         val repo = app.repo
 
-        fun publishRollingOutcome(host: String, sample: Int) {
+        // MARBLE_UNDERLAY_GATE_V238 — a probe fired while the underlay has no address measures
+        // nothing: it is a guaranteed failure that used to march `successPercent` and the
+        // failover counter down (report P1-5's 42 % while "NO IP"). The cycle is skipped
+        // without penalty; the underlay-change handler will request a fresh one.
+        run {
+            val snapshot = repo.intelligence.currentSnapshot()
+            if (!snapshot.hasIpv4 && !snapshot.hasIpv6) {
+                diag.event(
+                    "ROUTE", "probe-skipped-no-underlay",
+                    "session" to session,
+                    "network" to snapshot.label
+                )
+                return false
+            }
+        }
+
+        fun publishRollingOutcome(host: String, sample: Int, cold: Boolean = false) {
             if (!isRouteCurrent(session, generation) || host != jitterProbeHost) return
 
-            val snapshot = synchronized(routeOutcomeWindow) {
-                routeOutcomeWindow.addLast(if (sample > 0) LinkQualityEstimator.sanitaryRtt(sample) else -1)
-                while (routeOutcomeWindow.size > ROUTE_WINDOW_SIZE) routeOutcomeWindow.removeFirst()
-                val outcomes = routeOutcomeWindow.toList()
-                val link = LinkQualityEstimator.summarize(outcomes)
+            val snapshot = synchronized(routeSampleWindows) {
+                routeSampleWindows.add(
+                    host = host,
+                    sample = sample,
+                    nowMs = System.currentTimeMillis(),
+                    cold = cold
+                )
+                val (outcomes, coldMask) = routeSampleWindows.outcomesMarked(
+                    host,
+                    System.currentTimeMillis()
+                )
+                val link = LinkQualityEstimator.summarizeMarked(outcomes, coldMask)
                     ?: return@synchronized intArrayOf(0, -1, 0, 0, outcomes.size, 0, 0)
                 intArrayOf(link.medianRttMs, link.ewmaJitterMs, link.successes, link.jitterSamples,
                     link.attempts, link.successPercent, link.p90RttMs)
@@ -2394,7 +2689,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             val wanted = burst.coerceIn(1, LIVE_RTT_BURST_SAMPLES)
             val values = ArrayList<Int>(wanted)
 
-            fun accept(value: Int): Boolean {
+            fun accept(value: Int, cold: Boolean = false): Boolean {
                 if (value <= 0) {
                     publishRollingOutcome(host, -1)
                     return false
@@ -2402,9 +2697,16 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 val verified = value.coerceIn(1, 10_000)
                 values += verified
 
-                publishRollingOutcome(host, verified)
+                // MARBLE_PROBE_TARGET_WINDOWS_V238 — the first sample of a burst follows a
+                // multi-second gap: it is a fresh TCP+TLS handshake through the tunnel, so it is
+                // recorded as an attempt but kept out of the jitter statistics (report P0-2's
+                // cold-start rule; 2 265 ms next to 140 ms read as 2 seconds of jitter that the
+                // path never produced).
+                publishRollingOutcome(host, verified, cold)
                 return true
             }
+
+            if (!accept(firstSample, cold = true)) return values
 
             if (!accept(firstSample)) return values
             while (values.size < wanted && isRouteCurrent(session, generation)) {
@@ -2527,7 +2829,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 resetJitterBaselineForProbeHost(target.first)
                 host = target.first
                 routeQualityHoldSamples = PIVOT_QUALITY_MIN_SAMPLES
-                batch.forEach { sample -> publishRollingOutcome(host, sample) }
+                batch.forEachIndexed { sampleIndex, sample ->
+                    publishRollingOutcome(host, sample, cold = sampleIndex == 0)
+                }
                 rttSamples = batch
                 diag.event(
                     "ROUTE", "jitter-probe-domain-fallback",
@@ -2657,8 +2961,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         consecutiveProbeFailures = 0
         identityRecoveryAttempts = 0
 
-        val rolling = synchronized(routeOutcomeWindow) { routeOutcomeWindow.toList() }
-        val link = LinkQualityEstimator.summarize(rolling) ?: return false
+        // MARBLE_PROBE_TARGET_WINDOWS_V238 — the verdict reads the measured target's own
+        // window, cold samples excluded (report P0-2).
+        val (rolling, rollingCold) = routeSampleWindows.outcomesMarked(
+            host,
+            System.currentTimeMillis()
+        )
+        val link = LinkQualityEstimator.summarizeMarked(rolling, rollingCold) ?: return false
         val jitterSampleCount = link.jitterSamples
         val attemptCount = link.attempts
         val successPercent = link.successPercent
@@ -2699,6 +3008,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         )
 
         observeHighJitter(session, rttSamples)
+
+        // MARBLE_PROBE_CADENCE_V238 — this cycle's summary decides whether the next one can
+        // wait a little longer.
+        observeProbeCalm(link)
 
         repo.intelligence.recordLiveRoute(
             activeProfileId,
@@ -2967,7 +3280,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             settings
                 .networkChangeRecoveryEnabled
         ) {
-            synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
+            routeSampleWindows.clear()
+            probeCalmStreak = 0
+            tcpPressureGate.reset()
             dataStallGuard.reset()
             jitterProbeHost = JITTER_PRIMARY_HOST
             lastRouteCycleVerified = true
@@ -2984,6 +3299,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             optimizerScanRequested.set(
                 settings.continuousOptimizerEnabled && !settings.identityGuardEnabled
             )
+            // MARBLE_SMART_JITTER_V238 — the probe channel's path just changed underneath it:
+            // reset the window and measure the new path immediately.
+            app.repo.onJitterNetworkChanged()
             routeProbeRequested
                 .set(true)
 
@@ -3590,7 +3908,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         consecutiveProbeFailures =
             0
 
-        synchronized(routeOutcomeWindow) { routeOutcomeWindow.clear() }
+        routeSampleWindows.clear()
+        probeCalmStreak = 0
+        tcpPressureGate.reset()
 
         val port =
             if (
@@ -3743,6 +4063,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         if (!preserveTun) closeTun()
 
         val repo = (application as MarbleApplication).repo
+
+        // MARBLE_SMART_JITTER_V238 — a dead session never measures and never switches.
+        runCatching { repo.stopJitterReducer() }
+
         repo.resetTelemetry()
         activeSettings = null
         activeProfileId = ""
@@ -3982,7 +4306,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             showTimer = current.notificationSessionTimer,
             sessionStartedAtMs = sessionStartedAtMs,
             iranModeLabel = if (iran.active) iran.ispShortName.trim() else "",
-            detail = detail
+            detail = detail,
+            // MARBLE_NOTIFICATION_PICKER_V238 — full route control in the shade. The live route
+            // (or the selection, before the tunnel is up) marks its own row.
+            routes = repo.notificationPickerRoutes(),
+            routeId = activeProfileId.ifBlank { repo.selectedProfileId },
+            routeSourceId = activeProfileSourceId.ifBlank { repo.selectedProfileSourceId }
         )
     }
 

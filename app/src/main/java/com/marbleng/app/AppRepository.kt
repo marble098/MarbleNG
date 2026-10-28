@@ -4,9 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import androidx.compose.runtime.*
 import com.marbleng.app.core.*
 import com.marbleng.app.data.AppStore
+import com.marbleng.app.jitter.JitterMode
+import com.marbleng.app.jitter.ScoreEngine
+import com.marbleng.app.jitter.SmartJitterController
 import com.marbleng.app.model.*
 import com.marbleng.app.quicktile.MarbleQuickTileService
 import com.marbleng.app.net.*
@@ -1546,14 +1550,36 @@ fun updateRouteQuality(
                 liveRouteBroken() &&
                 autoFailoverArmed.compareAndSet(true, false)
             ) {
-                diagnostics.event(
-                    "AUTOSELECT",
-                    "failover-triggered",
-                    "from" to activeProfileId.take(12),
-                    "attempts" to liveRouteAttempts,
-                    "successPercent" to liveRouteSuccessPercent
-                )
-                runAutoServerSelection(reason = "failure", connect = true)
+                // MARBLE_FAILOVER_TRUST_V238 — the report (P1-5) caught failovers firing at
+                // confidence 0.15 while the underlay was mid-handover. A switch needs both a
+                // quiet period since the last one and evidence worth trusting; below the
+                // confidence floor the session keeps its (broken) route and retries after the
+                // cooldown instead of flapping through unmeasured candidates.
+                val now = System.currentTimeMillis()
+                // The quiet period is this gate's own concern; the confidence floor is enforced
+                // where a challenger has actually been chosen (the "failure" path of
+                // runAutoServerSelection). `confidence = 1.0` asks the policy for the cooldown
+                // verdict only.
+                val cooldownActive = !FailoverTrustPolicy
+                    .decide(now, lastAutoFailoverAtMs, confidence = 1.0)
+                    .allowed
+                if (cooldownActive) {
+                    diagnostics.event(
+                        "AUTOSELECT",
+                        "failover-cooldown",
+                        "sinceMs" to (now - lastAutoFailoverAtMs)
+                    )
+                } else {
+                    lastAutoFailoverAtMs = now
+                    diagnostics.event(
+                        "AUTOSELECT",
+                        "failover-triggered",
+                        "from" to activeProfileId.take(12),
+                        "attempts" to liveRouteAttempts,
+                        "successPercent" to liveRouteSuccessPercent
+                    )
+                    runAutoServerSelection(reason = "failure", connect = true)
+                }
             }
             liveRouteProbeStatus = buildString {
                 append("Verified HTTPS • ")
@@ -2442,7 +2468,16 @@ private fun postToMain(block: () -> Unit) {
             diagnostics.event(
                 "APP",
                 "home-connection-ping",
+                // MARBLE_PING_ZERO_TRUTH_V238 — a zero is "the probe failed or timed out",
+                // never a measured 0 ms: the report (P0-3) showed four `measured=0` lines in a
+                // row reading as an impossibly fast server. The status names the failure; the
+                // zero never reaches scoring either way (recordLiveObservation drops it).
                 "measured" to measured,
+                "status" to if (measured > 0) {
+                    "ok"
+                } else {
+                    (probe?.failureReason?.take(60)?.ifBlank { null } ?: "timeout-or-unreachable")
+                },
                 "port" to port,
                 "mode" to settings.probeMethod.name.lowercase(),
                 "profile" to (target?.id ?: "").take(12)
@@ -3564,6 +3599,208 @@ private fun postToMain(block: () -> Unit) {
         return target
     }
 
+    /**
+     * MARBLE_NOTIFICATION_PICKER_V238 — the shade's full-control answer: a *named* tap.
+     *
+     * The V234 verbs walked; the picker taps a row the user read. Validation mirrors the cycle
+     * path (only a real profile of the library may go live), the tap is logged with the row it
+     * came from, and the selection is published through [selectProfile] so every surface follows.
+     */
+    fun notificationSelectRoute(profileId: String, sourceId: String?): ProxyProfile? {
+        val id = profileId.trim()
+        if (id.isBlank()) return null
+        val target = profile(id, sourceId?.trim()?.ifBlank { null }) ?: profile(id)
+        if (target == null) {
+            diagnostics.event(
+                "APP",
+                "notification-picker-missing",
+                "profile" to id.take(12),
+                "source" to (sourceId ?: "").take(24)
+            )
+            return null
+        }
+        diagnostics.event(
+            "APP",
+            "notification-picker-select",
+            "profile" to target.id.take(12),
+            "name" to target.name.take(80),
+            "source" to target.subscriptionName.take(60)
+        )
+        postToMain { selectProfile(target) }
+        return target
+    }
+
+    /** The routes the shade picker draws, in the Servers page's own order, de-duplicated. */
+    fun notificationPickerRoutes(): List<CycleRoute> =
+        profiles.toList()
+            .distinctBy { it.id }
+            .map {
+                CycleRoute(
+                    id = it.id,
+                    name = it.name,
+                    sourceId = it.subscriptionId,
+                    sourceName = it.subscriptionName
+                )
+            }
+
+    // ------------------------------------------------------------------------------------------
+    // MARBLE_SMART_JITTER_V238 — the Smart Jitter Reducer's host bindings.
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * The controller instance the VPN service drives for the live session. The UI reads
+     * [jitterReducerState]; nothing here probes unless the service started a session AND the
+     * mode is not OFF.
+     */
+    val jitterReducer = SmartJitterController()
+
+    val jitterReducerState: com.marbleng.app.jitter.SmartJitterController.State
+        get() = jitterReducer.state.value
+
+    fun jitterReducerTuning(): SmartJitterController.Tuning {
+        val s = settings
+        return SmartJitterController.Tuning(
+            mode = JitterMode.fromId(s.jitterSmartMode),
+            baseIntervalMs = s.jitterProbeIntervalSec
+                .coerceIn(SmartJitterDefaultsKeys.INTERVAL_SEC_MIN, SmartJitterDefaultsKeys.INTERVAL_SEC_MAX) * 1_000L,
+            switchMinImproveFraction = s.jitterSwitchImprovePercent
+                .coerceIn(SmartJitterDefaultsKeys.IMPROVE_PERCENT_MIN, SmartJitterDefaultsKeys.IMPROVE_PERCENT_MAX) / 100.0,
+            switchCooldownMs = s.jitterSwitchCooldownSec
+                .coerceIn(SmartJitterDefaultsKeys.COOLDOWN_SEC_MIN, SmartJitterDefaultsKeys.COOLDOWN_SEC_MAX) * 1_000L,
+            minSamples = s.jitterMinSamples
+                .coerceIn(SmartJitterDefaultsKeys.MIN_SAMPLES_MIN, SmartJitterDefaultsKeys.MIN_SAMPLES_MAX),
+            probeHost = s.jitterProbeHost.trim().ifBlank { SmartJitterDefaultsKeys.PROBE_HOST_DEFAULT }
+        )
+    }
+
+    /**
+     * Starts (or re-tunes) the reducer for a live session. Safe to call on every connect: with
+     * the mode OFF this only resets the visible state, no thread is kept alive with work.
+     */
+    fun startJitterReducer(sessionName: String) {
+        jitterReducer.start(jitterHost(), jitterReducerTuning())
+        diagnostics.event(
+            "JITTER",
+            "reducer-start",
+            "mode" to settings.jitterSmartMode,
+            "intervalSec" to settings.jitterProbeIntervalSec,
+            "target" to sessionName.take(60)
+        )
+    }
+
+    fun stopJitterReducer() {
+        jitterReducer.close()
+    }
+
+    fun refreshJitterReducerTuning() {
+        jitterReducer.updateTuning(jitterReducerTuning())
+    }
+
+    fun onJitterNetworkChanged() {
+        jitterReducer.onNetworkChangedAsync()
+    }
+
+    private fun jitterHost(): SmartJitterController.Host = object : SmartJitterController.Host {
+        override fun socksPort(): Int = if (state == "CONNECTED") settings.socksPort else 0
+
+        override fun liveRouteName(): String =
+            profile(activeProfileId, activeProfileSourceId)?.name
+                ?: profile(selectedProfileId, selectedProfileSourceId)?.name
+                ?: ""
+
+        override fun liveRouteId(): String =
+            if (activeProfileId.isNotBlank()) activeProfileId else selectedProfileId
+
+        override fun liveRouteSinceMs(): Long = activeSessionStartedAtMs
+
+        override fun candidates(): List<SmartJitterController.Candidate> {
+            if (state != "CONNECTED") return emptyList()
+            val nowMs = System.currentTimeMillis()
+            return autoServerCandidates(autoServerPool()).take(MAX_JITTER_CANDIDATES).map { candidate ->
+                val benchmark = candidate.benchmark
+                SmartJitterController.Candidate(
+                    id = candidate.id,
+                    name = candidate.profile.name,
+                    muxCapable = settings.muxEnabled,
+                    score = if (benchmark == null || benchmark.success <= 0) {
+                        null
+                    } else {
+                        ScoreEngine.score(
+                            ScoreEngine.PathSample(
+                                jitterMs = benchmark.jitterMs,
+                                p95RttMs = benchmark.latencyMs * P95_ESTIMATE_FACTOR,
+                                rttMeanMs = benchmark.latencyMs,
+                                lossPercent = benchmark.lossPercent,
+                                validSamples = benchmark.success.coerceAtMost(30)
+                            ),
+                            minSamples = 1
+                        )
+                    }
+                )
+            }
+        }
+
+        override fun powerStatus(): SmartJitterController.PowerStatus =
+            SmartJitterController.PowerStatus(
+                powerSave = (context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)
+                    ?.isPowerSaveMode == true,
+                doze = (context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)
+                    ?.isDeviceIdleMode == true
+            )
+
+        override fun applySwitch(candidateId: String): Boolean {
+            val target = profile(candidateId) ?: return false
+            diagnostics.event(
+                "JITTER",
+                "switch-requested",
+                "to" to target.id.take(12),
+                "name" to target.name.take(60)
+            )
+            postToMain { selectProfile(target) }
+            // The service rebuilds the tunnel the same way the shade's cycle verb does: the
+            // request lands as a service intent, so the VPN service — not the repository — owns
+            // the teardown order.
+            jitterSwitchRequestedId = target.id
+            jitterSwitchRequestedSource = target.subscriptionId
+            jitterSwitchRequestedAt = SystemClock.elapsedRealtime()
+            return true
+        }
+
+        override fun onEvent(event: String, detail: String) {
+            diagnostics.event("JITTER", event, "detail" to detail.take(160))
+        }
+    }
+
+    /**
+     * The handoff between the reducer's background thread and the VPN service: `applySwitch`
+     * records the request, the service polls it from its own worker and performs the actual
+     * reconnect. A request older than [JITTER_SWITCH_REQUEST_TTL_MS] is dropped — a stale
+     * switch must never resurrect a dead session.
+     */
+    @Volatile var jitterSwitchRequestedId: String = ""
+        private set
+    @Volatile var jitterSwitchRequestedSource: String = ""
+        private set
+    @Volatile var jitterSwitchRequestedAt: Long = 0L
+        private set
+
+    fun consumeJitterSwitchRequest(): Pair<String, String>? {
+        val id = jitterSwitchRequestedId
+        if (id.isBlank()) return null
+        val age = SystemClock.elapsedRealtime() - jitterSwitchRequestedAt
+        jitterSwitchRequestedId = ""
+        jitterSwitchRequestedSource = ""
+        jitterSwitchRequestedAt = 0L
+        if (age > JITTER_SWITCH_REQUEST_TTL_MS) return null
+        return id to jitterSwitchRequestedSource
+    }
+
+    @Volatile var activeSessionStartedAtMs: Long = 0L
+
+    fun noteSessionStarted(atMs: Long) {
+        activeSessionStartedAtMs = atMs
+    }
+
     fun writeBackup(uri: Uri) {
         task("Creating backup") {
             context.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use {
@@ -4014,7 +4251,7 @@ private fun postToMain(block: () -> Unit) {
 
                 tcpWorkers = maxOf(settings.tcpWorkers, 64).coerceAtMost(128),
                 probeMethod = ProbeMethod.REAL_DELAY,
-                probeSpeedTest = false,
+                appBehavior = settings.appBehavior.copy(probeSpeedTest = false),
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
             )
@@ -4245,6 +4482,9 @@ private fun postToMain(block: () -> Unit) {
 
     private val autoFailoverArmed = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    /** MARBLE_FAILOVER_TRUST_V238 — the last failure-driven switch, for its cooldown. */
+    @Volatile private var lastAutoFailoverAtMs = 0L
+
     fun autoServerCandidates(pool: List<ProxyProfile> = autoServerPool()): List<ServerCandidate> {
         val measured = benchmarks.associateBy { it.profileId }
         val currentId = if (state == "CONNECTED") activeProfileId else selectedProfileId
@@ -4334,6 +4574,29 @@ private fun postToMain(block: () -> Unit) {
             return choice
         }
 
+        // MARBLE_FAILOVER_TRUST_V238 — a failure-driven switch below the confidence floor is
+        // refused: with 42 % probe success and a fresh candidate ranking, "the best measured
+        // candidate" is a guess, and the report (P1-5) showed the session paying for it. The
+        // route keeps its evidence window and the next cycle decides again.
+        if (reason == "failure") {
+            val confidence = AutoServerSelector.confidenceOf(choice, System.currentTimeMillis())
+            val verdict = FailoverTrustPolicy.decide(
+                System.currentTimeMillis(),
+                lastSwitchAtMs = 0L,
+                confidence = confidence
+            )
+            if (verdict.reason == FailoverTrustPolicy.Reason.LOW_CONFIDENCE) {
+                diagnostics.event(
+                    "AUTOSELECT",
+                    "failover-held-low-confidence",
+                    "confidence" to String.format(Locale.US, "%.2f", confidence),
+                    "floor" to FailoverTrustPolicy.MIN_CONFIDENCE.toString()
+                )
+                message =
+                    "Auto-select • waiting for trustworthy evidence • ${(confidence * 100).toInt()}% confidence"
+                return choice
+            }
+        }
         postToMain {
             selectProfile(winner, stopRunningSweep = false)
             val alreadyLive = state == "CONNECTED" && activeProfileId == winner.id
@@ -4401,7 +4664,7 @@ private fun postToMain(block: () -> Unit) {
                     memoryMb = deviceMemoryMb,
                     method = method
                 ),
-                probeSpeedTest = false,
+                appBehavior = settings.appBehavior.copy(probeSpeedTest = false),
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
             )
@@ -4753,7 +5016,7 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun setDebugMode(enabled: Boolean) {
-        updateSettings(settings.copy(debugModeEnabled = enabled))
+        updateSettings(settings.copy(appBehavior = settings.appBehavior.copy(debugModeEnabled = enabled)))
         message = if (enabled) {
             "Debug Mode ON • async TXT stream → ${RuntimeDiagnostics.reportFolderLabel()}"
         } else "Debug Mode OFF • connection fast path unchanged"
@@ -5104,6 +5367,21 @@ private fun postToMain(block: () -> Unit) {
     }
 
     private companion object {
+        /** MARBLE_SMART_JITTER_V238 — the reducer's candidate and handoff budgets. */
+        const val MAX_JITTER_CANDIDATES = 8
+
+        /**
+         * A benchmark stores mean latency, not a p95; the estimate widens it instead of
+         * pretending the tail does not exist.
+         */
+        const val P95_ESTIMATE_FACTOR = 1.6
+
+        const val JITTER_SWITCH_REQUEST_TTL_MS = 4_000L
+
+        /** MARBLE_FAILOVER_TRUST_V238 — cooldown and confidence floor for failure-driven switches. */
+        const val AUTO_FAILOVER_COOLDOWN_MS = FailoverTrustPolicy.COOLDOWN_MS
+        const val AUTO_FAILOVER_MIN_CONFIDENCE = FailoverTrustPolicy.MIN_CONFIDENCE
+
         const val IRAN_RESCAN_INTERVAL_MS = 10L * 60L * 1000L
 
         const val MAX_HISTORY_RECORDS = 200

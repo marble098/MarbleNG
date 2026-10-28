@@ -141,4 +141,14 @@
             android:textSize="12sp"
             tools:text="↑ 320 KB/s" />
     </LinearLayout>
+    <!-- MARBLE_NOTIFICATION_PICKER_V238 — the full route picker. Child rows are added at
+         build time by TunnelNotificationView (RemoteViews has no adapter); the container is
+         GONE unless the shade is expanded with routes to offer. -->
+    <LinearLayout
+        android:id="@+id/notif_picker"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="vertical"
+        android:visibility="gone" />
 </LinearLayout>

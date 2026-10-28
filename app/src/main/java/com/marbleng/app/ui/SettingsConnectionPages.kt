@@ -543,7 +543,7 @@ fun SettingsPowerProfilePage(
                         checked = s.warmupOnLaunch,
                         glyph = MarbleGlyph.GAUGE,
                         squircleColor = colors.teal,
-                        onCheckedChange = { repo.updateSettings(s.copy(warmupOnLaunch = it)) }
+                        onCheckedChange = { repo.updateSettings(s.copy(appBehavior = s.appBehavior.copy(warmupOnLaunch = it))) }
                     )
                     IosDivider()
                     IosSwitchRow(

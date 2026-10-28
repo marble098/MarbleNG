@@ -25,10 +25,12 @@ import com.marbleng.app.core.coreEngine
 import com.marbleng.app.core.tunnelCore
 import com.marbleng.app.model.AppLanguage
 import com.marbleng.app.model.ConnectionMode
+import com.marbleng.app.model.JitterSmartMode
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.RoutingMode
 import com.marbleng.app.model.SplitTunnelMode
 import com.marbleng.app.model.autoServerStrategyEnum
+import com.marbleng.app.model.jitterSmartModeEnum
 import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseFlatAccent
 import com.marbleng.app.model.parsePowerProfile
@@ -45,6 +47,7 @@ enum class SettingsDestination {
     PING_TESTING,
     NETWORK_COUNCIL,
     AUTO_SELECTOR,
+    SMART_JITTER,
     IDENTITY_LOCATION,
     APPEARANCE,
     LANGUAGE_FONT,
@@ -86,6 +89,7 @@ fun SettingsScreen(
             SettingsDestination.PING_TESTING -> SettingsPingTestingPage(repo, onCloseDestination)
             SettingsDestination.NETWORK_COUNCIL -> SettingsNetworkCouncilPage(repo, onCloseDestination)
             SettingsDestination.AUTO_SELECTOR -> SettingsAutoSelectorPage(repo, onCloseDestination)
+            SettingsDestination.SMART_JITTER -> SettingsSmartJitterPage(repo, onCloseDestination)
             SettingsDestination.IDENTITY_LOCATION -> SettingsIdentityLocationPage(repo, onCloseDestination)
             SettingsDestination.APPEARANCE -> SettingsAppearancePage(repo, onCloseDestination)
             SettingsDestination.LANGUAGE_FONT -> SettingsLanguageAndFontPage(repo, onCloseDestination)
@@ -216,6 +220,17 @@ fun SettingsScreen(
             },
             glyph = MarbleGlyph.RADAR,
             squircleColor = colors.blue
+        ),
+        SettingsRowSpec(
+            destination = SettingsDestination.SMART_JITTER,
+            title = trx("Smart Jitter Reducer"),
+            subtitle = if (s.jitterSmartModeEnum == JitterSmartMode.OFF) {
+                trx("Off · the network policy stays untouched")
+            } else {
+                "${trx("On")} · ${trx(s.jitterSmartModeEnum.label)}"
+            },
+            glyph = MarbleGlyph.GAUGE,
+            squircleColor = colors.green
         ),
         SettingsRowSpec(
             destination = SettingsDestination.IDENTITY_LOCATION,

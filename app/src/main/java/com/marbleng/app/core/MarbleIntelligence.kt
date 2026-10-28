@@ -1053,8 +1053,23 @@ class MarbleIntelligence(private val context: Context) {
                 hasIpv6 = n.hasIpv6
             )
         )
+        // MARBLE_TUN_MTU_CEILING_V238 — the device MTU is capped by what the tunnel's own
+        // overhead leaves of the underlay path (report P1-7: a 1500 TUN over REALITY/XHTTP on a
+        // 1500 underlay fragments by construction). A confirmed Auto-Tuner override (default
+        // off, user-applied, reversible) wins inside the transport ceiling.
+        val protocolCeiling = ProtocolMtuCeiling.forScheme(profile.scheme, profile.transport)
+        val tunerOverride = if (settings.jitterAutoTunerEnabled) {
+            com.marbleng.app.jitter.JitterAutoTuner.sanitizeOverride(settings.jitterTunerMtu)
+        } else {
+            null
+        }
         val learned = learnedPathMtu(profile.id)
-        effectiveMtu = if (learned in 1280..9000) min(recommendation.mtu, learned) else recommendation.mtu
+        val capped = minOf(recommendation.mtu, protocolCeiling)
+        effectiveMtu = when {
+            tunerOverride != null -> minOf(tunerOverride, protocolCeiling)
+            learned in 1280..9000 -> min(capped, learned)
+            else -> capped
+        }
         return effectiveMtu
     }
 
@@ -1522,7 +1537,11 @@ class MarbleIntelligence(private val context: Context) {
         )
 
         val tuned = familyBase.copy(
-            dnsQueryStrategy = AddressFamilyPolicy.dnsQueryStrategy(familyBase, familyPreference),
+            dnsQueryStrategy = AddressFamilyPolicy.dnsQueryStrategy(
+                familyBase,
+                familyPreference,
+                underlayHasIpv6 = n.hasIpv6
+            ),
             preferIpv6 = if (forceIpv4First) {
                 false
             } else {

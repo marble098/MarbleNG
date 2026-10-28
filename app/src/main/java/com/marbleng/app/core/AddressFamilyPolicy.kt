@@ -241,14 +241,18 @@ object AddressFamilyPolicy {
 
     fun dnsQueryStrategy(
         settings: AppSettings,
-        preference: IpFamilyPreference
-    ): String = when (preference) {
-        IpFamilyPreference.IPV4_ONLY -> "UseIPv4"
-        IpFamilyPreference.IPV6_ONLY -> "UseIPv6"
+        preference: IpFamilyPreference,
+        underlayHasIpv6: Boolean = true
+    ): String = when {
+        // MARBLE_DNS_QUERY_BUDGET_V238 — when the underlay has no global IPv6 (the report's
+        // "No global IPv6 address" sessions sent every AAAA upstream only to discard it, three
+        // wire queries per name), the resolver answers AAAA from the A record instead: no AAAA
+        // wire query is emitted at all. A forced IPv6 preference keeps its behaviour untouched.
+        preference == IpFamilyPreference.IPV4_ONLY -> "UseIPv4"
+        preference == IpFamilyPreference.IPV6_ONLY -> "UseIPv6"
+        !underlayHasIpv6 -> "UseIPv4"
 
-        IpFamilyPreference.IPV4_FIRST,
-        IpFamilyPreference.IPV6_FIRST,
-        IpFamilyPreference.DUAL -> "UseIP"
+        else -> "UseIP"
     }
 
     fun plan(
@@ -278,7 +282,7 @@ object AddressFamilyPolicy {
         return IpFamilyPlan(
             preference = preference,
             endpointStrategy = strategy,
-            dnsQueryStrategy = dnsQueryStrategy(settings, preference),
+            dnsQueryStrategy = dnsQueryStrategy(settings, preference, underlayHasIpv6),
             underlayHasIpv6 = underlayHasIpv6,
             prioritizeIpv6 = prioritize,
             raceEnabled = armed,

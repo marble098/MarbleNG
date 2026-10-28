@@ -65,7 +65,16 @@ data class ConnectionNotificationState(
     val showTimer: Boolean = true,
     val sessionStartedAtMs: Long = 0L,
     val iranModeLabel: String = "",
-    val detail: String = ""
+    val detail: String = "",
+    /**
+     * MARBLE_NOTIFICATION_PICKER_V238 — the routes the shade's picker may offer. Empty when the
+     * library is empty or the item is not the live one; the RemoteViews builder draws at most
+     * [NotificationRoutePicker.DEFAULT_CAP] rows from it.
+     */
+    val routes: List<CycleRoute> = emptyList(),
+    /** The live route's id and source id — the picker marks its row from these. */
+    val routeId: String = "",
+    val routeSourceId: String = ""
 ) {
     fun signature(language: NotificationLanguage): String = buildString {
         append(status.name).append('|')
@@ -77,6 +86,7 @@ data class ConnectionNotificationState(
         append('|').append(showTimer).append('|').append(sessionStartedAtMs)
         append('|').append(iranModeLabel).append('|').append(detail)
         append('|').append(language.id)
+        append('|').append(routes.map { it.id }.joinToString(",").hashCode())
     }
 
     val ongoing: Boolean
@@ -231,7 +241,16 @@ class SmartNotifier(
             routeLine = NotificationCopy.ellipsize(secondLine, NotificationCopy.TEXT_MAX),
             ping = NotificationCopy.latency(state.pingMs),
             down = "↓ ${NotificationCopy.rate(state.downBps)}",
-            up = "↑ ${NotificationCopy.rate(state.upBps)}"
+            up = "↑ ${NotificationCopy.rate(state.upBps)}",
+            picker = NotificationRoutePicker.build(
+                NotificationRoutePicker.Input(
+                    routes = state.routes,
+                    currentId = state.routeId,
+                    currentSourceId = state.routeSourceId,
+                    cap = NotificationRoutePicker.DEFAULT_CAP
+                )
+            ),
+            pickerIntent = { row -> pickerIntent(row) }
         )
         val builder = NotificationCompat.Builder(context, CHANNEL_CONNECTION)
             .setSmallIcon(R.drawable.ic_notification)
@@ -662,6 +681,38 @@ class SmartNotifier(
         )
     }
 
+    /**
+     * MARBLE_NOTIFICATION_PICKER_V238 — one picker row's tap: "make *this* route live".
+     *
+     * The row's identity travels in the data URI *and* the extras, so a re-delivered or
+     * re-created intent always carries the exact profile it was built for. Request codes are
+     * offset by the row's stable position in the picker (`actionId` hash kept positive), so two
+     * rows can never share one `PendingIntent`.
+     */
+    private fun pickerIntent(row: NotificationRoutePicker.PickerRow): PendingIntent? = when {
+        row.actionId.startsWith(NotificationRoutePicker.OPEN_APP_PREFIX) ->
+            openAppIntent(NotificationRoute.DASHBOARD, resolveLanguage())
+        row.actionId.startsWith(NotificationRoutePicker.SELECT_PREFIX) -> {
+            val profileId = NotificationRoutePicker.selectProfileId(row.actionId)
+            if (profileId.isBlank()) {
+                null
+            } else {
+                val intent = Intent(context, MarbleVpnService::class.java)
+                    .setAction(MarbleVpnService.ACTION_SELECT_ROUTE)
+                    .setData(Uri.parse("marbleng://picker/${profileId.take(48)}"))
+                    .putExtra(MarbleVpnService.EXTRA_SELECT_PROFILE, profileId)
+                    .putExtra(MarbleVpnService.EXTRA_SELECT_SOURCE, row.payloadSourceId)
+                PendingIntent.getService(
+                    context,
+                    REQUEST_PICKER_BASE + (row.actionId.hashCode() and 0x0FFFFFFF),
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            }
+        }
+        else -> null
+    }
+
     private fun stopServiceIntent(): PendingIntent {
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_STOP)
@@ -737,6 +788,7 @@ class SmartNotifier(
         private const val REQUEST_RECONNECT = 7304
         private const val REQUEST_MANAGE = 7305
         private const val REQUEST_CYCLE_BASE = 7312
+        private const val REQUEST_PICKER_BASE = 7350
 
         fun formatRate(bytesPerSecond: Long): String = NotificationCopy.rate(bytesPerSecond)
 

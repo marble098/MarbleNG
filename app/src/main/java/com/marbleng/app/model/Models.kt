@@ -410,6 +410,54 @@ fun parseAppLanguage(raw: String): AppLanguage =
     AppLanguage.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: AppLanguage.SYSTEM
 
+/**
+ * MARBLE_APP_BEHAVIOR_GROUP_V238 — six independent app-behavior switches grouped into one
+ * [AppSettings] constructor axis. The settings record sat at the JVM's hard limit of 255
+ * argument slots per method (`copy$default` had reached 257), which does not even load;
+ * readers keep their old names through accessors on [AppSettings], so only writers changed.
+ */
+data class AppBehaviorPrefs(
+    val probeSpeedTest: Boolean = false,
+    val iranDeepProbeEnabled: Boolean = true,
+    val accentTheme: String = FlatAccent.DEFAULT.id,
+    val warmupOnLaunch: Boolean = true,
+    val censorshipAutoApply: Boolean = false,
+    val debugModeEnabled: Boolean = false
+)
+
+/**
+ * MARBLE_SMART_JITTER_V238 — the Smart Jitter Reducer's settings, one constructor axis of
+ * [AppSettings] so the settings record stays under the JVM's 255-argument method limit.
+ */
+data class SmartJitterSettings(
+    val mode: String = JitterSmartMode.OFF.id,
+    val probeHost: String = SmartJitterDefaultsKeys.PROBE_HOST_DEFAULT,
+    val probeIntervalSec: Int = SmartJitterDefaultsKeys.INTERVAL_SEC_DEFAULT,
+    val switchImprovePercent: Int = SmartJitterDefaultsKeys.IMPROVE_PERCENT_DEFAULT,
+    val switchCooldownSec: Int = SmartJitterDefaultsKeys.COOLDOWN_SEC_DEFAULT,
+    val minSamples: Int = SmartJitterDefaultsKeys.MIN_SAMPLES_DEFAULT,
+    val autoTunerEnabled: Boolean = false,
+    val tunerMtu: Int = 0
+)
+
+/** MARBLE_SMART_JITTER_V238 — the reducer's persisted mode id (mirrors jitter.JitterMode). */
+enum class JitterSmartMode(val id: String, val label: String) {
+    OFF("off", "Off"),
+    BALANCED("balanced", "Balanced"),
+    AGGRESSIVE("aggressive", "Aggressive (calls & games)");
+
+    companion object {
+        val DEFAULT: JitterSmartMode get() = OFF
+
+        fun fromId(raw: String?): JitterSmartMode =
+            entries.firstOrNull { it.id.equals(raw?.trim(), ignoreCase = true) } ?: DEFAULT
+    }
+}
+
+/** The persisted mode id as the typed enum, defaulting to OFF on any unknown value. */
+val AppSettings.jitterSmartModeEnum: JitterSmartMode
+    get() = JitterSmartMode.fromId(jitterSmartMode)
+
 enum class AppFont(val id: String, val label: String) {
     VAZIR("vazir", "Vazir"),
     SYSTEM("system", "System"),
@@ -1022,7 +1070,6 @@ data class AppSettings(
     val connectionMode: ConnectionMode = ConnectionMode.FULL_TUN,
 
     val probeMethod: ProbeMethod = ProbeMethod.REAL_DELAY,
-    val probeSpeedTest: Boolean = false,
 
     val delayTestUrl: String = DelayTest.URL,
 
@@ -1235,7 +1282,6 @@ data class AppSettings(
     val iranModePolicy: IranModePolicy = IranModePolicy.OFF,
     val iranModeCountermeasures: Boolean = true,
     val iranDomesticDirect: Boolean = true,
-    val iranDeepProbeEnabled: Boolean = true,
 
     val intelligenceEnabled: Boolean = true,
     val configCompatibilityMode: Boolean = true,
@@ -1343,17 +1389,70 @@ data class AppSettings(
     // is cheaper to draw *and* easier to read; the switch exists so a user who liked the older
     // lifted cards can have them back.
     val flatInterface: Boolean = true,
-    val accentTheme: String = FlatAccent.DEFAULT.id,
     // powerProfile projects the device onto the cores' own knobs (see core/CorePower.kt).
     val powerProfile: String = PowerProfile.DEFAULT.id,
     // fragmentStrategy is the TLS-handshake treatment the extended core applies on the wire.
     val fragmentStrategy: String = FragmentStrategy.DEFAULT.id,
     // warmupOnLaunch pre-resolves the active route so the first ping and the first connection do
     // not pay for DNS.
-    val warmupOnLaunch: Boolean = true,
     // censorshipAutoApply lets the Censorship Lab's prescription land without a second tap when a
     // scan finds a decisive block.
-    val censorshipAutoApply: Boolean = false,
 
-    val debugModeEnabled: Boolean = false
-)
+    // MARBLE_SMART_JITTER_V238 — the Smart Jitter Reducer. OFF by default: no probe, no
+    // switch, no lock until the user asks for it. The switch guard rails (hysteresis percent,
+    // cooldown) and the probe budget (endpoint, interval, minimum samples) are all exposed so
+    // the module can be tuned for a call, a game or a quiet background session.
+    val smartJitter: SmartJitterSettings = SmartJitterSettings(),
+
+    val appBehavior: AppBehaviorPrefs = AppBehaviorPrefs()
+) {
+    // MARBLE_SMART_JITTER_V238 — the reducer's eight knobs live in one [SmartJitterSettings]
+    // group: the AppSettings constructor sat one edit away from the JVM's 255-argument method
+    // limit, and `copy$default` crossed it. Every reader keeps its old name via these accessors,
+    // so only the writers need the group copy.
+    val jitterSmartMode: String get() = smartJitter.mode
+
+    val jitterProbeHost: String get() = smartJitter.probeHost
+
+    val jitterProbeIntervalSec: Int get() = smartJitter.probeIntervalSec
+
+    val jitterSwitchImprovePercent: Int get() = smartJitter.switchImprovePercent
+
+    val jitterSwitchCooldownSec: Int get() = smartJitter.switchCooldownSec
+
+    val jitterMinSamples: Int get() = smartJitter.minSamples
+
+    val jitterAutoTunerEnabled: Boolean get() = smartJitter.autoTunerEnabled
+
+    val jitterTunerMtu: Int get() = smartJitter.tunerMtu
+
+    val probeSpeedTest: Boolean get() = appBehavior.probeSpeedTest
+
+    val iranDeepProbeEnabled: Boolean get() = appBehavior.iranDeepProbeEnabled
+
+    val accentTheme: String get() = appBehavior.accentTheme
+
+    val warmupOnLaunch: Boolean get() = appBehavior.warmupOnLaunch
+
+    val censorshipAutoApply: Boolean get() = appBehavior.censorshipAutoApply
+
+    val debugModeEnabled: Boolean get() = appBehavior.debugModeEnabled
+}
+
+/** Keys and bounds the settings store, the settings page and the reducer all agree on. */
+object SmartJitterDefaultsKeys {
+    const val PROBE_HOST_DEFAULT = "1.1.1.1"
+    const val INTERVAL_SEC_DEFAULT = 5
+    const val IMPROVE_PERCENT_DEFAULT = 20
+    const val COOLDOWN_SEC_DEFAULT = 180
+    const val MIN_SAMPLES_DEFAULT = 8
+
+    const val INTERVAL_SEC_MIN = 2
+    const val INTERVAL_SEC_MAX = 60
+    const val IMPROVE_PERCENT_MIN = 5
+    const val IMPROVE_PERCENT_MAX = 100
+    const val COOLDOWN_SEC_MIN = 30
+    const val COOLDOWN_SEC_MAX = 900
+    const val MIN_SAMPLES_MIN = 4
+    const val MIN_SAMPLES_MAX = 30
+}

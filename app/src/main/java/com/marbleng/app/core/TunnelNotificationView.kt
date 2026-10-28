@@ -1,5 +1,6 @@
 package com.marbleng.app.core
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.res.Configuration
 import android.os.SystemClock
@@ -47,7 +48,9 @@ internal object TunnelNotificationView {
         routeLine: String,
         ping: String,
         down: String,
-        up: String
+        up: String,
+        picker: List<NotificationRoutePicker.PickerRow> = emptyList(),
+        pickerIntent: ((NotificationRoutePicker.PickerRow) -> PendingIntent?)? = null
     ): TunnelShadeViews {
         val layout = if (language == NotificationLanguage.FA) {
             R.layout.notification_tunnel_rtl
@@ -59,7 +62,75 @@ internal object TunnelNotificationView {
 
         paint(context, compact, state, title, routeLine, ping, down, up, big = false)
         paint(context, expanded, state, title, routeLine, ping, down, up, big = true)
+        // MARBLE_NOTIFICATION_PICKER_V238 — the picker lives only in the expanded item: the
+        // collapsed view keeps one row of state, the opened shade offers the full route control.
+        if (picker.isNotEmpty() && pickerIntent != null) {
+            attachPicker(context, expanded, language, picker, pickerIntent)
+        } else {
+            expanded.setViewVisibility(R.id.notif_picker, View.GONE)
+            expanded.removeAllViews(R.id.notif_picker)
+        }
         return TunnelShadeViews(compact = compact, expanded = expanded)
+    }
+
+    /**
+     * The picker rows are child RemoteViews added one by one — RemoteViews has no adapter, so
+     * the list is explicit, bounded by [NotificationRoutePicker.DEFAULT_CAP], and every row is
+     * one of the two layouts `SystemUI` can inflate without a custom class.
+     */
+    private fun attachPicker(
+        context: Context,
+        views: RemoteViews,
+        language: NotificationLanguage,
+        rows: List<NotificationRoutePicker.PickerRow>,
+        pickerIntent: (NotificationRoutePicker.PickerRow) -> PendingIntent?
+    ) {
+        val night = isNight(context)
+        val sectionColor = if (night) SECTION_NIGHT else SECTION_DAY
+        val rowColor = if (night) TITLE_NIGHT else TITLE_DAY
+        val activeColor = if (night) ACTIVE_NIGHT else ACTIVE_DAY
+
+        views.removeAllViews(R.id.notif_picker)
+        if (rows.isEmpty()) {
+            views.setViewVisibility(R.id.notif_picker, View.GONE)
+            return
+        }
+        views.setViewVisibility(R.id.notif_picker, View.VISIBLE)
+        val rowLayout = if (language == NotificationLanguage.FA) {
+            R.layout.notification_picker_row_rtl
+        } else {
+            R.layout.notification_picker_row
+        }
+        for (row in rows) {
+            val child = RemoteViews(context.packageName, rowLayout)
+            val label = NotificationCopy.ellipsize(
+                NotificationRoutePicker.rowLabel(row.label),
+                NotificationCopy.TEXT_MAX
+            )
+            child.setTextViewText(R.id.picker_label, label)
+            val pending = pickerIntent(row)
+            when (row.kind) {
+                NotificationRoutePicker.RowKind.SECTION -> {
+                    child.setTextColor(R.id.picker_label, sectionColor)
+                    child.setViewVisibility(R.id.picker_dot, View.GONE)
+                }
+                NotificationRoutePicker.RowKind.OPEN_APP -> {
+                    child.setTextColor(R.id.picker_label, sectionColor)
+                    child.setViewVisibility(R.id.picker_dot, View.GONE)
+                    pending?.let { child.setOnClickPendingIntent(R.id.picker_row, it) }
+                }
+                else -> {
+                    child.setTextColor(R.id.picker_label, if (row.active) activeColor else rowColor)
+                    child.setViewVisibility(
+                        R.id.picker_dot,
+                        if (row.active) View.VISIBLE else View.INVISIBLE
+                    )
+                    child.setInt(R.id.picker_dot, "setColorFilter", activeColor)
+                    pending?.let { child.setOnClickPendingIntent(R.id.picker_row, it) }
+                }
+            }
+            views.addView(R.id.notif_picker, child)
+        }
     }
 
     private fun paint(
@@ -149,4 +220,8 @@ internal object TunnelNotificationView {
     private const val SECONDARY_NIGHT = 0xB8F2F5F8.toInt()
     private const val CHIP_TEXT_DAY = 0xFF0B5BC4.toInt()
     private const val CHIP_TEXT_NIGHT = 0xFF8FC0FF.toInt()
+    private const val SECTION_DAY = 0x8A11181F.toInt()
+    private const val SECTION_NIGHT = 0x8AF2F5F8.toInt()
+    private const val ACTIVE_DAY = 0xFF0B5BC4.toInt()
+    private const val ACTIVE_NIGHT = 0xFF8FC0FF.toInt()
 }

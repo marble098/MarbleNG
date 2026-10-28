@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MARBLE_NOTIFICATION_PICKER_V238 — the picker row's wash.
+
+     A quieter wash than the measurement chips (6 % accent) so nine stacked rows read as one
+     surface with hairlines of separation, not nine buttons shouting. Colours are set at runtime
+     by `TunnelNotificationView`; the shade's own ripple still works because the click target is
+     the row itself. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="8dp" />
+    <solid android:color="#0F0066CC" />
+</shape>
