@@ -98,7 +98,7 @@ func marblePct(values []int, quantile float64) int {
 	}
 	ordered := append([]int(nil), values...)
 	sort.Ints(ordered)
-	index := int(float64(len(ordered))*quantile + 0.999999) - 1
+	index := int(float64(len(ordered))*quantile+0.999999) - 1
 	if index < 0 {
 		index = 0
 	}
@@ -150,12 +150,20 @@ func marbleOptional(info *unix.TCPInfo, names ...string) uint64 {
 	return 0
 }
 
+// MARBLE_TCP_INFO_TRUTH_V238 — TCP state values from include/linux/tcp.h. x/sys/unix does not
+// export the TCP state constants, so the two states the filter cares about are named here.
+const (
+	marbleTCPStateEstablished = uint8(1) // TCP_ESTABLISHED
+	marbleTCPStateSynSent     = uint8(2) // TCP_SYN_SENT
+	marbleTCPStateClose       = uint8(7) // TCP_CLOSE
+)
+
 // MARBLE_TCP_INFO_TRUTH_V238 — the one predicate deciding whether a tracked socket counts as a
 // path measurement. Extracted so its test (marble_telemetry_linux_test.go, run with
 // `go test ./transport/internet`) pins exactly what the emitter counts.
 func marbleSocketMeasurementValid(tracked *marbleTrackedSocket, info *unix.TCPInfo) bool {
 	return !tracked.loopback &&
-		info.State == uint8(unix.S_ESTABLISHED) &&
+		info.State == marbleTCPStateEstablished &&
 		info.Rtt > 0
 }
 

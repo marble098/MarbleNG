@@ -14,9 +14,9 @@ import (
 )
 
 func TestMarbleSocketMeasurementValidFiltersNonPathSockets(t *testing.T) {
-	established := &unix.TCPInfo{State: uint8(unix.S_ESTABLISHED), Rtt: 41_000}
-	handshake := &unix.TCPInfo{State: uint8(unix.S_SYN_SENT), Rtt: 0}
-	closed := &unix.TCPInfo{State: uint8(unix.S_CLOSE), Rtt: 41_000}
+	established := &unix.TCPInfo{State: marbleTCPStateEstablished, Rtt: 41_000}
+	handshake := &unix.TCPInfo{State: marbleTCPStateSynSent, Rtt: 0}
+	closed := &unix.TCPInfo{State: marbleTCPStateClose, Rtt: 41_000}
 
 	cases := []struct {
 		name    string
