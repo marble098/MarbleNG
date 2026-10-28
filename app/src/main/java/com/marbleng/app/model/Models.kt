@@ -411,6 +411,21 @@ fun parseAppLanguage(raw: String): AppLanguage =
         ?: AppLanguage.SYSTEM
 
 /**
+ * MARBLE_APP_BEHAVIOR_GROUP_V238 — six independent app-behavior switches grouped into one
+ * [AppSettings] constructor axis. The settings record sat at the JVM's hard limit of 255
+ * argument slots per method (`copy$default` had reached 257), which does not even load;
+ * readers keep their old names through accessors on [AppSettings], so only writers changed.
+ */
+data class AppBehaviorPrefs(
+    val probeSpeedTest: Boolean = false,
+    val iranDeepProbeEnabled: Boolean = true,
+    val accentTheme: String = FlatAccent.DEFAULT.id,
+    val warmupOnLaunch: Boolean = true,
+    val censorshipAutoApply: Boolean = false,
+    val debugModeEnabled: Boolean = false
+)
+
+/**
  * MARBLE_SMART_JITTER_V238 — the Smart Jitter Reducer's settings, one constructor axis of
  * [AppSettings] so the settings record stays under the JVM's 255-argument method limit.
  */
@@ -1055,7 +1070,6 @@ data class AppSettings(
     val connectionMode: ConnectionMode = ConnectionMode.FULL_TUN,
 
     val probeMethod: ProbeMethod = ProbeMethod.REAL_DELAY,
-    val probeSpeedTest: Boolean = false,
 
     val delayTestUrl: String = DelayTest.URL,
 
@@ -1268,7 +1282,6 @@ data class AppSettings(
     val iranModePolicy: IranModePolicy = IranModePolicy.OFF,
     val iranModeCountermeasures: Boolean = true,
     val iranDomesticDirect: Boolean = true,
-    val iranDeepProbeEnabled: Boolean = true,
 
     val intelligenceEnabled: Boolean = true,
     val configCompatibilityMode: Boolean = true,
@@ -1376,17 +1389,14 @@ data class AppSettings(
     // is cheaper to draw *and* easier to read; the switch exists so a user who liked the older
     // lifted cards can have them back.
     val flatInterface: Boolean = true,
-    val accentTheme: String = FlatAccent.DEFAULT.id,
     // powerProfile projects the device onto the cores' own knobs (see core/CorePower.kt).
     val powerProfile: String = PowerProfile.DEFAULT.id,
     // fragmentStrategy is the TLS-handshake treatment the extended core applies on the wire.
     val fragmentStrategy: String = FragmentStrategy.DEFAULT.id,
     // warmupOnLaunch pre-resolves the active route so the first ping and the first connection do
     // not pay for DNS.
-    val warmupOnLaunch: Boolean = true,
     // censorshipAutoApply lets the Censorship Lab's prescription land without a second tap when a
     // scan finds a decisive block.
-    val censorshipAutoApply: Boolean = false,
 
     // MARBLE_SMART_JITTER_V238 — the Smart Jitter Reducer. OFF by default: no probe, no
     // switch, no lock until the user asks for it. The switch guard rails (hysteresis percent,
@@ -1394,7 +1404,7 @@ data class AppSettings(
     // the module can be tuned for a call, a game or a quiet background session.
     val smartJitter: SmartJitterSettings = SmartJitterSettings(),
 
-    val debugModeEnabled: Boolean = false
+    val appBehavior: AppBehaviorPrefs = AppBehaviorPrefs()
 ) {
     // MARBLE_SMART_JITTER_V238 — the reducer's eight knobs live in one [SmartJitterSettings]
     // group: the AppSettings constructor sat one edit away from the JVM's 255-argument method
@@ -1415,6 +1425,18 @@ data class AppSettings(
     val jitterAutoTunerEnabled: Boolean get() = smartJitter.autoTunerEnabled
 
     val jitterTunerMtu: Int get() = smartJitter.tunerMtu
+
+    val probeSpeedTest: Boolean get() = appBehavior.probeSpeedTest
+
+    val iranDeepProbeEnabled: Boolean get() = appBehavior.iranDeepProbeEnabled
+
+    val accentTheme: String get() = appBehavior.accentTheme
+
+    val warmupOnLaunch: Boolean get() = appBehavior.warmupOnLaunch
+
+    val censorshipAutoApply: Boolean get() = appBehavior.censorshipAutoApply
+
+    val debugModeEnabled: Boolean get() = appBehavior.debugModeEnabled
 }
 
 /** Keys and bounds the settings store, the settings page and the reducer all agree on. */

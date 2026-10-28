@@ -152,7 +152,7 @@ fun SettingsAppearancePage(
                                         }
                                     )
                                     .clickable(role = Role.Button) {
-                                        repo.updateSettings(s.copy(accentTheme = candidate.id))
+                                        repo.updateSettings(s.copy(appBehavior = s.appBehavior.copy(accentTheme = candidate.id)))
                                     },
                                 contentAlignment = Alignment.Center
                             ) {

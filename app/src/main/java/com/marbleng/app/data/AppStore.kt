@@ -424,7 +424,6 @@ class AppStore(context: Context) {
         connectionMode = enumValue("connectionMode", ConnectionMode.FULL_TUN),
 
         probeMethod = probeMethod(),
-        probeSpeedTest = prefs.getBoolean("probeSpeedTest", false),
 
         delayTestUrl = DelayTest.url(prefs.getString("delayTestUrl", DelayTest.URL) ?: DelayTest.URL),
         coreEngineId = parseCoreEngine(prefs.getString("coreEngineId", CoreEngine.XRAY.id) ?: CoreEngine.XRAY.id).id,
@@ -613,7 +612,6 @@ class AppStore(context: Context) {
         iranModePolicy = enumValue("iranModePolicy", IranModePolicy.OFF),
         iranModeCountermeasures = prefs.getBoolean("iranModeCountermeasures", true),
         iranDomesticDirect = prefs.getBoolean("iranDomesticDirect", true),
-        iranDeepProbeEnabled = prefs.getBoolean("iranDeepProbeEnabled", true),
 
         intelligenceEnabled = true,
         configCompatibilityMode = prefs.getBoolean("configCompatibilityMode", true),
@@ -706,7 +704,6 @@ class AppStore(context: Context) {
         ).id,
         dockSlotShowStatusBadge = prefs.getBoolean("dockSlotShowStatusBadge", true),
 
-        debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
         textScalePercent = TextScale.clamp(prefs.getInt("textScalePercent", TextScale.DEFAULT_PERCENT)),
 
         autoServerSelectorEnabled = prefs.getBoolean("autoServerSelectorEnabled", false),
@@ -730,9 +727,6 @@ class AppStore(context: Context) {
         // own normaliser, so a backup written by another build (or a hand-edited preference) can
         // never put an unknown id into the settings object.
         flatInterface = prefs.getBoolean("flatInterface", true),
-        accentTheme = parseFlatAccent(
-            prefs.getString("accentTheme", FlatAccent.DEFAULT.id) ?: FlatAccent.DEFAULT.id
-        ).id,
         powerProfile = parsePowerProfile(
             prefs.getString("powerProfile", PowerProfile.DEFAULT.id) ?: PowerProfile.DEFAULT.id
         ).id,
@@ -740,8 +734,17 @@ class AppStore(context: Context) {
             prefs.getString("fragmentStrategy", FragmentStrategy.DEFAULT.id)
                 ?: FragmentStrategy.DEFAULT.id
         ).id,
-        warmupOnLaunch = prefs.getBoolean("warmupOnLaunch", true),
-        censorshipAutoApply = prefs.getBoolean("censorshipAutoApply", false),
+        // MARBLE_APP_BEHAVIOR_GROUP_V238 — six app-behavior switches, one grouped axis.
+        appBehavior = AppBehaviorPrefs(
+            probeSpeedTest = prefs.getBoolean("probeSpeedTest", false),
+            iranDeepProbeEnabled = prefs.getBoolean("iranDeepProbeEnabled", true),
+            accentTheme = parseFlatAccent(
+                prefs.getString("accentTheme", FlatAccent.DEFAULT.id) ?: FlatAccent.DEFAULT.id
+            ).id,
+            warmupOnLaunch = prefs.getBoolean("warmupOnLaunch", true),
+            censorshipAutoApply = prefs.getBoolean("censorshipAutoApply", false),
+            debugModeEnabled = prefs.getBoolean("debugModeEnabled", false)
+        ),
         // MARBLE_SMART_JITTER_V238 — the reducer's persisted knobs, one grouped axis.
         smartJitter = SmartJitterSettings(
             mode = JitterSmartMode.fromId(

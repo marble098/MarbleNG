@@ -4251,7 +4251,7 @@ private fun postToMain(block: () -> Unit) {
 
                 tcpWorkers = maxOf(settings.tcpWorkers, 64).coerceAtMost(128),
                 probeMethod = ProbeMethod.REAL_DELAY,
-                probeSpeedTest = false,
+                appBehavior = settings.appBehavior.copy(probeSpeedTest = false),
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
             )
@@ -4664,7 +4664,7 @@ private fun postToMain(block: () -> Unit) {
                     memoryMb = deviceMemoryMb,
                     method = method
                 ),
-                probeSpeedTest = false,
+                appBehavior = settings.appBehavior.copy(probeSpeedTest = false),
                 verifiedPerformanceTuning = false,
                 udpProbeEnabled = false
             )
@@ -5016,7 +5016,7 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun setDebugMode(enabled: Boolean) {
-        updateSettings(settings.copy(debugModeEnabled = enabled))
+        updateSettings(settings.copy(appBehavior = settings.appBehavior.copy(debugModeEnabled = enabled)))
         message = if (enabled) {
             "Debug Mode ON • async TXT stream → ${RuntimeDiagnostics.reportFolderLabel()}"
         } else "Debug Mode OFF • connection fast path unchanged"

@@ -815,7 +815,7 @@ fun SettingsCensorshipLabPage(
                         checked = s.censorshipAutoApply,
                         glyph = MarbleGlyph.CHECK,
                         squircleColor = colors.teal,
-                        onCheckedChange = { repo.updateSettings(s.copy(censorshipAutoApply = it)) }
+                        onCheckedChange = { repo.updateSettings(s.copy(appBehavior = s.appBehavior.copy(censorshipAutoApply = it))) }
                     )
                 }
             }

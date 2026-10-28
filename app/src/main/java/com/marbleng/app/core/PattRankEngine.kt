@@ -49,7 +49,7 @@ class PattRankEngine(
         if (settings.coreEngine() == CoreEngine.SINGBOX) {
             return BenchmarkEngine(xray, intelligence).run(scoped, settings.copy(
                 probeMethod = ProbeMethod.REAL_DELAY, verifiedPerformanceTuning = false,
-                probeSpeedTest = false, udpProbeEnabled = false
+                appBehavior = settings.appBehavior.copy(probeSpeedTest = false), udpProbeEnabled = false
             ), usePrecheck = false, onCandidates = onCandidates, onStart = onStart,
                 onResult = onResult, onProgress = onProgress, shouldStop = shouldStop)
         }
@@ -357,7 +357,7 @@ class PattRankEngine(
                     tcpWorkers = pendingLegacy.size.coerceIn(1, 4),
 
                     probeMethod = ProbeMethod.REAL_DELAY,
-                    probeSpeedTest = false,
+                    appBehavior = settings.appBehavior.copy(probeSpeedTest = false),
                     verifiedPerformanceTuning = false,
                     udpProbeEnabled = false
                 )
