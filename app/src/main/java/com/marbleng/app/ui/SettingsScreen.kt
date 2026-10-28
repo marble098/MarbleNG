@@ -47,6 +47,7 @@ enum class SettingsDestination {
     PING_TESTING,
     NETWORK_COUNCIL,
     AUTO_SELECTOR,
+    SMART_JITTER,
     IDENTITY_LOCATION,
     APPEARANCE,
     LANGUAGE_FONT,

@@ -15,12 +15,15 @@ import com.marbleng.app.MarbleApplication
 import com.marbleng.app.core.AccelerationPlan
 import com.marbleng.app.core.ActiveRouteQuality
 import com.marbleng.app.core.AddressFamilyPolicy
+import com.marbleng.app.core.AdaptiveProbeCadence
 import com.marbleng.app.core.BenchmarkEngine
 import com.marbleng.app.core.ConnectionTuner
 import com.marbleng.app.core.ContinuousRouteOptimizer
 import com.marbleng.app.core.ConnectivityDiagnosticsObserver
 import com.marbleng.app.core.DataStallGuard
 import com.marbleng.app.core.ConfigBlockGuard
+import com.marbleng.app.core.FakeIpPolicy
+import com.marbleng.app.core.RouteSampleWindows
 import com.marbleng.app.core.HevTunnelPolicy
 import com.marbleng.app.core.HighJitterShield
 import com.marbleng.app.core.Ipv6FallbackLadder
@@ -696,7 +699,6 @@ class MarbleVpnService : VpnService() {
         startConnection(target.id, target.subscriptionId, activeMode)
     }
 
-    @Synchronized
     @Volatile private var lastStartCommandAtMs = 0L
     @Volatile private var lastStartCommandProfile = ""
 

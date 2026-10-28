@@ -3742,13 +3742,10 @@ private fun postToMain(block: () -> Unit) {
 
         override fun powerStatus(): SmartJitterController.PowerStatus =
             SmartJitterController.PowerStatus(
-                powerSave = runCatching {
-                    (context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)?.isPowerSaveMode
-                }.getOrDefault(false),
-                doze = runCatching {
-                    (context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)
-                        ?.isDeviceIdleMode
-                }.getOrDefault(false)
+                powerSave = (context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)
+                    ?.isPowerSaveMode == true,
+                doze = (context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)
+                    ?.isDeviceIdleMode == true
             )
 
         override fun applySwitch(candidateId: String): Boolean {
