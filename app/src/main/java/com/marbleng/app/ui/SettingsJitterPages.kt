@@ -178,7 +178,7 @@ fun SettingsSmartJitterPage(
                                 JitterSmartMode.AGGRESSIVE -> colors.orange
                             },
                             onClick = {
-                                repo.updateSettings(s.copy(jitterSmartMode = candidate.id))
+                                repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(mode = candidate.id)))
                                 repo.refreshJitterReducerTuning()
                             }
                         )
@@ -203,7 +203,7 @@ fun SettingsSmartJitterPage(
                             monospace = true,
                             onValueChange = { raw ->
                                 repo.updateSettings(
-                                    s.copy(jitterProbeHost = raw.trim().take(253))
+                                    s.copy(smartJitter = s.smartJitter.copy(probeHost = raw.trim().take(253)))
                                 )
                             }
                         )
@@ -225,7 +225,7 @@ fun SettingsSmartJitterPage(
                         glyph = MarbleGlyph.GAUGE,
                         squircleColor = colors.cyan,
                         onValueChange = {
-                            repo.updateSettings(s.copy(jitterProbeIntervalSec = it))
+                            repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(probeIntervalSec = it)))
                             repo.refreshJitterReducerTuning()
                         }
                     )
@@ -238,7 +238,7 @@ fun SettingsSmartJitterPage(
                         glyph = MarbleGlyph.VAULT,
                         squircleColor = colors.teal,
                         onValueChange = {
-                            repo.updateSettings(s.copy(jitterMinSamples = it))
+                            repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(minSamples = it)))
                             repo.refreshJitterReducerTuning()
                         }
                     )
@@ -259,7 +259,7 @@ fun SettingsSmartJitterPage(
                         glyph = MarbleGlyph.SPARK,
                         squircleColor = colors.green,
                         onValueChange = {
-                            repo.updateSettings(s.copy(jitterSwitchImprovePercent = it))
+                            repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(switchImprovePercent = it)))
                             repo.refreshJitterReducerTuning()
                         }
                     )
@@ -273,7 +273,7 @@ fun SettingsSmartJitterPage(
                         glyph = MarbleGlyph.POWER,
                         squircleColor = colors.indigo,
                         onValueChange = {
-                            repo.updateSettings(s.copy(jitterSwitchCooldownSec = it))
+                            repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(switchCooldownSec = it)))
                             repo.refreshJitterReducerTuning()
                         }
                     )
@@ -294,7 +294,7 @@ fun SettingsSmartJitterPage(
                         glyph = MarbleGlyph.TUNERS,
                         squircleColor = colors.purple,
                         onCheckedChange = {
-                            repo.updateSettings(s.copy(jitterAutoTunerEnabled = it))
+                            repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(autoTunerEnabled = it)))
                         }
                     )
                     if (s.jitterAutoTunerEnabled) {

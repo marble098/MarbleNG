@@ -69,6 +69,6 @@ class IosDesignSystemTest {
 
     @Test
     fun settingsHubCoversAllTwentyOneDestinations() {
-        assertEquals(21, SettingsDestination.entries.size)
+        assertEquals(22, SettingsDestination.entries.size)
     }
 }

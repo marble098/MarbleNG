@@ -410,6 +410,21 @@ fun parseAppLanguage(raw: String): AppLanguage =
     AppLanguage.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: AppLanguage.SYSTEM
 
+/**
+ * MARBLE_SMART_JITTER_V238 — the Smart Jitter Reducer's settings, one constructor axis of
+ * [AppSettings] so the settings record stays under the JVM's 255-argument method limit.
+ */
+data class SmartJitterSettings(
+    val mode: String = JitterSmartMode.OFF.id,
+    val probeHost: String = SmartJitterDefaultsKeys.PROBE_HOST_DEFAULT,
+    val probeIntervalSec: Int = SmartJitterDefaultsKeys.INTERVAL_SEC_DEFAULT,
+    val switchImprovePercent: Int = SmartJitterDefaultsKeys.IMPROVE_PERCENT_DEFAULT,
+    val switchCooldownSec: Int = SmartJitterDefaultsKeys.COOLDOWN_SEC_DEFAULT,
+    val minSamples: Int = SmartJitterDefaultsKeys.MIN_SAMPLES_DEFAULT,
+    val autoTunerEnabled: Boolean = false,
+    val tunerMtu: Int = 0
+)
+
 /** MARBLE_SMART_JITTER_V238 — the reducer's persisted mode id (mirrors jitter.JitterMode). */
 enum class JitterSmartMode(val id: String, val label: String) {
     OFF("off", "Off"),
@@ -1377,17 +1392,30 @@ data class AppSettings(
     // switch, no lock until the user asks for it. The switch guard rails (hysteresis percent,
     // cooldown) and the probe budget (endpoint, interval, minimum samples) are all exposed so
     // the module can be tuned for a call, a game or a quiet background session.
-    val jitterSmartMode: String = JitterSmartMode.OFF.id,
-    val jitterProbeHost: String = SmartJitterDefaultsKeys.PROBE_HOST_DEFAULT,
-    val jitterProbeIntervalSec: Int = SmartJitterDefaultsKeys.INTERVAL_SEC_DEFAULT,
-    val jitterSwitchImprovePercent: Int = SmartJitterDefaultsKeys.IMPROVE_PERCENT_DEFAULT,
-    val jitterSwitchCooldownSec: Int = SmartJitterDefaultsKeys.COOLDOWN_SEC_DEFAULT,
-    val jitterMinSamples: Int = SmartJitterDefaultsKeys.MIN_SAMPLES_DEFAULT,
-    val jitterAutoTunerEnabled: Boolean = false,
-    val jitterTunerMtu: Int = 0,
+    val smartJitter: SmartJitterSettings = SmartJitterSettings(),
 
     val debugModeEnabled: Boolean = false
-)
+) {
+    // MARBLE_SMART_JITTER_V238 — the reducer's eight knobs live in one [SmartJitterSettings]
+    // group: the AppSettings constructor sat one edit away from the JVM's 255-argument method
+    // limit, and `copy$default` crossed it. Every reader keeps its old name via these accessors,
+    // so only the writers need the group copy.
+    val jitterSmartMode: String get() = smartJitter.mode
+
+    val jitterProbeHost: String get() = smartJitter.probeHost
+
+    val jitterProbeIntervalSec: Int get() = smartJitter.probeIntervalSec
+
+    val jitterSwitchImprovePercent: Int get() = smartJitter.switchImprovePercent
+
+    val jitterSwitchCooldownSec: Int get() = smartJitter.switchCooldownSec
+
+    val jitterMinSamples: Int get() = smartJitter.minSamples
+
+    val jitterAutoTunerEnabled: Boolean get() = smartJitter.autoTunerEnabled
+
+    val jitterTunerMtu: Int get() = smartJitter.tunerMtu
+}
 
 /** Keys and bounds the settings store, the settings page and the reducer all agree on. */
 object SmartJitterDefaultsKeys {

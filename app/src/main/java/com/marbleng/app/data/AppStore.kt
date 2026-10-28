@@ -742,21 +742,23 @@ class AppStore(context: Context) {
         ).id,
         warmupOnLaunch = prefs.getBoolean("warmupOnLaunch", true),
         censorshipAutoApply = prefs.getBoolean("censorshipAutoApply", false),
-        // MARBLE_SMART_JITTER_V238 — the reducer's persisted knobs.
-        jitterSmartMode = JitterSmartMode.fromId(
-            prefs.getString("jitterSmartMode", null)
-        ).id,
-        jitterProbeHost = (prefs.getString("jitterProbeHost", null) ?: SmartJitterDefaultsKeys.PROBE_HOST_DEFAULT).trim().take(253),
-        jitterProbeIntervalSec = prefs.getInt("jitterProbeIntervalSec", SmartJitterDefaultsKeys.INTERVAL_SEC_DEFAULT)
-            .coerceIn(SmartJitterDefaultsKeys.INTERVAL_SEC_MIN, SmartJitterDefaultsKeys.INTERVAL_SEC_MAX),
-        jitterSwitchImprovePercent = prefs.getInt("jitterSwitchImprovePercent", SmartJitterDefaultsKeys.IMPROVE_PERCENT_DEFAULT)
-            .coerceIn(SmartJitterDefaultsKeys.IMPROVE_PERCENT_MIN, SmartJitterDefaultsKeys.IMPROVE_PERCENT_MAX),
-        jitterSwitchCooldownSec = prefs.getInt("jitterSwitchCooldownSec", SmartJitterDefaultsKeys.COOLDOWN_SEC_DEFAULT)
-            .coerceIn(SmartJitterDefaultsKeys.COOLDOWN_SEC_MIN, SmartJitterDefaultsKeys.COOLDOWN_SEC_MAX),
-        jitterMinSamples = prefs.getInt("jitterMinSamples", SmartJitterDefaultsKeys.MIN_SAMPLES_DEFAULT)
-            .coerceIn(SmartJitterDefaultsKeys.MIN_SAMPLES_MIN, SmartJitterDefaultsKeys.MIN_SAMPLES_MAX),
-        jitterAutoTunerEnabled = prefs.getBoolean("jitterAutoTunerEnabled", false),
-        jitterTunerMtu = prefs.getInt("jitterTunerMtu", 0).let { if (it == 0) 0 else JitterAutoTuner.sanitizeOverride(it) ?: 0 },
+        // MARBLE_SMART_JITTER_V238 — the reducer's persisted knobs, one grouped axis.
+        smartJitter = SmartJitterSettings(
+            mode = JitterSmartMode.fromId(
+                prefs.getString("jitterSmartMode", null)
+            ).id,
+            probeHost = (prefs.getString("jitterProbeHost", null) ?: SmartJitterDefaultsKeys.PROBE_HOST_DEFAULT).trim().take(253),
+            probeIntervalSec = prefs.getInt("jitterProbeIntervalSec", SmartJitterDefaultsKeys.INTERVAL_SEC_DEFAULT)
+                .coerceIn(SmartJitterDefaultsKeys.INTERVAL_SEC_MIN, SmartJitterDefaultsKeys.INTERVAL_SEC_MAX),
+            switchImprovePercent = prefs.getInt("jitterSwitchImprovePercent", SmartJitterDefaultsKeys.IMPROVE_PERCENT_DEFAULT)
+                .coerceIn(SmartJitterDefaultsKeys.IMPROVE_PERCENT_MIN, SmartJitterDefaultsKeys.IMPROVE_PERCENT_MAX),
+            switchCooldownSec = prefs.getInt("jitterSwitchCooldownSec", SmartJitterDefaultsKeys.COOLDOWN_SEC_DEFAULT)
+                .coerceIn(SmartJitterDefaultsKeys.COOLDOWN_SEC_MIN, SmartJitterDefaultsKeys.COOLDOWN_SEC_MAX),
+            minSamples = prefs.getInt("jitterMinSamples", SmartJitterDefaultsKeys.MIN_SAMPLES_DEFAULT)
+                .coerceIn(SmartJitterDefaultsKeys.MIN_SAMPLES_MIN, SmartJitterDefaultsKeys.MIN_SAMPLES_MAX),
+            autoTunerEnabled = prefs.getBoolean("jitterAutoTunerEnabled", false),
+            tunerMtu = prefs.getInt("jitterTunerMtu", 0).let { if (it == 0) 0 else JitterAutoTuner.sanitizeOverride(it) ?: 0 }
+        ),
         // MARBLE_NETWORK_COUNCIL_V236 — the one switch the scanner owns.
         )
     }
