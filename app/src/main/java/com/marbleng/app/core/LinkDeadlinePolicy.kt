@@ -53,11 +53,24 @@ data class LinkEvidence(
 }
 
 object LinkDeadlinePolicy {
-    const val PRIMARY_DNS_FLOOR_MS = 1_350L
-    const val SECONDARY_DNS_FLOOR_MS = 1_650L
+    // MARBLE_DNS_DEADLINE_V238 — the Bug Finder report (P1) measured DoH-over-proxy deadline
+    // storms: a DoH query through a cold tunnel is a multi-stage TLS handshake, and a 1 350 ms
+    // floor turned every first query into a timeout, demoted resolvers, and re-armed the storm
+    // guard. The floor now starts where a proxied handshake can actually finish, and the
+    // link-derived scaling above the floor requires real evidence (see [MIN_DNS_EVIDENCE_SAMPLES]).
+    const val PRIMARY_DNS_FLOOR_MS = 4_000L
+    const val SECONDARY_DNS_FLOOR_MS = 4_500L
     const val SECONDARY_DNS_STEP_MS = 250L
 
     const val MAX_DNS_TIMEOUT_MS = 10_000L
+
+    /**
+     * MARBLE_DNS_DEADLINE_V238 — below this many evidence samples the link's jitter/tail
+     * measurements are too thin to *raise* a deadline: one cold 4 141 ms live sample used to
+     * scale every timeout to the 10 s ceiling. With thin evidence the floor (plus the step per
+     * fallback server) is the whole answer.
+     */
+    const val MIN_DNS_EVIDENCE_SAMPLES = 5
 
     const val FRAGMENTED_DNS_BASE_MS = 8_000L
     const val FRAGMENTED_DNS_STEP_MS = 1_000L
@@ -126,6 +139,13 @@ object LinkDeadlinePolicy {
             PRIMARY_DNS_FLOOR_MS
         } else {
             SECONDARY_DNS_FLOOR_MS + (step - 1) * SECONDARY_DNS_STEP_MS
+        }
+        // MARBLE_DNS_DEADLINE_V238 — thin evidence never scales above the floor: with fewer
+        // than [MIN_DNS_EVIDENCE_SAMPLES] samples the jitter/tail terms are guesses, and a
+        // guess once inflated every timeout of a fresh session to the 10 s ceiling.
+        if (evidence.samples in 1 until MIN_DNS_EVIDENCE_SAMPLES) {
+            return (floor + (step.coerceAtLeast(0)) * SECONDARY_DNS_STEP_MS)
+                .coerceAtMost(MAX_DNS_TIMEOUT_MS)
         }
         return transactionMs(evidence, TLS_TRANSACTION_HOPS, floor, MAX_DNS_TIMEOUT_MS)
     }

@@ -110,7 +110,11 @@ object ResolverEvidencePolicy {
 
     const val DEMOTE_FAILURES = 4
 
-    const val DEMOTE_TTL_MS = 30L * 60_000L
+    // MARBLE_RESOLVER_PROBATION_V238 — the report (P1) watched 67 deadlines against one
+    // endpoint while its demote lived a full half hour. Demotion is still decided only by
+    // consecutive failures (never by a jitter episode), but the sentence is shorter: after
+    // 15 minutes the endpoint returns to the rotation and one proven answer keeps it there.
+    const val DEMOTE_TTL_MS = 15L * 60_000L
 
     const val DECAY_HALF_LIFE_MS = 15L * 60_000L
 

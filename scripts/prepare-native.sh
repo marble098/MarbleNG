@@ -605,6 +605,13 @@ cp -f "$RANK_HELPER_SOURCE" "$XRAY_SRC/main/marble_rank.go"
 python3 "$ROOT/scripts/inject-xray-realtime.py" "$XRAY_SRC"
 grep -F 'marbleTrackSocket(fd, network, address)' "$XRAY_SRC/transport/internet/sockopt_linux.go" >/dev/null || die "Realtime Xray socket hook missing"
 grep -F 'MARBLE_REALTIME_ENGINE_V70' "$XRAY_SRC/transport/internet/marble_telemetry_linux.go" >/dev/null || die "Realtime Xray telemetry source missing"
+# MARBLE_TCP_INFO_TRUTH_V238 — the socket-validity filter ships with its own test, and
+# `go test ./transport/internet` runs it; a staged tree without the test would silently stop
+# pinning the filter.
+[[ -s "$XRAY_SRC/transport/internet/marble_telemetry_linux_test.go" ]] || {
+    die "Realtime Xray telemetry test missing"
+}
+grep -F 'TestMarbleSocketMeasurementValidFiltersNonPathSockets' "$XRAY_SRC/transport/internet/marble_telemetry_linux_test.go" >/dev/null || die "Realtime Xray telemetry test marker missing"
 
 # MARBLE_CORE_CONFIG_SUPERSET_V165 — one policy deviation, and it is the one that decided whether
 # this app could use a plaintext subscription at all. Upstream Xray refuses to LOAD a

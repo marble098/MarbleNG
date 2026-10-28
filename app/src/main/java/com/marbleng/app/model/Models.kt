@@ -410,6 +410,24 @@ fun parseAppLanguage(raw: String): AppLanguage =
     AppLanguage.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: AppLanguage.SYSTEM
 
+/** MARBLE_SMART_JITTER_V238 — the reducer's persisted mode id (mirrors jitter.JitterMode). */
+enum class JitterSmartMode(val id: String, val label: String) {
+    OFF("off", "Off"),
+    BALANCED("balanced", "Balanced"),
+    AGGRESSIVE("aggressive", "Aggressive (calls & games)");
+
+    companion object {
+        val DEFAULT: JitterSmartMode get() = OFF
+
+        fun fromId(raw: String?): JitterSmartMode =
+            entries.firstOrNull { it.id.equals(raw?.trim(), ignoreCase = true) } ?: DEFAULT
+    }
+}
+
+/** The persisted mode id as the typed enum, defaulting to OFF on any unknown value. */
+val AppSettings.jitterSmartModeEnum: JitterSmartMode
+    get() = JitterSmartMode.fromId(jitterSmartMode)
+
 enum class AppFont(val id: String, val label: String) {
     VAZIR("vazir", "Vazir"),
     SYSTEM("system", "System"),
@@ -1355,5 +1373,36 @@ data class AppSettings(
     // scan finds a decisive block.
     val censorshipAutoApply: Boolean = false,
 
+    // MARBLE_SMART_JITTER_V238 — the Smart Jitter Reducer. OFF by default: no probe, no
+    // switch, no lock until the user asks for it. The switch guard rails (hysteresis percent,
+    // cooldown) and the probe budget (endpoint, interval, minimum samples) are all exposed so
+    // the module can be tuned for a call, a game or a quiet background session.
+    val jitterSmartMode: String = JitterSmartMode.OFF.id,
+    val jitterProbeHost: String = SmartJitterDefaultsKeys.PROBE_HOST_DEFAULT,
+    val jitterProbeIntervalSec: Int = SmartJitterDefaultsKeys.INTERVAL_SEC_DEFAULT,
+    val jitterSwitchImprovePercent: Int = SmartJitterDefaultsKeys.IMPROVE_PERCENT_DEFAULT,
+    val jitterSwitchCooldownSec: Int = SmartJitterDefaultsKeys.COOLDOWN_SEC_DEFAULT,
+    val jitterMinSamples: Int = SmartJitterDefaultsKeys.MIN_SAMPLES_DEFAULT,
+    val jitterAutoTunerEnabled: Boolean = false,
+    val jitterTunerMtu: Int = 0,
+
     val debugModeEnabled: Boolean = false
 )
+
+/** Keys and bounds the settings store, the settings page and the reducer all agree on. */
+object SmartJitterDefaultsKeys {
+    const val PROBE_HOST_DEFAULT = "1.1.1.1"
+    const val INTERVAL_SEC_DEFAULT = 5
+    const val IMPROVE_PERCENT_DEFAULT = 20
+    const val COOLDOWN_SEC_DEFAULT = 180
+    const val MIN_SAMPLES_DEFAULT = 8
+
+    const val INTERVAL_SEC_MIN = 2
+    const val INTERVAL_SEC_MAX = 60
+    const val IMPROVE_PERCENT_MIN = 5
+    const val IMPROVE_PERCENT_MAX = 100
+    const val COOLDOWN_SEC_MIN = 30
+    const val COOLDOWN_SEC_MAX = 900
+    const val MIN_SAMPLES_MIN = 4
+    const val MIN_SAMPLES_MAX = 30
+}

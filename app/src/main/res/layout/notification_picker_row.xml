@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MARBLE_NOTIFICATION_PICKER_V238 — one row of the shade's route picker (LTR layout).
+
+     The row is deliberately minimal: a LinearLayout with a TextView and a round marker.
+     Both are RemoteViews-safe on every API the app supports, the click target is the whole row,
+     and the two colours (label, dot) are set at build time by TunnelNotificationView so the row
+     follows the phone's light/dark choice like the rest of the item. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/picker_row"
+    android:layout_width="match_parent"
+    android:layout_height="34dp"
+    android:background="@drawable/notif_picker_row_bg"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="10dp"
+    android:paddingEnd="10dp">
+
+    <TextView
+        android:id="@+id/picker_label"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:fontFamily="@font/vazirmatn_medium"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textSize="13sp"
+        android:textColor="#FF11181F"
+        tools:text="Frankfurt 01" />
+
+    <ImageView
+        android:id="@+id/picker_dot"
+        android:layout_width="10dp"
+        android:layout_height="10dp"
+        android:layout_marginStart="8dp"
+        android:contentDescription="@null"
+        android:src="@drawable/notif_picker_dot"
+        android:visibility="invisible"
+        tools:ignore="ContentDescription" />
+</LinearLayout>

@@ -60,7 +60,9 @@ def main() -> None:
     xray = Path(sys.argv[1]).resolve()
     root = Path(__file__).resolve().parents[1]
     source = root / "native/xraypatch/marble_telemetry_linux.go"
+    test_source = root / "native/xraypatch/marble_telemetry_linux_test.go"
     destination = xray / "transport/internet/marble_telemetry_linux.go"
+    test_destination = xray / "transport/internet/marble_telemetry_linux_test.go"
     sockopt = xray / "transport/internet/sockopt_linux.go"
 
     if not source.is_file():
@@ -69,6 +71,8 @@ def main() -> None:
         raise SystemExit(f"missing Xray sockopt: {sockopt}")
 
     shutil.copyfile(source, destination)
+    if test_source.is_file():
+        shutil.copyfile(test_source, test_destination)
     original = sockopt.read_text(encoding="utf-8")
     patched = inject(original)
     if patched != original:

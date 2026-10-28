@@ -1157,6 +1157,17 @@ private fun removeKeys(
         }
         if (settings.dnsHijackEnabled) {
             rules.put(JSONObject().put("port", 53).put("action", "hijack-dns"))
+            // MARBLE_PRIVATE_DNS_BLOCK_V238 — refuse the platform's DoT retries (tcp/853 to the
+            // TUN's own address) so Android falls back to the hijacked plain-DNS path quickly,
+            // the same rule the Xray hardener installs for its socks-in inbound. Scoped to this
+            // inbound: intentional remote DoT through the proxy is untouched.
+            rules.put(
+                JSONObject()
+                    .put("inbound", JSONArray().put(INBOUND_TAG))
+                    .put("port", 853)
+                    .put("network", "tcp")
+                    .put("action", "reject")
+            )
         }
         val destinationStrategy = dnsStrategy(settings)
         if (destinationStrategy == "ipv4_only") {
@@ -1171,6 +1182,17 @@ private fun removeKeys(
                 .put(FakeIpPolicy.IPV4_POOL).put(FakeIpPolicy.IPV6_POOL))
                 .put("action", "route").put("outbound", PROXY_TAG))
         }
+        // MARBLE_NTP_DIRECT_V238 — real-address NTP rides the direct outbound (the reply then
+        // comes from the socket the query used; see the Xray hardener's matching rule). It sits
+        // after the FakeDNS rule, so a domain-resolved NTP query still follows the proxy.
+        rules.put(
+            JSONObject()
+                .put("inbound", JSONArray().put(INBOUND_TAG))
+                .put("network", "udp")
+                .put("port", 123)
+                .put("action", "route")
+                .put("outbound", DIRECT_TAG)
+        )
         if (settings.iranModePolicy != IranModePolicy.OFF && settings.iranModeCountermeasures) {
             rules.put(JSONObject().put("ip_cidr", JSONArray(IRAN_POISON_BLOCK_IPS)).put("action", "reject"))
         }

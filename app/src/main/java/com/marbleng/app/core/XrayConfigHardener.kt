@@ -624,6 +624,18 @@ object XrayConfigHardener {
                     .put("port", "53")
                     .put("outboundTag", "dns-out")
             )
+            // MARBLE_PRIVATE_DNS_BLOCK_V238 — Android's Private DNS (DoT) keeps retrying
+            // tcp:198.18.0.2:853 (the TUN's own address) while the hijack answers port 53. Every
+            // retried DoT query rode `socks-in → direct` (report P1) and delayed the platform's
+            // fallback to plain DNS. Blocking 853 at the inbound makes Android switch to the
+            // hijacked path in seconds instead of minutes.
+            rules.put(
+                JSONObject()
+                    .put("type", "field")
+                    .put("inboundTag", JSONArray().put("socks-in"))
+                    .put("port", "853")
+                    .put("outboundTag", "block")
+            )
         }
 
         rules.put(
@@ -677,6 +689,21 @@ object XrayConfigHardener {
         if (settings.routeDirectIps.isNotBlank()) {
             addIpRule(rules, splitIps(settings.routeDirectIps), "direct")
         }
+
+        // MARBLE_NTP_DIRECT_V238 — the report (P2-8) showed hev dropping NTP replies with
+        // "symmetric NAT … drop packet from …:123". NTP is a fixed, authenticated-by-time
+        // exchange with no user data; carrying it through the proxy's UDP relay adds exactly the
+        // address rewriting that makes the reply source mismatch the mapping. Real-address NTP
+        // now rides the direct outbound (the reply then comes from the socket the query used).
+        // Domain-resolved NTP still matches the FakeDNS rule above and stays on the proxy, so a
+        // fake address never reaches the direct dialer.
+        rules.put(
+            JSONObject()
+                .put("type", "field")
+                .put("network", "udp")
+                .put("port", 123)
+                .put("outboundTag", "direct")
+        )
 
         rules.put(
             JSONObject()

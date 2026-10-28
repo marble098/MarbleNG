@@ -411,6 +411,40 @@ files = {
     "switchIcon": read("app/src/main/res/drawable/ic_notification_switch.xml"),
     "sourceIcon": read("app/src/main/res/drawable/ic_notification_source.xml"),
     "v234Doc": read("docs/NOTIFICATION_SWITCH_AND_SHADE_V234.md"),
+    # MARBLE_NOTIFICATION_PICKER_V238 — the named-route picker: the pure half, the shade rows and
+    # the service path that makes a picked route live.
+    "routePicker": read("app/src/main/java/com/marbleng/app/core/NotificationRoutePicker.kt"),
+    "pickerRowLayout": read("app/src/main/res/layout/notification_picker_row.xml"),
+    "pickerRowLayoutRtl": read("app/src/main/res/layout/notification_picker_row_rtl.xml"),
+    "pickerRowBg": read("app/src/main/res/drawable/notif_picker_row_bg.xml"),
+    "pickerRowDot": read("app/src/main/res/drawable/notif_picker_dot.xml"),
+    # MARBLE_SMART_JITTER_V238 — the Smart Jitter Reducer: the pure policies, the controller, the
+    # marked sample windows, the probe cadence, the MTU ceiling, the settings page, and the tests
+    # that pin the cold-start and window rules.
+    "adaptiveCadence": read("app/src/main/java/com/marbleng/app/core/AdaptiveProbeCadence.kt"),
+    "sampleWindows": read("app/src/main/java/com/marbleng/app/core/RouteSampleWindows.kt"),
+    "mtuCeiling": read("app/src/main/java/com/marbleng/app/core/ProtocolMtuCeiling.kt"),
+    "jitterWindow": read("app/src/main/java/com/marbleng/app/jitter/JitterWindow.kt"),
+    "jitterController": read("app/src/main/java/com/marbleng/app/jitter/SmartJitterController.kt"),
+    "jitterWindowTest": read("app/src/test/java/com/marbleng/app/jitter/JitterWindowV238Test.kt"),
+    "jitterPolicyTest": read(
+        "app/src/test/java/com/marbleng/app/jitter/JitterPolicyV238Test.kt"
+    ),
+    "sampleWindowsTest": read(
+        "app/src/test/java/com/marbleng/app/core/RouteSampleWindowsV238Test.kt"
+    ),
+    "routePickerTest": read(
+        "app/src/test/java/com/marbleng/app/core/NotificationRoutePickerV238Test.kt"
+    ),
+    "pressureGateTest": read(
+        "app/src/test/java/com/marbleng/app/core/TcpInfoPressureGateV238Test.kt"
+    ),
+    "failoverTrustTest": read(
+        "app/src/test/java/com/marbleng/app/core/FailoverTrustPolicyV238Test.kt"
+    ),
+    "goTelemetryTest": read("native/xraypatch/marble_telemetry_linux_test.go"),
+    "jitterSettingsPage": read("app/src/main/java/com/marbleng/app/ui/SettingsJitterPages.kt"),
+    "v238Doc": read("docs/SMART_JITTER_AND_LINK_REMEDIATION_V238.md"),
     # MARBLE_MULTI_SOURCE_ROUTING_V212 — the geo source set, the curated domestic knowledge, the
     # routing engine that reads both, and the three tests that pin them.
     "geoRegistry": read("app/src/main/java/com/marbleng/app/core/GeoAssetRegistry.kt"),
@@ -801,8 +835,13 @@ failures = integer_constant(files["vpn"], "PROBE_FAILURES_BEFORE_RECOVERY")
 check("degraded probe cadence is faster", 1 <= degraded < normal)
 check("heavy-traffic probing is slower", heavy > normal)
 check(
+    # MARBLE_PROBE_TARGET_WINDOWS_V238 — the per-target windows replace the single legacy ring;
+    # a miss is still recorded, as the -1 outcome published into the measured host's window.
     "route outcome window records misses",
-    "routeOutcomeWindow" in files["vpn"] and "else -1" in files["vpn"],
+    "routeSampleWindows" in files["vpn"]
+    and "RouteSampleWindows" in files["vpn"]
+    and "publishRollingOutcome(" in files["vpn"]
+    and "-1" in files["vpn"],
 )
 check(
     "live RTT rotates provider-diverse literal targets",

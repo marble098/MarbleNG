@@ -58,8 +58,12 @@ class HttpUrlConnectionDohTransport : DohTransport {
             conn.setRequestProperty("Content-Type", "application/dns-message")
             conn.setRequestProperty("Accept", "application/dns-message")
             conn.setRequestProperty("Host", url.host)
-            val useKeepAlive = attempt == 0
-            conn.setRequestProperty("Connection", if (useKeepAlive) "keep-alive" else "close")
+            // MARBLE_DOH_KEEPALIVE_V238 — the retry used to send `Connection: close`, so every
+            // fallback query paid a full TCP+TLS handshake through the path — exactly the
+            // handshake storm the report (P1) measured. The pool now keeps the connection warm
+            // on every attempt; the JDK pools the underlying socket when streams are drained,
+            // which `use { }` below guarantees.
+            conn.setRequestProperty("Connection", "keep-alive")
             conn.connectTimeout = (timeoutMs / 2).coerceIn(1_000, 3_000).toInt()
             conn.readTimeout = timeoutMs.coerceAtMost(3_000).toInt()
             conn.doOutput = true

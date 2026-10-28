@@ -5,9 +5,11 @@ package internet
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,11 +20,16 @@ type marbleTrackedSocket struct {
 	mu          sync.Mutex
 	lastRetrans uint32
 	lastLost    uint32
+	// MARBLE_TCP_INFO_TRUTH_V238 — set at track time when the dial target is loopback. A
+	// loopback dial (local plumbing inside the process) has an RTT of ~0-5 ms that used to be
+	// medianed together with the ~140 ms server path and dragged every statistic down.
+	loopback bool
 }
 
 type marbleTelemetryEvent struct {
 	AtMS         int64  `json:"atMs"`
 	Sockets      int    `json:"sockets"`
+	ValidSockets int    `json:"validSockets"`
 	RttMS        int    `json:"rttMs"`
 	P95RttMS     int    `json:"p95RttMs"`
 	RttVarMS     int    `json:"rttVarMs"`
@@ -42,7 +49,23 @@ var marbleTelemetryOnce sync.Once
 var marbleTelemetryPath string
 var marbleSockets sync.Map
 
-func marbleTrackSocket(fd uintptr, network string, _ string) {
+// MARBLE_TCP_INFO_TRUTH_V238 — the address is the dial target Xray handed the socket options
+// hook ("host:port"). Loopback targets are remembered so the emitter can keep them out of the
+// path statistics entirely.
+func marbleIsLoopbackAddress(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		host = address
+	}
+	host = strings.Trim(host, "[]")
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
+}
+
+func marbleTrackSocket(fd uintptr, network string, address string) {
 	if !isTCPSocket(network) {
 		return
 	}
@@ -55,7 +78,9 @@ func marbleTrackSocket(fd uintptr, network string, _ string) {
 		go marbleTelemetryLoop()
 	})
 	if marbleTelemetryPath != "" {
-		marbleSockets.Store(int(fd), &marbleTrackedSocket{})
+		marbleSockets.Store(int(fd), &marbleTrackedSocket{
+			loopback: marbleIsLoopbackAddress(address),
+		})
 	}
 }
 
@@ -125,6 +150,15 @@ func marbleOptional(info *unix.TCPInfo, names ...string) uint64 {
 	return 0
 }
 
+// MARBLE_TCP_INFO_TRUTH_V238 — the one predicate deciding whether a tracked socket counts as a
+// path measurement. Extracted so its test (marble_telemetry_linux_test.go, run with
+// `go test ./transport/internet`) pins exactly what the emitter counts.
+func marbleSocketMeasurementValid(tracked *marbleTrackedSocket, info *unix.TCPInfo) bool {
+	return !tracked.loopback &&
+		info.State == uint8(unix.S_ESTABLISHED) &&
+		info.Rtt > 0
+}
+
 func marbleEmitTelemetry() {
 	if marbleTelemetryPath == "" {
 		return
@@ -135,7 +169,7 @@ func marbleEmitTelemetry() {
 	congestionWindows := make([]int, 0, 16)
 	pmtus := make([]int, 0, 16)
 	msses := make([]int, 0, 16)
-	sockets, delta, total, lost, lostDelta, unacked := 0, 0, 0, 0, 0, 0
+	sockets, validSockets, delta, total, lost, lostDelta, unacked := 0, 0, 0, 0, 0, 0, 0
 	var pacing, delivery uint64
 
 	marbleSockets.Range(func(key, value any) bool {
@@ -158,11 +192,19 @@ func marbleEmitTelemetry() {
 		}
 
 		sockets++
-		if info.Rtt > 0 {
+		// MARBLE_TCP_INFO_TRUTH_V238 — only an established, non-loopback socket with a kernel
+		// RTT is a path measurement. A socket still in handshake reports rtt=0 with the
+		// rttvar default of 250 ms; medianed next to real samples that used to manufacture
+		// `rttMs=0 | rttVarMs=250` lines the app then read as jitter pressure.
+		valid := marbleSocketMeasurementValid(tracked, info)
+		if valid {
+			validSockets++
 			rtts = append(rtts, int(info.Rtt/1000))
-		}
-		if info.Rttvar > 0 {
-			variances = append(variances, int(info.Rttvar/1000))
+			// The variance joins only with its own RTT: rttvar of a socket without a measured
+			// RTT is the stack's initial guess, not an observation.
+			if info.Rttvar > 0 {
+				variances = append(variances, int(info.Rttvar/1000))
+			}
 		}
 		if info.Snd_cwnd > 0 {
 			congestionWindows = append(congestionWindows, marbleCounter(info.Snd_cwnd))
@@ -214,6 +256,7 @@ func marbleEmitTelemetry() {
 	event := marbleTelemetryEvent{
 		AtMS:         time.Now().UnixMilli(),
 		Sockets:      sockets,
+		ValidSockets: validSockets,
 		RttMS:        marbleMed(rtts),
 		P95RttMS:     marblePct(rtts, 0.95),
 		RttVarMS:     marbleMed(variances),
