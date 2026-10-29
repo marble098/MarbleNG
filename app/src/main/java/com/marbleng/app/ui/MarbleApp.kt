@@ -104,7 +104,7 @@ fun MarbleApp(
                     repo = repo,
                     onConnect = onConnect,
                     onImportFile = onImportFile,
-                    onContentScrollChanged = reportScroll
+                    onContentScrollChanged = onContentScrollChanged
                 )
             }
         }
@@ -340,7 +340,8 @@ private fun MarbleRootShell(
         }
 
         if (!wide) {
-            AnimatedVisibility(
+            // Fully qualified: inside the rail Row the RowScope overload would win resolution.
+            androidx.compose.animation.AnimatedVisibility(
                 visible = !contentScrolling,
                 enter = slideInVertically(initialOffsetY = { height -> height }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { height -> height }) + fadeOut(),

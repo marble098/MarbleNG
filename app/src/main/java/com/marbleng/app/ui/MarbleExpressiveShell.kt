@@ -97,6 +97,8 @@ import com.marbleng.app.model.trafficSeries
 import com.marbleng.app.ui.theme.MarbleCardShape
 import com.marbleng.app.ui.theme.MarbleSheetShape
 import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.onSuccess
+import com.marbleng.app.ui.theme.onWarning
 import com.marbleng.app.ui.theme.rememberReducedMotion
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
@@ -677,6 +679,7 @@ private fun smoothPath(points: List<Pair<Float, Float>>, smooth: Boolean): Path 
  * thread) and keeps the last [com.marbleng.app.model.DEFAULT_QUICK_LOG_LINES] classified
  * lines. The overlay is deliberately read-only: copy is one tap, editing is Settings' job.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun QuickLogsSheet(
     repo: AppRepository,
