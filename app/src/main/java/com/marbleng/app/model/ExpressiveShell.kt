@@ -54,6 +54,21 @@ enum class ConnectModeChip(
     }
 }
 
+/**
+ * MARBLE_CONNECT_PILL_CRASH_V242 — the connected pill gives its side insets back to the
+ * layout. A spatial spring may overshoot its target, and an overshoot past zero is a negative
+ * padding argument (Compose throws `Padding must be non-negative`). The inset therefore uses a
+ * non-overshooting effects spring in the UI and this final, finite clamp at the layout boundary.
+ * Height and corner keep the expressive spatial spring; only the padding needs this contract.
+ */
+object ConnectPillMotion {
+    const val RESTING_INSET_DP: Float = 20f
+
+    /** Safe for every frame of an interrupted/reversed animation, including a stray NaN. */
+    fun insetDp(raw: Float): Float =
+        if (raw.isFinite()) raw.coerceIn(0f, RESTING_INSET_DP) else 0f
+}
+
 /** The chip that represents a persisted connection mode — the one the tunnel is running. */
 fun connectModeChipOf(mode: ConnectionMode): ConnectModeChip =
     if (mode == ConnectionMode.FULL_TUN) ConnectModeChip.FULL else ConnectModeChip.LOCAL

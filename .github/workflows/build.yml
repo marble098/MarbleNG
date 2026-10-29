@@ -968,6 +968,15 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+      # V242: keep the R8 dictionary beside the APKs so a field logcat can be retraced
+      # without guessing from obfuscated class names. It is a CI artifact, not a release asset.
+      - name: Upload R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: MarbleNG-${{ env.VERSION_NAME }}-r8-mapping
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: error
+
       # ========================================================================
       # GitHub Release (SMART, SELF-HEALING PUBLISH)
       # ========================================================================

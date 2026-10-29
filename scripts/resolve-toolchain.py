@@ -96,6 +96,8 @@ COMPONENTS: "list[dict]" = [
      "artifact": "json", "line": "major"},
     {"key": "junit", "kind": "maven", "repo": CENTRAL, "group": "junit",
      "artifact": "junit", "line": "major"},
+    {"key": "robolectric", "kind": "maven", "repo": CENTRAL, "group": "org.robolectric",
+     "artifact": "robolectric", "line": "major"},
 ]
 
 QUALIFIERS = {

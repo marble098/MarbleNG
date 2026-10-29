@@ -11,6 +11,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1372,6 +1373,7 @@ fun MarbleBottomSheet(
     title: String,
     onDismiss: () -> Unit,
     subtitle: String = "",
+    scrollable: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
@@ -1385,6 +1387,9 @@ fun MarbleBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(
+                    if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier
+                )
                 .padding(
                     start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
                     end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,

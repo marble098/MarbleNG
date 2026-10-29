@@ -82,6 +82,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "One tap bundles the tuning knobs — routing, DNS and servers stay untouched." to "یک ضربه تنظیمات فنی رو بسته‌بندی می‌کنه — مسیریابی، DNS و سرورها دست‌نخورده می‌مونن.",
     "A preset bundles the tuning knobs behind a named decision. Your servers, routing, DNS and split tunnel are never changed." to "پریست، تنظیمات فنی رو پشت یک تصمیم نام‌دار جمع می‌کنه. سرورها، مسیریابی، DNS و تونل تفکیکی هیچ‌وقت عوض نمی‌شن.",
     "One pill connects and disconnects. The chip under it picks Smart, Full TUN or Local proxy. The slide track was removed: a swipe that had to land in the right half was a second thing to learn for one action." to "یک دکمه وصل و قطع می‌کنه. چیپ زیرش حالت هوشمند، تونل کامل یا پروکسی محلی رو انتخاب می‌کنه. اسلایدر حذف شد: سوایپی که باید در نیمه درست می‌افتاد، کار دومی برای یک کار ساده بود.",
+    "Server actions" to "کارهای سرور",
     "Lowest ping" to "کمترین پینگ",
     "Best score" to "بهترین امتیاز",
     "Name" to "نام",
