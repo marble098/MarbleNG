@@ -13,6 +13,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.marbleng.app.ui.theme.MarbleCardShape
+import com.marbleng.app.ui.theme.MarbleExpressiveTheme
+import com.marbleng.app.ui.theme.warning
 
 enum class ConnectionPermissionStep {
     VPN,
@@ -26,10 +29,10 @@ fun ConnectionPermissionDialog(
     onContinue: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    MarbleIosTheme {
-        val colors = IosTheme.colors
+    MarbleExpressiveTheme {
+        val colors = MaterialTheme.colorScheme
         val isVpn = step == ConnectionPermissionStep.VPN
-        val squircleColor = if (isVpn) colors.blue else colors.orange
+        val iconTint = if (isVpn) colors.primary else colors.warning
         val glyph = if (isVpn) MarbleGlyph.SHIELD else MarbleGlyph.BELL
         val title = trx(if (isVpn) "Allow VPN connection" else "Allow notifications")
         val subtitle = trx(
@@ -51,17 +54,17 @@ fun ConnectionPermissionDialog(
 
         AlertDialog(
             onDismissRequest = onDismiss,
-            containerColor = colors.card,
-            shape = IosCardShape,
+            containerColor = colors.surfaceContainerLow,
+            shape = MarbleCardShape,
             title = {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    IosSquircleIcon(glyph = glyph, backgroundColor = squircleColor)
+                    MarbleRowIcon(glyph = glyph, tint = iconTint)
                     Text(
                         text = title,
-                        color = colors.title,
+                        color = colors.onSurface,
                         // MARBLE_WEIGHT_LADDER_V235 — titleLarge carries HEADLINE (700) itself.
                         style = MaterialTheme.typography.titleLarge
                     )
@@ -74,37 +77,37 @@ fun ConnectionPermissionDialog(
                 ) {
                     Text(
                         text = subtitle,
-                        color = colors.title,
+                        color = colors.onSurface,
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
                         text = note,
-                        color = colors.subtitle,
+                        color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall
                     )
                     if (error.isNotBlank()) {
                         Text(
                             text = trx(error),
-                            color = colors.red,
+                            color = colors.error,
                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
                         )
                     }
                 }
             },
             confirmButton = {
-                IosButton(
+                MarbleButton(
                     label = continueLabel,
                     onClick = onContinue,
-                    style = IosButtonStyle.PRIMARY,
-                    colorOverride = squircleColor,
+                    style = MarbleButtonStyle.PRIMARY,
+                    colorOverride = iconTint,
                     compact = true
                 )
             },
             dismissButton = {
-                IosButton(
+                MarbleButton(
                     label = notNowLabel,
                     onClick = onDismiss,
-                    style = IosButtonStyle.SECONDARY,
+                    style = MarbleButtonStyle.SECONDARY,
                     compact = true,
                     modifier = Modifier.fillMaxWidth(0.36f)
                 )

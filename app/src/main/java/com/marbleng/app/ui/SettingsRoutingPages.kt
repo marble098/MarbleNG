@@ -45,13 +45,15 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 @Composable
 fun SettingsRoutingPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val assets = repo.routingAssetStatus()
     val rules = remember(s.routingRulesJson) { RoutingEngine.effectiveRules(s) }
@@ -67,56 +69,56 @@ fun SettingsRoutingPage(
         if (simHost.isBlank()) null else repo.simulateRoute(simHost.trim())
     }
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Routing & Geo Databases"),
         onBack = onBack
     ) {
         item(key = "routing-mode") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Routing Mode"))
-                IosCard {
-                    IosSwitchRow(
+                MarbleSectionHeader(title = trx("Routing Mode"))
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = trx("Enable Custom Routing"),
                         subtitle = trx("Apply domain, IP and Geo rules to tunnel traffic"),
                         checked = s.customRoutingEnabled,
                         glyph = MarbleGlyph.ROUTE,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         onCheckedChange = { repo.updateSettings(s.copy(customRoutingEnabled = it)) }
                     )
-                    IosDivider()
-                    IosChoiceRow(
+                    MarbleDivider()
+                    MarbleChoiceRow(
                         title = trx("Proxy All"),
                         subtitle = trx("Send every connection through the proxy server"),
                         selected = s.routingMode == RoutingMode.PROXY_ALL,
                         glyph = MarbleGlyph.GLOBE,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onClick = { repo.updateSettings(s.copy(routingMode = RoutingMode.PROXY_ALL)) }
                     )
-                    IosDivider()
-                    IosChoiceRow(
+                    MarbleDivider()
+                    MarbleChoiceRow(
                         title = trx("Bypass Private LAN"),
                         subtitle = trx("Keep local Wi-Fi and RFC1918 addresses direct"),
                         selected = s.routingMode == RoutingMode.BYPASS_PRIVATE,
                         glyph = MarbleGlyph.HOME,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         onClick = { repo.updateSettings(s.copy(routingMode = RoutingMode.BYPASS_PRIVATE)) }
                     )
-                    IosDivider()
-                    IosChoiceRow(
+                    MarbleDivider()
+                    MarbleChoiceRow(
                         title = trx("Geo Direct"),
                         subtitle = trx("Send configured domestic country traffic directly"),
                         selected = s.routingMode == RoutingMode.GEO_DIRECT,
                         glyph = MarbleGlyph.SHIELD,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         onClick = { repo.updateSettings(s.copy(routingMode = RoutingMode.GEO_DIRECT)) }
                     )
-                    IosDivider()
-                    IosChoiceRow(
+                    MarbleDivider()
+                    MarbleChoiceRow(
                         title = trx("Custom Rules Only"),
                         subtitle = trx("Evaluate only the custom rule list below"),
                         selected = s.routingMode == RoutingMode.CUSTOM,
                         glyph = MarbleGlyph.TUNERS,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         onClick = { repo.updateSettings(s.copy(routingMode = RoutingMode.CUSTOM)) }
                     )
                 }
@@ -125,27 +127,27 @@ fun SettingsRoutingPage(
 
         item(key = "routing-presets-domain") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                IosSectionHeader(title = trx("Rule Presets & Domain Strategy"))
-                IosChipStrip {
+                MarbleSectionHeader(title = trx("Rule Presets & Domain Strategy"))
+                MarbleChipStrip {
                     RoutingPresets.Preset.entries.forEach { preset ->
-                        IosPillChip(
+                        MarblePillChip(
                             label = trx(preset.title),
                             selected = rules.map { it.id } == preset.rules.map { it.id },
-                            accent = colors.green,
+                            accent = colors.success,
                             onClick = { repo.applyRoutingPreset(preset) }
                         )
                     }
                 }
-                IosChipStrip {
+                MarbleChipStrip {
                     listOf(
                         "IPIfNonMatch" to trx("Domain First"),
                         "IPOnDemand" to trx("IP On Demand"),
                         "AsIs" to trx("As-Is")
                     ).forEach { (strategy, label) ->
-                        IosPillChip(
+                        MarblePillChip(
                             label = label,
                             selected = s.routeDomainStrategy == strategy,
-                            accent = colors.blue,
+                            accent = colors.primary,
                             onClick = { repo.updateSettings(s.copy(routeDomainStrategy = strategy)) }
                         )
                     }
@@ -156,41 +158,41 @@ fun SettingsRoutingPage(
         item(key = "routing-geo-assets") {
             val precision = parseGeoPrecision(s.geoPrecision)
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                IosSectionHeader(title = trx("GeoIP & GeoSite Databases"))
-                IosCard {
-                    IosListItem(
+                MarbleSectionHeader(title = trx("GeoIP & GeoSite Databases"))
+                MarbleCard {
+                    MarbleListItem(
                         title = "GeoIP · ${if (assets.geoIpReady) formatBytes(assets.geoIpBytes) else trx("Missing")}",
                         subtitle = if (assets.geoIpReady) trx(relativeTimeLabel(assets.geoIpUpdatedAt)) else trx("Download required"),
                         glyph = MarbleGlyph.GLOBE,
-                        squircleColor = if (assets.geoIpReady) colors.green else colors.orange,
+                        iconTint = if (assets.geoIpReady) colors.success else colors.warning,
                         showChevron = false
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = "GeoSite · ${if (assets.geoSiteReady) formatBytes(assets.geoSiteBytes) else trx("Missing")}",
                         subtitle = if (assets.geoSiteReady) trx(relativeTimeLabel(assets.geoSiteUpdatedAt)) else trx("Download required"),
                         glyph = MarbleGlyph.LAYERS,
-                        squircleColor = if (assets.geoSiteReady) colors.green else colors.orange,
+                        iconTint = if (assets.geoSiteReady) colors.success else colors.warning,
                         showChevron = false
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Multi-Source Geo Databases"),
                         subtitle = trx("Combine tags across multiple geo rule repositories"),
                         checked = s.geoMultiSourceEnabled,
                         glyph = MarbleGlyph.FOLDER,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         onCheckedChange = { repo.updateSettings(s.copy(geoMultiSourceEnabled = it)) }
                     )
                     geoCatalog.forEach { spec ->
-                        IosDivider()
+                        MarbleDivider()
                         val selected = spec.id in geoIds
-                        IosChoiceRow(
+                        MarbleChoiceRow(
                             title = spec.label,
                             subtitle = spec.id,
                             selected = selected,
                             glyph = MarbleGlyph.DOWNLOAD,
-                            squircleColor = colors.teal,
+                            iconTint = colors.tertiary,
                             onClick = {
                                 if (s.geoMultiSourceEnabled && selected && spec.id != geoIds.firstOrNull()) {
                                     repo.toggleGeoAssetSource(spec.id)
@@ -202,29 +204,29 @@ fun SettingsRoutingPage(
                     }
                 }
 
-                IosChipStrip {
+                MarbleChipStrip {
                     GeoPrecision.entries.forEach { level ->
-                        IosPillChip(
+                        MarblePillChip(
                             label = trx(level.name),
                             selected = precision == level,
-                            accent = colors.green,
+                            accent = colors.success,
                             onClick = { repo.setGeoPrecision(level) }
                         )
                     }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    IosButton(
+                    MarbleButton(
                         label = trx("Update Geo Files"),
                         glyph = MarbleGlyph.DOWNLOAD,
                         enabled = !repo.busy,
                         onClick = { repo.prepareRoutingAssets(force = true) },
                         modifier = Modifier.weight(1f)
                     )
-                    IosButton(
+                    MarbleButton(
                         label = trx("Verify Policy"),
                         glyph = MarbleGlyph.CHECK,
-                        style = IosButtonStyle.TINTED,
+                        style = MarbleButtonStyle.TINTED,
                         enabled = !repo.busy,
                         onClick = { repo.verifyRoutingPolicy() },
                         modifier = Modifier.weight(1f)
@@ -235,13 +237,13 @@ fun SettingsRoutingPage(
 
         item(key = "routing-rules-list") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = "${trx("Routing Rules")} (${rules.size})")
-                IosCard {
-                    IosListItem(
+                MarbleSectionHeader(title = "${trx("Routing Rules")} (${rules.size})")
+                MarbleCard {
+                    MarbleListItem(
                         title = trx("Add Routing Rule"),
                         subtitle = trx("Create a GeoSite, GeoIP, Domain, IP or Port rule"),
                         glyph = MarbleGlyph.PLUS,
-                        squircleColor = colors.accent,
+                        iconTint = colors.primary,
                         onClick = {
                             editingIsNew = true
                             editingRule = RoutingRule(
@@ -254,19 +256,19 @@ fun SettingsRoutingPage(
                         }
                     )
                     rules.forEach { rule ->
-                        IosDivider()
+                        MarbleDivider()
                         val outTone = when (rule.outbound) {
-                            RoutingOutbound.PROXY -> colors.blue
-                            RoutingOutbound.DIRECT -> colors.green
-                            RoutingOutbound.BLOCK -> colors.red
+                            RoutingOutbound.PROXY -> colors.primary
+                            RoutingOutbound.DIRECT -> colors.success
+                            RoutingOutbound.BLOCK -> colors.error
                         }
-                        IosListItem(
+                        MarbleListItem(
                             title = rule.remark.ifBlank { "${rule.kind.name}: ${rule.matcher}" },
                             subtitle = "${rule.kind.name} · ${rule.matcher}",
                             glyph = MarbleGlyph.ROUTE,
-                            squircleColor = outTone,
+                            iconTint = outTone,
                             trailing = {
-                                IosBadge(text = rule.outbound.name, color = outTone)
+                                MarbleBadge(text = rule.outbound.name, color = outTone)
                             },
                             onClick = {
                                 editingIsNew = false
@@ -280,10 +282,10 @@ fun SettingsRoutingPage(
 
         item(key = "routing-simulator") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Route Simulator"))
-                IosCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleSectionHeader(title = trx("Route Simulator"))
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        IosTextField(
+                        MarbleTextField(
                             label = trx("Test Hostname or IP"),
                             value = simHost,
                             onValueChange = { simHost = it },
@@ -291,15 +293,15 @@ fun SettingsRoutingPage(
                         )
                         simulation?.let { sim ->
                             val verdictColor = when (sim.verdict) {
-                                RoutingOutbound.PROXY -> colors.blue
-                                RoutingOutbound.DIRECT -> colors.green
-                                RoutingOutbound.BLOCK -> colors.red
+                                RoutingOutbound.PROXY -> colors.primary
+                                RoutingOutbound.DIRECT -> colors.success
+                                RoutingOutbound.BLOCK -> colors.error
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                IosBadge(text = sim.verdict.name, color = verdictColor)
+                                MarbleBadge(text = sim.verdict.name, color = verdictColor)
                                 Text(
                                     text = trx(sim.verdictReason),
-                                    color = colors.title,
+                                    color = colors.onSurface,
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
@@ -327,36 +329,36 @@ private fun RoutingRuleEditSheet(
     isNew: Boolean,
     onDismiss: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     var draft by remember(initial.id) { mutableStateOf(initial) }
     val issues = remember(draft) { RoutingEngine.validateRule(draft) }
     val hasErrors = issues.any { it.severity == RoutingEngine.IssueSeverity.ERROR }
 
-    IosBottomSheet(
+    MarbleBottomSheet(
         title = if (isNew) trx("New Routing Rule") else trx("Edit Routing Rule"),
         onDismiss = onDismiss
     ) {
-        IosTextField(
+        MarbleTextField(
             label = trx("Rule Label (optional)"),
             value = draft.remark,
             onValueChange = { draft = draft.copy(remark = it) }
         )
-        IosDropdownField(
+        MarbleDropdownField(
             label = trx("Match Kind"),
             value = draft.kind.name,
-            options = RoutingRuleKind.entries.map { IosMenuOption(it.name) },
+            options = RoutingRuleKind.entries.map { MarbleMenuOption(it.name) },
             onSelect = { name ->
-                val picked = RoutingRuleKind.entries.firstOrNull { it.name == name } ?: return@IosDropdownField
+                val picked = RoutingRuleKind.entries.firstOrNull { it.name == name } ?: return@MarbleDropdownField
                 draft = draft.copy(kind = picked)
             }
         )
-        IosTextField(
+        MarbleTextField(
             label = trx("Matcher Value"),
             value = draft.matcher,
             onValueChange = { draft = draft.copy(matcher = it) },
             placeholder = "ir, category-ads-all, example.com, 443"
         )
-        IosSegmentedControl(
+        MarbleSegmentedControl(
             options = listOf(
                 RoutingOutbound.PROXY to "PROXY",
                 RoutingOutbound.DIRECT to "DIRECT",
@@ -368,12 +370,12 @@ private fun RoutingRuleEditSheet(
         issues.forEach { issue ->
             Text(
                 text = trx(issue.message),
-                color = if (issue.severity == RoutingEngine.IssueSeverity.ERROR) colors.red else colors.orange,
+                color = if (issue.severity == RoutingEngine.IssueSeverity.ERROR) colors.error else colors.warning,
                 style = MaterialTheme.typography.labelSmall
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            IosButton(
+            MarbleButton(
                 label = if (isNew) trx("Add Rule") else trx("Save Rule"),
                 enabled = !hasErrors && draft.matcher.isNotBlank(),
                 onClick = {
@@ -389,9 +391,9 @@ private fun RoutingRuleEditSheet(
                 modifier = Modifier.weight(1f)
             )
             if (!isNew) {
-                IosButton(
+                MarbleButton(
                     label = trx("Delete"),
-                    style = IosButtonStyle.DESTRUCTIVE,
+                    style = MarbleButtonStyle.DESTRUCTIVE,
                     onClick = {
                         repo.setRoutingRules(
                             RoutingEngine.effectiveRules(repo.settings).filterNot { it.id == initial.id }
@@ -410,24 +412,24 @@ fun SettingsDnsAndFamilyPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val underlay = repo.networkSnapshot
     val plan = AddressFamilyPolicy.plan(settings = s, underlayHasIpv6 = underlay.hasIpv6)
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("DNS & IPv4 / IPv6"),
         onBack = onBack
     ) {
         item(key = "family-policy") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("IPv4 / IPv6 Address Family"))
-                IosCard {
-                    IosListItem(
+                MarbleSectionHeader(title = trx("IPv4 / IPv6 Address Family"))
+                MarbleCard {
+                    MarbleListItem(
                         title = AddressFamilyPolicy.describe(plan),
                         subtitle = "${underlay.label} · DNS ${plan.dnsQueryStrategy}",
                         glyph = MarbleGlyph.GLOBE,
-                        squircleColor = colors.cyan,
+                        iconTint = colors.tertiary,
                         showChevron = false
                     )
                     listOf(
@@ -437,12 +439,12 @@ fun SettingsDnsAndFamilyPage(
                         AddressFamilyMode.FORCE_IPV4 to trx("Force IPv4"),
                         AddressFamilyMode.FORCE_IPV6 to trx("Force IPv6")
                     ).forEach { (mode, label) ->
-                        IosDivider()
-                        IosChoiceRow(
+                        MarbleDivider()
+                        MarbleChoiceRow(
                             title = label,
                             selected = s.addressFamilyMode == mode,
                             glyph = MarbleGlyph.ROUTE,
-                            squircleColor = colors.blue,
+                            iconTint = colors.primary,
                             onClick = {
                                 repo.updateSettings(
                                     s.copy(
@@ -466,13 +468,13 @@ fun SettingsDnsAndFamilyPage(
                     if (s.addressFamilyMode in setOf(AddressFamilyMode.FORCE_IPV4, AddressFamilyMode.FORCE_IPV6) ||
                         s.strictAddressFamily
                     ) {
-                        IosDivider()
-                        IosSwitchRow(
+                        MarbleDivider()
+                        MarbleSwitchRow(
                             title = trx("Strict Family Enforcement"),
                             subtitle = trx("Refuse servers that cannot use the forced IP version"),
                             checked = s.strictAddressFamily,
                             glyph = MarbleGlyph.SHIELD,
-                            squircleColor = colors.orange,
+                            iconTint = colors.warning,
                             onCheckedChange = { repo.updateSettings(s.copy(strictAddressFamily = it)) }
                         )
                     }
@@ -482,43 +484,43 @@ fun SettingsDnsAndFamilyPage(
 
         item(key = "dns-switches") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Encrypted DNS Protection"))
-                IosCard {
+                MarbleSectionHeader(title = trx("Encrypted DNS Protection"))
+                MarbleCard {
                     if (s.connectionMode != ConnectionMode.FULL_TUN || !s.dnsHijackEnabled) {
-                        IosSwitchRow(
+                        MarbleSwitchRow(
                             title = trx("Intercept Port 53 DNS"),
                             subtitle = trx("Capture plaintext DNS queries inside the tunnel"),
                             checked = s.dnsHijackEnabled,
                             glyph = MarbleGlyph.SHIELD,
-                            squircleColor = colors.green,
+                            iconTint = colors.success,
                             onCheckedChange = { repo.updateSettings(s.copy(dnsHijackEnabled = it)) }
                         )
-                        IosDivider()
+                        MarbleDivider()
                     }
-                    IosSwitchRow(
+                    MarbleSwitchRow(
                         title = trx("Fake IP DNS"),
                         subtitle = trx("Return instant local synthetic IPs and resolve in-tunnel"),
                         checked = s.dnsFakeIpEnabled,
                         glyph = MarbleGlyph.SPARK,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         onCheckedChange = { repo.updateSettings(s.copy(dnsFakeIpEnabled = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Adaptive DoH Ordering"),
                         subtitle = trx("Prefer the fastest healthy encrypted DNS endpoint"),
                         checked = s.adaptiveDnsEnabled,
                         glyph = MarbleGlyph.GAUGE,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onCheckedChange = { repo.updateSettings(s.copy(adaptiveDnsEnabled = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Adaptive Dual-Stack DNS"),
                         subtitle = trx("Match DNS record family to active link capabilities"),
                         checked = s.adaptiveDualStackEnabled,
                         glyph = MarbleGlyph.LAYERS,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         onCheckedChange = { repo.updateSettings(s.copy(adaptiveDualStackEnabled = it)) }
                     )
                 }
@@ -527,14 +529,14 @@ fun SettingsDnsAndFamilyPage(
 
         item(key = "dns-resolvers") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                IosSectionHeader(title = trx("Resolvers"))
-                IosChipStrip {
+                MarbleSectionHeader(title = trx("Resolvers"))
+                MarbleChipStrip {
                     listOf(
                         Triple("Cloudflare", "1.1.1.1" to "1.0.0.1", "https://1.1.1.1/dns-query" to "https://1.0.0.1/dns-query"),
                         Triple("Google", "8.8.8.8" to "8.8.4.4", "https://8.8.8.8/dns-query" to "https://8.8.4.4/dns-query"),
                         Triple("Quad9", "9.9.9.9" to "149.112.112.112", "https://9.9.9.9/dns-query" to "https://149.112.112.112/dns-query")
                     ).forEach { (name, ips, dohs) ->
-                        IosPillChip(
+                        MarblePillChip(
                             label = name,
                             selected = s.dnsPrimaryIp == ips.first,
                             onClick = {
@@ -551,28 +553,28 @@ fun SettingsDnsAndFamilyPage(
                     }
                 }
 
-                IosCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            IosTextField(
+                            MarbleTextField(
                                 label = "TUN DNS 1",
                                 value = s.dnsPrimaryIp,
                                 onValueChange = { repo.updateSettings(s.copy(dnsPrimaryIp = it.trim())) },
                                 modifier = Modifier.weight(1f)
                             )
-                            IosTextField(
+                            MarbleTextField(
                                 label = "TUN DNS 2",
                                 value = s.dnsSecondaryIp,
                                 onValueChange = { repo.updateSettings(s.copy(dnsSecondaryIp = it.trim())) },
                                 modifier = Modifier.weight(1f)
                             )
                         }
-                        IosTextField(
+                        MarbleTextField(
                             label = trx("Primary DoH URL"),
                             value = s.dnsPrimaryDoH,
                             onValueChange = { repo.updateSettings(s.copy(dnsPrimaryDoH = it.trim())) }
                         )
-                        IosTextField(
+                        MarbleTextField(
                             label = trx("Secondary DoH URL"),
                             value = s.dnsSecondaryDoH,
                             onValueChange = { repo.updateSettings(s.copy(dnsSecondaryDoH = it.trim())) }
@@ -594,7 +596,7 @@ fun SettingsSplitTunnelPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
     val s = repo.settings
     var query by rememberSaveable { mutableStateOf("") }
@@ -642,38 +644,38 @@ fun SettingsSplitTunnelPage(
         base.sortedByDescending { it.packageName in selectedPackages }
     }
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Per-App Split Tunnel"),
         onBack = onBack
     ) {
         item(key = "split-mode") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("App Tunnel Mode"))
-                IosCard {
-                    IosChoiceRow(
+                MarbleSectionHeader(title = trx("App Tunnel Mode"))
+                MarbleCard {
+                    MarbleChoiceRow(
                         title = trx("All Apps"),
                         subtitle = trx("Every app on the device uses the VPN"),
                         selected = s.splitTunnelMode == SplitTunnelMode.ALL_APPS,
                         glyph = MarbleGlyph.GLOBE,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onClick = { repo.updateSettings(s.copy(splitTunnelMode = SplitTunnelMode.ALL_APPS)) }
                     )
-                    IosDivider()
-                    IosChoiceRow(
+                    MarbleDivider()
+                    MarbleChoiceRow(
                         title = trx("Only Selected Apps"),
                         subtitle = trx("Only checked apps below enter the VPN"),
                         selected = s.splitTunnelMode == SplitTunnelMode.ONLY_SELECTED,
                         glyph = MarbleGlyph.CHECK,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         onClick = { repo.updateSettings(s.copy(splitTunnelMode = SplitTunnelMode.ONLY_SELECTED)) }
                     )
-                    IosDivider()
-                    IosChoiceRow(
+                    MarbleDivider()
+                    MarbleChoiceRow(
                         title = trx("Bypass Selected Apps"),
                         subtitle = trx("Checked apps go direct; all other apps use the VPN"),
                         selected = s.splitTunnelMode == SplitTunnelMode.BYPASS_SELECTED,
                         glyph = MarbleGlyph.ROUTE,
-                        squircleColor = colors.purple,
+                        iconTint = colors.secondary,
                         onClick = { repo.updateSettings(s.copy(splitTunnelMode = SplitTunnelMode.BYPASS_SELECTED)) }
                     )
                 }
@@ -683,23 +685,23 @@ fun SettingsSplitTunnelPage(
         if (s.splitTunnelMode != SplitTunnelMode.ALL_APPS) {
             item(key = "split-apps") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    IosSectionHeader(title = "${trx("Installed Apps")} (${selectedPackages.size} ${trx("selected")})")
-                    IosSearchBar(
+                    MarbleSectionHeader(title = "${trx("Installed Apps")} (${selectedPackages.size} ${trx("selected")})")
+                    MarbleSearchField(
                         value = query,
                         onValueChange = { query = it },
                         placeholder = trx("Search app or package name")
                     )
                     if (filteredApps.isNotEmpty()) {
-                        IosCard {
+                        MarbleCard {
                             filteredApps.take(80).forEachIndexed { idx, app ->
-                                if (idx > 0) IosDivider()
+                                if (idx > 0) MarbleDivider()
                                 val checked = app.packageName in selectedPackages
-                                IosSwitchRow(
+                                MarbleSwitchRow(
                                     title = app.label,
                                     subtitle = app.packageName,
                                     checked = checked,
                                     glyph = MarbleGlyph.FOLDER,
-                                    squircleColor = if (checked) colors.purple else colors.gray,
+                                    iconTint = if (checked) colors.secondary else colors.onSurfaceVariant,
                                     onCheckedChange = { on ->
                                         val next = if (on) {
                                             selectedPackages + app.packageName
@@ -725,7 +727,7 @@ fun SettingsCensorshipLabPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val scope = rememberCoroutineScope()
     val fragment = parseFragmentStrategy(s.fragmentStrategy)
@@ -745,21 +747,21 @@ fun SettingsCensorshipLabPage(
         repo.setRuntimeMessage("Censorship prescription applied")
     }
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Iran Mode & Censorship Lab"),
         onBack = onBack
     ) {
         item(key = "iran-mode-policy") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Iran Mode"))
-                IosCard {
+                MarbleSectionHeader(title = trx("Iran Mode"))
+                MarbleCard {
                     listOf(
                         IranModePolicy.OFF to trx("Off"),
                         IranModePolicy.AUTO to trx("Automatic ISP Detection"),
                         IranModePolicy.ALWAYS_ON to trx("Always Active")
                     ).forEachIndexed { idx, (policy, label) ->
-                        if (idx > 0) IosDivider()
-                        IosChoiceRow(
+                        if (idx > 0) MarbleDivider()
+                        MarbleChoiceRow(
                             title = label,
                             subtitle = if (policy == s.iranModePolicy && repo.iranMode.summary.isNotBlank()) {
                                 repo.iranMode.summary
@@ -768,26 +770,26 @@ fun SettingsCensorshipLabPage(
                             },
                             selected = s.iranModePolicy == policy,
                             glyph = MarbleGlyph.SHIELD,
-                            squircleColor = colors.red,
+                            iconTint = colors.error,
                             onClick = { repo.setIranModePolicy(policy) }
                         )
                     }
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("DPI Countermeasures"),
                         subtitle = trx("Enable anti-filtering timeouts, resolver hardening and MTU healing"),
                         checked = s.iranModeCountermeasures,
                         glyph = MarbleGlyph.SPARK,
-                        squircleColor = colors.orange,
+                        iconTint = colors.warning,
                         onCheckedChange = { repo.updateSettings(s.copy(iranModeCountermeasures = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Domestic Services Direct"),
                         subtitle = trx("Keep domestic sites direct when Iran Mode is active"),
                         checked = s.iranDomesticDirect,
                         glyph = MarbleGlyph.ROUTE,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         onCheckedChange = { repo.updateSettings(s.copy(iranDomesticDirect = it)) }
                     )
                 }
@@ -796,25 +798,25 @@ fun SettingsCensorshipLabPage(
 
         item(key = "tls-fragmentation") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("TLS Handshake Fragmentation"))
-                IosCard {
+                MarbleSectionHeader(title = trx("TLS Handshake Fragmentation"))
+                MarbleCard {
                     FragmentStrategy.entries.forEachIndexed { idx, strategy ->
-                        if (idx > 0) IosDivider()
-                        IosChoiceRow(
+                        if (idx > 0) MarbleDivider()
+                        MarbleChoiceRow(
                             title = trx(strategy.label),
                             selected = fragment == strategy,
                             glyph = MarbleGlyph.LAYERS,
-                            squircleColor = colors.indigo,
+                            iconTint = colors.secondary,
                             onClick = { repo.updateSettings(s.copy(fragmentStrategy = strategy.id)) }
                         )
                     }
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Auto-Apply Decisive Prescriptions"),
                         subtitle = trx("Apply recommended bypass settings immediately after a scan"),
                         checked = s.censorshipAutoApply,
                         glyph = MarbleGlyph.CHECK,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         onCheckedChange = { repo.updateSettings(s.copy(appBehavior = s.appBehavior.copy(censorshipAutoApply = it))) }
                     )
                 }
@@ -823,15 +825,15 @@ fun SettingsCensorshipLabPage(
 
         item(key = "censorship-lab-scanner") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                IosSectionHeader(title = trx("Live Censorship Lab"))
-                IosCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleSectionHeader(title = trx("Live Censorship Lab"))
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
                             text = trx("Runs bounded DNS, TCP and TLS handshake probes to identify active filtering on your current network."),
-                            color = colors.subtitle,
+                            color = colors.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall
                         )
-                        IosButton(
+                        MarbleButton(
                             label = if (scanning) Tr.now.measuring else trx("Run Censorship Scan"),
                             glyph = MarbleGlyph.RADAR,
                             enabled = !scanning,
@@ -855,9 +857,9 @@ fun SettingsCensorshipLabPage(
 
                         diagnosis?.let { diag ->
                             val verdictColor = when (diag.severity) {
-                                CensorshipLab.Severity.CRITICAL -> colors.red
-                                CensorshipLab.Severity.WARNING -> colors.orange
-                                CensorshipLab.Severity.INFO -> colors.green
+                                CensorshipLab.Severity.CRITICAL -> colors.error
+                                CensorshipLab.Severity.WARNING -> colors.warning
+                                CensorshipLab.Severity.INFO -> colors.success
                             }
                             Text(
                                 text = trx(diag.summary),
@@ -867,14 +869,14 @@ fun SettingsCensorshipLabPage(
                             diag.findings.forEach { finding ->
                                 Text(
                                     text = "• ${finding.technique.label}: ${finding.evidence}",
-                                    color = colors.title,
+                                    color = colors.onSurface,
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
                             diag.observations.forEach { obs ->
                                 Text(
                                     text = "${if (obs.reachable) "✓" else "✕"} ${obs.target} (${obs.kind.name}) ${if (obs.latencyMs > 0) "${obs.latencyMs}ms" else ""}",
-                                    color = colors.subtitle,
+                                    color = colors.onSurfaceVariant,
                                     style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
                                 )
                             }
@@ -882,14 +884,14 @@ fun SettingsCensorshipLabPage(
                                 prescription.notes.forEach { note ->
                                     Text(
                                         text = "→ ${trx(note)}",
-                                        color = colors.accent,
+                                        color = colors.primary,
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                 }
-                                IosButton(
+                                MarbleButton(
                                     label = trx("Apply Recommended Prescription"),
                                     glyph = MarbleGlyph.CHECK,
-                                    style = IosButtonStyle.TINTED,
+                                    style = MarbleButtonStyle.TINTED,
                                     onClick = { applyPrescription(prescription) },
                                     modifier = Modifier.fillMaxWidth()
                                 )

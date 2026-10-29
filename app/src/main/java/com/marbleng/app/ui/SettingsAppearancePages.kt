@@ -3,6 +3,7 @@ package com.marbleng.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +21,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.model.AppFont
@@ -47,39 +52,44 @@ import com.marbleng.app.model.parseDockSlotIcon
 import com.marbleng.app.model.parseDockSlotKind
 import com.marbleng.app.model.parseFlatAccent
 import kotlin.math.roundToInt
+import com.marbleng.app.ui.theme.marbleAccentPrimary
+import com.marbleng.app.ui.theme.resolveMarbleDarkMode
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 @Composable
 fun SettingsAppearancePage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
+    val haptics = LocalHapticFeedback.current
     val activeAccent = parseFlatAccent(s.accentTheme)
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Appearance & Accent"),
         onBack = onBack
     ) {
         item(key = "theme-mode") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = Tr.now.themeTitle)
-                IosCard {
+                MarbleSectionHeader(title = Tr.now.themeTitle)
+                MarbleCard {
                     listOf(
-                        Triple("light", trx("iOS Light"), trx("Crisp #F8F9FA background with #FFFFFF rounded cards")),
-                        Triple("dark", trx("iOS Dark"), trx("True dark OLED background with #1C1C1E cards")),
+                        Triple("light", trx("Light"), trx("Bright surfaces with dark text")),
+                        Triple("dark", trx("Dark"), trx("True-dark surfaces, kind to OLED screens")),
                         Triple("system", trx("Follow System"), trx("Switch automatically with device appearance"))
                     ).forEachIndexed { idx, (id, title, sub) ->
-                        if (idx > 0) IosDivider()
-                        IosChoiceRow(
+                        if (idx > 0) MarbleDivider()
+                        MarbleChoiceRow(
                             title = title,
                             subtitle = sub,
                             selected = s.theme.equals(id, ignoreCase = true),
                             glyph = MarbleGlyph.PALETTE,
-                            squircleColor = when (id) {
-                                "light" -> colors.blue
-                                "dark" -> colors.indigo
-                                else -> colors.teal
+                            iconTint = when (id) {
+                                "light" -> colors.primary
+                                "dark" -> colors.secondary
+                                else -> colors.tertiary
                             },
                             onClick = { repo.updateSettings(s.copy(theme = id)) }
                         )
@@ -91,8 +101,8 @@ fun SettingsAppearancePage(
         item(key = "theme-preview") {
             // Council: live preview — WYSIWYG for theme + accent
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Preview"))
-                IosCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleSectionHeader(title = trx("Preview"))
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -102,7 +112,7 @@ fun SettingsAppearancePage(
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                                .background(colors.accent),
+                                .background(colors.primary),
                             contentAlignment = androidx.compose.ui.Alignment.Center
                         ) {
                             MarbleGlyphIcon(glyph = MarbleGlyph.PALETTE, color = Color.White, modifier = Modifier.size(22.dp))
@@ -110,18 +120,18 @@ fun SettingsAppearancePage(
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 text = trx("MarbleNG Card Preview"),
-                                color = colors.title,
+                                color = colors.onSurface,
                                 // MARBLE_WEIGHT_LADDER_V235 — the preview shows a card title, so
                                 // it previews the TITLE rung real cards now use, not Bold.
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
                                 text = "${trx(s.theme.replaceFirstChar { it.uppercase() })} · ${trx(activeAccent.label)}",
-                                color = colors.subtitle,
+                                color = colors.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
-                        IosBadge(text = "Aa", color = colors.accent)
+                        MarbleBadge(text = "Aa", color = colors.primary)
                     }
                 }
             }
@@ -129,29 +139,34 @@ fun SettingsAppearancePage(
 
         item(key = "accent-swatches") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                IosSectionHeader(title = trx("Accent Color"))
-                IosCard(contentPadding = PaddingValues(18.dp)) {
+                MarbleSectionHeader(title = trx("Accent Color"))
+                MarbleCard(contentPadding = PaddingValues(18.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         FlatAccent.entries.forEach { candidate ->
-                            val swatch = iosAccentColor(candidate, dark = colors.dark)
+                            val swatch = marbleAccentPrimary(candidate, resolveMarbleDarkMode(s.theme, isSystemInDarkTheme()))
                             val chosen = activeAccent == candidate
+                            val swatchDescription = trx(candidate.label)
                             Box(
                                 modifier = Modifier
-                                    .size(44.dp)
+                                    .size(48.dp)
                                     .clip(CircleShape)
                                     .background(swatch)
                                     .then(
                                         if (chosen) {
-                                            Modifier.border(2.5.dp, colors.title, CircleShape)
+                                            Modifier.border(2.5.dp, colors.onSurface, CircleShape)
                                         } else {
-                                            Modifier.border(1.dp, colors.cardBorder, CircleShape)
+                                            Modifier.border(1.dp, colors.outlineVariant, CircleShape)
                                         }
                                     )
+                                    .semantics {
+                                        contentDescription = swatchDescription
+                                    }
                                     .clickable(role = Role.Button) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                                         repo.updateSettings(s.copy(appBehavior = s.appBehavior.copy(accentTheme = candidate.id)))
                                     },
                                 contentAlignment = Alignment.Center
@@ -171,16 +186,34 @@ fun SettingsAppearancePage(
             }
         }
 
+        item(key = "dynamic-color") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleSectionHeader(title = trx("Wallpaper Colors"))
+                MarbleCard {
+                    MarbleSwitchRow(
+                        title = trx("Dynamic Color"),
+                        subtitle = trx("Match the wallpaper palette on Android 12+; the accent above is the fallback"),
+                        checked = s.dynamicColor,
+                        glyph = MarbleGlyph.PALETTE,
+                        iconTint = colors.tertiary,
+                        onCheckedChange = {
+                            repo.updateSettings(s.copy(appBehavior = s.appBehavior.copy(dynamicColor = it)))
+                        }
+                    )
+                }
+            }
+        }
+
         item(key = "surface-depth") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Card Elevation"))
-                IosCard {
-                    IosSwitchRow(
-                        title = trx("Flat Card Surfaces"),
-                        subtitle = trx("Disable even the subtle 2dp card shadow for pure flat iOS geometry"),
+                MarbleSectionHeader(title = trx("Card Elevation"))
+                MarbleCard {
+                    MarbleSwitchRow(
+                        title = trx("Flat surfaces"),
+                        subtitle = trx("Low-contrast tonal cards without elevation shadows"),
                         checked = s.flatInterface,
                         glyph = MarbleGlyph.LAYERS,
-                        squircleColor = colors.pink,
+                        iconTint = colors.secondary,
                         onCheckedChange = { repo.updateSettings(s.copy(flatInterface = it)) }
                     )
                 }
@@ -194,32 +227,32 @@ fun SettingsLanguageAndFontPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val s = repo.settings
     val lang = parseAppLanguage(s.appLanguage)
     val font = parseAppFont(s.fontFamily)
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = "${strings.languageTitle} & ${trx("Typography")}",
         onBack = onBack
     ) {
         item(key = "app-language") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = strings.languageTitle)
-                IosCard {
+                MarbleSectionHeader(title = strings.languageTitle)
+                MarbleCard {
                     listOf(
                         AppLanguage.SYSTEM to (strings.languageSystem to strings.languageSystemDetail),
                         AppLanguage.ENGLISH to (strings.languageEnglish to trx("Left-to-right English interface")),
                         AppLanguage.PERSIAN to (strings.languagePersian to trx("Right-to-left Persian interface"))
                     ).forEachIndexed { idx, (candidate, labels) ->
-                        if (idx > 0) IosDivider()
-                        IosChoiceRow(
+                        if (idx > 0) MarbleDivider()
+                        MarbleChoiceRow(
                             title = labels.first,
                             subtitle = labels.second,
                             selected = lang == candidate,
                             glyph = MarbleGlyph.GLOBE,
-                            squircleColor = colors.blue,
+                            iconTint = colors.primary,
                             onClick = { repo.updateSettings(s.copy(appLanguage = candidate.id)) }
                         )
                     }
@@ -229,15 +262,15 @@ fun SettingsLanguageAndFontPage(
 
         item(key = "app-font") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Typeface"))
-                IosCard {
+                MarbleSectionHeader(title = trx("Typeface"))
+                MarbleCard {
                     AppFont.entries.forEachIndexed { idx, candidate ->
-                        if (idx > 0) IosDivider()
-                        IosChoiceRow(
+                        if (idx > 0) MarbleDivider()
+                        MarbleChoiceRow(
                             title = candidate.label,
                             selected = font == candidate,
                             glyph = MarbleGlyph.FONT,
-                            squircleColor = colors.purple,
+                            iconTint = colors.secondary,
                             onClick = { repo.updateSettings(s.copy(fontFamily = candidate.id)) }
                         )
                     }
@@ -248,8 +281,8 @@ fun SettingsLanguageAndFontPage(
         item(key = "text-scale") {
             val scale = TextScale.clamp(s.textScalePercent)
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                IosSectionHeader(title = "${trx("Text Size")} · $scale%")
-                IosCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleSectionHeader(title = "${trx("Text Size")} · ${faDigits("$scale%")}")
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Slider(
                             value = scale.toFloat(),
@@ -261,14 +294,14 @@ fun SettingsLanguageAndFontPage(
                             },
                             valueRange = TextScale.MIN_PERCENT.toFloat()..TextScale.MAX_PERCENT.toFloat(),
                             colors = SliderDefaults.colors(
-                                thumbColor = colors.accent,
-                                activeTrackColor = colors.accent,
-                                inactiveTrackColor = colors.divider
+                                thumbColor = colors.primary,
+                                activeTrackColor = colors.primary,
+                                inactiveTrackColor = colors.outlineVariant
                             )
                         )
-                        IosChipStrip {
+                        MarbleChipStrip {
                             TextScale.STEPS.forEach { preset ->
-                                IosPillChip(
+                                MarblePillChip(
                                     label = "$preset%",
                                     selected = scale == preset,
                                     onClick = { repo.updateSettings(s.copy(textScalePercent = preset)) }
@@ -287,7 +320,7 @@ fun SettingsTabBarPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val dockSize = parseDockSize(s.dockSize)
     val dockPresentation = parseDockPresentation(s.dockSize)
@@ -297,14 +330,14 @@ fun SettingsTabBarPage(
     val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
     val showIcons = dockShowsIcons(s.dockShowIcons, s.dockShowLabels)
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Tab Bar & Fourth Tab"),
         onBack = onBack
     ) {
         item(key = "tabbar-chrome") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                IosSectionHeader(title = trx("Tab Bar Appearance"))
-                IosSegmentedControl(
+                MarbleSectionHeader(title = trx("Tab Bar Appearance"))
+                MarbleSegmentedControl(
                     options = listOf(
                         DockSize.SMALL to trx("Compact"),
                         DockSize.MEDIUM to trx("Standard"),
@@ -317,8 +350,8 @@ fun SettingsTabBarPage(
                         )
                     }
                 )
-                IosSectionHeader(title = trx("Bottom Bar Position"))
-                IosSegmentedControl(
+                MarbleSectionHeader(title = trx("Bottom Bar Position"))
+                MarbleSegmentedControl(
                     options = listOf(
                         DockPresentation.ATTACHED to trx("Attached to bottom"),
                         DockPresentation.FLOATING to trx("Floating above bottom")
@@ -330,12 +363,12 @@ fun SettingsTabBarPage(
                         )
                     }
                 )
-                IosCard {
-                    IosSwitchRow(
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = trx("Show Tab Labels"),
                         checked = showLabels,
                         glyph = MarbleGlyph.FONT,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onCheckedChange = { enabled ->
                             repo.updateSettings(
                                 s.copy(
@@ -345,12 +378,12 @@ fun SettingsTabBarPage(
                             )
                         }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Show Tab Icons"),
                         checked = showIcons,
                         glyph = MarbleGlyph.DOCK,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         onCheckedChange = { enabled ->
                             repo.updateSettings(
                                 s.copy(
@@ -366,14 +399,14 @@ fun SettingsTabBarPage(
 
         item(key = "fourth-tab-config") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                IosSectionHeader(title = trx("Fourth Tab Shortcut"))
-                IosCard {
-                    IosSwitchRow(
+                MarbleSectionHeader(title = trx("Fourth Tab Shortcut"))
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = trx("Show Fourth Tab"),
                         subtitle = trx("Add a dedicated Pulse, Subscription or Server tab to the bottom bar"),
                         checked = s.dockSlotEnabled,
                         glyph = MarbleGlyph.DOCK,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         onCheckedChange = { repo.updateSettings(s.copy(dockSlotEnabled = it)) }
                     )
                     listOf(
@@ -381,33 +414,33 @@ fun SettingsTabBarPage(
                         DockSlotKind.SOURCE to trx("Pinned Subscription Group"),
                         DockSlotKind.CONFIG to trx("Pinned Single Server")
                     ).forEach { (candidate, label) ->
-                        IosDivider()
-                        IosChoiceRow(
+                        MarbleDivider()
+                        MarbleChoiceRow(
                             title = label,
                             selected = slotKind == candidate,
                             glyph = MarbleGlyph.SPARK,
-                            squircleColor = colors.blue,
+                            iconTint = colors.primary,
                             onClick = { repo.updateSettings(s.copy(dockSlotKind = candidate.id)) }
                         )
                     }
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Live Connection Dot"),
                         subtitle = trx("Show active status indicator on the fourth tab"),
                         checked = s.dockSlotShowStatusBadge,
                         glyph = MarbleGlyph.CHECK,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         onCheckedChange = { repo.updateSettings(s.copy(dockSlotShowStatusBadge = it)) }
                     )
                 }
 
                 if (slotKind == DockSlotKind.SOURCE) {
                     val sourceOptions = buildList {
-                        add(IosMenuOption("all", Tr.now.homeAllGroups))
-                        repo.subscriptions.forEach { add(IosMenuOption(it.id, it.name)) }
-                        add(IosMenuOption("manual", Tr.now.homeManualGroup))
+                        add(MarbleMenuOption("all", Tr.now.homeAllGroups))
+                        repo.subscriptions.forEach { add(MarbleMenuOption(it.id, it.name)) }
+                        add(MarbleMenuOption("manual", Tr.now.homeManualGroup))
                     }
-                    IosDropdownField(
+                    MarbleDropdownField(
                         label = trx("Pinned Subscription Group"),
                         value = s.dockSlotSourceId.ifBlank { "all" },
                         options = sourceOptions,
@@ -415,14 +448,14 @@ fun SettingsTabBarPage(
                     )
                 } else if (slotKind == DockSlotKind.CONFIG && repo.libraryProfiles.isNotEmpty()) {
                     val profileOptions = repo.libraryProfiles.map { p ->
-                        IosMenuOption(
+                        MarbleMenuOption(
                             value = "${p.subscriptionId}|${p.id}",
                             label = cleanServerName(p.name),
                             detail = "${protocolShortLabel(p)} · ${p.subscriptionName}"
                         )
                     }
                     val currentKey = "${s.dockSlotProfileSourceId}|${s.dockSlotProfileId}"
-                    IosDropdownField(
+                    MarbleDropdownField(
                         label = trx("Pinned Server"),
                         value = currentKey,
                         options = profileOptions,
@@ -440,28 +473,28 @@ fun SettingsTabBarPage(
                     )
                 }
 
-                IosCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        IosTextField(
+                        MarbleTextField(
                             label = trx("Custom Tab Label (optional)"),
                             value = s.dockSlotLabel,
                             onValueChange = { repo.updateSettings(s.copy(dockSlotLabel = it.take(DOCK_SLOT_CAPTION_MAX))) }
                         )
-                        IosChipStrip {
+                        MarbleChipStrip {
                             DockSlotIcon.entries.forEach { ic ->
-                                IosPillChip(
+                                MarblePillChip(
                                     label = ic.id.uppercase(),
                                     selected = slotIcon == ic,
                                     onClick = { repo.updateSettings(s.copy(dockSlotIcon = ic.id)) }
                                 )
                             }
                         }
-                        IosChipStrip {
+                        MarbleChipStrip {
                             DockSlotAccent.entries.forEach { ac ->
-                                IosPillChip(
+                                MarblePillChip(
                                     label = ac.id.uppercase(),
                                     selected = slotAccent == ac,
-                                    accent = dockSlotIosColor(ac),
+                                    accent = dockSlotColor(ac),
                                     onClick = { repo.updateSettings(s.copy(dockSlotAccent = ac.id)) }
                                 )
                             }
@@ -478,33 +511,33 @@ fun SettingsHomeLayoutPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val connectStyle = parseConnectButtonStyle(s.connectButtonStyle)
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = Tr.now.homeStyleTitle,
         onBack = onBack
     ) {
         item(key = "home-connect-style") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Connect Control Style"))
-                IosCard {
-                    IosChoiceRow(
-                        title = trx("iOS Button & Power Ring"),
-                        subtitle = trx("Tap the circular status emblem or primary Connect button"),
+                MarbleSectionHeader(title = trx("Connect Control Style"))
+                MarbleCard {
+                    MarbleChoiceRow(
+                        title = trx("Split connect button"),
+                        subtitle = trx("Tap the status emblem or the big Connect half; the small half changes route"),
                         selected = connectStyle != ConnectButtonStyle.SLIDE,
                         glyph = MarbleGlyph.POWER,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         onClick = { repo.updateSettings(s.copy(connectButtonStyle = ConnectButtonStyle.ROUND.id)) }
                     )
-                    IosDivider()
-                    IosChoiceRow(
-                        title = trx("iOS Slide to Connect"),
+                    MarbleDivider()
+                    MarbleChoiceRow(
+                        title = trx("Slide to connect"),
                         subtitle = trx("Swipe horizontally across the pill track to connect or disconnect"),
                         selected = connectStyle == ConnectButtonStyle.SLIDE,
                         glyph = MarbleGlyph.CHEVRON,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onClick = { repo.updateSettings(s.copy(connectButtonStyle = ConnectButtonStyle.SLIDE.id)) }
                     )
                 }
@@ -513,32 +546,32 @@ fun SettingsHomeLayoutPage(
 
         item(key = "home-cards-visibility") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Visible Home Cards"))
-                IosCard {
-                    IosSwitchRow(
+                MarbleSectionHeader(title = trx("Visible Home Cards"))
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = trx("Network Speed & Session Data"),
                         subtitle = trx("Show live throughput and session/total usage card"),
                         checked = s.modularShowStats,
                         glyph = MarbleGlyph.GAUGE,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onCheckedChange = { repo.updateSettings(s.copy(modularShowStats = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Local SOCKS5 Row"),
                         subtitle = trx("Always display the loopback SOCKS5 address on Home"),
                         checked = s.modularShowSocks,
                         glyph = MarbleGlyph.LINK,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         onCheckedChange = { repo.updateSettings(s.copy(modularShowSocks = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Quick Actions Card"),
                         subtitle = trx("Show clipboard import, QR scanner, Smart Rank and Censorship Lab"),
                         checked = s.modularShowShortcuts,
                         glyph = MarbleGlyph.SPARK,
-                        squircleColor = colors.orange,
+                        iconTint = colors.warning,
                         onCheckedChange = { repo.updateSettings(s.copy(modularShowShortcuts = it)) }
                     )
                 }

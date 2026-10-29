@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -22,6 +24,10 @@ import com.marbleng.app.model.DockSlotAccent
 import com.marbleng.app.model.DockSlotIcon
 import com.marbleng.app.model.ProbeState
 import com.marbleng.app.model.ProxyProfile
+import com.marbleng.app.ui.theme.MarbleRowIconShape
+import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -41,6 +47,28 @@ fun cleanServerName(raw: String): String {
     }
     val trimmed = raw.substring(idx).trim()
     return trimmed.ifBlank { raw.trim() }
+}
+
+/**
+ * Persian digits for user-facing dynamic numbers (ping, counts, telemetry). Latin digits
+ * everywhere else, and never inside addresses, ports or config text. The decimal point
+ * becomes the Persian momayyez (٫).
+ */
+@Composable
+@ReadOnlyComposable
+fun faDigits(text: String): String {
+    if (Tr.now.language != MarbleLanguage.FA) return text
+    return text.toFaDigits()
+}
+
+fun String.toFaDigits(): String = buildString(length) {
+    forEach { c ->
+        when (c) {
+            in '0'..'9' -> append('۰' + (c - '0'))
+            '.' -> append('٫')
+            else -> append(c)
+        }
+    }
 }
 
 fun formatBytes(bytes: Long): String {
@@ -93,31 +121,31 @@ fun protocolShortLabel(profile: ProxyProfile): String =
     ServersQuery.badge(profile).ifBlank { profile.scheme.uppercase(Locale.US).ifBlank { "PROXY" } }
 
 @Composable
-fun protocolSquircleColor(scheme: String): Color {
-    val colors = IosTheme.colors
+fun protocolRowColor(scheme: String): Color {
+    val colors = MaterialTheme.colorScheme
     return when (scheme.trim().lowercase(Locale.US)) {
-        "vless" -> colors.blue
-        "vmess" -> colors.indigo
-        "trojan" -> colors.purple
-        "ss", "shadowsocks" -> colors.teal
-        "hy2", "hysteria2", "hysteria" -> colors.orange
-        "wireguard", "wg" -> colors.green
-        "ssh" -> colors.pink
-        "socks", "socks5", "http", "https" -> colors.cyan
-        else -> colors.accent
+        "vless" -> colors.primary
+        "vmess" -> colors.secondary
+        "trojan" -> colors.secondary
+        "ss", "shadowsocks" -> colors.tertiary
+        "hy2", "hysteria2", "hysteria" -> colors.warning
+        "wireguard", "wg" -> colors.success
+        "ssh" -> colors.secondary
+        "socks", "socks5", "http", "https" -> colors.tertiary
+        else -> colors.primary
     }
 }
 
 @Composable
 fun pingBadgeColor(result: BenchmarkResult?, probeState: ProbeState): Color {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     return when {
-        probeState == ProbeState.TESTING || probeState == ProbeState.QUEUED -> colors.accent
-        result == null -> colors.subtitle
-        result.success <= 0 || result.latencyMs <= 0.0 -> colors.red
-        result.latencyMs < 180.0 -> colors.green
-        result.latencyMs < 420.0 -> colors.orange
-        else -> colors.red
+        probeState == ProbeState.TESTING || probeState == ProbeState.QUEUED -> colors.primary
+        result == null -> colors.onSurfaceVariant
+        result.success <= 0 || result.latencyMs <= 0.0 -> colors.error
+        result.latencyMs < 180.0 -> colors.success
+        result.latencyMs < 420.0 -> colors.warning
+        else -> colors.error
     }
 }
 
@@ -129,7 +157,7 @@ fun pingBadgeText(result: BenchmarkResult?, probeState: ProbeState): String {
         probeState == ProbeState.QUEUED -> "…"
         result == null -> strings.pingIdleValue
         result.success <= 0 || result.latencyMs <= 0.0 -> strings.pingFailedShort
-        else -> "${result.latencyMs.roundToInt()} ms"
+        else -> faDigits("${result.latencyMs.roundToInt()} ms")
     }
 }
 
@@ -141,35 +169,35 @@ internal fun dockSlotMarbleGlyph(icon: DockSlotIcon): MarbleGlyph = when (icon) 
 }
 
 @Composable
-fun dockSlotIosColor(accent: DockSlotAccent): Color {
-    val colors = IosTheme.colors
+fun dockSlotColor(accent: DockSlotAccent): Color {
+    val colors = MaterialTheme.colorScheme
     return when (accent) {
-        DockSlotAccent.OCEAN -> colors.blue
-        DockSlotAccent.MINT -> colors.green
-        DockSlotAccent.VIOLET -> colors.indigo
-        DockSlotAccent.AMBER -> colors.orange
+        DockSlotAccent.OCEAN -> colors.primary
+        DockSlotAccent.MINT -> colors.success
+        DockSlotAccent.VIOLET -> colors.secondary
+        DockSlotAccent.AMBER -> colors.warning
     }
 }
 
 /**
- * 12dp-squircle server avatar: renders a crisp vector country flag when known,
- * or a colored 12dp squircle with a white globe/server glyph when unknown.
+ * Expressive server avatar: a crisp vector country flag when known, or a tonal
+ * row-icon chip with a globe/server glyph when unknown.
  */
 @Composable
-fun IosServerAvatar(
+fun MarbleServerAvatar(
     profile: ProxyProfile?,
     countryCode: String?,
     modifier: Modifier = Modifier,
-    size: Dp = IosSpec.SQUIRCLE_SIZE_DP.dp
+    size: Dp = MarbleSpec.ROW_ICON_SIZE_DP.dp
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     if (CountryFlagSupported(countryCode)) {
         Box(
             modifier = modifier
                 .size(size)
-                .clip(IosSquircleShape)
-                .background(colors.cardSecondary)
-                .border(0.75.dp, colors.divider, IosSquircleShape),
+                .clip(MarbleRowIconShape)
+                .background(colors.surfaceContainerHighest)
+                .border(1.dp, colors.outlineVariant, MarbleRowIconShape),
             contentAlignment = Alignment.Center
         ) {
             CountryFlagCircle(
@@ -178,9 +206,9 @@ fun IosServerAvatar(
             )
         }
     } else {
-        IosSquircleIcon(
+        MarbleRowIcon(
             glyph = if (profile == null) MarbleGlyph.GLOBE else MarbleGlyph.SERVER,
-            backgroundColor = if (profile == null) colors.gray else protocolSquircleColor(profile.scheme),
+            tint = if (profile == null) colors.onSurfaceVariant else protocolRowColor(profile.scheme),
             size = size,
             glyphSize = size * 0.55f,
             modifier = modifier

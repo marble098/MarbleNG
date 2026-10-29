@@ -24,6 +24,8 @@ import com.marbleng.app.jitter.JitterAutoTuner
 import com.marbleng.app.jitter.SmartJitterController
 import com.marbleng.app.model.JitterSmartMode
 import com.marbleng.app.model.SmartJitterDefaultsKeys
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 /**
  * MARBLE_SMART_JITTER_V238 — the Smart Jitter Reducer's page: the mode, the probe budget, the
@@ -37,19 +39,19 @@ fun SettingsSmartJitterPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val live by repo.jitterReducer.state.collectAsState()
     val mode = JitterSmartMode.fromId(s.jitterSmartMode)
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Smart Jitter Reducer"),
         onBack = onBack
     ) {
         item(key = "live") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Live route quality"))
-                IosCard {
+                MarbleSectionHeader(title = trx("Live route quality"))
+                MarbleCard {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -92,7 +94,7 @@ fun SettingsSmartJitterPage(
                             Text(
                                 text = trx("Last two minutes"),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = colors.tertiary
+                                color = colors.onSurfaceVariant
                             )
                         }
                         Text(
@@ -104,7 +106,7 @@ fun SettingsSmartJitterPage(
                                     ""
                                 },
                             style = MaterialTheme.typography.labelSmall,
-                            color = colors.tertiary
+                            color = colors.onSurfaceVariant
                         )
                     }
                 }
@@ -113,19 +115,19 @@ fun SettingsSmartJitterPage(
 
         item(key = "switch-log") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Switch log"))
-                IosCard {
+                MarbleSectionHeader(title = trx("Switch log"))
+                MarbleCard {
                     if (live.switchLog.isEmpty()) {
                         Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
                             Text(
                                 text = trx("No switches yet — the current route is holding"),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = colors.tertiary
+                                color = colors.onSurfaceVariant
                             )
                         }
                     } else {
                         live.switchLog.take(6).forEachIndexed { index, entry ->
-                            if (index > 0) IosDivider()
+                            if (index > 0) MarbleDivider()
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -139,7 +141,7 @@ fun SettingsSmartJitterPage(
                                 Text(
                                     text = entry.reason,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = colors.tertiary
+                                    color = colors.onSurfaceVariant
                                 )
                             }
                         }
@@ -150,8 +152,8 @@ fun SettingsSmartJitterPage(
 
         item(key = "mode") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Mode"))
-                IosCard {
+                MarbleSectionHeader(title = trx("Mode"))
+                MarbleCard {
                     val modes = listOf(
                         Triple(JitterSmartMode.OFF, trx("Off"), trx("No probe, no switch, no lock")),
                         Triple(
@@ -166,16 +168,16 @@ fun SettingsSmartJitterPage(
                         )
                     )
                     modes.forEachIndexed { index, (candidate, title, subtitle) ->
-                        if (index > 0) IosDivider()
-                        IosChoiceRow(
+                        if (index > 0) MarbleDivider()
+                        MarbleChoiceRow(
                             title = title,
                             subtitle = subtitle,
                             selected = mode == candidate,
                             glyph = MarbleGlyph.GAUGE,
-                            squircleColor = when (candidate) {
-                                JitterSmartMode.OFF -> colors.tertiary
-                                JitterSmartMode.BALANCED -> colors.blue
-                                JitterSmartMode.AGGRESSIVE -> colors.orange
+                            iconTint = when (candidate) {
+                                JitterSmartMode.OFF -> colors.onSurfaceVariant
+                                JitterSmartMode.BALANCED -> colors.primary
+                                JitterSmartMode.AGGRESSIVE -> colors.warning
                             },
                             onClick = {
                                 repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(mode = candidate.id)))
@@ -189,15 +191,15 @@ fun SettingsSmartJitterPage(
 
         item(key = "probe") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Probe budget"))
-                IosCard {
+                MarbleSectionHeader(title = trx("Probe budget"))
+                MarbleCard {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        IosTextField(
+                        MarbleTextField(
                             label = trx("Probe endpoint (host)"),
                             value = s.jitterProbeHost,
                             monospace = true,
@@ -212,31 +214,31 @@ fun SettingsSmartJitterPage(
                                 "A light HTTPS HEAD/204 request through the live tunnel — never ICMP, never user data"
                             ),
                             style = MaterialTheme.typography.labelSmall,
-                            color = colors.tertiary
+                            color = colors.onSurfaceVariant
                         )
                     }
-                    IosDivider()
-                    IosNumberStepperRow(
+                    MarbleDivider()
+                    MarbleNumberStepperRow(
                         title = trx("Probe interval"),
                         subtitle = trx("Stretches automatically while the network is calm"),
                         value = s.jitterProbeIntervalSec,
                         range = SmartJitterDefaultsKeys.INTERVAL_SEC_MIN..SmartJitterDefaultsKeys.INTERVAL_SEC_MAX,
                         suffix = " s",
                         glyph = MarbleGlyph.GAUGE,
-                        squircleColor = colors.cyan,
+                        iconTint = colors.tertiary,
                         onValueChange = {
                             repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(probeIntervalSec = it)))
                             repo.refreshJitterReducerTuning()
                         }
                     )
-                    IosDivider()
-                    IosNumberStepperRow(
+                    MarbleDivider()
+                    MarbleNumberStepperRow(
                         title = trx("Minimum samples"),
                         subtitle = trx("No decision before this many valid probes"),
                         value = s.jitterMinSamples,
                         range = SmartJitterDefaultsKeys.MIN_SAMPLES_MIN..SmartJitterDefaultsKeys.MIN_SAMPLES_MAX,
                         glyph = MarbleGlyph.VAULT,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         onValueChange = {
                             repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(minSamples = it)))
                             repo.refreshJitterReducerTuning()
@@ -248,30 +250,30 @@ fun SettingsSmartJitterPage(
 
         item(key = "rails") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Switch guard rails"))
-                IosCard {
-                    IosNumberStepperRow(
+                MarbleSectionHeader(title = trx("Switch guard rails"))
+                MarbleCard {
+                    MarbleNumberStepperRow(
                         title = trx("Minimum improvement"),
                         subtitle = trx("A challenger must beat the live route by this much"),
                         value = s.jitterSwitchImprovePercent,
                         range = SmartJitterDefaultsKeys.IMPROVE_PERCENT_MIN..SmartJitterDefaultsKeys.IMPROVE_PERCENT_MAX,
                         suffix = " %",
                         glyph = MarbleGlyph.SPARK,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         onValueChange = {
                             repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(switchImprovePercent = it)))
                             repo.refreshJitterReducerTuning()
                         }
                     )
-                    IosDivider()
-                    IosNumberStepperRow(
+                    MarbleDivider()
+                    MarbleNumberStepperRow(
                         title = trx("Switch cooldown"),
                         subtitle = trx("No two switches closer than this — no flapping"),
                         value = s.jitterSwitchCooldownSec,
                         range = SmartJitterDefaultsKeys.COOLDOWN_SEC_MIN..SmartJitterDefaultsKeys.COOLDOWN_SEC_MAX,
                         suffix = " s",
                         glyph = MarbleGlyph.POWER,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         onValueChange = {
                             repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(switchCooldownSec = it)))
                             repo.refreshJitterReducerTuning()
@@ -283,22 +285,22 @@ fun SettingsSmartJitterPage(
 
         item(key = "tuner") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Auto-Tuner (experimental)"))
-                IosCard {
-                    IosSwitchRow(
+                MarbleSectionHeader(title = trx("Auto-Tuner (experimental)"))
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = trx("MTU Auto-Tuner"),
                         subtitle = trx(
                             "Off by default. When on, a confirmed recommendation can be applied to the profile and is reversible."
                         ),
                         checked = s.jitterAutoTunerEnabled,
                         glyph = MarbleGlyph.TUNERS,
-                        squircleColor = colors.purple,
+                        iconTint = colors.secondary,
                         onCheckedChange = {
                             repo.updateSettings(s.copy(smartJitter = s.smartJitter.copy(autoTunerEnabled = it)))
                         }
                     )
                     if (s.jitterAutoTunerEnabled) {
-                        IosDivider()
+                        MarbleDivider()
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -317,7 +319,7 @@ fun SettingsSmartJitterPage(
                                 Text(
                                     text = trx("Set to 0 to return to the adaptive policy"),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = colors.tertiary
+                                    color = colors.onSurfaceVariant
                                 )
                             }
                         }
@@ -339,7 +341,7 @@ private fun LiveStat(label: String, value: String) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = IosTheme.colors.tertiary
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -347,8 +349,8 @@ private fun LiveStat(label: String, value: String) {
 /** The two-minute series as one calm bar chart — Canvas only, no chart dependency. */
 @Composable
 private fun JitterSparkline(series: List<Double>) {
-    val accent = IosTheme.colors.accent
-    val muted = IosTheme.colors.cardSecondary
+    val accent = MaterialTheme.colorScheme.primary
+    val muted = MaterialTheme.colorScheme.surfaceContainer
     val samples = series.takeLast(SmartJitterController.SERIES_MAX)
     // The maximum is read before the draw scope: a @Composable value must not be read inside
     // Canvas (the compose-scope rule the project enforces).

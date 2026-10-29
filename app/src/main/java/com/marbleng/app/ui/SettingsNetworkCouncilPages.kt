@@ -25,6 +25,8 @@ import com.marbleng.app.AppRepository
 import com.marbleng.app.core.CouncilReport
 import com.marbleng.app.core.NetworkCouncil
 import kotlin.math.roundToInt
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 /**
  * MARBLE_NETWORK_COUNCIL_V236 — the page the twelve specialists report to.
@@ -40,33 +42,33 @@ fun SettingsNetworkCouncilPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val plan = repo.councilPlan
     val report = repo.councilReport
     val evidence = repo.councilEvidence
     val running = repo.councilRunning
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Network Council Scanner"),
         onBack = onBack
     ) {
         item(key = "council-hero") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(
+                MarbleSectionHeader(
                     title = trx("Commission the council"),
                     badge = if (plan != null) plan.metrics.grade else "",
                     badgeColor = plan?.let { gradeColor(it.metrics.score) }
                 )
-                IosCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            IosSquircleIcon(
+                            MarbleRowIcon(
                                 glyph = MarbleGlyph.RADAR,
-                                backgroundColor = if (running) colors.orange else colors.blue,
+                                tint = if (running) colors.warning else colors.primary,
                                 size = 44.dp,
                                 glyphSize = 22.dp
                             )
@@ -76,19 +78,19 @@ fun SettingsNetworkCouncilPage(
                             ) {
                                 Text(
                                     text = trx("Twelve specialists · one plan"),
-                                    color = colors.title,
+                                    color = colors.onSurface,
                                     style = MaterialTheme.typography.titleMedium.copy(
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 )
                                 Text(
                                     text = linkLine(evidence, report),
-                                    color = colors.subtitle,
+                                    color = colors.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
                             if (plan != null) {
-                                IosBadge(
+                                MarbleBadge(
                                     text = "${plan.metrics.score} ${plan.metrics.grade}",
                                     color = gradeColor(plan.metrics.score)
                                 )
@@ -102,14 +104,14 @@ fun SettingsNetworkCouncilPage(
                                         .fillMaxWidth()
                                         .height(6.dp)
                                         .clip(RoundedCornerShape(3.dp))
-                                        .background(colors.cardSecondary)
+                                        .background(colors.surfaceContainer)
                                 ) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth(repo.councilProgress.coerceIn(0f, 1f))
                                             .height(6.dp)
                                             .clip(RoundedCornerShape(3.dp))
-                                            .background(colors.accent)
+                                            .background(colors.primary)
                                     )
                                 }
                                 Row(
@@ -119,12 +121,12 @@ fun SettingsNetworkCouncilPage(
                                 ) {
                                     Text(
                                         text = trx(repo.councilStage.ifBlank { "Measuring" }),
-                                        color = colors.subtitle,
+                                        color = colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                     Text(
                                         text = "${(repo.councilProgress * 100f).roundToInt()}%",
-                                        color = colors.accent,
+                                        color = colors.primary,
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             fontFamily = FontFamily.Monospace,
                                             fontWeight = FontWeight.Bold
@@ -138,7 +140,7 @@ fun SettingsNetworkCouncilPage(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            IosButton(
+                            MarbleButton(
                                 label = if (running) {
                                     trx("Scanning")
                                 } else if (plan == null && report == null) {
@@ -152,10 +154,10 @@ fun SettingsNetworkCouncilPage(
                                 modifier = Modifier.weight(1f)
                             )
                             if (plan != null && plan.changes.isNotEmpty() && !running) {
-                                IosButton(
+                                MarbleButton(
                                     label = "${trx("Apply")} ${plan.changes.size}",
                                     glyph = MarbleGlyph.CHECK,
-                                    style = IosButtonStyle.TINTED,
+                                    style = MarbleButtonStyle.TINTED,
                                     onClick = { repo.applyNetworkCouncilPlan() },
                                     modifier = Modifier.weight(1f)
                                 )
@@ -167,7 +169,7 @@ fun SettingsNetworkCouncilPage(
                                 text = trx(
                                     "One scan reads this link, this operator and this path — ping, TCP, UDP, DNS, ports and MTU — then writes the settings it can justify on both cores."
                                 ),
-                                color = colors.subtitle,
+                                color = colors.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -178,28 +180,28 @@ fun SettingsNetworkCouncilPage(
 
         item(key = "council-seats") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(
+                MarbleSectionHeader(
                     title = trx("The twelve seats"),
                     badge = if (plan == null) "" else "${plan.findings.size}",
-                    badgeColor = colors.indigo
+                    badgeColor = colors.secondary
                 )
-                IosCard {
+                MarbleCard {
                     NetworkCouncil.CouncilSeat.entries.forEachIndexed { index, seat ->
-                        if (index > 0) IosDivider()
+                        if (index > 0) MarbleDivider()
                         val severity = repo.councilVerdict(seat)
                         val finding = plan?.findings?.firstOrNull { it.seat == seat }
-                        IosListItem(
+                        MarbleListItem(
                             title = trx(seat.label),
                             subtitle = finding?.headline?.let { trx(it) } ?: trx(seat.focus),
                             glyph = seatGlyph(seat),
-                            squircleColor = severityColor(severity),
+                            iconTint = severityColor(severity),
                             showChevron = false,
                             value = severityLabel(severity)
                         )
                     }
                 }
                 if (plan != null) {
-                    IosSectionFooter(
+                    MarbleSectionFooter(
                         text = trx(
                             "A seat that measured nothing speaks at lower confidence, and the operator table can only advise a completed handshake probe — never overrule it."
                         )
@@ -211,24 +213,24 @@ fun SettingsNetworkCouncilPage(
         if (plan != null) {
             item(key = "council-changes") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IosSectionHeader(
+                    MarbleSectionHeader(
                         title = trx("Settings the council would write"),
                         badge = "${plan.changes.size}",
-                        badgeColor = colors.green
+                        badgeColor = colors.success
                     )
                     if (plan.changes.isEmpty()) {
-                        IosEmptyState(
+                        MarbleEmptyState(
                             title = trx("Nothing to change"),
                             body = trx(
                                 "The scan agreed with every setting already on this device — the council does not rewrite a knob for the pleasure of it."
                             ),
                             glyph = MarbleGlyph.CHECK,
-                            tint = colors.green
+                            tint = colors.success
                         )
                     } else {
-                        IosCard {
+                        MarbleCard {
                             plan.changes.forEachIndexed { index, change ->
-                                if (index > 0) IosDivider()
+                                if (index > 0) MarbleDivider()
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -242,13 +244,13 @@ fun SettingsNetworkCouncilPage(
                                     ) {
                                         Text(
                                             text = trx(change.field.label),
-                                            color = colors.title,
+                                            color = colors.onSurface,
                                             style = MaterialTheme.typography.titleSmall
                                         )
                                         Text(
                                             text = "${displayValue(change.field, change.previous)} → " +
                                                 displayValue(change.field, change.value),
-                                            color = colors.accent,
+                                            color = colors.primary,
                                             style = MaterialTheme.typography.labelLarge.copy(
                                                 fontFamily = FontFamily.Monospace
                                             ),
@@ -257,23 +259,23 @@ fun SettingsNetworkCouncilPage(
                                     }
                                     Text(
                                         text = trx(change.reason),
-                                        color = colors.subtitle,
+                                        color = colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        IosBadge(
+                                        MarbleBadge(
                                             text = trx(change.seat.label),
                                             color = severityColor(repo.councilVerdict(change.seat))
                                         )
-                                        IosBadge(
+                                        MarbleBadge(
                                             text = "${change.confidence}%",
-                                            color = colors.teal
+                                            color = colors.tertiary
                                         )
                                     }
                                     if (change.dissent.isNotBlank()) {
                                         Text(
                                             text = trx("Dissent") + " · " + trx(change.dissent),
-                                            color = colors.tertiary,
+                                            color = colors.onSurfaceVariant,
                                             style = MaterialTheme.typography.labelSmall
                                         )
                                     }
@@ -281,7 +283,7 @@ fun SettingsNetworkCouncilPage(
                             }
                         }
                         if (!running) {
-                            IosButton(
+                            MarbleButton(
                                 label = trx("Apply the council's settings"),
                                 glyph = MarbleGlyph.SPARK,
                                 onClick = { repo.applyNetworkCouncilPlan() },
@@ -296,18 +298,18 @@ fun SettingsNetworkCouncilPage(
         if (evidence != null && plan != null) {
             item(key = "council-measurements") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IosSectionHeader(title = trx("What was measured"))
-                    IosCard {
+                    MarbleSectionHeader(title = trx("What was measured"))
+                    MarbleCard {
                         CouncilMetricRow(
                             label = "Transport",
                             value = "${trx(evidence.radio.transport.label)} · ${evidence.radio.networkType}"
                         )
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "Operator",
                             value = evidence.radio.operatorName.ifBlank { trx("Unknown") }
                         )
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "Signal",
                             value = if (evidence.radio.signalLevel < 0) {
@@ -317,12 +319,12 @@ fun SettingsNetworkCouncilPage(
                                     if (evidence.radio.signalDbm != 0) " · ${evidence.radio.signalDbm} dBm" else ""
                             }
                         )
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "Link estimate",
                             value = "${kbps(evidence.radio.linkDownKbps)} ↓ · ${kbps(evidence.radio.linkUpKbps)} ↑"
                         )
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "Latency",
                             value = "${plan.metrics.medianRttMs.roundToInt()} ms median · " +
@@ -330,20 +332,20 @@ fun SettingsNetworkCouncilPage(
                                 "${plan.metrics.jitterMs.roundToInt()} ms jitter",
                             tone = gradeColor(plan.metrics.score)
                         )
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "Loss",
                             value = "${plan.metrics.lossPercent.roundToInt()}% of " +
                                 "${evidence.latency.attempts} handshakes"
                         )
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "DNS",
                             value = "${plan.metrics.dnsOkPercent.roundToInt()}% answered · " +
                                 "${plan.metrics.dnsMedianMs.roundToInt()} ms median"
                         )
                         evidence.dns.forEach { entry ->
-                            IosDivider()
+                            MarbleDivider()
                             CouncilMetricRow(
                                 label = entry.server,
                                 value = if (entry.answered) {
@@ -353,13 +355,13 @@ fun SettingsNetworkCouncilPage(
                                     trx("No answer")
                                 },
                                 tone = when {
-                                    entry.blockPage -> colors.red
-                                    !entry.answered -> colors.orange
-                                    else -> colors.title
+                                    entry.blockPage -> colors.error
+                                    !entry.answered -> colors.warning
+                                    else -> colors.onSurface
                                 }
                             )
                         }
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "Ports",
                             value = "${plan.metrics.openPorts}/${plan.metrics.probedPorts} · " +
@@ -368,7 +370,7 @@ fun SettingsNetworkCouncilPage(
                                     .joinToString(", ")
                                     .ifBlank { trx("none") }
                         )
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "UDP",
                             value = when {
@@ -377,7 +379,7 @@ fun SettingsNetworkCouncilPage(
                                 else -> trx("No UDP answer")
                             }
                         )
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "MTU",
                             value = if (evidence.path.pathMtu > 0) {
@@ -388,7 +390,7 @@ fun SettingsNetworkCouncilPage(
                                     trx("link") + " ${evidence.radio.interfaceMtu}"
                             }
                         )
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "Address family",
                             value = when {
@@ -398,7 +400,7 @@ fun SettingsNetworkCouncilPage(
                                 else -> "IPv4 ✕ · IPv6 ✕"
                             }
                         )
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "TLS handshake",
                             value = when {
@@ -407,12 +409,12 @@ fun SettingsNetworkCouncilPage(
                                 else -> trx("Did not complete")
                             },
                             tone = when {
-                                evidence.path.injectedReset -> colors.red
-                                evidence.path.tlsCompleted -> colors.green
-                                else -> colors.orange
+                                evidence.path.injectedReset -> colors.error
+                                evidence.path.tlsCompleted -> colors.success
+                                else -> colors.warning
                             }
                         )
-                        IosDivider()
+                        MarbleDivider()
                         CouncilMetricRow(
                             label = "Device",
                             value = "${evidence.device.cores} cores · " +
@@ -427,10 +429,10 @@ fun SettingsNetworkCouncilPage(
         if (plan != null) {
             item(key = "council-rationale") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IosSectionHeader(title = trx("Why each seat ruled"))
-                    IosCard {
+                    MarbleSectionHeader(title = trx("Why each seat ruled"))
+                    MarbleCard {
                         plan.findings.forEachIndexed { index, finding ->
-                            if (index > 0) IosDivider()
+                            if (index > 0) MarbleDivider()
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -444,17 +446,17 @@ fun SettingsNetworkCouncilPage(
                                 ) {
                                     Text(
                                         text = trx(finding.seat.label),
-                                        color = colors.title,
+                                        color = colors.onSurface,
                                         style = MaterialTheme.typography.titleSmall
                                     )
-                                    IosBadge(
+                                    MarbleBadge(
                                         text = severityLabel(finding.severity),
                                         color = severityColor(finding.severity)
                                     )
                                 }
                                 Text(
                                     text = trx(finding.headline),
-                                    color = colors.subtitle,
+                                    color = colors.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall.copy(
                                         fontWeight = FontWeight.Medium
                                     )
@@ -462,7 +464,7 @@ fun SettingsNetworkCouncilPage(
                                 if (finding.detail.isNotBlank()) {
                                     Text(
                                         text = trx(finding.detail),
-                                        color = colors.tertiary,
+                                        color = colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.labelSmall
                                     )
                                 }
@@ -476,8 +478,8 @@ fun SettingsNetworkCouncilPage(
         if (report != null && !report.applied) {
             item(key = "council-last-report") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IosSectionHeader(title = trx("Last saved verdict"))
-                    IosCard {
+                    MarbleSectionHeader(title = trx("Last saved verdict"))
+                    MarbleCard {
                         CouncilMetricRow(
                             label = report.operatorName.ifBlank {
                                 report.networkType.ifBlank { report.transport.label }
@@ -491,19 +493,19 @@ fun SettingsNetworkCouncilPage(
 
         item(key = "council-notes") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosCard {
-                    IosSwitchRow(
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = trx("Apply the verdict automatically"),
                         subtitle = trx(
                             "Off: the council still scans and explains, but every change waits for your tap."
                         ),
                         checked = repo.councilAutoApply,
                         glyph = MarbleGlyph.CHECK,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         onCheckedChange = { repo.updateCouncilAutoApply(it) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Forget the last verdict"),
                         subtitle = repo.councilReport?.let { saved ->
                             listOf(saved.summary, repo.councilScanAgeLabel())
@@ -512,11 +514,11 @@ fun SettingsNetworkCouncilPage(
                         } ?: trx("Nothing saved yet"),
                         checked = false,
                         glyph = MarbleGlyph.TRASH,
-                        squircleColor = colors.gray,
+                        iconTint = colors.onSurfaceVariant,
                         onCheckedChange = { if (it) repo.clearNetworkCouncilReport() }
                     )
                 }
-                IosSectionFooter(
+                MarbleSectionFooter(
                     text = trx(
                         "The scan downloads nothing: throughput is the link's own estimate, and every probe is individually timed out. Routing, split tunnelling, identity and certificate verification are never touched by the council."
                     )
@@ -530,9 +532,9 @@ fun SettingsNetworkCouncilPage(
 private fun CouncilMetricRow(
     label: String,
     value: String,
-    tone: Color = IosTheme.colors.title
+    tone: Color = MaterialTheme.colorScheme.onSurface
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -542,7 +544,7 @@ private fun CouncilMetricRow(
     ) {
         Text(
             text = trx(label),
-            color = colors.subtitle,
+            color = colors.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.weight(1f)
         )
@@ -583,18 +585,18 @@ private fun linkLine(
 
 @Composable
 private fun severityColor(severity: NetworkCouncil.CouncilSeverity): Color = when (severity) {
-    NetworkCouncil.CouncilSeverity.GOOD -> IosTheme.colors.green
-    NetworkCouncil.CouncilSeverity.NOTICE -> IosTheme.colors.blue
-    NetworkCouncil.CouncilSeverity.WARNING -> IosTheme.colors.orange
-    NetworkCouncil.CouncilSeverity.CRITICAL -> IosTheme.colors.red
+    NetworkCouncil.CouncilSeverity.GOOD -> MaterialTheme.colorScheme.success
+    NetworkCouncil.CouncilSeverity.NOTICE -> MaterialTheme.colorScheme.primary
+    NetworkCouncil.CouncilSeverity.WARNING -> MaterialTheme.colorScheme.warning
+    NetworkCouncil.CouncilSeverity.CRITICAL -> MaterialTheme.colorScheme.error
 }
 
 @Composable
 private fun gradeColor(score: Int): Color = when {
-    score >= 85 -> IosTheme.colors.green
-    score >= 70 -> IosTheme.colors.teal
-    score >= 55 -> IosTheme.colors.orange
-    else -> IosTheme.colors.red
+    score >= 85 -> MaterialTheme.colorScheme.success
+    score >= 70 -> MaterialTheme.colorScheme.tertiary
+    score >= 55 -> MaterialTheme.colorScheme.warning
+    else -> MaterialTheme.colorScheme.error
 }
 
 @Composable

@@ -3,6 +3,7 @@ package com.marbleng.app.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,11 +24,16 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SplitButtonDefaults
+import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,11 +48,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +78,12 @@ import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.SlideConnectSpec
 import com.marbleng.app.model.parseConnectButtonStyle
 import com.marbleng.app.model.parseHomePingAction
+import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.MarbleCardShape
+import com.marbleng.app.ui.theme.rememberReducedMotion
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 @Composable
 fun HomeScreen(
@@ -82,7 +98,7 @@ fun HomeScreen(
     onOpenSettingsPage: (SettingsDestination) -> Unit,
     onContentScrollChanged: (Boolean) -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val settings = repo.settings
     val clipboard = LocalClipboardManager.current
@@ -187,35 +203,35 @@ fun HomeScreen(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.background)
+            .background(colors.surface)
             .statusBarsPadding(),
         contentPadding = PaddingValues(
-            start = IosSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-            end = IosSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
+            start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
+            end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
             top = 8.dp,
-            bottom = 112.dp
+            bottom = MarbleTheme.bottomClearance
         ),
-        verticalArrangement = Arrangement.spacedBy(IosSpec.SECTION_SPACING_DP.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
     ) {
         item(key = "home-header") {
-            IosLargeHeader(
+            MarbleLargeHeader(
                 title = "MarbleNG",
                 subtitle = headerSubtitle
             ) {
-                IosIconActionButton(
+                MarbleIconButton(
                     glyph = MarbleGlyph.QR,
                     onClick = onOpenQrImport,
-                    tint = colors.indigo
+                    tint = colors.secondary
                 )
-                IosIconActionButton(
+                MarbleIconButton(
                     glyph = MarbleGlyph.PLUS,
                     onClick = onOpenAddSheet,
-                    tint = colors.accent
+                    tint = colors.primary
                 )
-                IosIconActionButton(
+                MarbleIconButton(
                     glyph = MarbleGlyph.SHIELD,
                     onClick = onOpenDiagnostics,
-                    tint = if (connected) colors.green else colors.subtitle
+                    tint = if (connected) colors.success else colors.onSurfaceVariant
                 )
             }
         }
@@ -228,7 +244,8 @@ fun HomeScreen(
                 uptime = uptime,
                 activeRoute = activeRoute,
                 sliderMode = parseConnectButtonStyle(settings.connectButtonStyle) == ConnectButtonStyle.SLIDE,
-                onToggle = toggleConnection
+                onToggle = toggleConnection,
+                onOpenServers = onOpenServers
             )
         }
 
@@ -244,7 +261,7 @@ fun HomeScreen(
 
         item(key = "home-route-section") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Active Route"))
+                MarbleSectionHeader(title = trx("Active Route"))
                 HomeRouteAndIdentityCard(
                     repo = repo,
                     activeRoute = activeRoute,
@@ -260,7 +277,7 @@ fun HomeScreen(
         if (settings.modularShowStats) {
             item(key = "home-telemetry-section") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IosSectionHeader(title = strings.networkSpeed)
+                    MarbleSectionHeader(title = strings.networkSpeed)
                     HomeTelemetryCard(
                         downBps = repo.liveDownBps,
                         upBps = repo.liveUpBps,
@@ -280,21 +297,21 @@ fun HomeScreen(
         if (settings.modularShowShortcuts) {
             item(key = "home-shortcuts-section") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IosSectionHeader(title = trx("Quick Actions"))
+                    MarbleSectionHeader(title = trx("Quick Actions"))
                     // Council grid: 2x2 tiles — faster scan, less scroll, no duplicate list chrome
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                             HomeQuickTile(
                                 title = strings.addFromClipboard,
                                 glyph = MarbleGlyph.COPY,
-                                tint = colors.blue,
+                                tint = colors.primary,
                                 onClick = pasteFromClipboard,
                                 modifier = Modifier.weight(1f)
                             )
                             HomeQuickTile(
                                 title = trx("Scan QR"),
                                 glyph = MarbleGlyph.QR,
-                                tint = colors.indigo,
+                                tint = colors.secondary,
                                 onClick = onOpenQrImport,
                                 modifier = Modifier.weight(1f)
                             )
@@ -303,7 +320,7 @@ fun HomeScreen(
                             HomeQuickTile(
                                 title = trx("Smart Rank"),
                                 glyph = MarbleGlyph.SPARK,
-                                tint = colors.orange,
+                                tint = colors.warning,
                                 enabled = !repo.busy && !repo.probeActive,
                                 onClick = { repo.smartRank() },
                                 modifier = Modifier.weight(1f)
@@ -311,7 +328,7 @@ fun HomeScreen(
                             HomeQuickTile(
                                 title = trx("Censorship Lab"),
                                 glyph = MarbleGlyph.SHIELD,
-                                tint = colors.green,
+                                tint = colors.success,
                                 onClick = { onOpenSettingsPage(SettingsDestination.CENSORSHIP_LAB) },
                                 modifier = Modifier.weight(1f)
                             )
@@ -331,26 +348,43 @@ private fun HomeConnectionHeroCard(
     uptime: String,
     activeRoute: ProxyProfile?,
     sliderMode: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    onOpenServers: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
+    val haptics = LocalHapticFeedback.current
+    val reducedMotion = rememberReducedMotion()
+    val working = connecting || disconnecting
 
     val stateTone by animateColorAsState(
         targetValue = when {
-            connected -> colors.green
-            connecting || disconnecting -> colors.orange
-            else -> colors.accent
+            connected -> colors.success
+            working -> colors.warning
+            else -> colors.primary
         },
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        animationSpec = if (reducedMotion) {
+            snap()
+        } else {
+            spring(stiffness = Spring.StiffnessMediumLow)
+        },
         label = "heroTone"
     )
 
     val ringScale by animateFloatAsState(
         targetValue = if (connected) 1.06f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = 0.62f),
+        animationSpec = if (reducedMotion) {
+            snap()
+        } else {
+            spring(stiffness = Spring.StiffnessLow, dampingRatio = 0.62f)
+        },
         label = "heroRingScale"
     )
+
+    val tappedToggle: () -> Unit = {
+        haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+        onToggle()
+    }
 
     val headline = when {
         connected -> strings.statusProtected
@@ -372,7 +406,7 @@ private fun HomeConnectionHeroCard(
         else -> strings.connect
     }
 
-    IosCard(contentPadding = PaddingValues(22.dp)) {
+    MarbleCard(contentPadding = PaddingValues(22.dp)) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -389,7 +423,7 @@ private fun HomeConnectionHeroCard(
                     .clickable(
                         enabled = !disconnecting,
                         role = Role.Button,
-                        onClick = onToggle
+                        onClick = tappedToggle
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -416,7 +450,7 @@ private fun HomeConnectionHeroCard(
             ) {
                 Text(
                     text = headline,
-                    color = colors.title,
+                    color = colors.onSurface,
                     // MARBLE_WEIGHT_LADDER_V235 — headlineSmall already carries the HEADLINE
                     // rung (700); the copy() restated it. The status hero is a headline,
                     // the page's large-header title above it is the DISPLAY rung (800).
@@ -425,7 +459,7 @@ private fun HomeConnectionHeroCard(
                 )
                 Text(
                     text = subline,
-                    color = if (connected) stateTone else colors.subtitle,
+                    color = if (connected) stateTone else colors.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontWeight = if (connected) FontWeight.SemiBold else FontWeight.Normal
                     ),
@@ -436,7 +470,7 @@ private fun HomeConnectionHeroCard(
                 if (!connected && activeRoute == null) {
                     Text(
                         text = trx("Import a server to begin — paste, QR or file"),
-                        color = colors.tertiary,
+                        color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(top = 2.dp)
@@ -445,23 +479,81 @@ private fun HomeConnectionHeroCard(
             }
 
             if (sliderMode) {
-                IosSlideConnectBar(
+                MarbleSlideConnectBar(
                     connected = connected || connecting,
                     enabled = !disconnecting,
                     tone = stateTone,
                     label = if (connected || connecting) strings.slideToDisconnect else strings.slideToConnect,
-                    onTriggered = onToggle
+                    onTriggered = tappedToggle
                 )
             } else {
-                IosButton(
-                    label = actionLabel,
-                    onClick = onToggle,
-                    style = IosButtonStyle.PRIMARY,
-                    colorOverride = if (connected || connecting) colors.red else stateTone,
-                    glyph = if (connected || connecting) MarbleGlyph.STOP else MarbleGlyph.POWER,
-                    enabled = !disconnecting,
+                // Expressive split action: the big half toggles the tunnel, the small half
+                // opens the library to change route. Error-red while lit, primary at rest.
+                val lit = connected || connecting
+                SplitButtonLayout(
+                    leadingButton = {
+                        SplitButtonDefaults.LeadingButton(
+                            onClick = tappedToggle,
+                            enabled = !disconnecting,
+                            colors = if (lit) {
+                                ButtonDefaults.buttonColors(
+                                    containerColor = colors.error,
+                                    contentColor = colors.onError
+                                )
+                            } else {
+                                ButtonDefaults.buttonColors()
+                            }
+                        ) {
+                            MarbleGlyphIcon(
+                                glyph = if (lit) MarbleGlyph.STOP else MarbleGlyph.POWER,
+                                color = if (lit) colors.onError else colors.onPrimary,
+                                modifier = Modifier.size(18.dp),
+                                weight = 1.15f
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = actionLabel,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    },
+                    trailingButton = {
+                        SplitButtonDefaults.TrailingButton(
+                            onClick = onOpenServers,
+                            enabled = !disconnecting,
+                            colors = if (lit) {
+                                ButtonDefaults.buttonColors(
+                                    containerColor = colors.error,
+                                    contentColor = colors.onError
+                                )
+                            } else {
+                                ButtonDefaults.buttonColors()
+                            }
+                        ) {
+                            Box(
+                                modifier = Modifier.semantics {
+                                    contentDescription = strings.changeRoute
+                                },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                MarbleGlyphIcon(
+                                    glyph = MarbleGlyph.CHEVRON_DOWN,
+                                    color = if (lit) colors.onError else colors.onPrimary,
+                                    modifier = Modifier.size(18.dp),
+                                    weight = 1.2f
+                                )
+                            }
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+
+            // The tunnel takes a moment to come up: a wavy progress line says "working"
+            // where a spinner would steal the focal point from the status orb.
+            if (working) {
+                LinearWavyProgressIndicator(color = stateTone)
             }
         }
     }
@@ -476,30 +568,27 @@ private fun HomeQuickTile(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     Column(
         modifier = modifier
-            .clip(IosCardShape)
-            .background(colors.card)
-            .border(0.85.dp, colors.cardBorder, IosCardShape)
+            .clip(MarbleCardShape)
+            .background(colors.surfaceContainerLow)
+            .border(0.85.dp, colors.outlineVariant, MarbleCardShape)
             .alpha(if (enabled) 1f else 0.5f)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(IosSquircleShape)
-                .background(tint.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            MarbleGlyphIcon(glyph = glyph, color = tint, modifier = Modifier.size(18.dp), weight = 1.1f)
-        }
+        MarbleRowIcon(
+            glyph = glyph,
+            tint = tint,
+            size = 34.dp,
+            glyphSize = 18.dp
+        )
         Text(
             text = title,
-            color = colors.title,
+            color = colors.onSurface,
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -509,14 +598,14 @@ private fun HomeQuickTile(
 }
 
 @Composable
-private fun IosSlideConnectBar(
+private fun MarbleSlideConnectBar(
     connected: Boolean,
     enabled: Boolean,
     tone: Color,
     label: String,
     onTriggered: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val density = LocalDensity.current
     // MARBLE_RTL_CONNECT_CONTROL_V234 — the slide control mirrors with the language. `IntOffset`
     // is a pixel offset: on a Persian phone the thumb rests on the right edge and may only travel
@@ -528,13 +617,13 @@ private fun IosSlideConnectBar(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IosSpec.SLIDE_TRACK_HEIGHT_DP.dp)
+            .height(MarbleSpec.SLIDE_TRACK_HEIGHT_DP.dp)
             .clip(CircleShape)
-            .background(colors.cardSecondary)
-            .border(0.85.dp, colors.divider, CircleShape)
+            .background(colors.surfaceContainer)
+            .border(0.85.dp, colors.outlineVariant, CircleShape)
             .padding(4.dp)
     ) {
-        val thumbSize = IosSpec.SLIDE_THUMB_SIZE_DP.dp
+        val thumbSize = MarbleSpec.SLIDE_THUMB_SIZE_DP.dp
         val travelPx = with(density) { (maxWidth - thumbSize).toPx().coerceAtLeast(1f) }
         val offsetPx = SlideConnectSpec.thumbOffsetPx(travelPx, dragFraction, rtl)
         val fillFraction = dragFraction.coerceIn(0f, 1f)
@@ -564,7 +653,7 @@ private fun IosSlideConnectBar(
                 repeat(3) {
                     MarbleGlyphIcon(
                         glyph = if (rtl) MarbleGlyph.CHEVRON_LEFT else MarbleGlyph.CHEVRON,
-                        color = colors.subtitle.copy(alpha = 0.7f),
+                        color = colors.onSurfaceVariant.copy(alpha = 0.7f),
                         modifier = Modifier.size(14.dp)
                     )
                 }
@@ -573,7 +662,7 @@ private fun IosSlideConnectBar(
 
         Text(
             text = label,
-            color = colors.subtitle,
+            color = colors.onSurfaceVariant,
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
             modifier = Modifier.align(Alignment.Center)
         )
@@ -583,7 +672,7 @@ private fun IosSlideConnectBar(
                 .offset { IntOffset(offsetPx, 0) }
                 .size(thumbSize)
                 .clip(CircleShape)
-                .background(if (connected) colors.red else tone)
+                .background(if (connected) colors.error else tone)
                 .border(0.75.dp, Color.White.copy(alpha = 0.22f), CircleShape)
                 .pointerInput(connected, enabled, travelPx, rtl) {
                     if (!enabled) return@pointerInput
@@ -635,7 +724,7 @@ private fun HomeRouteAndIdentityCard(
     onTriggerPing: () -> Unit,
     onOpenExitIpSheet: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val countryCode = activeRoute?.let { repo.serverLocation(it).code }
 
@@ -646,9 +735,9 @@ private fun HomeRouteAndIdentityCard(
 
     val pingHeadline = when {
         isMeasuring -> strings.measuring
-        pingState == ConnectionPingState.MEASURED && pingMs > 0 -> "$pingMs ms"
+        pingState == ConnectionPingState.MEASURED && pingMs > 0 -> faDigits("$pingMs ms")
         pingState == ConnectionPingState.FAILED -> pingFailure.ifBlank { strings.pingFailed }
-        repo.livePingMs > 0 && connected -> "${repo.livePingMs} ms"
+        repo.livePingMs > 0 && connected -> faDigits("${repo.livePingMs} ms")
         else -> strings.testPing
     }
 
@@ -662,7 +751,7 @@ private fun HomeRouteAndIdentityCard(
         if (connected && repo.liveJitterMs > 0) {
             append(" · ")
             append(trx("Jitter"))
-            append(" ${repo.liveJitterMs} ms")
+            append(" ${faDigits("${repo.liveJitterMs} ms")}")
         }
         if (repo.probeActive) {
             append(" · ")
@@ -671,11 +760,11 @@ private fun HomeRouteAndIdentityCard(
     }
 
     val pingTone = when {
-        isMeasuring -> colors.blue
-        pingState == ConnectionPingState.MEASURED && pingMs in 1..180 -> colors.green
-        pingState == ConnectionPingState.MEASURED && pingMs > 180 -> colors.orange
-        pingState == ConnectionPingState.FAILED -> colors.red
-        else -> colors.green
+        isMeasuring -> colors.primary
+        pingState == ConnectionPingState.MEASURED && pingMs in 1..180 -> colors.success
+        pingState == ConnectionPingState.MEASURED && pingMs > 180 -> colors.warning
+        pingState == ConnectionPingState.FAILED -> colors.error
+        else -> colors.success
     }
 
     val intel = repo.serverIntel
@@ -693,8 +782,8 @@ private fun HomeRouteAndIdentityCard(
         else -> trx("Tap to inspect exit IP, country and ASN")
     }
 
-    IosCard {
-        IosListItem(
+    MarbleCard {
+        MarbleListItem(
             title = activeRoute?.let { cleanServerName(it.name) } ?: strings.chooseRoute,
             subtitle = if (activeRoute != null) {
                 "${protocolShortLabel(activeRoute)} · ${activeRoute.subscriptionName}"
@@ -702,46 +791,46 @@ private fun HomeRouteAndIdentityCard(
                 trx("Select or import a server from the Servers tab")
             },
             leading = {
-                IosServerAvatar(profile = activeRoute, countryCode = countryCode)
+                MarbleServerAvatar(profile = activeRoute, countryCode = countryCode)
             },
             trailing = {
-                IosBadge(
+                MarbleBadge(
                     text = if (connected) strings.homeConnectedBadge else strings.changeRoute,
-                    color = if (connected) colors.green else colors.accent
+                    color = if (connected) colors.success else colors.primary
                 )
             },
             onClick = onOpenServers
         )
 
         if (activeRoute != null) {
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = trx("Inspect Server Configuration"),
                 subtitle = "${activeRoute.host}:${activeRoute.port}",
                 glyph = MarbleGlyph.TUNERS,
-                squircleColor = colors.indigo,
+                iconTint = colors.secondary,
                 onClick = { onOpenServerDetail(activeRoute) }
             )
         }
 
-        IosDivider()
-        IosListItem(
+        MarbleDivider()
+        MarbleListItem(
             title = "${strings.connectionPing}: $pingHeadline",
             subtitle = pingSub,
             glyph = MarbleGlyph.GAUGE,
-            squircleColor = pingTone,
+            iconTint = pingTone,
             trailing = if (isMeasuring) {
-                { IosPulseDot(color = colors.blue) }
+                { MarblePulseDot(color = colors.primary) }
             } else null,
             onClick = onTriggerPing
         )
 
-        IosDivider()
-        IosListItem(
+        MarbleDivider()
+        MarbleListItem(
             title = ipTitle,
             subtitle = ipSubtitle,
             glyph = MarbleGlyph.GLOBE,
-            squircleColor = colors.teal,
+            iconTint = colors.tertiary,
             onClick = {
                 if (intel == null && !repo.serverIntelLoading) {
                     repo.refreshServerIntel(force = true)
@@ -762,10 +851,10 @@ private fun HomeTelemetryCard(
     socksPort: Int,
     onCopySocks: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
 
-    IosCard {
+    MarbleCard {
         // Council: split down/up into scannable pair, session/total into second pair
         Row(
             modifier = Modifier
@@ -774,21 +863,21 @@ private fun HomeTelemetryCard(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             HomeStatTile(
-                value = formatRate(downBps),
+                value = faDigits(formatRate(downBps)),
                 label = strings.download,
                 glyph = MarbleGlyph.DOWNLOAD,
-                tint = colors.blue,
+                tint = colors.primary,
                 modifier = Modifier.weight(1f)
             )
             HomeStatTile(
-                value = formatRate(upBps),
+                value = faDigits(formatRate(upBps)),
                 label = strings.upload,
                 glyph = MarbleGlyph.UPLOAD,
-                tint = colors.teal,
+                tint = colors.tertiary,
                 modifier = Modifier.weight(1f)
             )
         }
-        IosDivider(insetStart = 16.dp)
+        MarbleDivider(insetStart = 16.dp)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -796,31 +885,31 @@ private fun HomeTelemetryCard(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             HomeStatTile(
-                value = formatBytes(sessionBytes),
+                value = faDigits(formatBytes(sessionBytes)),
                 label = trx("Session"),
                 glyph = MarbleGlyph.LAYERS,
-                tint = colors.purple,
+                tint = colors.secondary,
                 modifier = Modifier.weight(1f)
             )
             HomeStatTile(
-                value = formatBytes(totalBytes),
+                value = faDigits(formatBytes(totalBytes)),
                 label = trx("Total"),
                 glyph = MarbleGlyph.VAULT,
-                tint = colors.indigo,
+                tint = colors.secondary,
                 modifier = Modifier.weight(1f)
             )
         }
         if (showSocks) {
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = "${strings.socksProxyLabel} · 127.0.0.1:$socksPort",
                 subtitle = trx("Tap to copy local SOCKS5 address"),
                 glyph = MarbleGlyph.LINK,
-                squircleColor = colors.indigo,
+                iconTint = colors.secondary,
                 trailing = {
                     Text(
                         text = strings.copyAction,
-                        color = colors.accent,
+                        color = colors.primary,
                         style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace)
                     )
                 },
@@ -839,35 +928,32 @@ private fun HomeStatTile(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(colors.cardSecondary)
+            .background(colors.surfaceContainer)
             .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(IosSquircleShape)
-                .background(tint.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center
-        ) {
-            MarbleGlyphIcon(glyph = glyph, color = tint, modifier = Modifier.size(16.dp))
-        }
+        MarbleRowIcon(
+            glyph = glyph,
+            tint = tint,
+            size = 28.dp,
+            glyphSize = 16.dp
+        )
         Column(verticalArrangement = Arrangement.spacedBy(1.dp), modifier = Modifier.weight(1f)) {
             Text(
                 text = value,
-                color = colors.title,
+                color = colors.onSurface,
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = label,
-                color = colors.subtitle,
+                color = colors.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

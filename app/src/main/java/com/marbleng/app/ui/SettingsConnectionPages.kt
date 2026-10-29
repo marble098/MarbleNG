@@ -20,38 +20,41 @@ import com.marbleng.app.model.SingBoxMuxProtocols
 import com.marbleng.app.model.XrayDomainStrategies
 import com.marbleng.app.model.XrayMuxUdp443Modes
 import com.marbleng.app.model.parsePowerProfile
+import androidx.compose.material3.MaterialTheme
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 @Composable
 fun SettingsConnectionModePage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Connection Mode & Ports"),
         onBack = onBack
     ) {
         item(key = "conn-mode") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Connection Mode"))
-                IosCard {
-                    IosChoiceRow(
+                MarbleSectionHeader(title = trx("Connection Mode"))
+                MarbleCard {
+                    MarbleChoiceRow(
                         title = trx("Full TUN (Device VPN)"),
                         subtitle = trx("Routes all device apps through the encrypted VPN interface"),
                         selected = s.connectionMode == ConnectionMode.FULL_TUN,
                         glyph = MarbleGlyph.SHIELD,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onClick = { repo.setConnectionMode(ConnectionMode.FULL_TUN) }
                     )
-                    IosDivider()
-                    IosChoiceRow(
+                    MarbleDivider()
+                    MarbleChoiceRow(
                         title = trx("Local Proxy Only"),
                         subtitle = "${trx("Exposes a local SOCKS5 listener on")} 127.0.0.1:${s.localProxyPort}",
                         selected = s.connectionMode == ConnectionMode.LOCAL_PROXY,
                         glyph = MarbleGlyph.LINK,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         onClick = { repo.setConnectionMode(ConnectionMode.LOCAL_PROXY) }
                     )
                 }
@@ -60,34 +63,34 @@ fun SettingsConnectionModePage(
 
         item(key = "conn-ports") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Local Ports & Behavior"))
-                IosCard {
-                    IosNumberStepperRow(
+                MarbleSectionHeader(title = trx("Local Ports & Behavior"))
+                MarbleCard {
+                    MarbleNumberStepperRow(
                         title = trx("Local SOCKS5 Port"),
                         subtitle = trx("Port used in Local Proxy mode"),
                         value = s.localProxyPort,
                         range = 1024..65535,
                         step = 1,
                         glyph = MarbleGlyph.SERVER,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         onValueChange = { repo.updateSettings(s.copy(localProxyPort = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Auto-Connect After Scan"),
                         subtitle = trx("Connect automatically to the top server after a Smart Rank scan"),
                         checked = s.autoConnectBestAfterScan,
                         glyph = MarbleGlyph.SPARK,
-                        squircleColor = colors.orange,
+                        iconTint = colors.warning,
                         onCheckedChange = { repo.updateSettings(s.copy(autoConnectBestAfterScan = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Adaptive MTU Healing"),
                         subtitle = trx("Adjust tunnel MTU automatically on lossy paths"),
                         checked = s.adaptiveMtuEnabled,
                         glyph = MarbleGlyph.TUNNEL,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         onCheckedChange = { repo.updateSettings(s.copy(adaptiveMtuEnabled = it)) }
                     )
                 }
@@ -101,22 +104,22 @@ fun SettingsCoreEnginePage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val engine = s.coreEngine()
     val isXray = engine == CoreEngine.XRAY
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Proxy Core Engine"),
         onBack = onBack
     ) {
         item(key = "core-selector") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Select Core Engine"))
-                IosCard {
+                MarbleSectionHeader(title = trx("Select Core Engine"))
+                MarbleCard {
                     CoreEngine.entries.forEachIndexed { idx, candidate ->
-                        if (idx > 0) IosDivider()
-                        IosChoiceRow(
+                        if (idx > 0) MarbleDivider()
+                        MarbleChoiceRow(
                             title = CoreEngineInfo.displayName(candidate),
                             subtitle = trx(CoreEngineInfo.summary(candidate)),
                             selected = engine == candidate,
@@ -126,7 +129,7 @@ fun SettingsCoreEnginePage(
                                 BuildConfig.SINGBOX_CORE_TAG
                             },
                             glyph = MarbleGlyph.SERVER,
-                            squircleColor = if (candidate == CoreEngine.XRAY) colors.green else colors.indigo,
+                            iconTint = if (candidate == CoreEngine.XRAY) colors.success else colors.secondary,
                             onClick = { repo.setCoreEngine(candidate) }
                         )
                     }
@@ -136,14 +139,14 @@ fun SettingsCoreEnginePage(
 
         item(key = "core-sniff-inbound") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Inbound & Sniffing"))
-                IosCard {
-                    IosSwitchRow(
+                MarbleSectionHeader(title = trx("Inbound & Sniffing"))
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = trx("Traffic Sniffing"),
                         subtitle = trx("Inspect HTTP / TLS / QUIC hostnames for domain routing"),
                         checked = if (isXray) s.xraySniffingEnabled else s.singBoxSniffEnabled,
                         glyph = MarbleGlyph.RADAR,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onCheckedChange = { enabled ->
                             repo.updateSettings(
                                 if (isXray) s.copy(xraySniffingEnabled = enabled)
@@ -152,23 +155,23 @@ fun SettingsCoreEnginePage(
                         }
                     )
                     if (isXray && s.xraySniffingEnabled) {
-                        IosDivider()
-                        IosSwitchRow(
+                        MarbleDivider()
+                        MarbleSwitchRow(
                             title = trx("Route-Only Sniffing"),
                             subtitle = trx("Use sniffed hostname for routing without rewriting destination"),
                             checked = s.xraySniffingRouteOnly,
                             glyph = MarbleGlyph.ROUTE,
-                            squircleColor = colors.teal,
+                            iconTint = colors.tertiary,
                             onCheckedChange = { repo.updateSettings(s.copy(xraySniffingRouteOnly = it)) }
                         )
                     }
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Allow LAN Inbound"),
                         subtitle = trx("Bind local inbound on 0.0.0.0 so LAN devices can share this tunnel"),
                         checked = if (isXray) s.xrayAllowLan else s.singBoxAllowLan,
                         glyph = MarbleGlyph.GLOBE,
-                        squircleColor = colors.orange,
+                        iconTint = colors.warning,
                         onCheckedChange = { allow ->
                             repo.updateSettings(
                                 if (isXray) s.copy(xrayAllowLan = allow)
@@ -176,15 +179,15 @@ fun SettingsCoreEnginePage(
                             )
                         }
                     )
-                    IosDivider()
-                    IosNumberStepperRow(
+                    MarbleDivider()
+                    MarbleNumberStepperRow(
                         title = trx("HTTP Inbound Port"),
                         subtitle = trx("0 disables the optional local HTTP proxy"),
                         value = if (isXray) s.xrayHttpInboundPort else s.singBoxHttpInboundPort,
                         range = 0..65535,
                         step = 1,
                         glyph = MarbleGlyph.LINK,
-                        squircleColor = colors.purple,
+                        iconTint = colors.secondary,
                         onValueChange = { port ->
                             repo.updateSettings(
                                 if (isXray) s.copy(xrayHttpInboundPort = port)
@@ -198,14 +201,14 @@ fun SettingsCoreEnginePage(
 
         item(key = "core-mux-tcp") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Multiplexing & Transport"))
-                IosCard {
-                    IosSwitchRow(
+                MarbleSectionHeader(title = trx("Multiplexing & Transport"))
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = if (isXray) "Mux.Cool" else trx("Multiplexing"),
                         subtitle = trx("Multiplex multiple streams over a single proxy connection"),
                         checked = if (isXray) s.muxEnabled else s.singBoxMuxEnabled,
                         glyph = MarbleGlyph.LAYERS,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         onCheckedChange = { enabled ->
                             repo.updateSettings(
                                 if (isXray) s.copy(muxEnabled = enabled)
@@ -214,62 +217,62 @@ fun SettingsCoreEnginePage(
                         }
                     )
                     if (isXray && s.muxEnabled) {
-                        IosDivider()
-                        IosNumberStepperRow(
+                        MarbleDivider()
+                        MarbleNumberStepperRow(
                             title = trx("Mux Concurrency"),
                             value = s.muxConcurrency,
                             range = 1..128,
                             glyph = MarbleGlyph.TUNERS,
-                            squircleColor = colors.blue,
+                            iconTint = colors.primary,
                             onValueChange = { repo.updateSettings(s.copy(muxConcurrency = it)) }
                         )
                     } else if (!isXray && s.singBoxMuxEnabled) {
-                        IosDivider()
-                        IosSwitchRow(
+                        MarbleDivider()
+                        MarbleSwitchRow(
                             title = trx("Mux Frame Padding"),
                             subtitle = trx("Pad multiplexed frames against packet-size fingerprinting"),
                             checked = s.singBoxMuxPadding,
                             glyph = MarbleGlyph.SHIELD,
-                            squircleColor = colors.green,
+                            iconTint = colors.success,
                             onCheckedChange = { repo.updateSettings(s.copy(singBoxMuxPadding = it)) }
                         )
                     }
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("TCP Fast Open"),
                         subtitle = trx("Send initial payload inside the TCP SYN packet"),
                         checked = s.tcpFastOpenEnabled,
                         glyph = MarbleGlyph.SPARK,
-                        squircleColor = colors.orange,
+                        iconTint = colors.warning,
                         onCheckedChange = { repo.updateSettings(s.copy(tcpFastOpenEnabled = it)) }
                     )
                     if (isXray) {
-                        IosDivider()
-                        IosSwitchRow(
+                        MarbleDivider()
+                        MarbleSwitchRow(
                             title = trx("Verify Config Compatibility"),
                             subtitle = trx("Validate final config with Xray before starting tunnel"),
                             checked = s.configCompatibilityMode,
                             glyph = MarbleGlyph.CHECK,
-                            squircleColor = colors.green,
+                            iconTint = colors.success,
                             onCheckedChange = { repo.updateSettings(s.copy(configCompatibilityMode = it)) }
                         )
-                        IosDivider()
-                        IosSwitchRow(
+                        MarbleDivider()
+                        MarbleSwitchRow(
                             title = trx("Allow Unencrypted Outbounds"),
                             subtitle = trx("Switch off to refuse plaintext public proxy configs"),
                             checked = s.allowUnencryptedPublicOutbound,
                             glyph = MarbleGlyph.SHIELD,
-                            squircleColor = colors.red,
+                            iconTint = colors.error,
                             onCheckedChange = { repo.updateSettings(s.copy(allowUnencryptedPublicOutbound = it)) }
                         )
                     } else {
-                        IosDivider()
-                        IosSwitchRow(
+                        MarbleDivider()
+                        MarbleSwitchRow(
                             title = trx("Unified Delay Measurement"),
                             subtitle = trx("Measure true end-to-end round-trip latency"),
                             checked = s.singBoxUnifiedDelay,
                             glyph = MarbleGlyph.GAUGE,
-                            squircleColor = colors.green,
+                            iconTint = colors.success,
                             onCheckedChange = { repo.updateSettings(s.copy(singBoxUnifiedDelay = it)) }
                         )
                     }
@@ -286,10 +289,10 @@ fun SettingsCoreEnginePage(
             val currentLevel = if (isXray) s.xrayLogLevel else s.singBoxLogLevel
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                IosSectionHeader(title = trx("Log Level & Extra JSON"))
-                IosChipStrip {
+                MarbleSectionHeader(title = trx("Log Level & Extra JSON"))
+                MarbleChipStrip {
                     levels.forEach { lvl ->
-                        IosPillChip(
+                        MarblePillChip(
                             label = lvl.uppercase(),
                             selected = currentLevel.equals(lvl, ignoreCase = true),
                             onClick = {
@@ -303,23 +306,23 @@ fun SettingsCoreEnginePage(
                 }
 
                 if (isXray && s.muxEnabled) {
-                    IosChipStrip {
+                    MarbleChipStrip {
                         XrayMuxUdp443Modes.ALL.forEach { mode ->
-                            IosPillChip(
+                            MarblePillChip(
                                 label = "UDP 443: ${mode.uppercase()}",
                                 selected = s.muxUdp443.equals(mode, ignoreCase = true),
-                                accent = colors.indigo,
+                                accent = colors.secondary,
                                 onClick = { repo.updateSettings(s.copy(muxUdp443 = mode)) }
                             )
                         }
                     }
                 } else if (!isXray && s.singBoxMuxEnabled) {
-                    IosChipStrip {
+                    MarbleChipStrip {
                         SingBoxMuxProtocols.ALL.forEach { proto ->
-                            IosPillChip(
+                            MarblePillChip(
                                 label = proto.uppercase(),
                                 selected = s.singBoxMuxProtocol.equals(proto, ignoreCase = true),
-                                accent = colors.indigo,
+                                accent = colors.secondary,
                                 onClick = { repo.updateSettings(s.copy(singBoxMuxProtocol = proto)) }
                             )
                         }
@@ -327,20 +330,20 @@ fun SettingsCoreEnginePage(
                 }
 
                 if (isXray) {
-                    IosChipStrip {
+                    MarbleChipStrip {
                         XrayDomainStrategies.ALL.forEach { ds ->
-                            IosPillChip(
+                            MarblePillChip(
                                 label = ds,
                                 selected = s.xraySockoptDomainStrategy.equals(ds, ignoreCase = true),
-                                accent = colors.teal,
+                                accent = colors.tertiary,
                                 onClick = { repo.updateSettings(s.copy(xraySockoptDomainStrategy = ds)) }
                             )
                         }
                     }
                 }
 
-                IosCard(contentPadding = PaddingValues(16.dp)) {
-                    IosTextField(
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
+                    MarbleTextField(
                         label = trx("Extra Core JSON (Advanced)"),
                         value = if (isXray) s.xrayExtraJson else s.singBoxExtraJson,
                         onValueChange = { json ->
@@ -366,22 +369,22 @@ fun SettingsTunnelDatapathPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val current = s.tunnelCore()
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Tunnel Datapath"),
         onBack = onBack
     ) {
         item(key = "tunnel-choice") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Packet Datapath"))
-                IosCard {
+                MarbleSectionHeader(title = trx("Packet Datapath"))
+                MarbleCard {
                     TunnelCore.entries.forEachIndexed { idx, candidate ->
-                        if (idx > 0) IosDivider()
+                        if (idx > 0) MarbleDivider()
                         val available = TunnelCoreInfo.isAvailable(candidate)
-                        IosChoiceRow(
+                        MarbleChoiceRow(
                             title = TunnelCoreInfo.displayName(candidate),
                             subtitle = if (available) {
                                 trx(TunnelCoreInfo.summary(candidate))
@@ -396,7 +399,7 @@ fun SettingsTunnelDatapathPage(
                                 BuildConfig.TUN2SOCKS_CORE_TAG
                             },
                             glyph = MarbleGlyph.LAYERS,
-                            squircleColor = if (candidate == TunnelCore.HEV) colors.teal else colors.blue,
+                            iconTint = if (candidate == TunnelCore.HEV) colors.tertiary else colors.primary,
                             onClick = { repo.setTunnelCore(candidate) }
                         )
                     }
@@ -407,77 +410,77 @@ fun SettingsTunnelDatapathPage(
         if (current == TunnelCore.TUN2SOCKS) {
             item(key = "tun2socks-options") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    IosSectionHeader(title = "tun2socks")
-                    IosCard {
-                        IosNumberStepperRow(
+                    MarbleSectionHeader(title = "tun2socks")
+                    MarbleCard {
+                        MarbleNumberStepperRow(
                             title = trx("MTU Cap"),
                             subtitle = trx("0 follows the active VPN session MTU"),
                             value = s.tun2SocksMtu,
                             range = 0..Tun2SocksPolicy.MAX_MTU,
                             step = 20,
                             glyph = MarbleGlyph.TUNERS,
-                            squircleColor = colors.blue,
+                            iconTint = colors.primary,
                             onValueChange = { repo.updateSettings(s.copy(tun2SocksMtu = it)) }
                         )
-                        IosDivider()
-                        IosNumberStepperRow(
+                        MarbleDivider()
+                        MarbleNumberStepperRow(
                             title = trx("UDP Session Timeout"),
                             value = s.tun2SocksUdpTimeoutSec,
                             range = Tun2SocksPolicy.MIN_UDP_TIMEOUT_SEC..Tun2SocksPolicy.MAX_UDP_TIMEOUT_SEC,
                             step = 5,
                             suffix = "s",
                             glyph = MarbleGlyph.GAUGE,
-                            squircleColor = colors.green,
+                            iconTint = colors.success,
                             onValueChange = {
                                 repo.updateSettings(
                                     s.copy(tun2SocksUdpTimeoutSec = Tun2SocksPolicy.normalizeUdpTimeout(it))
                                 )
                             }
                         )
-                        IosDivider()
-                        IosNumberStepperRow(
+                        MarbleDivider()
+                        MarbleNumberStepperRow(
                             title = trx("TCP Send Buffer"),
                             value = s.tun2SocksTcpSendBufferKb,
                             range = 0..Tun2SocksPolicy.MAX_BUFFER_KB,
                             step = 32,
                             suffix = " KB",
                             glyph = MarbleGlyph.UPLOAD,
-                            squircleColor = colors.indigo,
+                            iconTint = colors.secondary,
                             onValueChange = {
                                 repo.updateSettings(
                                     s.copy(tun2SocksTcpSendBufferKb = Tun2SocksPolicy.normalizeBufferKb(it))
                                 )
                             }
                         )
-                        IosDivider()
-                        IosNumberStepperRow(
+                        MarbleDivider()
+                        MarbleNumberStepperRow(
                             title = trx("TCP Receive Buffer"),
                             value = s.tun2SocksTcpReceiveBufferKb,
                             range = 0..Tun2SocksPolicy.MAX_BUFFER_KB,
                             step = 32,
                             suffix = " KB",
                             glyph = MarbleGlyph.DOWNLOAD,
-                            squircleColor = colors.purple,
+                            iconTint = colors.secondary,
                             onValueChange = {
                                 repo.updateSettings(
                                     s.copy(tun2SocksTcpReceiveBufferKb = Tun2SocksPolicy.normalizeBufferKb(it))
                                 )
                             }
                         )
-                        IosDivider()
-                        IosSwitchRow(
+                        MarbleDivider()
+                        MarbleSwitchRow(
                             title = trx("Moderate Receive Buffer"),
                             subtitle = trx("Grow TCP receive window dynamically as needed"),
                             checked = s.tun2SocksModerateReceiveBuffer,
                             glyph = MarbleGlyph.SPARK,
-                            squircleColor = colors.orange,
+                            iconTint = colors.warning,
                             onCheckedChange = { repo.updateSettings(s.copy(tun2SocksModerateReceiveBuffer = it)) }
                         )
                     }
 
-                    IosChipStrip {
+                    MarbleChipStrip {
                         Tun2SocksPolicy.LOG_LEVELS.forEach { lvl ->
-                            IosPillChip(
+                            MarblePillChip(
                                 label = lvl.uppercase(),
                                 selected = s.tun2SocksLogLevel.equals(lvl, ignoreCase = true),
                                 onClick = { repo.updateSettings(s.copy(tun2SocksLogLevel = lvl)) }
@@ -495,18 +498,18 @@ fun SettingsPowerProfilePage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val profile = parsePowerProfile(s.powerProfile)
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Power & Speed Profile"),
         onBack = onBack
     ) {
         item(key = "power-profiles") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Performance Profile"))
-                IosCard {
+                MarbleSectionHeader(title = trx("Performance Profile"))
+                MarbleCard {
                     val descriptions = mapOf(
                         PowerProfile.EFFICIENT to trx("Lower background wakeups and smaller socket pools to save battery"),
                         PowerProfile.BALANCED to trx("Standard core settings exactly as configured"),
@@ -514,17 +517,17 @@ fun SettingsPowerProfilePage(
                         PowerProfile.EXTREME to trx("Maximum concurrency and large buffers on capable devices")
                     )
                     PowerProfile.entries.forEachIndexed { idx, candidate ->
-                        if (idx > 0) IosDivider()
-                        IosChoiceRow(
+                        if (idx > 0) MarbleDivider()
+                        MarbleChoiceRow(
                             title = trx(candidate.label),
                             subtitle = descriptions[candidate].orEmpty(),
                             selected = profile == candidate,
                             glyph = MarbleGlyph.SPARK,
-                            squircleColor = when (candidate) {
-                                PowerProfile.EFFICIENT -> colors.green
-                                PowerProfile.BALANCED -> colors.blue
-                                PowerProfile.TURBO -> colors.orange
-                                PowerProfile.EXTREME -> colors.red
+                            iconTint = when (candidate) {
+                                PowerProfile.EFFICIENT -> colors.success
+                                PowerProfile.BALANCED -> colors.primary
+                                PowerProfile.TURBO -> colors.warning
+                                PowerProfile.EXTREME -> colors.error
                             },
                             onClick = { repo.updateSettings(s.copy(powerProfile = candidate.id)) }
                         )
@@ -535,32 +538,32 @@ fun SettingsPowerProfilePage(
 
         item(key = "power-warmup") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Connection Acceleration"))
-                IosCard {
-                    IosSwitchRow(
+                MarbleSectionHeader(title = trx("Connection Acceleration"))
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = trx("Pre-Warm Active Route on Launch"),
                         subtitle = trx("Pre-resolve DNS so the first ping and connection start faster"),
                         checked = s.warmupOnLaunch,
                         glyph = MarbleGlyph.GAUGE,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         onCheckedChange = { repo.updateSettings(s.copy(appBehavior = s.appBehavior.copy(warmupOnLaunch = it))) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Race Parallel Connect"),
                         subtitle = trx("Dial candidate endpoints in parallel for faster failover"),
                         checked = s.raceConnectEnabled,
                         glyph = MarbleGlyph.ROUTE,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         onCheckedChange = { repo.updateSettings(s.copy(raceConnectEnabled = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Smart Automatic Failover"),
                         subtitle = trx("Switch to a healthy backup server if the tunnel stalls"),
                         checked = s.smartFallbackEnabled,
                         glyph = MarbleGlyph.SHIELD,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         onCheckedChange = { repo.updateSettings(s.copy(smartFallbackEnabled = it)) }
                     )
                 }

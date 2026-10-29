@@ -2375,6 +2375,19 @@ private val FaLexicon: Map<String, String> = mapOf(
 
     // MARBLE_NETWORK_COUNCIL_V236 — the twelve-expert scanner speaks Persian too: its chrome,
     // its twelve seats, every knob it may write, and the verdicts those seats reach.
+
+    // MARBLE_M3_EXPRESSIVE_V240 — the rebuilt Appearance page speaks Persian too: the dynamic
+    // color switch, the theme rows and the split-button hint.
+    "Bright surfaces with dark text" to "سطحهای روشن با متن تیره",
+    "Dark" to "تیره",
+    "Dynamic Color" to "رنگ پویا",
+    "Low-contrast tonal cards without elevation shadows" to "کارتهای تُنال کمکنتراست بدون سایه ارتفاع",
+    "Match the wallpaper palette on Android 12+; the accent above is the fallback" to
+        "پالت رنگ کاغذدیواری در اندروید ۱۲ به بالا؛ رنگ بالا جایگزین است",
+    "Split connect button" to "دکمه اتصال دوقسمتی",
+    "Tap the status emblem or the big Connect half; the small half changes route" to
+        "روی نشان وضعیت یا نیمه بزرگ اتصال بزن؛ نیمه کوچک مسیر را عوض میکند",
+    "True-dark surfaces, kind to OLED screens" to "سطحهای کاملاً تیره، مهربان با صفحههای OLED",
 )
 
 

@@ -734,13 +734,14 @@ class AppStore(context: Context) {
             prefs.getString("fragmentStrategy", FragmentStrategy.DEFAULT.id)
                 ?: FragmentStrategy.DEFAULT.id
         ).id,
-        // MARBLE_APP_BEHAVIOR_GROUP_V238 — six app-behavior switches, one grouped axis.
+        // MARBLE_APP_BEHAVIOR_GROUP_V238 — seven app-behavior switches, one grouped axis.
         appBehavior = AppBehaviorPrefs(
             probeSpeedTest = prefs.getBoolean("probeSpeedTest", false),
             iranDeepProbeEnabled = prefs.getBoolean("iranDeepProbeEnabled", true),
             accentTheme = parseFlatAccent(
                 prefs.getString("accentTheme", FlatAccent.DEFAULT.id) ?: FlatAccent.DEFAULT.id
             ).id,
+            dynamicColor = prefs.getBoolean("dynamicColor", true),
             warmupOnLaunch = prefs.getBoolean("warmupOnLaunch", true),
             censorshipAutoApply = prefs.getBoolean("censorshipAutoApply", false),
             debugModeEnabled = prefs.getBoolean("debugModeEnabled", false)
@@ -970,6 +971,7 @@ class AppStore(context: Context) {
         .putString("fragmentStrategy", parseFragmentStrategy(s.fragmentStrategy).id)
         .putBoolean("warmupOnLaunch", s.warmupOnLaunch)
         .putBoolean("censorshipAutoApply", s.censorshipAutoApply)
+        .putBoolean("dynamicColor", s.dynamicColor)
         // MARBLE_SMART_JITTER_V238 — the reducer's persisted knobs.
         .putString("jitterSmartMode", JitterSmartMode.fromId(s.jitterSmartMode).id)
         .putString("jitterProbeHost", s.jitterProbeHost.trim().take(253))

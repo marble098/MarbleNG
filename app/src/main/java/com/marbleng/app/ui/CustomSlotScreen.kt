@@ -30,6 +30,10 @@ import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.dockSlotCaption
 import com.marbleng.app.model.dockSlotDefaultCaption
 import com.marbleng.app.model.parseDockSlotKind
+import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 data class ResolvedDockSlot(
     val kind: DockSlotKind,
@@ -94,7 +98,7 @@ fun CustomSlotScreen(
     onOpenDiagnostics: () -> Unit,
     onContentScrollChanged: (Boolean) -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val listState = rememberLazyListState()
     val slot = resolveDockSlot(repo)
@@ -109,18 +113,18 @@ fun CustomSlotScreen(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.background)
+            .background(colors.surface)
             .statusBarsPadding(),
         contentPadding = PaddingValues(
-            start = IosSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-            end = IosSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
+            start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
+            end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
             top = 8.dp,
-            bottom = 112.dp
+            bottom = MarbleTheme.bottomClearance
         ),
-        verticalArrangement = Arrangement.spacedBy(IosSpec.SECTION_SPACING_DP.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
     ) {
         item(key = "slot-header") {
-            IosLargeHeader(
+            MarbleLargeHeader(
                 title = trx(slot.title),
                 subtitle = when (slot.kind) {
                     DockSlotKind.PULSE -> trx("Live tunnel telemetry & quick diagnostics")
@@ -128,9 +132,9 @@ fun CustomSlotScreen(
                     DockSlotKind.CONFIG -> trx("One-tap pinned server shortcut")
                 }
             ) {
-                IosIconActionButton(
+                MarbleIconButton(
                     glyph = MarbleGlyph.TUNERS,
-                    tint = colors.accent,
+                    tint = colors.primary,
                     onClick = onCustomizeSlot
                 )
             }
@@ -144,7 +148,7 @@ fun CustomSlotScreen(
                 item(key = "pulse-live") {
                     val uptime = rememberUptimeLabel(repo.connectedSinceMs)
                     // Council: pulse hero gets its own breathing card to explain the tab
-                    IosCard(contentPadding = PaddingValues(18.dp)) {
+                    MarbleCard(contentPadding = PaddingValues(18.dp)) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -154,12 +158,12 @@ fun CustomSlotScreen(
                                 modifier = Modifier
                                     .size(54.dp)
                                     .clip(CircleShape)
-                                    .background((if (connected) colors.green else colors.blue).copy(alpha = 0.12f)),
+                                    .background((if (connected) colors.success else colors.primary).copy(alpha = 0.12f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 MarbleGlyphIcon(
                                     glyph = MarbleGlyph.SHIELD,
-                                    color = if (connected) colors.green else colors.blue,
+                                    color = if (connected) colors.success else colors.primary,
                                     modifier = Modifier.size(26.dp)
                                 )
                                 if (connected) {
@@ -168,15 +172,15 @@ fun CustomSlotScreen(
                                             .align(Alignment.TopEnd)
                                             .size(10.dp)
                                             .clip(CircleShape)
-                                            .background(colors.green)
-                                            .border(1.5.dp, colors.card, CircleShape)
+                                            .background(colors.success)
+                                            .border(1.5.dp, colors.surfaceContainerLow, CircleShape)
                                     )
                                 }
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
                                     text = if (connected) strings.statusProtected else strings.readyToConnect,
-                                    color = colors.title,
+                                    color = colors.onSurface,
                                     // MARBLE_WEIGHT_LADDER_V235 — the slot's status line is its
                                     // headline (700) over BODY prose (400), same as Home's hero.
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
@@ -184,15 +188,15 @@ fun CustomSlotScreen(
                                 )
                                 Text(
                                     text = if (connected) "${route?.let { cleanServerName(it.name) } ?: ""} · $uptime" else route?.let { cleanServerName(it.name) } ?: strings.chooseRoute,
-                                    color = colors.subtitle,
+                                    color = colors.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall,
                                     textAlign = TextAlign.Center
                                 )
                             }
-                            IosButton(
+                            MarbleButton(
                                 label = if (connected) strings.disconnect else strings.connect,
                                 glyph = if (connected) MarbleGlyph.STOP else MarbleGlyph.POWER,
-                                style = if (connected) IosButtonStyle.DESTRUCTIVE else IosButtonStyle.PRIMARY,
+                                style = if (connected) MarbleButtonStyle.DESTRUCTIVE else MarbleButtonStyle.PRIMARY,
                                 onClick = {
                                     if (connected || repo.state == "CONNECTING") repo.stopVpn() else repo.reconnectLastOrAuto(onConnect)
                                 },
@@ -201,21 +205,21 @@ fun CustomSlotScreen(
                         }
                     }
                     // keep throughput + ping as compact secondary card
-                    IosCard {
-                        IosListItem(
-                            title = "↓ ${formatRate(repo.liveDownBps)}  ·  ↑ ${formatRate(repo.liveUpBps)}",
-                            subtitle = "${trx("Session")}: ${formatBytes(repo.sessionBytes)} · ${trx("Total")}: ${formatBytes(repo.totalUsageBytes)}",
+                    MarbleCard {
+                        MarbleListItem(
+                            title = "↓ ${faDigits(formatRate(repo.liveDownBps))}  ·  ↑ ${faDigits(formatRate(repo.liveUpBps))}",
+                            subtitle = "${trx("Session")}: ${faDigits(formatBytes(repo.sessionBytes))} · ${trx("Total")}: ${faDigits(formatBytes(repo.totalUsageBytes))}",
                             glyph = MarbleGlyph.GAUGE,
-                            squircleColor = colors.indigo,
+                            iconTint = colors.secondary,
                             showChevron = false
                         )
-                        IosDivider()
-                        IosListItem(
-                            title = if (repo.livePingMs > 0) "${repo.livePingMs} ms" else strings.testPing,
-                            subtitle = if (repo.liveJitterMs > 0) "${trx("Jitter")}: ${repo.liveJitterMs} ms" else trx("Tap to measure active route latency"),
+                        MarbleDivider()
+                        MarbleListItem(
+                            title = if (repo.livePingMs > 0) faDigits("${repo.livePingMs} ms") else strings.testPing,
+                            subtitle = if (repo.liveJitterMs > 0) "${trx("Jitter")}: ${faDigits("${repo.liveJitterMs} ms")}" else trx("Tap to measure active route latency"),
                             glyph = MarbleGlyph.RADAR,
-                            squircleColor = colors.teal,
-                            trailing = if (repo.livePingMs > 0 && connected) { { IosPulseDot(colors.green) } } else null,
+                            iconTint = colors.tertiary,
+                            trailing = if (repo.livePingMs > 0 && connected) { { MarblePulseDot(colors.success) } } else null,
                             onClick = { repo.measureHomePing() }
                         )
                     }
@@ -223,30 +227,30 @@ fun CustomSlotScreen(
 
                 item(key = "pulse-tools") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IosSectionHeader(title = trx("Tools"))
-                        IosCard {
-                            IosListItem(
+                        MarbleSectionHeader(title = trx("Tools"))
+                        MarbleCard {
+                            MarbleListItem(
                                 title = trx("Smart Rank All Servers"),
                                 subtitle = trx("Benchmark & rank your server library"),
                                 glyph = MarbleGlyph.SPARK,
-                                squircleColor = colors.orange,
+                                iconTint = colors.warning,
                                 enabled = !repo.busy && !repo.probeActive,
                                 onClick = { repo.smartRank() }
                             )
-                            IosDivider()
-                            IosListItem(
+                            MarbleDivider()
+                            MarbleListItem(
                                 title = trx("Diagnostics, Logs & Privacy Audit"),
                                 subtitle = trx("Open runtime logs, system doctor and leak checks"),
                                 glyph = MarbleGlyph.INFO,
-                                squircleColor = colors.purple,
+                                iconTint = colors.secondary,
                                 onClick = onOpenDiagnostics
                             )
-                            IosDivider()
-                            IosListItem(
+                            MarbleDivider()
+                            MarbleListItem(
                                 title = trx("Customize Fourth Tab"),
                                 subtitle = trx("Pin a subscription, single server or live pulse"),
                                 glyph = MarbleGlyph.DOCK,
-                                squircleColor = colors.blue,
+                                iconTint = colors.primary,
                                 onClick = onCustomizeSlot
                             )
                         }
@@ -257,13 +261,13 @@ fun CustomSlotScreen(
             DockSlotKind.SOURCE -> {
                 if (slot.profiles.isEmpty()) {
                     item(key = "slot-source-empty") {
-                        IosEmptyState(
+                        MarbleEmptyState(
                             title = trx("No servers in this group"),
                             body = trx("Choose another subscription for the fourth tab or add servers."),
                             glyph = MarbleGlyph.LAYERS,
-                            tint = colors.indigo
+                            tint = colors.secondary
                         ) {
-                            IosButton(
+                            MarbleButton(
                                 label = trx("Choose Group"),
                                 onClick = onCustomizeSlot,
                                 modifier = Modifier.fillMaxWidth()
@@ -278,26 +282,26 @@ fun CustomSlotScreen(
                         benchmarks = benchmarks
                     )
                     item(key = "slot-source-list") {
-                        IosCard {
+                        MarbleCard {
                             sorted.forEachIndexed { idx, profile ->
-                                if (idx > 0) IosDivider()
+                                if (idx > 0) MarbleDivider()
                                 val active = repo.isActiveProfile(profile)
                                 val selected = repo.isSelectedProfile(profile)
                                 val result = benchmarks[profile.id]
                                 val probeState = repo.probeStateOf(profile.id)
-                                IosListItem(
+                                MarbleListItem(
                                     title = cleanServerName(profile.name),
                                     subtitle = "${protocolShortLabel(profile)} · ${profile.host}",
-                                    titleColor = if (active) colors.green else if (selected) colors.accent else colors.title,
+                                    titleColor = if (active) colors.success else if (selected) colors.primary else colors.onSurface,
                                     leading = {
-                                        IosServerAvatar(
+                                        MarbleServerAvatar(
                                             profile = profile,
                                             countryCode = repo.serverLocation(profile).code
                                         )
                                     },
                                     trailing = {
                                         if (result != null) {
-                                            IosBadge(
+                                            MarbleBadge(
                                                 text = trx(pingBadgeText(result, probeState)),
                                                 color = pingBadgeColor(result, probeState)
                                             )
@@ -321,13 +325,13 @@ fun CustomSlotScreen(
                 val pinned = slot.pinnedProfile
                 item(key = "slot-config") {
                     if (pinned == null) {
-                        IosEmptyState(
+                        MarbleEmptyState(
                             title = trx("No pinned server selected"),
                             body = trx("Pin a single server for one-tap connect in the fourth tab."),
                             glyph = MarbleGlyph.SERVER,
-                            tint = colors.teal
+                            tint = colors.tertiary
                         ) {
-                            IosButton(
+                            MarbleButton(
                                 label = trx("Pick a Server"),
                                 onClick = onCustomizeSlot,
                                 modifier = Modifier.fillMaxWidth()
@@ -335,20 +339,20 @@ fun CustomSlotScreen(
                         }
                     } else {
                         val isActive = repo.isActiveProfile(pinned)
-                        IosCard {
-                            IosListItem(
+                        MarbleCard {
+                            MarbleListItem(
                                 title = cleanServerName(pinned.name),
                                 subtitle = "${protocolShortLabel(pinned)} · ${pinned.host}:${pinned.port}",
                                 leading = {
-                                    IosServerAvatar(
+                                    MarbleServerAvatar(
                                         profile = pinned,
                                         countryCode = repo.serverLocation(pinned).code
                                     )
                                 },
                                 onClick = { onOpenDetail(pinned) }
                             )
-                            IosDivider()
-                            IosListItem(
+                            MarbleDivider()
+                            MarbleListItem(
                                 title = if (isActive) strings.disconnect else strings.connect,
                                 subtitle = if (isActive) {
                                     trx("Disconnect pinned server")
@@ -356,17 +360,17 @@ fun CustomSlotScreen(
                                     trx("Connect immediately to this pinned server")
                                 },
                                 glyph = if (isActive) MarbleGlyph.STOP else MarbleGlyph.POWER,
-                                squircleColor = if (isActive) colors.red else colors.green,
+                                iconTint = if (isActive) colors.error else colors.success,
                                 onClick = {
                                     if (isActive) repo.stopVpn() else onConnect(pinned)
                                 }
                             )
-                            IosDivider()
-                            IosListItem(
+                            MarbleDivider()
+                            MarbleListItem(
                                 title = trx("Change Pinned Server"),
                                 subtitle = trx("Select another server or customize tab appearance"),
                                 glyph = MarbleGlyph.DOCK,
-                                squircleColor = colors.blue,
+                                iconTint = colors.primary,
                                 onClick = onCustomizeSlot
                             )
                         }

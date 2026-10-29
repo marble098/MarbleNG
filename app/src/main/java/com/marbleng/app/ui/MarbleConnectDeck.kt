@@ -25,7 +25,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -45,6 +47,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -53,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.ConnectDeckAction
 import com.marbleng.app.model.ConnectDeckCatalog
 import com.marbleng.app.model.ConnectDeckLight
+import com.marbleng.app.ui.theme.rememberReducedMotion
 
 private val ConnectDeckShape = RoundedCornerShape(20.dp)
 
@@ -66,7 +71,7 @@ fun ConnectDeckSection(
     onActivate: (ConnectDeckAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val title = trx("Connect your way")
     val footer = if (connected && litAction != null) {
         trx("Tap again to stop")
@@ -78,16 +83,8 @@ fun ConnectDeckSection(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        IosSectionHeader(title = title)
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(ConnectDeckShape)
-                .background(colors.card)
-                .border(0.85.dp, colors.cardBorder, ConnectDeckShape)
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+        MarbleSectionHeader(title = title)
+        MarbleCard(contentPadding = PaddingValues(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -102,9 +99,10 @@ fun ConnectDeckSection(
                     )
                 }
             }
+            Spacer(Modifier.height(10.dp))
             Text(
                 text = footer,
-                color = if (litAction != null && connected) colors.accent else colors.tertiary,
+                color = if (litAction != null && connected) colors.primary else colors.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
@@ -121,11 +119,11 @@ private fun ConnectDeckButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val tone = when (action) {
-        ConnectDeckAction.QUICK -> colors.accent
-        ConnectDeckAction.SMART -> colors.indigo
-        ConnectDeckAction.LIGHT -> colors.teal
+        ConnectDeckAction.QUICK -> colors.primary
+        ConnectDeckAction.SMART -> colors.secondary
+        ConnectDeckAction.LIGHT -> colors.tertiary
     }
     val glyph = when (action) {
         ConnectDeckAction.QUICK -> MarbleGlyph.POWER
@@ -134,6 +132,7 @@ private fun ConnectDeckButton(
     }
     val title = trx(action.titleKey)
     val hint = if (lit) trx("Lit") else trx(action.hintKey)
+    val haptics = LocalHapticFeedback.current
     val scale by animateFloatAsState(
         targetValue = if (lit) 1.02f else 1f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
@@ -145,13 +144,16 @@ private fun ConnectDeckButton(
             .scale(scale)
             .alpha(if (busy) 0.62f else 1f)
             .clip(ConnectDeckShape)
-            .background(if (lit) tone.copy(alpha = 0.10f) else colors.cardSecondary)
+            .background(if (lit) tone.copy(alpha = 0.10f) else colors.surfaceContainer)
             .border(
                 width = if (lit) 1.dp else 0.85.dp,
-                color = if (lit) tone.copy(alpha = 0.45f) else colors.cardBorder,
+                color = if (lit) tone.copy(alpha = 0.45f) else colors.outlineVariant,
                 shape = ConnectDeckShape
             )
-            .clickable(enabled = !busy, role = Role.Button, onClick = onClick)
+            .clickable(enabled = !busy, role = Role.Button) {
+                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                onClick()
+            }
             .padding(horizontal = 6.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -172,7 +174,7 @@ private fun ConnectDeckButton(
         }
         Text(
             text = title,
-            color = if (lit) tone else colors.title,
+            color = if (lit) tone else colors.onSurface,
             style = MaterialTheme.typography.labelMedium.copy(
                 fontWeight = if (lit) FontWeight.Bold else FontWeight.SemiBold
             ),
@@ -182,7 +184,7 @@ private fun ConnectDeckButton(
         )
         Text(
             text = hint,
-            color = if (lit) tone else colors.tertiary,
+            color = if (lit) tone else colors.onSurfaceVariant,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -212,8 +214,10 @@ private fun ConnectDeckLightCanvas(
         return
     }
 
+    // Reduced motion: the lit lamp renders one frozen frame instead of looping.
+    val frozenFrame = rememberReducedMotion()
     val transition = rememberInfiniteTransition(label = "connectDeckLight")
-    val sweep by transition.animateFloat(
+    val sweepAnimated by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -222,7 +226,7 @@ private fun ConnectDeckLightCanvas(
         ),
         label = "connectDeckSweep"
     )
-    val breathe by transition.animateFloat(
+    val breatheAnimated by transition.animateFloat(
         initialValue = 0.86f,
         targetValue = 1.12f,
         animationSpec = infiniteRepeatable(
@@ -231,6 +235,8 @@ private fun ConnectDeckLightCanvas(
         ),
         label = "connectDeckBreathe"
     )
+    val sweep = if (frozenFrame) 0.3f else sweepAnimated
+    val breathe = if (frozenFrame) 1f else breatheAnimated
     val strokeWidth = 2.5.dp
 
     Canvas(modifier = modifier) {

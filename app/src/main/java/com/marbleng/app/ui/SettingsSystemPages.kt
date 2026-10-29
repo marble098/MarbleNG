@@ -42,44 +42,46 @@ import com.marbleng.app.core.NotificationChannelKey
 import com.marbleng.app.core.NotificationCopy
 import com.marbleng.app.core.NotificationLanguage
 import com.marbleng.app.core.NotificationRouteCycle
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 @Composable
 fun SettingsSubscriptionsPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Subscriptions & Auto-Refresh"),
         onBack = onBack
     ) {
         item(key = "sub-refresh-card") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                IosSectionHeader(title = trx("Automatic Updates"))
-                IosCard {
-                    IosSwitchRow(
+                MarbleSectionHeader(title = trx("Automatic Updates"))
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = trx("Auto-Refresh Subscriptions"),
                         subtitle = trx("Keep remote HTTPS server lists fresh automatically"),
                         checked = s.subscriptionAutoRefresh,
                         glyph = MarbleGlyph.REFRESH,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onCheckedChange = { repo.updateSettings(s.copy(subscriptionAutoRefresh = it)) }
                     )
-                    IosDivider()
-                    IosNumberStepperRow(
+                    MarbleDivider()
+                    MarbleNumberStepperRow(
                         title = trx("Refresh Interval"),
                         value = s.subscriptionRefreshHours,
                         range = 1..168,
                         suffix = "h",
                         glyph = MarbleGlyph.GAUGE,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         onValueChange = { repo.updateSettings(s.copy(subscriptionRefreshHours = it)) }
                     )
                 }
 
-                IosButton(
+                MarbleButton(
                     label = trx("Refresh All Subscriptions Now"),
                     glyph = MarbleGlyph.REFRESH,
                     enabled = repo.subscriptions.isNotEmpty() && !repo.busy,
@@ -96,7 +98,7 @@ fun SettingsBackupRestorePage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -110,30 +112,30 @@ fun SettingsBackupRestorePage(
         if (uri != null) repo.restoreBackup(uri)
     }
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Backup & Restore"),
         onBack = onBack
     ) {
         item(key = "backup-actions") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Encrypted-Ready JSON Archive"))
-                IosCard {
-                    IosListItem(
+                MarbleSectionHeader(title = trx("Encrypted-Ready JSON Archive"))
+                MarbleCard {
+                    MarbleListItem(
                         title = trx("Export Full Backup"),
                         subtitle = trx("Save subscriptions, manual servers, routing rules and settings to a JSON file"),
                         glyph = MarbleGlyph.UPLOAD,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         enabled = !repo.busy,
                         onClick = {
                             exportLauncher.launch("marbleng-backup-${System.currentTimeMillis() / 1000}.json")
                         }
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = trx("Restore from Backup File"),
                         subtitle = trx("Import a previously saved MarbleNG JSON backup"),
                         glyph = MarbleGlyph.DOWNLOAD,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         enabled = !repo.busy,
                         onClick = {
                             importLauncher.launch(arrayOf("application/json", "text/*", "application/octet-stream"))
@@ -150,7 +152,7 @@ fun SettingsNotificationsPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
     val s = repo.settings
     val activity = context as? Activity
@@ -224,8 +226,8 @@ fun SettingsNotificationsPage(
         else -> "ON"
     }
     val permissionTint = when {
-        !runtimeGranted() || !appLevelEnabled() -> colors.orange
-        else -> colors.green
+        !runtimeGranted() || !appLevelEnabled() -> colors.warning
+        else -> colors.success
     }
     val permissionSubtitle = when {
         !runtimeGranted() ->
@@ -235,25 +237,25 @@ fun SettingsNotificationsPage(
         else -> trx("Allowed by Android — the tunnel item and alerts can appear")
     }
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Notifications & Background"),
         onBack = onBack
     ) {
         item(key = "permissions-status") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(
+                MarbleSectionHeader(
                     title = trx("System Permissions"),
                     badge = permissionBadge,
                     badgeColor = permissionTint
                 )
-                IosCard {
-                    IosListItem(
+                MarbleCard {
+                    MarbleListItem(
                         title = trx("Notification Permission"),
                         subtitle = permissionSubtitle,
                         glyph = MarbleGlyph.BELL,
-                        squircleColor = if (notifGranted) colors.green else colors.orange,
+                        iconTint = if (notifGranted) colors.success else colors.warning,
                         trailing = {
-                            IosBadge(
+                            MarbleBadge(
                                 text = permissionBadge,
                                 color = permissionTint
                             )
@@ -267,17 +269,17 @@ fun SettingsNotificationsPage(
                         }
                     )
                     if (!notifGranted) {
-                        IosDivider()
-                        IosListItem(
+                        MarbleDivider()
+                        MarbleListItem(
                             title = trx("Open Android notification settings"),
                             subtitle = trx("The only place a blocked permission can be restored"),
                             glyph = MarbleGlyph.INFO,
-                            squircleColor = colors.red,
+                            iconTint = colors.error,
                             onClick = { openAppNotificationSettings() }
                         )
                     }
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = trx("Unrestricted Background Activity"),
                         subtitle = if (bgGranted) {
                             trx("Granted — tunnel stays alive with screen off")
@@ -285,11 +287,11 @@ fun SettingsNotificationsPage(
                             trx("Tap to exempt MarbleNG from battery optimization")
                         },
                         glyph = MarbleGlyph.POWER,
-                        squircleColor = if (bgGranted) colors.green else colors.red,
+                        iconTint = if (bgGranted) colors.success else colors.error,
                         trailing = {
-                            IosBadge(
+                            MarbleBadge(
                                 text = trx(if (bgGranted) "ON" else "ACTION"),
-                                color = if (bgGranted) colors.green else colors.red
+                                color = if (bgGranted) colors.success else colors.error
                             )
                         },
                         onClick = {
@@ -307,13 +309,13 @@ fun SettingsNotificationsPage(
 
         item(key = "notification-preview") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(
+                MarbleSectionHeader(
                     title = trx("Live Preview"),
                     badge = if (notifGranted) trx("LIVE") else trx("OFF"),
-                    badgeColor = if (notifGranted) colors.green else colors.red
+                    badgeColor = if (notifGranted) colors.success else colors.error
                 )
                 NotificationPreviewCard(repo = repo)
-                IosSectionFooter(
+                MarbleSectionFooter(
                     text = trx(
                         "State first, route second, measurement last. The session clock is Android's own chronometer, so it keeps counting without reposting."
                     )
@@ -323,28 +325,28 @@ fun SettingsNotificationsPage(
 
         item(key = "notification-channels") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(
+                MarbleSectionHeader(
                     title = trx("Channels"),
                     badge = NotificationChannelKey.menuOrder.size.toString(),
-                    badgeColor = colors.blue
+                    badgeColor = colors.primary
                 )
-                IosCard {
+                MarbleCard {
                     NotificationChannelKey.menuOrder.forEachIndexed { index, key ->
-                        if (index > 0) IosDivider()
+                        if (index > 0) MarbleDivider()
                         val importance = channelImportance(key.id)
                         val state = when {
-                            !notifGranted -> "OFF" to colors.red
+                            !notifGranted -> "OFF" to colors.error
                             importance == NotificationManager.IMPORTANCE_UNSPECIFIED ->
-                                "—" to colors.subtitle
+                                "—" to colors.onSurfaceVariant
                             importance == NotificationManager.IMPORTANCE_NONE ->
-                                "MUTED" to colors.red
+                                "MUTED" to colors.error
                             importance >= NotificationManager.IMPORTANCE_HIGH ->
-                                "LOUD" to colors.green
+                                "LOUD" to colors.success
                             importance >= NotificationManager.IMPORTANCE_DEFAULT ->
-                                "ON" to colors.green
-                            else -> "QUIET" to colors.orange
+                                "ON" to colors.success
+                            else -> "QUIET" to colors.warning
                         }
-                        IosListItem(
+                        MarbleListItem(
                             title = trx(NotificationCopy.channelTitle(key, NotificationLanguage.EN)),
                             subtitle = trx(NotificationCopy.channelFocus(key, NotificationLanguage.EN)),
                             glyph = when (key) {
@@ -353,21 +355,21 @@ fun SettingsNotificationsPage(
                                 NotificationChannelKey.PRIVACY -> MarbleGlyph.SHIELD
                                 NotificationChannelKey.UPDATES -> MarbleGlyph.DOWNLOAD
                             },
-                            squircleColor = when (key) {
-                                NotificationChannelKey.CONNECTION -> colors.teal
-                                NotificationChannelKey.ALERTS -> colors.blue
-                                NotificationChannelKey.PRIVACY -> colors.red
-                                NotificationChannelKey.UPDATES -> colors.purple
+                            iconTint = when (key) {
+                                NotificationChannelKey.CONNECTION -> colors.tertiary
+                                NotificationChannelKey.ALERTS -> colors.primary
+                                NotificationChannelKey.PRIVACY -> colors.error
+                                NotificationChannelKey.UPDATES -> colors.secondary
                             },
                             trailing = {
-                                IosBadge(text = state.first, color = state.second)
+                                MarbleBadge(text = state.first, color = state.second)
                             },
                             enabled = Build.VERSION.SDK_INT >= 26,
                             onClick = { openChannelSettings(key.id) }
                         )
                     }
                 }
-                IosSectionFooter(
+                MarbleSectionFooter(
                     text = trx(
                         "Android stores these four channels on the device. Muting one here is the same as muting it in system settings."
                     )
@@ -377,105 +379,105 @@ fun SettingsNotificationsPage(
 
         item(key = "smart-notifications") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(
+                MarbleSectionHeader(
                     title = trx("Notification Preferences"),
                     badge = if (s.smartNotificationsEnabled) trx("SMART ALERTS ON") else trx("SMART ALERTS OFF"),
-                    badgeColor = if (s.smartNotificationsEnabled) colors.green else colors.orange
+                    badgeColor = if (s.smartNotificationsEnabled) colors.success else colors.warning
                 )
-                IosCard {
-                    IosSwitchRow(
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = trx("Live Telemetry in Ongoing Notification"),
                         subtitle = trx("Show real-time ping and throughput in the status bar notification"),
                         checked = s.notificationLiveStats,
                         glyph = MarbleGlyph.GAUGE,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onCheckedChange = { repo.updateSettings(s.copy(notificationLiveStats = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Session Clock"),
                         subtitle = trx("A live chronometer in the ongoing item, drawn by Android, never reposted"),
                         checked = s.notificationSessionTimer,
                         glyph = MarbleGlyph.RADAR,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         onCheckedChange = { repo.updateSettings(s.copy(notificationSessionTimer = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Smart Event Alerts"),
                         subtitle = trx("Notify on route recovery, privacy warnings or subscription updates"),
                         checked = s.smartNotificationsEnabled,
                         glyph = MarbleGlyph.BELL,
-                        squircleColor = colors.red,
+                        iconTint = colors.error,
                         onCheckedChange = { repo.updateSettings(s.copy(smartNotificationsEnabled = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Connection Events"),
                         enabled = s.smartNotificationsEnabled,
                         checked = s.notifyConnectionEvents,
                         glyph = MarbleGlyph.TUNNEL,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         onCheckedChange = { repo.updateSettings(s.copy(notifyConnectionEvents = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Failover & Recovery"),
                         enabled = s.smartNotificationsEnabled,
                         checked = s.notifyRecoveryEvents,
                         glyph = MarbleGlyph.REFRESH,
-                        squircleColor = colors.orange,
+                        iconTint = colors.warning,
                         onCheckedChange = { repo.updateSettings(s.copy(notifyRecoveryEvents = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Privacy & Kill Switch Warnings"),
                         enabled = s.smartNotificationsEnabled,
                         checked = s.notifyPrivacyWarnings,
                         glyph = MarbleGlyph.SHIELD,
-                        squircleColor = colors.red,
+                        iconTint = colors.error,
                         onCheckedChange = { repo.updateSettings(s.copy(notifyPrivacyWarnings = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Privacy Alarms Can Interrupt"),
                         subtitle = trx("Their own channel: sound, vibration and a lock-screen banner"),
                         enabled = s.smartNotificationsEnabled && s.notifyPrivacyWarnings,
                         checked = s.notifyPrivacyHeadsUp,
                         glyph = MarbleGlyph.RADAR,
-                        squircleColor = colors.red,
+                        iconTint = colors.error,
                         onCheckedChange = { repo.updateSettings(s.copy(notifyPrivacyHeadsUp = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Network Changes"),
                         enabled = s.smartNotificationsEnabled,
                         checked = s.notifyNetworkChanges,
                         glyph = MarbleGlyph.GLOBE,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onCheckedChange = { repo.updateSettings(s.copy(notifyNetworkChanges = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Subscription Refreshes"),
                         enabled = s.smartNotificationsEnabled,
                         checked = s.notifySubscriptionEvents,
                         glyph = MarbleGlyph.LAYERS,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         onCheckedChange = { repo.updateSettings(s.copy(notifySubscriptionEvents = it)) }
                     )
-                    IosDivider()
-                    IosSwitchRow(
+                    MarbleDivider()
+                    MarbleSwitchRow(
                         title = trx("Core & App Updates"),
                         subtitle = trx("A newer build or a core refresh worth installing"),
                         enabled = s.smartNotificationsEnabled,
                         checked = s.notifyCoreUpdates,
                         glyph = MarbleGlyph.DOWNLOAD,
-                        squircleColor = colors.purple,
+                        iconTint = colors.secondary,
                         onCheckedChange = { repo.updateSettings(s.copy(notifyCoreUpdates = it)) }
                     )
-                    IosDivider()
-                    IosNumberStepperRow(
+                    MarbleDivider()
+                    MarbleNumberStepperRow(
                         title = trx("Alert Cooldown"),
                         subtitle = trx("Minimum gap between two alerts of the same kind"),
                         value = s.notificationCooldownSec,
@@ -483,7 +485,7 @@ fun SettingsNotificationsPage(
                         step = 5,
                         suffix = "s",
                         glyph = MarbleGlyph.TUNERS,
-                        squircleColor = colors.purple,
+                        iconTint = colors.secondary,
                         onValueChange = { repo.updateSettings(s.copy(notificationCooldownSec = it)) }
                     )
                 }
@@ -494,22 +496,22 @@ fun SettingsNotificationsPage(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val canTest = notifGranted && s.smartNotificationsEnabled
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    IosButton(
+                    MarbleButton(
                         label = trx("Send Test Alert"),
-                        style = IosButtonStyle.TINTED,
+                        style = MarbleButtonStyle.TINTED,
                         enabled = canTest,
                         onClick = { repo.testSmartNotification() },
                         modifier = Modifier.weight(1f)
                     )
-                    IosButton(
+                    MarbleButton(
                         label = trx("Clear Alerts"),
-                        style = IosButtonStyle.SECONDARY,
+                        style = MarbleButtonStyle.SECONDARY,
                         onClick = { repo.clearSmartNotifications() },
                         modifier = Modifier.weight(1f)
                     )
                 }
                 if (!canTest) {
-                    IosSectionFooter(
+                    MarbleSectionFooter(
                         text = if (!notifGranted) {
                             trx("Android is blocking notifications, so no test can be delivered")
                         } else {
@@ -531,7 +533,7 @@ fun SettingsNotificationsPage(
  */
 @Composable
 private fun NotificationPreviewCard(repo: AppRepository) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val status = when (repo.state) {
         "CONNECTED" -> ConnectionStatus.PROTECTED
@@ -555,7 +557,7 @@ private fun NotificationPreviewCard(repo: AppRepository) {
         repo.liveUpBps
     )
 
-    IosCard {
+    MarbleCard {
         Column(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -564,23 +566,23 @@ private fun NotificationPreviewCard(repo: AppRepository) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                IosSquircleIcon(
+                MarbleRowIcon(
                     glyph = MarbleGlyph.BELL,
-                    backgroundColor = colors.blue,
+                    tint = colors.primary,
                     size = 30.dp,
                     glyphSize = 16.dp
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = trx(NotificationCopy.statusTitle(status, NotificationLanguage.EN)),
-                        color = colors.title,
+                        color = colors.onSurface,
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = trx(detail),
-                        color = colors.subtitle,
+                        color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -588,15 +590,15 @@ private fun NotificationPreviewCard(repo: AppRepository) {
                 }
                 Text(
                     text = "MarbleNG",
-                    color = colors.subtitle,
+                    color = colors.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall
                 )
             }
-            IosFadeDivider()
+            MarbleFadeDivider()
             if (s.notificationLiveStats) {
                 Text(
                     text = metrics,
-                    color = colors.title,
+                    color = colors.onSurface,
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontFamily = FontFamily.Monospace
                     ),
@@ -605,37 +607,37 @@ private fun NotificationPreviewCard(repo: AppRepository) {
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosBadge(
+                MarbleBadge(
                     text = trx(NotificationCopy.statusSubText(status, NotificationLanguage.EN)),
                     color = when (status) {
-                        ConnectionStatus.PROTECTED -> colors.green
-                        ConnectionStatus.BLOCKED -> colors.red
-                        ConnectionStatus.DISCONNECTED -> colors.subtitle
-                        else -> colors.orange
+                        ConnectionStatus.PROTECTED -> colors.success
+                        ConnectionStatus.BLOCKED -> colors.error
+                        ConnectionStatus.DISCONNECTED -> colors.onSurfaceVariant
+                        else -> colors.warning
                     }
                 )
                 if (s.notificationSessionTimer) {
-                    IosBadge(text = trx("SESSION TIMER"), color = colors.teal)
+                    MarbleBadge(text = trx("SESSION TIMER"), color = colors.tertiary)
                 }
                 if (s.smartNotificationsEnabled) {
-                    IosBadge(text = trx("ALERTS ON"), color = colors.purple)
+                    MarbleBadge(text = trx("ALERTS ON"), color = colors.secondary)
                 }
             }
             // MARBLE_NOTIFICATION_SWITCH_V234 — the shade switches the route itself now, so the
             // preview names both verbs and says they act in place.
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosBadge(
+                MarbleBadge(
                     text = "↔ ${trx(NotificationCopy.actionNextServer(NotificationLanguage.EN))}",
-                    color = colors.blue
+                    color = colors.primary
                 )
-                IosBadge(
+                MarbleBadge(
                     text = "⇄ ${trx(NotificationCopy.actionNextSubscription(NotificationLanguage.EN))}",
-                    color = colors.indigo
+                    color = colors.secondary
                 )
             }
             Text(
                 text = trx("Both switches work from the shade — no need to open the app"),
-                color = colors.tertiary,
+                color = colors.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall
             )
         }
@@ -655,16 +657,16 @@ fun SettingsDiagnosticsPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val clipboard = LocalClipboardManager.current
     var tab by rememberSaveable { mutableStateOf(DiagnosticsTab.BUG_FINDER) }
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = trx("Diagnostics, Logs & Bug Finder"),
         onBack = onBack
     ) {
         item(key = "diag-tabs") {
-            IosSegmentedControl(
+            MarbleSegmentedControl(
                 options = listOf(
                     DiagnosticsTab.BUG_FINDER to trx("Scan"),
                     DiagnosticsTab.PRIVACY to trx("Privacy"),
@@ -682,28 +684,28 @@ fun SettingsDiagnosticsPage(
                 val report = repo.bugReport
                 item(key = "bug-finder-panel") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        IosCard {
-                            IosSwitchRow(
+                        MarbleCard {
+                            MarbleSwitchRow(
                                 title = trx("Stream Debug TXT Log"),
                                 subtitle = repo.debugReportLocation(),
                                 checked = repo.settings.debugModeEnabled,
                                 glyph = MarbleGlyph.FOLDER,
-                                squircleColor = colors.orange,
+                                iconTint = colors.warning,
                                 onCheckedChange = { repo.setDebugMode(it) }
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            IosButton(
+                            MarbleButton(
                                 label = if (repo.busy) Tr.now.measuring else trx("Run Health Scan"),
                                 glyph = MarbleGlyph.SPARK,
                                 enabled = !repo.busy,
                                 onClick = { repo.runBugFinder() },
                                 modifier = Modifier.weight(1f)
                             )
-                            IosButton(
+                            MarbleButton(
                                 label = Tr.now.copyAction,
                                 glyph = MarbleGlyph.COPY,
-                                style = IosButtonStyle.SECONDARY,
+                                style = MarbleButtonStyle.SECONDARY,
                                 enabled = report != null,
                                 onClick = {
                                     clipboard.setText(AnnotatedString(repo.bugFinderReportText()))
@@ -713,48 +715,48 @@ fun SettingsDiagnosticsPage(
                             )
                         }
                         if (report != null) {
-                            IosCard {
-                                IosListItem(
+                            MarbleCard {
+                                MarbleListItem(
                                     title = trx(report.headline),
                                     subtitle = "${report.passed} pass · ${report.warnings} warn · ${report.failures} fail",
                                     glyph = MarbleGlyph.SHIELD,
-                                    squircleColor = when {
-                                        report.failures > 0 -> colors.red
-                                        report.warnings > 0 -> colors.orange
-                                        else -> colors.green
+                                    iconTint = when {
+                                        report.failures > 0 -> colors.error
+                                        report.warnings > 0 -> colors.warning
+                                        else -> colors.success
                                     },
                                     showChevron = false
                                 )
                                 report.checks.forEach { check ->
-                                    IosDivider()
+                                    MarbleDivider()
                                     val tone = when (check.severity) {
-                                        BugSeverity.PASS -> colors.green
-                                        BugSeverity.INFO -> colors.blue
-                                        BugSeverity.WARN -> colors.orange
-                                        BugSeverity.FAIL -> colors.red
+                                        BugSeverity.PASS -> colors.success
+                                        BugSeverity.INFO -> colors.primary
+                                        BugSeverity.WARN -> colors.warning
+                                        BugSeverity.FAIL -> colors.error
                                     }
-                                    IosListItem(
+                                    MarbleListItem(
                                         title = trx(check.title),
                                         subtitle = trx(check.detail),
                                         glyph = MarbleGlyph.INFO,
-                                        squircleColor = tone,
+                                        iconTint = tone,
                                         showChevron = false,
-                                        trailing = { IosBadge(text = check.severity.name, color = tone) }
+                                        trailing = { MarbleBadge(text = check.severity.name, color = tone) }
                                     )
                                 }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                IosButton(
+                                MarbleButton(
                                     label = trx("Save Snapshot"),
-                                    style = IosButtonStyle.TINTED,
+                                    style = MarbleButtonStyle.TINTED,
                                     enabled = !repo.busy,
                                     onClick = { repo.saveBugFinderReport() },
                                     modifier = Modifier.weight(1f)
                                 )
                                 if (report.failures > 0) {
-                                    IosButton(
+                                    MarbleButton(
                                         label = trx("Safe Runtime Reset"),
-                                        style = IosButtonStyle.DESTRUCTIVE,
+                                        style = MarbleButtonStyle.DESTRUCTIVE,
                                         enabled = !repo.busy,
                                         onClick = { repo.safeRuntimeResetFromBugFinder() },
                                         modifier = Modifier.weight(1f)
@@ -770,7 +772,7 @@ fun SettingsDiagnosticsPage(
                 val p = repo.privacy
                 item(key = "privacy-audit") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        IosButton(
+                        MarbleButton(
                             label = if (repo.busy) Tr.now.measuring else trx("Run Privacy & Leak Audit"),
                             glyph = MarbleGlyph.SHIELD,
                             enabled = !repo.busy,
@@ -778,28 +780,28 @@ fun SettingsDiagnosticsPage(
                             modifier = Modifier.fillMaxWidth()
                         )
                         if (p != null) {
-                            IosCard {
-                                IosListItem(
+                            MarbleCard {
+                                MarbleListItem(
                                     title = "${trx("Privacy Score")}: ${p.overallScore}/100",
                                     subtitle = trx(p.note),
                                     glyph = MarbleGlyph.SHIELD,
-                                    squircleColor = if (p.healthy) colors.green else colors.orange,
+                                    iconTint = if (p.healthy) colors.success else colors.warning,
                                     showChevron = false
                                 )
-                                IosDivider()
-                                IosListItem(
+                                MarbleDivider()
+                                MarbleListItem(
                                     title = "${trx("Tunnel Exit IP")}: ${p.proxyIp.ifBlank { "—" }}",
                                     subtitle = "${trx("Underlay IP")}: ${p.underlayIp.ifBlank { "—" }}",
                                     glyph = MarbleGlyph.GLOBE,
-                                    squircleColor = colors.blue,
+                                    iconTint = colors.primary,
                                     showChevron = false
                                 )
-                                IosDivider()
-                                IosListItem(
+                                MarbleDivider()
+                                MarbleListItem(
                                     title = "${trx("Cloudflare POP")}: ${p.cloudflareLocation.ifBlank { "—" }}",
                                     subtitle = "${trx("DNS")}: ${p.dnsServers.ifBlank { "—" }}",
                                     glyph = MarbleGlyph.SERVER,
-                                    squircleColor = colors.indigo,
+                                    iconTint = colors.secondary,
                                     showChevron = false
                                 )
                             }
@@ -812,17 +814,17 @@ fun SettingsDiagnosticsPage(
                 item(key = "system-doctor") {
                     val doctorText = remember(repo.state, repo.message, repo.busy) { repo.doctor() }
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        IosCard(contentPadding = PaddingValues(16.dp)) {
+                        MarbleCard(contentPadding = PaddingValues(16.dp)) {
                             Text(
                                 text = doctorText,
-                                color = colors.title,
+                                color = colors.onSurface,
                                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
                             )
                         }
-                        IosButton(
+                        MarbleButton(
                             label = trx("Copy Doctor Report"),
                             glyph = MarbleGlyph.COPY,
-                            style = IosButtonStyle.TINTED,
+                            style = MarbleButtonStyle.TINTED,
                             onClick = {
                                 clipboard.setText(AnnotatedString(doctorText))
                                 repo.setRuntimeMessage("Doctor report copied")
@@ -839,17 +841,17 @@ fun SettingsDiagnosticsPage(
                     val logs = remember(refreshTick, repo.state, repo.message) { repo.readLogs() }
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            IosButton(
+                            MarbleButton(
                                 label = trx("Refresh Logs"),
                                 glyph = MarbleGlyph.REFRESH,
-                                style = IosButtonStyle.TINTED,
+                                style = MarbleButtonStyle.TINTED,
                                 onClick = { refreshTick++ },
                                 modifier = Modifier.weight(1f)
                             )
-                            IosButton(
+                            MarbleButton(
                                 label = Tr.now.copyAction,
                                 glyph = MarbleGlyph.COPY,
-                                style = IosButtonStyle.SECONDARY,
+                                style = MarbleButtonStyle.SECONDARY,
                                 onClick = {
                                     clipboard.setText(AnnotatedString(logs))
                                     repo.setRuntimeMessage("Logs copied")
@@ -857,10 +859,10 @@ fun SettingsDiagnosticsPage(
                                 modifier = Modifier.weight(1f)
                             )
                         }
-                        IosCard(contentPadding = PaddingValues(16.dp)) {
+                        MarbleCard(contentPadding = PaddingValues(16.dp)) {
                             Text(
                                 text = logs.takeLast(8_000).ifBlank { trx("No runtime log entries yet.") },
-                                color = colors.title,
+                                color = colors.onSurface,
                                 style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
                             )
                         }
@@ -872,22 +874,22 @@ fun SettingsDiagnosticsPage(
                 item(key = "conn-history") {
                     val items = repo.history.asReversed()
                     if (items.isEmpty()) {
-                        IosCard(contentPadding = PaddingValues(20.dp)) {
+                        MarbleCard(contentPadding = PaddingValues(20.dp)) {
                             Text(
                                 text = trx("No connection history yet."),
-                                color = colors.subtitle,
+                                color = colors.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
                     } else {
-                        IosCard {
+                        MarbleCard {
                             items.take(40).forEachIndexed { idx, rec ->
-                                if (idx > 0) IosDivider()
-                                IosListItem(
+                                if (idx > 0) MarbleDivider()
+                                MarbleListItem(
                                     title = cleanServerName(rec.name),
                                     subtitle = "${rec.reason} · ${trx(relativeTimeLabel(rec.at))}",
                                     glyph = MarbleGlyph.TUNNEL,
-                                    squircleColor = colors.blue,
+                                    iconTint = colors.primary,
                                     showChevron = false
                                 )
                             }
@@ -904,62 +906,62 @@ fun SettingsAboutPage(
     repo: AppRepository,
     onBack: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val context = LocalContext.current
     val s = repo.settings
     var confirmReset by remember { mutableStateOf(false) }
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = strings.informationTitle,
         onBack = onBack
     ) {
         item(key = "about-versions") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Versions & Cores"))
-                IosCard {
-                    IosListItem(
+                MarbleSectionHeader(title = trx("Versions & Cores"))
+                MarbleCard {
+                    MarbleListItem(
                         title = strings.appVersionLabel,
                         subtitle = "MarbleNG (${BuildConfig.VERSION_CODE})",
                         value = BuildConfig.VERSION_NAME,
                         glyph = MarbleGlyph.INFO,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         showChevron = false
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = strings.xrayCoreLabel,
                         subtitle = BuildConfig.XRAY_CORE_REPO,
                         value = BuildConfig.XRAY_CORE_TAG,
                         glyph = MarbleGlyph.SERVER,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         showChevron = false
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = "sing-box extended",
                         subtitle = BuildConfig.SINGBOX_CORE_REPO,
                         value = BuildConfig.SINGBOX_CORE_TAG,
                         glyph = MarbleGlyph.LAYERS,
-                        squircleColor = colors.indigo,
+                        iconTint = colors.secondary,
                         showChevron = false
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = strings.hevCoreLabel,
                         subtitle = BuildConfig.HEV_CORE_REPO,
                         value = BuildConfig.HEV_CORE_TAG,
                         glyph = MarbleGlyph.TUNNEL,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         showChevron = false
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = "tun2socks",
                         subtitle = BuildConfig.TUN2SOCKS_CORE_REPO,
                         value = BuildConfig.TUN2SOCKS_CORE_TAG,
                         glyph = MarbleGlyph.ROUTE,
-                        squircleColor = colors.purple,
+                        iconTint = colors.secondary,
                         showChevron = false
                     )
                 }
@@ -968,30 +970,30 @@ fun SettingsAboutPage(
 
         item(key = "about-updates-links") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Updates & Open Source"))
-                IosCard {
-                    IosSwitchRow(
+                MarbleSectionHeader(title = trx("Updates & Open Source"))
+                MarbleCard {
+                    MarbleSwitchRow(
                         title = trx("Automatic App Update Check"),
                         subtitle = trx("Check GitHub releases on startup"),
                         checked = s.appUpdateCheckEnabled,
                         glyph = MarbleGlyph.DOWNLOAD,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         onCheckedChange = { repo.updateSettings(s.copy(appUpdateCheckEnabled = it)) }
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = trx("Check for Updates Now"),
                         subtitle = trx("Query latest MarbleNG release on GitHub"),
                         glyph = MarbleGlyph.REFRESH,
-                        squircleColor = colors.green,
+                        iconTint = colors.success,
                         onClick = { repo.checkForAppUpdate(force = true) }
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = strings.sourceCodeLabel,
                         subtitle = BuildConfig.SOURCE_URL,
                         glyph = MarbleGlyph.LINK,
-                        squircleColor = colors.gray,
+                        iconTint = colors.onSurfaceVariant,
                         onClick = {
                             runCatching {
                                 context.startActivity(
@@ -1005,13 +1007,13 @@ fun SettingsAboutPage(
         }
 
         item(key = "about-reset") {
-            IosCard {
-                IosListItem(
+            MarbleCard {
+                MarbleListItem(
                     title = trx("Reset All Settings to Defaults"),
                     subtitle = trx("Restores default settings while keeping your saved servers"),
-                    titleColor = colors.red,
+                    titleColor = colors.error,
                     glyph = MarbleGlyph.TRASH,
-                    squircleColor = colors.red,
+                    iconTint = colors.error,
                     onClick = { confirmReset = true }
                 )
             }
@@ -1019,7 +1021,7 @@ fun SettingsAboutPage(
     }
 
     if (confirmReset) {
-        IosAlertDialog(
+        MarbleAlertDialog(
             title = trx("Reset Settings?"),
             onDismiss = { confirmReset = false },
             confirmLabel = Tr.now.reset,
@@ -1031,7 +1033,7 @@ fun SettingsAboutPage(
         ) {
             Text(
                 text = trx("Your saved servers and subscriptions will not be deleted."),
-                color = colors.subtitle,
+                color = colors.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Normal)
             )
         }

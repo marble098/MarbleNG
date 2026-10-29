@@ -8,14 +8,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.BuildConfig
@@ -34,6 +37,11 @@ import com.marbleng.app.model.jitterSmartModeEnum
 import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseFlatAccent
 import com.marbleng.app.model.parsePowerProfile
+import androidx.compose.material3.MaterialTheme
+import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 enum class SettingsDestination {
     CONNECTION_MODE,
@@ -65,7 +73,7 @@ private data class SettingsRowSpec(
     val title: String,
     val subtitle: String,
     val glyph: MarbleGlyph,
-    val squircleColor: Color
+    val iconTint: Color
 )
 
 @Composable
@@ -104,7 +112,7 @@ fun SettingsScreen(
         return
     }
 
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val s = repo.settings
     val listState = rememberLazyListState()
@@ -124,28 +132,28 @@ fun SettingsScreen(
                 "${trx("Local SOCKS5 proxy")} :${s.localProxyPort}"
             },
             glyph = MarbleGlyph.TUNNEL,
-            squircleColor = colors.blue
+            iconTint = colors.primary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.CORE_ENGINE,
             title = trx("Proxy Core Engine"),
             subtitle = CoreEngineInfo.displayName(s.coreEngine()),
             glyph = MarbleGlyph.SERVER,
-            squircleColor = colors.indigo
+            iconTint = colors.secondary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.TUNNEL_DATAPATH,
             title = trx("Tunnel Datapath"),
             subtitle = TunnelCoreInfo.displayName(s.tunnelCore()),
             glyph = MarbleGlyph.LAYERS,
-            squircleColor = colors.teal
+            iconTint = colors.tertiary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.POWER_PROFILE,
             title = trx("Power & Speed Profile"),
             subtitle = trx(parsePowerProfile(s.powerProfile).label),
             glyph = MarbleGlyph.SPARK,
-            squircleColor = colors.orange
+            iconTint = colors.warning
         )
     )
 
@@ -160,14 +168,14 @@ fun SettingsScreen(
                 RoutingMode.CUSTOM -> trx("Custom routing rules")
             },
             glyph = MarbleGlyph.ROUTE,
-            squircleColor = colors.green
+            iconTint = colors.success
         ),
         SettingsRowSpec(
             destination = SettingsDestination.DNS_FAMILY,
             title = trx("DNS & IPv4 / IPv6"),
             subtitle = "${s.dnsPrimaryIp} · ${s.addressFamilyMode.name}",
             glyph = MarbleGlyph.GLOBE,
-            squircleColor = colors.cyan
+            iconTint = colors.tertiary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.SPLIT_TUNNEL,
@@ -178,14 +186,14 @@ fun SettingsScreen(
                 SplitTunnelMode.BYPASS_SELECTED -> trx("Selected apps bypass VPN")
             },
             glyph = MarbleGlyph.FOLDER,
-            squircleColor = colors.purple
+            iconTint = colors.secondary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.CENSORSHIP_LAB,
             title = trx("Iran Mode & Censorship Lab"),
             subtitle = trx("Detect DPI filtering, TLS resets and apply prescriptions"),
             glyph = MarbleGlyph.SHIELD,
-            squircleColor = colors.red
+            iconTint = colors.error
         )
     )
 
@@ -199,7 +207,7 @@ fun SettingsScreen(
                 ProbeMethod.URL_TEST -> trx("Native core URL test")
             },
             glyph = MarbleGlyph.GAUGE,
-            squircleColor = colors.green
+            iconTint = colors.success
         ),
         SettingsRowSpec(
             destination = SettingsDestination.NETWORK_COUNCIL,
@@ -208,7 +216,7 @@ fun SettingsScreen(
                 "${trx("Last verdict")} · ${it.score} ${it.grade} · ${it.changes.size} " + trx("settings")
             } ?: trx("12 experts measure this link, then apply the best settings"),
             glyph = MarbleGlyph.RADAR,
-            squircleColor = colors.cyan
+            iconTint = colors.tertiary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.AUTO_SELECTOR,
@@ -219,7 +227,7 @@ fun SettingsScreen(
                 trx("Off · manual server selection")
             },
             glyph = MarbleGlyph.RADAR,
-            squircleColor = colors.blue
+            iconTint = colors.primary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.SMART_JITTER,
@@ -230,14 +238,14 @@ fun SettingsScreen(
                 "${trx("On")} · ${trx(s.jitterSmartModeEnum.label)}"
             },
             glyph = MarbleGlyph.GAUGE,
-            squircleColor = colors.green
+            iconTint = colors.success
         ),
         SettingsRowSpec(
             destination = SettingsDestination.IDENTITY_LOCATION,
             title = trx("Identity Guard & Locations"),
             subtitle = trx("Exit IP protection and automatic country detection"),
             glyph = MarbleGlyph.GLOBE,
-            squircleColor = colors.indigo
+            iconTint = colors.secondary
         )
     )
 
@@ -247,7 +255,7 @@ fun SettingsScreen(
             title = trx("Appearance & Accent"),
             subtitle = "${trx(s.theme.replaceFirstChar { it.uppercase() })} · ${trx(parseFlatAccent(s.accentTheme).label)}",
             glyph = MarbleGlyph.PALETTE,
-            squircleColor = colors.pink
+            iconTint = colors.secondary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.LANGUAGE_FONT,
@@ -258,7 +266,7 @@ fun SettingsScreen(
                 AppLanguage.PERSIAN -> strings.languagePersian
             },
             glyph = MarbleGlyph.FONT,
-            squircleColor = colors.purple
+            iconTint = colors.secondary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.TAB_BAR,
@@ -269,14 +277,14 @@ fun SettingsScreen(
                 trx("Three tabs")
             },
             glyph = MarbleGlyph.DOCK,
-            squircleColor = colors.teal
+            iconTint = colors.tertiary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.HOME_LAYOUT,
             title = strings.homeStyleTitle,
             subtitle = trx("Connect button style, telemetry cards and shortcuts"),
             glyph = MarbleGlyph.HOME,
-            squircleColor = colors.orange
+            iconTint = colors.warning
         )
     )
 
@@ -290,35 +298,35 @@ fun SettingsScreen(
                 trx("Manual refresh only")
             },
             glyph = MarbleGlyph.REFRESH,
-            squircleColor = colors.blue
+            iconTint = colors.primary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.BACKUP_RESTORE,
             title = trx("Backup & Restore"),
             subtitle = trx("Export or import all servers, subscriptions and settings"),
             glyph = MarbleGlyph.VAULT,
-            squircleColor = colors.green
+            iconTint = colors.success
         ),
         SettingsRowSpec(
             destination = SettingsDestination.NOTIFICATIONS_BG,
             title = trx("Notifications & Background"),
             subtitle = trx("Live notification stats and unrestricted battery access"),
             glyph = MarbleGlyph.BELL,
-            squircleColor = colors.red
+            iconTint = colors.error
         ),
         SettingsRowSpec(
             destination = SettingsDestination.DIAGNOSTICS,
             title = trx("Diagnostics, Logs & Bug Finder"),
             subtitle = trx("Privacy audit, system doctor, core logs and health checks"),
             glyph = MarbleGlyph.TUNERS,
-            squircleColor = colors.orange
+            iconTint = colors.warning
         ),
         SettingsRowSpec(
             destination = SettingsDestination.ABOUT,
             title = strings.informationTitle,
             subtitle = "v${BuildConfig.VERSION_NAME} · Xray ${BuildConfig.XRAY_CORE_TAG}",
             glyph = MarbleGlyph.INFO,
-            squircleColor = colors.gray
+            iconTint = colors.onSurfaceVariant
         )
     )
 
@@ -345,31 +353,31 @@ fun SettingsScreen(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.background)
+            .background(colors.surface)
             .statusBarsPadding(),
         contentPadding = PaddingValues(
-            start = IosSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-            end = IosSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
+            start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
+            end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
             top = 8.dp,
-            bottom = 112.dp
+            bottom = MarbleTheme.bottomClearance
         ),
-        verticalArrangement = Arrangement.spacedBy(IosSpec.SECTION_SPACING_DP.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
     ) {
         item(key = "settings-header") {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                IosLargeHeader(title = strings.settingsTitle)
-                IosSearchBar(
+                MarbleLargeHeader(title = strings.settingsTitle)
+                MarbleSearchField(
                     value = search,
                     onValueChange = { search = it },
                     placeholder = trx("Search settings"),
-                    trailingCount = if (search.isBlank()) "${connectionGroup.size + routingGroup.size + testingGroup.size + appearanceGroup.size + systemGroup.size}" else ""
+                    trailingCount = if (search.isBlank()) faDigits("${connectionGroup.size + routingGroup.size + testingGroup.size + appearanceGroup.size + systemGroup.size}") else ""
                 )
                 if (search.isNotBlank() && sections.isEmpty()) {
-                    IosEmptyState(
+                    MarbleEmptyState(
                         title = trx("No matches"),
                         body = trx("Try a shorter keyword — e.g. DNS, Theme, or Ping"),
                         glyph = MarbleGlyph.SEARCH,
-                        tint = colors.subtitle
+                        tint = colors.onSurfaceVariant
                     )
                 }
             }
@@ -378,15 +386,15 @@ fun SettingsScreen(
         sections.forEachIndexed { sectionIndex, (header, rows) ->
             item(key = "settings-sec-$sectionIndex") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IosSectionHeader(title = header, badge = "${rows.size}", badgeColor = colors.accent)
-                    IosCard {
+                    MarbleSectionHeader(title = header, badge = faDigits("${rows.size}"), badgeColor = colors.primary)
+                    MarbleCard {
                         rows.forEachIndexed { rowIndex, spec ->
-                            if (rowIndex > 0) IosDivider()
-                            IosListItem(
+                            if (rowIndex > 0) MarbleDivider()
+                            MarbleListItem(
                                 title = spec.title,
                                 subtitle = spec.subtitle,
                                 glyph = spec.glyph,
-                                squircleColor = spec.squircleColor,
+                                iconTint = spec.iconTint,
                                 onClick = { onOpenDestination(spec.destination) }
                             )
                         }
@@ -399,19 +407,19 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
-                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                androidx.compose.material3.Text(
+                Text(
                     text = "v${BuildConfig.VERSION_NAME} · Xray ${BuildConfig.XRAY_CORE_TAG} · MarbleNG",
-                    color = colors.tertiary,
-                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
                     maxLines = 1
                 )
-                androidx.compose.material3.Text(
+                Text(
                     text = trx("Tap any row to configure • Use search to jump"),
-                    color = colors.tertiary,
-                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.Center
                 )
             }
         }

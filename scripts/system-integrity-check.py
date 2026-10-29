@@ -474,9 +474,12 @@ files = {
     "nativeUiDoc": read("docs/NATIVE_ANDROID_V213.md"),
     "nativeCritiqueDoc": read("docs/APPEARANCE_CRITIQUE_V213.md"),
     "surfaceDepthDoc": read("docs/SURFACE_DEPTH_V212.md"),
-    # MARBLE_IOS_DESIGN_SYSTEM — clean modular iOS UI architecture
-    "iosTheme": read("app/src/main/java/com/marbleng/app/ui/IosTheme.kt"),
-    "iosComponents": read("app/src/main/java/com/marbleng/app/ui/IosComponents.kt"),
+    # MARBLE_M3_EXPRESSIVE_V240 — the one-place expressive design system (theme package +
+    # components) replaced the old iOS theme files; the invariants below pin its tokens.
+    "marbleTheme": read("app/src/main/java/com/marbleng/app/ui/theme/MarbleTheme.kt"),
+    "marbleColor": read("app/src/main/java/com/marbleng/app/ui/theme/MarbleColor.kt"),
+    "marbleType": read("app/src/main/java/com/marbleng/app/ui/theme/MarbleType.kt"),
+    "marbleComponents": read("app/src/main/java/com/marbleng/app/ui/MarbleComponents.kt"),
     "uiFormatters": read("app/src/main/java/com/marbleng/app/ui/UiFormatters.kt"),
     "homeScreen": read("app/src/main/java/com/marbleng/app/ui/HomeScreen.kt"),
     "serversScreen": read("app/src/main/java/com/marbleng/app/ui/ServersScreen.kt"),
@@ -490,7 +493,7 @@ files = {
     "settingsSystem": read("app/src/main/java/com/marbleng/app/ui/SettingsSystemPages.kt"),
     "marbleModals": read("app/src/main/java/com/marbleng/app/ui/MarbleModals.kt"),
     "glyphArt": read("app/src/main/java/com/marbleng/app/ui/MarbleGlyphArt.kt"),
-    "iosTest": read("app/src/test/java/com/marbleng/app/ui/IosDesignSystemTest.kt"),
+    "marbleTest": read("app/src/test/java/com/marbleng/app/ui/MarbleExpressiveThemeTest.kt"),
     "colorsXml": read("app/src/main/res/values/colors.xml"),
     "stylesXml": read("app/src/main/res/values/styles.xml"),
     # MARBLE_NETWORK_COUNCIL_V236 — the twelve-expert scanner: the pure judgement, the one file
@@ -3147,7 +3150,7 @@ check(
 check("no GlobalScope in production", "GlobalScope" not in production)
 
 
-# MARBLE_IOS_DESIGN_SYSTEM invariants
+# MARBLE_M3_EXPRESSIVE_V240 design-system invariants (rebuilt from the old iOS tokens)
 check(
     "legacy Aether/Meridian UI files are removed",
     not (ROOT / "app/src/main/java/com/marbleng/app/ui/Aether2026.kt").exists()
@@ -3157,29 +3160,29 @@ check(
 )
 
 check(
-    "iOS design tokens enforce #F8F9FA canvas, #FFFFFF 20dp cards, 12dp squircles and 1dp dividers",
-    "const val BACKGROUND_HEX: Long = 0xFFF8F9FA" in files["iosTheme"]
-    and "const val CARD_HEX: Long = 0xFFFFFFFF" in files["iosTheme"]
-    and "const val CARD_CORNER_DP: Int = 20" in files["iosTheme"]
-    and "const val SQUIRCLE_CORNER_DP: Int = 12" in files["iosTheme"]
-    and "const val DIVIDER_THICKNESS_DP: Int = 1" in files["iosTheme"]
+    "M3 Expressive theme entry, motion scheme, dynamic fallback schemes and 1dp dividers",
+    "fun MarbleExpressiveTheme(" in files["marbleTheme"]
+    and "MotionScheme.expressive()" in files["marbleTheme"]
+    and "const val DIVIDER_THICKNESS_DP: Int = 1" in files["marbleTheme"]
+    and "fun marbleFallbackLightScheme(" in files["marbleColor"]
+    and "fun marbleFallbackDarkScheme(" in files["marbleColor"]
     and "#F8F9FA" in files["colorsXml"]
     and "@color/ios_background" in files["stylesXml"],
 )
 
 check(
-    "iOS list item uses right-aligned squircle glyph, bold title, gray subtitle and left chevron",
-    "fun IosListItem(" in files["iosComponents"]
-    and "MarbleGlyph.CHEVRON_LEFT" in files["iosComponents"]
-    and "LayoutDirection.Rtl" in files["iosComponents"]
-    and "fun IosDivider(" in files["iosComponents"],
+    "Expressive list item uses RTL-mirrored chevron, row glyph and MarbleDivider",
+    "fun MarbleListItem(" in files["marbleComponents"]
+    and "MarbleGlyph.CHEVRON_LEFT" in files["marbleComponents"]
+    and "LayoutDirection.Rtl" in files["marbleComponents"]
+    and "fun MarbleDivider(" in files["marbleComponents"],
 )
 
 check(
-    "MarbleApp wraps language, text scale and MarbleIosTheme and binds all modular tabs",
+    "MarbleApp wraps language, text scale and MarbleExpressiveTheme and binds all modular tabs",
     "ProvideMarbleLanguage(repo.settings.appLanguage)" in files["marbleApp"]
     and "ProvideMarbleTextScale(repo.settings.textScalePercent)" in files["marbleApp"]
-    and "MarbleIosTheme(" in files["marbleApp"]
+    and "MarbleExpressiveTheme(" in files["marbleApp"]
     and "HomeScreen(" in files["marbleApp"]
     and "ServersScreen(" in files["marbleApp"]
     and "CustomSlotScreen(" in files["marbleApp"]
@@ -3427,7 +3430,7 @@ check(
     and "fun actionChangeSubscription(language: NotificationLanguage)" in files["notificationCopy"]
     and "cycleIntent(NotificationCycleKind.SERVER)" in files["notifier"]
     and "cycleIntent(NotificationCycleKind.SUBSCRIPTION)" in files["notifier"]
-    and "NotificationRoute.SERVERS -> IosRootTab.SERVERS" in files["marbleApp"]
+    and "NotificationRoute.SERVERS -> MarbleRootTab.SERVERS" in files["marbleApp"]
     and 'SERVERS("servers")' in files["notificationCopy"],
 )
 
@@ -3844,15 +3847,15 @@ check(
 # and the ladder's ordering is asserted by the unit test these anchors keep alive.
 check(
     "V235 the type ladder names one registered weight per role",
-    "object MarbleWeightSpec" in files["iosTheme"]
-    and "const val BODY: Int = 400" in files["iosTheme"]
-    and "const val LABEL: Int = 500" in files["iosTheme"]
-    and "const val TITLE: Int = 600" in files["iosTheme"]
-    and "const val HEADLINE: Int = 700" in files["iosTheme"]
-    and "const val DISPLAY: Int = 800" in files["iosTheme"]
+    "object MarbleWeightSpec" in files["marbleType"]
+    and "const val BODY: Int = 400" in files["marbleType"]
+    and "const val LABEL: Int = 500" in files["marbleType"]
+    and "const val TITLE: Int = 600" in files["marbleType"]
+    and "const val HEADLINE: Int = 700" in files["marbleType"]
+    and "const val DISPLAY: Int = 800" in files["marbleType"]
     and "Font(R.font.vazirmatn_extrabold, FontWeight(MarbleWeightSpec.DISPLAY))"
-    in files["iosTheme"]
-    and "fontWeight = FontWeight(MarbleWeightSpec.DISPLAY)" in files["iosTheme"]
+    in files["marbleType"]
+    and "rung(MarbleWeightSpec.DISPLAY)" in files["marbleType"]
     and all(
         (ROOT / f"app/src/main/res/font/{name}.ttf").is_file()
         for name in (
@@ -3876,7 +3879,7 @@ check(
     and "## ۵. آنچه عمداً انجام نشد" in files["v235Doc"]
     and "LATEST_VERSION_RULE_AND_WEIGHT_LADDER_V235.md" in files["readme"]
     and "MARBLE_LATEST_VERSION_RULE_V235" in files["latestRule"]
-    and "MARBLE_WEIGHT_LADDER_V235" in files["iosTheme"],
+    and "MARBLE_WEIGHT_LADDER_V235" in files["homeScreen"],
 )
 
 # ---------------------------------------------------------------------------

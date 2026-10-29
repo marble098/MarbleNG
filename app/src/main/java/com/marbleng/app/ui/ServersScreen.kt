@@ -20,9 +20,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.FloatingActionButtonMenu
+import androidx.compose.material3.FloatingActionButtonMenuItem
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleFloatingActionButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,10 +41,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +62,10 @@ import com.marbleng.app.model.NodeSortMode
 import com.marbleng.app.model.ProbeState
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.Subscription
+import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 private data class ServerGroupBucket(
     val id: String,
@@ -68,7 +83,7 @@ fun ServersScreen(
     onOpenQrImport: () -> Unit,
     onContentScrollChanged: (Boolean) -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val settings = repo.settings
     val clipboard = LocalClipboardManager.current
@@ -91,6 +106,19 @@ fun ServersScreen(
     var editSubUrl by remember { mutableStateOf("") }
     var deleteSubscription by remember { mutableStateOf<Subscription?>(null) }
     var collapsedGroups by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var fabExpanded by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
+
+    BackHandler(enabled = fabExpanded) { fabExpanded = false }
+
+    val pasteFromClipboard: () -> Unit = {
+        val raw = clipboard.getText()?.text?.trim().orEmpty()
+        if (raw.isBlank()) {
+            repo.setRuntimeMessage(strings.clipboardNothingFound)
+        } else {
+            repo.importClipboard(raw, repo.intakeTargetOrManual(repo.librarySourceFilter))
+        }
+    }
 
     val benchmarks = repo.benchmarks.associateBy { it.profileId }
     val filter = ServersFilter(
@@ -146,28 +174,39 @@ fun ServersScreen(
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.background)
-            .statusBarsPadding(),
-        contentPadding = PaddingValues(
-            start = IosSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-            end = IosSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-            top = 8.dp,
-            bottom = 112.dp
-        ),
-        verticalArrangement = Arrangement.spacedBy(IosSpec.SECTION_SPACING_DP.dp)
-    ) {
-        item(key = "servers-header") {
-            IosLargeHeader(
-                title = strings.serversTitle,
-                subtitle = "${visibleProfiles.size} ${strings.serversUnit}"
+    Box(modifier = Modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = repo.busy,
+            onRefresh = {
+                if (repo.subscriptions.isNotEmpty() && !repo.busy) {
+                    repo.refreshAll()
+                }
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .background(colors.surface)
+                .statusBarsPadding()
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
+                    end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
+                    top = 8.dp,
+                    bottom = MarbleTheme.bottomClearance
+                ),
+                verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
             ) {
-                IosIconActionButton(
+
+        item(key = "servers-header") {
+            MarbleLargeHeader(
+                title = strings.serversTitle,
+                subtitle = "${faDigits("${visibleProfiles.size}")} ${strings.serversUnit}"
+            ) {
+                MarbleIconButton(
                     glyph = if (repo.probeActive) MarbleGlyph.STOP else MarbleGlyph.GAUGE,
-                    tint = if (repo.probeActive) colors.red else colors.green,
+                    tint = if (repo.probeActive) colors.error else colors.success,
                     onClick = {
                         if (repo.probeActive || repo.probeCancelling) {
                             repo.cancelProbes()
@@ -176,48 +215,43 @@ fun ServersScreen(
                         }
                     }
                 )
-                IosIconActionButton(
+                MarbleIconButton(
                     glyph = MarbleGlyph.REFRESH,
-                    tint = colors.indigo,
+                    tint = colors.secondary,
                     enabled = repo.subscriptions.isNotEmpty() && !repo.busy,
                     onClick = { repo.refreshAll() }
                 )
-                IosIconActionButton(
+                MarbleIconButton(
                     glyph = MarbleGlyph.FILTER,
-                    tint = if (filter.isActive || settings.serversGroupByCountry) colors.orange else colors.subtitle,
+                    tint = if (filter.isActive || settings.serversGroupByCountry) colors.warning else colors.onSurfaceVariant,
                     onClick = { filterSheetOpen = true }
-                )
-                IosIconActionButton(
-                    glyph = MarbleGlyph.PLUS,
-                    tint = colors.accent,
-                    onClick = onOpenAddSheet
                 )
             }
         }
 
         item(key = "servers-search-and-chips") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                IosSearchBar(
+                MarbleSearchField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     placeholder = strings.searchServersHint,
-                    trailingCount = "${visibleProfiles.size}"
+                    trailingCount = faDigits("${visibleProfiles.size}")
                 )
 
-                IosChipStrip {
-                    IosPillChip(
+                MarbleChipStrip {
+                    MarblePillChip(
                         label = strings.homeAllGroups,
                         selected = repo.librarySourceFilter == "all",
                         onClick = { repo.selectLibrarySource("all") }
                     )
                     repo.subscriptions.forEach { sub ->
-                        IosPillChip(
+                        MarblePillChip(
                             label = sub.name,
                             selected = repo.librarySourceFilter == sub.id,
                             onClick = { repo.selectLibrarySource(sub.id) }
                         )
                     }
-                    IosPillChip(
+                    MarblePillChip(
                         label = strings.homeManualGroup,
                         selected = repo.librarySourceFilter == "manual",
                         onClick = { repo.selectLibrarySource("manual") }
@@ -225,18 +259,18 @@ fun ServersScreen(
                 }
 
                 if (protocolTallies.size > 1) {
-                    IosChipStrip {
-                        IosPillChip(
+                    MarbleChipStrip {
+                        MarblePillChip(
                             label = trx("All protocols"),
                             selected = settings.serversProtocolFilter.isBlank(),
-                            accent = colors.indigo,
+                            accent = colors.secondary,
                             onClick = { repo.updateSettings(settings.copy(serversProtocolFilter = "")) }
                         )
                         protocolTallies.forEach { tally ->
-                            IosPillChip(
+                            MarblePillChip(
                                 label = "${tally.scheme} (${tally.count})",
                                 selected = settings.serversProtocolFilter.equals(tally.scheme, ignoreCase = true),
-                                accent = colors.indigo,
+                                accent = colors.secondary,
                                 onClick = {
                                     val next = if (settings.serversProtocolFilter.equals(tally.scheme, ignoreCase = true)) {
                                         ""
@@ -256,7 +290,7 @@ fun ServersScreen(
             item(key = "servers-probe-progress") {
                 val total = repo.probeTotal.coerceAtLeast(1)
                 val done = repo.probeDone.coerceIn(0, total)
-                IosCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -267,119 +301,92 @@ fun ServersScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            IosSquircleIcon(glyph = MarbleGlyph.GAUGE, backgroundColor = colors.green)
+                            MarbleRowIcon(glyph = MarbleGlyph.GAUGE, tint = colors.success)
                             Column {
                                 Text(
-                                    text = "${trx("Testing servers")} ($done / $total)",
-                                    color = colors.title,
+                                    text = "${trx("Testing servers")} (${faDigits("$done / $total")})",
+                                    color = colors.onSurface,
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
                                     text = repo.probeCurrentName.ifBlank { strings.measuring },
-                                    color = colors.subtitle,
+                                    color = colors.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
-                        IosButton(
+                        MarbleButton(
                             label = strings.cancel,
                             onClick = { repo.cancelProbes() },
-                            style = IosButtonStyle.DESTRUCTIVE,
+                            style = MarbleButtonStyle.DESTRUCTIVE,
                             compact = true
                         )
                     }
                     Spacer(Modifier.height(12.dp))
-                    LinearProgressIndicator(
-                        progress = { done.toFloat() / total.toFloat() },
-                        color = colors.green,
-                        trackColor = colors.cardSecondary,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(CircleShape)
-                    )
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LinearWavyProgressIndicator(
+                            progress = { done.toFloat() / total.toFloat() },
+                            color = colors.success,
+                            trackColor = colors.surfaceContainer
+                        )
+                    }
                 }
             }
         }
 
         if (allProfiles.isEmpty()) {
             item(key = "servers-empty") {
-                IosCard(contentPadding = PaddingValues(24.dp)) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        IosSquircleIcon(
-                            glyph = MarbleGlyph.SERVER,
-                            backgroundColor = colors.blue,
-                            size = 52.dp,
-                            glyphSize = 26.dp
-                        )
-                        Text(
-                            text = strings.noServersTitle,
-                            color = colors.title,
-                            style = MaterialTheme.typography.headlineSmall
-                        )
-                        Text(
-                            text = strings.noServersBody,
-                            color = colors.subtitle,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                MarbleEmptyState(
+                    title = strings.noServersTitle,
+                    body = strings.noServersBody,
+                    glyph = MarbleGlyph.SERVER,
+                    tint = colors.primary,
+                    action = {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            IosButton(
+                            MarbleButton(
                                 label = strings.pasteShortcut,
                                 glyph = MarbleGlyph.COPY,
-                                onClick = {
-                                    val raw = clipboard.getText()?.text?.trim().orEmpty()
-                                    if (raw.isBlank()) {
-                                        repo.setRuntimeMessage(strings.clipboardNothingFound)
-                                    } else {
-                                        repo.importClipboard(raw, repo.intakeTargetOrManual(repo.librarySourceFilter))
-                                    }
-                                },
+                                onClick = pasteFromClipboard,
                                 modifier = Modifier.weight(1f)
                             )
-                            IosButton(
+                            MarbleButton(
                                 label = strings.qrShortcut,
                                 glyph = MarbleGlyph.QR,
-                                style = IosButtonStyle.TINTED,
+                                style = MarbleButtonStyle.TINTED,
                                 onClick = onOpenQrImport,
                                 modifier = Modifier.weight(1f)
                             )
                         }
-                        IosButton(
+                        Spacer(Modifier.height(10.dp))
+                        MarbleButton(
                             label = trx("Add Server or Subscription"),
                             glyph = MarbleGlyph.PLUS,
-                            style = IosButtonStyle.SECONDARY,
+                            style = MarbleButtonStyle.SECONDARY,
                             onClick = onOpenAddSheet,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
-                }
+                )
             }
         } else if (visibleProfiles.isEmpty()) {
             item(key = "servers-filtered-empty") {
-                IosCard(contentPadding = PaddingValues(20.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            text = trx("No matching servers"),
-                            color = colors.title,
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                        Text(
-                            text = trx("Clear your search or filters to view all saved servers."),
-                            color = colors.subtitle,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        IosButton(
+                MarbleEmptyState(
+                    title = trx("No matching servers"),
+                    body = trx("Clear your search or filters to view all saved servers."),
+                    glyph = MarbleGlyph.SEARCH,
+                    tint = colors.secondary,
+                    action = {
+                        MarbleButton(
                             label = trx("Reset Filters"),
-                            style = IosButtonStyle.TINTED,
+                            style = MarbleButtonStyle.TINTED,
                             onClick = {
                                 searchQuery = ""
                                 repo.selectLibrarySource("all")
@@ -390,10 +397,11 @@ fun ServersScreen(
                                         serversMaxPingMs = 0
                                     )
                                 )
-                            }
+                            },
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
-                }
+                )
             }
         } else {
             groups.forEach { bucket ->
@@ -417,10 +425,83 @@ fun ServersScreen(
                             editSubscription = sub
                             editSubName = sub.name
                             editSubUrl = sub.url
-                        }
+                        },
+                        pendingDeleteId = deleteTarget?.id.orEmpty(),
+                        onSwipeDelete = { deleteTarget = it }
                     )
                 }
             }
+        }
+            }
+        }
+
+        // The dock overlays this screen, so the menu floats above the clearance line.
+        FloatingActionButtonMenu(
+            expanded = fabExpanded,
+            button = {
+                ToggleFloatingActionButton(
+                    checked = fabExpanded,
+                    onCheckedChange = {
+                        haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                        fabExpanded = it
+                    }
+                ) {
+                    MarbleGlyphIcon(
+                        glyph = MarbleGlyph.PLUS,
+                        color = colors.onPrimaryContainer,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .rotate(checkedProgress * 135f),
+                        weight = 1.2f
+                    )
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = MarbleTheme.bottomClearance)
+        ) {
+            FloatingActionButtonMenuItem(
+                onClick = {
+                    fabExpanded = false
+                    onOpenAddSheet()
+                },
+                text = { Text(trx("Add Server or Subscription")) },
+                icon = {
+                    MarbleGlyphIcon(
+                        glyph = MarbleGlyph.PLUS,
+                        color = colors.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            )
+            FloatingActionButtonMenuItem(
+                onClick = {
+                    fabExpanded = false
+                    onOpenQrImport()
+                },
+                text = { Text(trx("Scan QR")) },
+                icon = {
+                    MarbleGlyphIcon(
+                        glyph = MarbleGlyph.QR,
+                        color = colors.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            )
+            FloatingActionButtonMenuItem(
+                onClick = {
+                    fabExpanded = false
+                    pasteFromClipboard()
+                },
+                text = { Text(strings.addFromClipboard) },
+                icon = {
+                    MarbleGlyphIcon(
+                        glyph = MarbleGlyph.COPY,
+                        color = colors.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            )
         }
     }
 
@@ -465,7 +546,7 @@ fun ServersScreen(
     }
 
     renameTarget?.let { profile ->
-        IosAlertDialog(
+        MarbleAlertDialog(
             title = trx("Rename Server"),
             onDismiss = { renameTarget = null },
             confirmLabel = trx("Save"),
@@ -475,7 +556,7 @@ fun ServersScreen(
                 renameTarget = null
             }
         ) {
-            IosTextField(
+            MarbleTextField(
                 label = trx("Display Name"),
                 value = renameDraft,
                 onValueChange = { renameDraft = it }
@@ -489,7 +570,7 @@ fun ServersScreen(
             repo.subscriptions.forEach { add(it.id to it.name) }
         }.filterNot { it.first == profile.subscriptionId }
 
-        IosBottomSheet(
+        MarbleBottomSheet(
             title = trx("Move Server"),
             subtitle = cleanServerName(profile.name),
             onDismiss = { moveTarget = null }
@@ -497,18 +578,18 @@ fun ServersScreen(
             if (destinations.isEmpty()) {
                 Text(
                     text = trx("Add another subscription group first to move this server."),
-                    color = colors.subtitle,
+                    color = colors.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium
                 )
             } else {
-                IosCard {
+                MarbleCard {
                     destinations.forEachIndexed { index, (destId, destName) ->
-                        if (index > 0) IosDivider()
-                        IosListItem(
+                        if (index > 0) MarbleDivider()
+                        MarbleListItem(
                             title = destName,
                             subtitle = trx("Move into this group"),
                             glyph = MarbleGlyph.FOLDER,
-                            squircleColor = colors.blue,
+                            iconTint = colors.primary,
                             onClick = {
                                 repo.moveProfile(profile.id, profile.subscriptionId, destId)
                                 moveTarget = null
@@ -532,7 +613,7 @@ fun ServersScreen(
     }
 
     deleteTarget?.let { profile ->
-        IosAlertDialog(
+        MarbleAlertDialog(
             title = trx("Delete Server?"),
             onDismiss = { deleteTarget = null },
             confirmLabel = trx("Delete"),
@@ -544,7 +625,7 @@ fun ServersScreen(
         ) {
             Text(
                 text = "${cleanServerName(profile.name)} (${profile.subscriptionName})",
-                color = colors.subtitle,
+                color = colors.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium
             )
         }
@@ -572,7 +653,7 @@ fun ServersScreen(
     }
 
     deleteSubscription?.let { sub ->
-        IosAlertDialog(
+        MarbleAlertDialog(
             title = trx("Delete Subscription?"),
             onDismiss = { deleteSubscription = null },
             confirmLabel = trx("Delete"),
@@ -584,7 +665,7 @@ fun ServersScreen(
         ) {
             Text(
                 text = "${sub.name} — ${trx("All servers managed by this subscription will be removed.")}",
-                color = colors.subtitle,
+                color = colors.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium
             )
         }
@@ -600,26 +681,30 @@ private fun ServerGroupCard(
     onToggleCollapse: () -> Unit,
     onSelectProfile: (ProxyProfile) -> Unit,
     onMoreProfile: (ProxyProfile) -> Unit,
-    onManageSubscription: (Subscription) -> Unit
+    onManageSubscription: (Subscription) -> Unit,
+    pendingDeleteId: String,
+    onSwipeDelete: (ProxyProfile) -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val sub = bucket.subscription
     val usedBytes = if (sub != null) sub.uploadBytes + sub.downloadBytes else 0L
-    val quotaSubtitle = when {
+    val quotaSubtitle = faDigits(
+        when {
         sub != null && sub.totalBytes > 0L ->
             "${bucket.profiles.size} ${strings.serversUnit} · ${formatBytes(usedBytes)} / ${formatBytes(sub.totalBytes)}"
         sub != null && sub.updatedAt > 0L ->
             "${bucket.profiles.size} ${strings.serversUnit} · ${trx(relativeTimeLabel(sub.updatedAt))}"
-        else ->
-            "${bucket.profiles.size} ${strings.serversUnit}"
-    }
+            else ->
+                "${bucket.profiles.size} ${strings.serversUnit}"
+        }
+    )
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        IosSectionHeader(
+        MarbleSectionHeader(
             title = bucket.title,
-            badge = "${bucket.profiles.size}",
-            badgeColor = if (sub != null) colors.indigo else colors.teal,
+            badge = faDigits("${bucket.profiles.size}"),
+            badgeColor = if (sub != null) colors.secondary else colors.tertiary,
             trailing = {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -628,7 +713,7 @@ private fun ServerGroupCard(
                     if (sub != null && sub.url.isNotBlank()) {
                         Text(
                             text = trx("Refresh"),
-                            color = colors.accent,
+                            color = colors.primary,
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             modifier = Modifier.clickable(enabled = !repo.busy) {
                                 repo.refresh(sub.id)
@@ -638,7 +723,7 @@ private fun ServerGroupCard(
                     if (bucket.profiles.isNotEmpty() && !bucket.id.startsWith("country:")) {
                         Text(
                             text = strings.connectionPing,
-                            color = colors.green,
+                            color = colors.success,
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             modifier = Modifier.clickable(enabled = !repo.probeActive) {
                                 repo.testSource(bucket.id)
@@ -648,7 +733,7 @@ private fun ServerGroupCard(
                     if (sub != null) {
                         Text(
                             text = trx("Edit"),
-                            color = colors.subtitle,
+                            color = colors.onSurfaceVariant,
                             // MARBLE_WEIGHT_LADDER_V235 — Refresh/Ping/Edit are one row of peer
                             // actions: one rung (TITLE 600) for all three, color carries the rest.
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -659,24 +744,24 @@ private fun ServerGroupCard(
             }
         )
 
-        IosCard {
-            IosListItem(
+        MarbleCard {
+            MarbleListItem(
                 title = bucket.title,
                 subtitle = quotaSubtitle,
                 glyph = if (sub != null) MarbleGlyph.LAYERS else MarbleGlyph.FOLDER,
-                squircleColor = if (sub != null) colors.indigo else colors.teal,
+                iconTint = if (sub != null) colors.secondary else colors.tertiary,
                 showChevron = false,
                 trailing = {
                     Box(
                         modifier = Modifier
                             .size(26.dp)
                             .clip(CircleShape)
-                            .background(colors.cardSecondary),
+                            .background(colors.surfaceContainer),
                         contentAlignment = Alignment.Center
                     ) {
                         MarbleGlyphIcon(
                             glyph = if (collapsed) MarbleGlyph.CHEVRON else MarbleGlyph.CHEVRON_DOWN,
-                            color = colors.subtitle,
+                            color = colors.onSurfaceVariant,
                             modifier = Modifier.size(14.dp)
                         )
                     }
@@ -692,7 +777,7 @@ private fun ServerGroupCard(
                     val probeState = repo.probeStateOf(profile.id)
                     val countryCode = repo.serverLocation(profile).code
 
-                    IosDivider(insetStart = 66.dp)
+                    MarbleDivider(insetStart = 66.dp)
                     ServerRowItem(
                         profile = profile,
                         countryCode = countryCode,
@@ -700,8 +785,11 @@ private fun ServerGroupCard(
                         selected = selected,
                         result = result,
                         probeState = probeState,
+                        swipeEnabled = !repo.probeActive && !repo.probeCancelling,
+                        pendingDelete = pendingDeleteId == profile.id,
                         onClick = { onSelectProfile(profile) },
-                        onMore = { onMoreProfile(profile) }
+                        onMore = { onMoreProfile(profile) },
+                        onSwipeDelete = { onSwipeDelete(profile) }
                     )
                 }
                 // Council: gentle footer hint for discoverability
@@ -714,7 +802,7 @@ private fun ServerGroupCard(
                     ) {
                         Text(
                             text = trx("Tap server to select · ⋯ for actions"),
-                            color = colors.tertiary,
+                            color = colors.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
@@ -732,10 +820,79 @@ private fun ServerRowItem(
     selected: Boolean,
     result: BenchmarkResult?,
     probeState: ProbeState,
+    swipeEnabled: Boolean,
+    pendingDelete: Boolean,
+    onClick: () -> Unit,
+    onMore: () -> Unit,
+    onSwipeDelete: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val dismissState = rememberSwipeToDismissBoxState()
+
+    // The swipe only OPENS the confirm dialog: if the user backs out, the row
+    // slides home again. (On confirm the row leaves with its profile anyway.)
+    LaunchedEffect(pendingDelete) {
+        if (!pendingDelete && dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
+            dismissState.reset()
+        }
+    }
+
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(colors.errorContainer)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = trx("Delete"),
+                        color = colors.onErrorContainer,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                    MarbleGlyphIcon(
+                        glyph = MarbleGlyph.TRASH,
+                        color = colors.onErrorContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        },
+        enableDismissFromStartToEnd = false,
+        gesturesEnabled = swipeEnabled,
+        onDismiss = { onSwipeDelete() }
+    ) {
+        ServerRowContent(
+            profile = profile,
+            countryCode = countryCode,
+            active = active,
+            selected = selected,
+            result = result,
+            probeState = probeState,
+            onClick = onClick,
+            onMore = onMore
+        )
+    }
+}
+
+@Composable
+private fun ServerRowContent(
+    profile: ProxyProfile,
+    countryCode: String?,
+    active: Boolean,
+    selected: Boolean,
+    result: BenchmarkResult?,
+    probeState: ProbeState,
     onClick: () -> Unit,
     onMore: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val pingText = trx(pingBadgeText(result, probeState))
     val pingTone = pingBadgeColor(result, probeState)
     val quietFailure = result != null && (result.success <= 0 || result.latencyMs <= 0.0)
@@ -747,17 +904,17 @@ private fun ServerRowItem(
         }
     }
 
-    IosListItem(
+    MarbleListItem(
         title = cleanServerName(profile.name),
         subtitle = subtitleText,
         titleColor = when {
-            active -> colors.green
-            selected -> colors.accent
-            quietFailure -> colors.title.copy(alpha = 0.58f)
-            else -> colors.title
+            active -> colors.success
+            selected -> colors.primary
+            quietFailure -> colors.onSurface.copy(alpha = 0.58f)
+            else -> colors.onSurface
         },
         leading = {
-            IosServerAvatar(profile = profile, countryCode = countryCode)
+            MarbleServerAvatar(profile = profile, countryCode = countryCode)
         },
         showChevron = true,
         trailing = {
@@ -771,23 +928,23 @@ private fun ServerRowItem(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(7.dp))
-                                .background(colors.tertiary.copy(alpha = 0.14f))
+                                .background(colors.onSurfaceVariant.copy(alpha = 0.14f))
                                 .padding(horizontal = 7.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = trx("No reply"),
-                                color = colors.subtitle,
+                                color = colors.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
                             )
                         }
                     } else {
-                        IosBadge(text = pingText, color = pingTone)
+                        MarbleBadge(text = pingText, color = pingTone)
                     }
                 }
                 if (active || selected) {
                     MarbleGlyphIcon(
                         glyph = MarbleGlyph.CHECK,
-                        color = if (active) colors.green else colors.accent,
+                        color = if (active) colors.success else colors.primary,
                         modifier = Modifier.size(16.dp),
                         weight = 1.2f
                     )
@@ -796,13 +953,13 @@ private fun ServerRowItem(
                     modifier = Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(colors.cardSecondary)
+                        .background(colors.surfaceContainer)
                         .clickable(role = Role.Button, onClick = onMore),
                     contentAlignment = Alignment.Center
                 ) {
                     MarbleGlyphIcon(
                         glyph = MarbleGlyph.MORE,
-                        color = colors.subtitle,
+                        color = colors.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -817,16 +974,16 @@ private fun ServersFilterSheet(
     repo: AppRepository,
     onDismiss: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val settings = repo.settings
 
-    IosBottomSheet(
+    MarbleBottomSheet(
         title = trx("Sort & Filter"),
         subtitle = trx("Organize servers by latency, score, country or protocol"),
         onDismiss = onDismiss
     ) {
-        IosSectionHeader(title = trx("Sort Order"))
-        IosCard {
+        MarbleSectionHeader(title = trx("Sort Order"))
+        MarbleCard {
             val sortChoices = listOf(
                 NodeSortMode.DEFAULT to trx("Subscription order"),
                 NodeSortMode.PING to trx("Lowest ping"),
@@ -836,42 +993,42 @@ private fun ServersFilterSheet(
                 NodeSortMode.PROTOCOL to trx("Protocol")
             )
             sortChoices.forEachIndexed { idx, (mode, label) ->
-                if (idx > 0) IosDivider()
-                IosChoiceRow(
+                if (idx > 0) MarbleDivider()
+                MarbleChoiceRow(
                     title = label,
                     selected = settings.nodeSortMode == mode,
                     glyph = MarbleGlyph.FILTER,
-                    squircleColor = colors.blue,
+                    iconTint = colors.primary,
                     onClick = { repo.updateSettings(settings.copy(nodeSortMode = mode)) }
                 )
             }
         }
 
-        IosSectionHeader(title = trx("Display Options"))
-        IosCard {
-            IosSwitchRow(
+        MarbleSectionHeader(title = trx("Display Options"))
+        MarbleCard {
+            MarbleSwitchRow(
                 title = trx("Reverse sort direction"),
                 checked = settings.nodeSortReverse,
                 glyph = MarbleGlyph.TUNERS,
-                squircleColor = colors.indigo,
+                iconTint = colors.secondary,
                 onCheckedChange = { repo.updateSettings(settings.copy(nodeSortReverse = it)) }
             )
-            IosDivider()
-            IosSwitchRow(
+            MarbleDivider()
+            MarbleSwitchRow(
                 title = trx("Group by country"),
                 subtitle = trx("Organize servers by exit country instead of subscription"),
                 checked = settings.serversGroupByCountry,
                 glyph = MarbleGlyph.GLOBE,
-                squircleColor = colors.teal,
+                iconTint = colors.tertiary,
                 onCheckedChange = { repo.updateSettings(settings.copy(serversGroupByCountry = it)) }
             )
-            IosDivider()
-            IosSwitchRow(
+            MarbleDivider()
+            MarbleSwitchRow(
                 title = trx("Only reachable servers"),
                 subtitle = trx("Hide servers whose last test failed"),
                 checked = settings.serversOnlyReachable,
                 glyph = MarbleGlyph.CHECK,
-                squircleColor = colors.green,
+                iconTint = colors.success,
                 onCheckedChange = { repo.updateSettings(settings.copy(serversOnlyReachable = it)) }
             )
         }
@@ -890,55 +1047,55 @@ private fun ServerQuickActionsSheet(
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val clipboard = LocalClipboardManager.current
 
-    IosBottomSheet(
+    MarbleBottomSheet(
         title = cleanServerName(profile.name),
         subtitle = "${protocolShortLabel(profile)} · ${profile.host}:${profile.port}",
         onDismiss = onDismiss
     ) {
-        IosCard {
-            IosListItem(
+        MarbleCard {
+            MarbleListItem(
                 title = Tr.now.connect,
                 subtitle = trx("Connect immediately through this server"),
                 glyph = MarbleGlyph.POWER,
-                squircleColor = colors.green,
+                iconTint = colors.success,
                 onClick = onConnect
             )
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = trx("Test Route Latency"),
                 subtitle = trx("Run a full tunnel & delay test on this server"),
                 glyph = MarbleGlyph.GAUGE,
-                squircleColor = colors.blue,
+                iconTint = colors.primary,
                 onClick = {
                     onDismiss()
                     repo.fullTest(profile)
                 }
             )
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = trx("Server Details & JSON"),
                 subtitle = trx("Inspect security, IPv4/IPv6 reachability and outbound JSON"),
                 glyph = MarbleGlyph.TUNERS,
-                squircleColor = colors.indigo,
+                iconTint = colors.secondary,
                 onClick = onInspect
             )
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = trx("Share QR Code"),
                 subtitle = trx("Display scannable QR code or copy link"),
                 glyph = MarbleGlyph.QR,
-                squircleColor = colors.purple,
+                iconTint = colors.secondary,
                 onClick = onShareQr
             )
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = trx("Copy Share Link / Config"),
                 subtitle = trx("Copy URI or outbound JSON to clipboard"),
                 glyph = MarbleGlyph.COPY,
-                squircleColor = colors.teal,
+                iconTint = colors.tertiary,
                 onClick = {
                     val payload = profile.raw.ifBlank { profile.configJson }
                     clipboard.setText(AnnotatedString(payload))
@@ -946,36 +1103,36 @@ private fun ServerQuickActionsSheet(
                     onDismiss()
                 }
             )
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = trx("Rename"),
                 glyph = MarbleGlyph.PENCIL,
-                squircleColor = colors.orange,
+                iconTint = colors.warning,
                 onClick = onRename
             )
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = trx("Duplicate"),
                 glyph = MarbleGlyph.LAYERS,
-                squircleColor = colors.cyan,
+                iconTint = colors.tertiary,
                 onClick = {
                     repo.duplicateProfile(profile.id, profile.subscriptionId)
                     onDismiss()
                 }
             )
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = trx("Move to Group"),
                 glyph = MarbleGlyph.FOLDER,
-                squircleColor = colors.blue,
+                iconTint = colors.primary,
                 onClick = onMove
             )
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = trx("Delete Server"),
-                titleColor = colors.red,
+                titleColor = colors.error,
                 glyph = MarbleGlyph.TRASH,
-                squircleColor = colors.red,
+                iconTint = colors.error,
                 onClick = onDelete
             )
         }
@@ -994,39 +1151,39 @@ private fun SubscriptionManageSheet(
     onRequestDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val clipboard = LocalClipboardManager.current
     val failedCount = repo.failedSubscriptionNodeCount(subscription.id, "TUNNEL")
 
-    IosBottomSheet(
+    MarbleBottomSheet(
         title = subscription.name,
         subtitle = trx("Manage subscription URL, links and failed nodes"),
         onDismiss = onDismiss
     ) {
-        IosTextField(
+        MarbleTextField(
             label = trx("Subscription Name"),
             value = nameDraft,
             onValueChange = onNameChange
         )
-        IosTextField(
+        MarbleTextField(
             label = trx("HTTPS Subscription URL"),
             value = urlDraft,
             onValueChange = onUrlChange,
             placeholder = "https://..."
         )
-        IosButton(
+        MarbleButton(
             label = trx("Save Changes"),
             onClick = onSave,
             enabled = nameDraft.trim().isNotBlank(),
             modifier = Modifier.fillMaxWidth()
         )
 
-        IosCard {
-            IosListItem(
+        MarbleCard {
+            MarbleListItem(
                 title = trx("Copy All Server Links"),
                 subtitle = trx("Copy every server in this subscription to clipboard"),
                 glyph = MarbleGlyph.COPY,
-                squircleColor = colors.blue,
+                iconTint = colors.primary,
                 onClick = {
                     val text = repo.subscriptionRawText(subscription.id)
                     if (text.isNotBlank()) {
@@ -1037,24 +1194,24 @@ private fun SubscriptionManageSheet(
                 }
             )
             if (failedCount > 0) {
-                IosDivider()
-                IosListItem(
+                MarbleDivider()
+                MarbleListItem(
                     title = "${trx("Remove Failed Servers")} ($failedCount)",
                     subtitle = trx("Prune unreachable nodes from this subscription"),
                     glyph = MarbleGlyph.TRASH,
-                    squircleColor = colors.orange,
+                    iconTint = colors.warning,
                     onClick = {
                         repo.removeFailedSubscriptionNodes(subscription.id, "TUNNEL")
                         onDismiss()
                     }
                 )
             }
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = trx("Delete Subscription"),
-                titleColor = colors.red,
+                titleColor = colors.error,
                 glyph = MarbleGlyph.TRASH,
-                squircleColor = colors.red,
+                iconTint = colors.error,
                 onClick = onRequestDelete
             )
         }
@@ -1067,16 +1224,16 @@ internal fun ServerQrShareSheet(
     onCopy: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val payload = profile.raw.ifBlank { profile.configJson }
     val qr = remember(payload) { runCatching { QrCode.encode(payload) }.getOrNull() }
 
-    IosBottomSheet(
+    MarbleBottomSheet(
         title = cleanServerName(profile.name),
         subtitle = protocolShortLabel(profile),
         onDismiss = onDismiss
     ) {
-        IosCard(contentPadding = PaddingValues(24.dp)) {
+        MarbleCard(contentPadding = PaddingValues(24.dp)) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -1110,12 +1267,12 @@ internal fun ServerQrShareSheet(
                 } else {
                     Text(
                         text = trx("Config is too large for a single QR code — copy the text link below."),
-                        color = colors.subtitle,
+                        color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
 
-                IosButton(
+                MarbleButton(
                     label = trx("Copy Share Link"),
                     glyph = MarbleGlyph.COPY,
                     onClick = { onCopy(payload) },

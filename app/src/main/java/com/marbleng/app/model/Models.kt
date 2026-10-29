@@ -420,6 +420,7 @@ data class AppBehaviorPrefs(
     val probeSpeedTest: Boolean = false,
     val iranDeepProbeEnabled: Boolean = true,
     val accentTheme: String = FlatAccent.DEFAULT.id,
+    val dynamicColor: Boolean = true,
     val warmupOnLaunch: Boolean = true,
     val censorshipAutoApply: Boolean = false,
     val debugModeEnabled: Boolean = false
@@ -1431,6 +1432,8 @@ data class AppSettings(
     val iranDeepProbeEnabled: Boolean get() = appBehavior.iranDeepProbeEnabled
 
     val accentTheme: String get() = appBehavior.accentTheme
+
+    val dynamicColor: Boolean get() = appBehavior.dynamicColor
 
     val warmupOnLaunch: Boolean get() = appBehavior.warmupOnLaunch
 
