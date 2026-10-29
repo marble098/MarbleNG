@@ -540,6 +540,21 @@ jobs:
               "app/src/main/AndroidManifest.xml"
           ).read_text(encoding="utf-8")
 
+          # MARBLE_EXPRESSIVE_SHELL_V241 — the shell the audit asked for: one connect control,
+          # a live graph, health capsules, quick logs, presets, air instead of hairlines and a
+          # dock that leaves while the page scrolls.
+          home_screen = Path(
+              "app/src/main/java/com/marbleng/app/ui/HomeScreen.kt"
+          ).read_text(encoding="utf-8")
+
+          marble_shell = Path(
+              "app/src/main/java/com/marbleng/app/ui/MarbleExpressiveShell.kt"
+          ).read_text(encoding="utf-8")
+
+          shell_model = Path(
+              "app/src/main/java/com/marbleng/app/model/ExpressiveShell.kt"
+          ).read_text(encoding="utf-8")
+
           required = {
               "expressive theme entry": "fun MarbleExpressiveTheme(" in marble_theme,
               "expressive motion scheme": "MotionScheme.expressive()" in marble_theme,
@@ -573,6 +588,39 @@ jobs:
                   in vpn
               ),
               "platform back gesture": 'enableOnBackInvokedCallback="true"' in manifest,
+              "one connect control": (
+                  "MarbleConnectPill(" in home_screen
+                  and "MarbleModeMenuChip(" in home_screen
+                  and "ConnectDeckSection(" not in home_screen
+                  and "MarbleSlideConnectBar(" not in home_screen
+              ),
+              "live traffic graph": (
+                  "MarbleTrafficSparkline(" in home_screen
+                  and "fun MarbleTrafficSparkline(" in marble_shell
+                  and "class TrafficTimeline(" in shell_model
+              ),
+              "surfaces over outlines": (
+                  "border = borderColor?.let { BorderStroke(1.dp, it) }" in marble_components
+                  and "HorizontalDivider(" not in marble_components
+              ),
+              "calm server health": (
+                  "MarbleHealthPill(" in servers
+                  and "background(colors.errorContainer)" not in servers
+              ),
+              "quick core logs": (
+                  "fun readCoreLogTail()" in repo
+                  and "fun QuickLogsSheet(" in marble_shell
+                  and "QuickLogsSheet(" in home_screen
+              ),
+              "named smart presets": (
+                  "SettingsDestination.SMART_PRESETS" in settings
+                  and "enum class SmartPreset(" in shell_model
+                  and "SmartPresetStrip(" in home_screen
+              ),
+              "dynamic dock": (
+                  "slideOutVertically(targetOffsetY" in marble_app
+                  and "visible = !contentScrolling" in marble_app
+              ),
           }
 
           failed = [

@@ -45,8 +45,39 @@ object MarbleSpec {
     const val ROW_ICON_SIZE_DP: Int = 40
     const val ROW_ICON_CORNER_DP: Int = 14
     const val HEADER_ACTION_SIZE_DP: Int = 48
+
+    /**
+     * MARBLE_EXPRESSIVE_SHELL_V241 — retired. The hairline between two rows is gone: grouping
+     * is carried by the tonal step between surfaces and by air. The token survives only so the
+     * old call sites and the source audit keep a single named value to point at.
+     */
     const val DIVIDER_THICKNESS_DP: Int = 1
+
     const val HERO_BUTTON_HEIGHT_DP: Int = 64
+
+    /** Cards and grouped surfaces: soft, 24–32 dp, never a hairline box. */
+    const val CARD_CORNER_DP: Int = 24
+    const val GROUP_CORNER_DP: Int = 32
+
+    /** Air between two rows of the same group, now that no line separates them. */
+    const val ROW_GAP_DP: Int = 6
+
+    /** The one connect pill: resting and connected heights. */
+    const val CONNECT_PILL_HEIGHT_DP: Int = 76
+    const val CONNECT_PILL_CONNECTED_HEIGHT_DP: Int = 88
+
+    /** Height of the live traffic graph. */
+    const val SPARKLINE_HEIGHT_DP: Int = 104
+
+    /**
+     * Scroll distance, in pixels, over which a display title collapses into the toolbar.
+     * A pure number so the header's curve can be asserted without a device.
+     */
+    const val HEADER_COLLAPSE_DISTANCE_PX: Int =
+        com.marbleng.app.model.HEADER_COLLAPSE_DISTANCE_PX
+
+    /** Bottom chrome: the dock's floating height budget above the gesture bar. */
+    const val DOCK_FLOAT_MARGIN_DP: Int = 10
 
     /** Scroll clearance above the bottom navigation bar. */
     const val BOTTOM_BAR_CLEARANCE_DP: Int = 112

@@ -1,5 +1,10 @@
 package com.marbleng.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,7 +20,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -61,7 +65,9 @@ import com.marbleng.app.model.BenchmarkResult
 import com.marbleng.app.model.NodeSortMode
 import com.marbleng.app.model.ProbeState
 import com.marbleng.app.model.ProxyProfile
+import com.marbleng.app.model.ServerHealth
 import com.marbleng.app.model.Subscription
+import com.marbleng.app.model.serverHealthOf
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
 import com.marbleng.app.ui.theme.success
@@ -202,7 +208,11 @@ fun ServersScreen(
         item(key = "servers-header") {
             MarbleLargeHeader(
                 title = strings.serversTitle,
-                subtitle = "${faDigits("${visibleProfiles.size}")} ${strings.serversUnit}"
+                subtitle = "${faDigits("${visibleProfiles.size}")} ${strings.serversUnit}",
+                collapseFraction = collapseFractionOf(
+                    firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                    firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+                )
             ) {
                 MarbleIconButton(
                     glyph = if (repo.probeActive) MarbleGlyph.STOP else MarbleGlyph.GAUGE,
@@ -237,6 +247,48 @@ fun ServersScreen(
                     placeholder = strings.searchServersHint,
                     trailingCount = faDigits("${visibleProfiles.size}")
                 )
+
+                // MARBLE_EXPRESSIVE_SHELL_V241 — sorting is a first-class question on this page
+                // ("who is fastest?"), so it is a chip row, not a buried filter-sheet control.
+                MarbleChipStrip {
+                    MarblePillChip(
+                        label = trx("Lowest ping"),
+                        selected = settings.nodeSortMode == NodeSortMode.PING && !settings.nodeSortReverse,
+                        accent = colors.success,
+                        onClick = {
+                            repo.updateSettings(
+                                settings.copy(nodeSortMode = NodeSortMode.PING, nodeSortReverse = false)
+                            )
+                        }
+                    )
+                    MarblePillChip(
+                        label = trx("Best score"),
+                        selected = settings.nodeSortMode == NodeSortMode.SCORE && !settings.nodeSortReverse,
+                        accent = colors.secondary,
+                        onClick = {
+                            repo.updateSettings(
+                                settings.copy(nodeSortMode = NodeSortMode.SCORE, nodeSortReverse = false)
+                            )
+                        }
+                    )
+                    MarblePillChip(
+                        label = trx("Name"),
+                        selected = settings.nodeSortMode == NodeSortMode.NAME,
+                        accent = colors.tertiary,
+                        onClick = {
+                            repo.updateSettings(settings.copy(nodeSortMode = NodeSortMode.NAME))
+                        }
+                    )
+                    MarblePillChip(
+                        label = trx("Default order"),
+                        selected = settings.nodeSortMode == NodeSortMode.DEFAULT,
+                        onClick = {
+                            repo.updateSettings(
+                                settings.copy(nodeSortMode = NodeSortMode.DEFAULT, nodeSortReverse = false)
+                            )
+                        }
+                    )
+                }
 
                 MarbleChipStrip {
                     MarblePillChip(
@@ -435,7 +487,15 @@ fun ServersScreen(
             }
         }
 
-        // The dock overlays this screen, so the menu floats above the clearance line.
+        // MARBLE_EXPRESSIVE_SHELL_V241 — the FAB lives above the dock's clearance line and
+        // leaves the screen while the list is moving, so it never sits on the last row the
+        // user is trying to read. It returns the moment scrolling stops, or when opened.
+        AnimatedVisibility(
+            visible = fabExpanded || !listState.isScrollInProgress,
+            enter = fadeIn() + scaleIn(initialScale = 0.82f),
+            exit = fadeOut() + scaleOut(targetScale = 0.82f),
+            modifier = Modifier.align(Alignment.BottomEnd)
+        ) {
         FloatingActionButtonMenu(
             expanded = fabExpanded,
             button = {
@@ -457,8 +517,7 @@ fun ServersScreen(
                 }
             },
             modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = MarbleTheme.bottomClearance)
+                .padding(end = 20.dp, bottom = MarbleTheme.bottomClearance + 12.dp)
         ) {
             FloatingActionButtonMenuItem(
                 onClick = {
@@ -502,6 +561,7 @@ fun ServersScreen(
                     )
                 }
             )
+        }
         }
     }
 
@@ -827,6 +887,7 @@ private fun ServerRowItem(
     onSwipeDelete: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
     val dismissState = rememberSwipeToDismissBoxState()
 
     // The swipe only OPENS the confirm dialog: if the user backs out, the row
@@ -840,10 +901,14 @@ private fun ServerRowItem(
     SwipeToDismissBox(
         state = dismissState,
         backgroundContent = {
+            // MARBLE_EXPRESSIVE_SHELL_V241 — the destructive reveal is a neutral tonal step
+            // with error ink, not a filled error field: a swipe the user is still deciding
+            // about must not paint the row like a system failure. There is no trash button on
+            // the row either — the gesture is the affordance, and it confirms with a haptic.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(colors.errorContainer)
+                    .background(colors.surfaceContainerHighest)
                     .padding(horizontal = 20.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
@@ -853,12 +918,12 @@ private fun ServerRowItem(
                 ) {
                     Text(
                         text = trx("Delete"),
-                        color = colors.onErrorContainer,
+                        color = colors.error,
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                     )
                     MarbleGlyphIcon(
                         glyph = MarbleGlyph.TRASH,
-                        color = colors.onErrorContainer,
+                        color = colors.error,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -866,7 +931,10 @@ private fun ServerRowItem(
         },
         enableDismissFromStartToEnd = false,
         gesturesEnabled = swipeEnabled,
-        onDismiss = { onSwipeDelete() }
+        onDismiss = {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            onSwipeDelete()
+        }
     ) {
         ServerRowContent(
             profile = profile,
@@ -894,8 +962,16 @@ private fun ServerRowContent(
 ) {
     val colors = MaterialTheme.colorScheme
     val pingText = trx(pingBadgeText(result, probeState))
-    val pingTone = pingBadgeColor(result, probeState)
     val quietFailure = result != null && (result.success <= 0 || result.latencyMs <= 0.0)
+    // MARBLE_EXPRESSIVE_SHELL_V241 — one of three calm states, never a red field: mint for a
+    // healthy answer, amber for a slow one, muted grey for silence. Testing keeps the neutral
+    // "untested" tone so a running sweep never looks like a failure.
+    val health = when {
+        probeState == ProbeState.TESTING || probeState == ProbeState.QUEUED -> ServerHealth.UNTESTED
+        quietFailure -> ServerHealth.DEAD
+        result == null -> ServerHealth.UNTESTED
+        else -> serverHealthOf(result.latencyMs, result.success > 0)
+    }
     val subtitleText = buildString {
         append(protocolShortLabel(profile))
         if (profile.host.isNotBlank()) {
@@ -923,23 +999,7 @@ private fun ServerRowContent(
                 horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 if (result != null || probeState != ProbeState.IDLE) {
-                    if (quietFailure) {
-                        // Council: quiet failure — muted, not alarming red
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(colors.onSurfaceVariant.copy(alpha = 0.14f))
-                                .padding(horizontal = 7.dp, vertical = 3.dp)
-                        ) {
-                            Text(
-                                text = trx("No reply"),
-                                color = colors.onSurfaceVariant,
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                        }
-                    } else {
-                        MarbleBadge(text = pingText, color = pingTone)
-                    }
+                    MarbleHealthPill(health = health, text = pingText)
                 }
                 if (active || selected) {
                     MarbleGlyphIcon(

@@ -50,7 +50,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialShapes
@@ -98,7 +97,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.dp
+import com.marbleng.app.model.headerCollapseFraction
 import com.marbleng.app.ui.theme.MarbleCardShape
 import com.marbleng.app.ui.theme.MarbleControlShape
 import com.marbleng.app.ui.theme.MarbleFieldShape
@@ -115,8 +116,13 @@ import com.marbleng.app.ui.theme.rememberReducedMotion
 // springs for motion, ripples for press, haptics for selection and key actions.
 
 /**
- * Contained group card: tonal container, expressive 20dp rounding, hairline in flat mode
- * and a soft tonal lift otherwise. Rows, forms and summaries live inside these.
+ * Contained group card: tonal container, expressive 24dp rounding and **no outline**.
+ *
+ * MARBLE_EXPRESSIVE_SHELL_V241 — the audit called the old cards "hundreds of rounded
+ * rectangles with grey lines between them". A card is now a change of surface tone, not a
+ * border: `borderColor` exists only for the two places that must shout (a live error), and
+ * the elevation stays at zero in flat mode so a stack of cards reads as layers of one sheet.
+ * Rows inside are separated by air ([MarbleDivider]) instead of hairlines.
  */
 @Composable
 fun MarbleCard(
@@ -137,12 +143,13 @@ fun MarbleCard(
         elevation = CardDefaults.cardElevation(
             defaultElevation = if (flat) 0.dp else 2.dp
         ),
-        border = BorderStroke(1.dp, borderColor ?: colors.outlineVariant),
+        border = borderColor?.let { BorderStroke(1.dp, it) },
         content = {
             Column(modifier = Modifier.padding(contentPadding), content = content)
         }
     )
 }
+
 
 /**
  * Tonal row icon: the tone as a wash behind a full-tone glyph. Replaces the old solid
@@ -189,29 +196,36 @@ fun MarbleChevron(
     )
 }
 
+/**
+ * MARBLE_EXPRESSIVE_SHELL_V241 — the row separator is air now, not a line.
+ *
+ * The name is kept because thirty call sites already ask for "a separator between two rows";
+ * what changed is the answer. Two rows in one tonal group are separated by
+ * [MarbleSpec.ROW_GAP_DP] of empty space, which is how M3 expressive groups read: tone says
+ * "same group", air says "different row". A hairline said both, which is why every page used
+ * to look like an office spreadsheet.
+ */
 @Composable
 fun MarbleDivider(
     modifier: Modifier = Modifier,
-    insetStart: Dp = 66.dp,
+    insetStart: Dp = 0.dp,
     insetEnd: Dp = 0.dp
 ) {
-    HorizontalDivider(
-        modifier = modifier.padding(start = insetStart, end = insetEnd),
-        thickness = MarbleSpec.DIVIDER_THICKNESS_DP.dp,
-        color = MaterialTheme.colorScheme.outlineVariant
+    Spacer(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = insetStart, end = insetEnd)
+            .height(MarbleSpec.ROW_GAP_DP.dp)
     )
 }
 
+/** The softer twin of [MarbleDivider]; it is the same air, kept for call-site compatibility. */
 @Composable
 fun MarbleFadeDivider(
     modifier: Modifier = Modifier,
     insetStart: Dp = 16.dp
 ) {
-    HorizontalDivider(
-        modifier = modifier.padding(start = insetStart),
-        thickness = MarbleSpec.DIVIDER_THICKNESS_DP.dp,
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
-    )
+    MarbleDivider(modifier = modifier, insetStart = insetStart)
 }
 
 /**
@@ -1178,17 +1192,46 @@ internal fun MarbleIconButton(
 }
 
 /**
+ * MARBLE_EXPRESSIVE_SHELL_V241 — how far a list has scrolled towards a collapsed title, 0..1.
+ *
+ * Pure arithmetic on the lazy-list measurements so `ExpressiveShellV241Test` can pin the curve
+ * without a device: the first page collapses linearly over
+ * [MarbleSpec.HEADER_COLLAPSE_DISTANCE_PX]; any page after it is already fully collapsed.
+ */
+fun collapseFractionOf(
+    firstVisibleItemIndex: Int,
+    firstVisibleItemScrollOffset: Int,
+    distancePx: Int = MarbleSpec.HEADER_COLLAPSE_DISTANCE_PX
+): Float = headerCollapseFraction(
+    firstVisibleItemIndex = firstVisibleItemIndex,
+    firstVisibleItemScrollOffset = firstVisibleItemScrollOffset,
+    distancePx = distancePx
+)
+
+/**
  * Large display header for primary tabs: emphasized display title, calm subtitle and a
  * trailing action row.
+ *
+ * [collapseFraction] (0 = at rest, 1 = fully collapsed) shrinks the title from the display
+ * rung into the toolbar rung as the page scrolls under it, and fades the subtitle out. The
+ * default 0 keeps every page that has not opted in exactly as it was.
  */
 @Composable
 fun MarbleLargeHeader(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String = "",
+    collapseFraction: Float = 0f,
     actions: (@Composable RowScope.() -> Unit)? = null
 ) {
     val colors = MaterialTheme.colorScheme
+    val fraction = collapseFraction.coerceIn(0f, 1f)
+    val expanded = MaterialTheme.typography.headlineLarge
+    val collapsed = MaterialTheme.typography.titleMedium
+    val titleStyle = expanded.copy(
+        fontSize = lerp(expanded.fontSize, collapsed.fontSize, fraction),
+        lineHeight = lerp(expanded.lineHeight, collapsed.lineHeight, fraction)
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1203,16 +1246,16 @@ fun MarbleLargeHeader(
             Text(
                 text = title,
                 color = colors.onSurface,
-                style = MaterialTheme.typography.headlineLarge,
+                style = titleStyle,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (subtitle.isNotBlank()) {
+            if (subtitle.isNotBlank() && fraction < 0.98f) {
                 Text(
                     text = subtitle,
-                    color = colors.onSurfaceVariant,
+                    color = colors.onSurfaceVariant.copy(alpha = 1f - fraction),
                     style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
