@@ -34,6 +34,7 @@ def workflow(name: str) -> str:
     return read(f".github/workflows/{name}")
 
 files = {
+    "buildWorkflow": read(".github/workflows/build.yml"),
     "main": read("app/src/main/java/com/marbleng/app/MainActivity.kt"),
     "permissions": read("app/src/main/java/com/marbleng/app/ui/MarblePermissionOnboarding.kt"),
     "app": read("app/src/main/java/com/marbleng/app/MarbleApplication.kt"),
@@ -4162,6 +4163,44 @@ check(
     and "## ۵. جدول اجرا" in files["shellDoc"]
     and "## ۶. آنچه عمداً انجام نشد" in files["shellDoc"]
     and "EXPRESSIVE_SHELL_V241.md" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_CONNECT_PILL_CRASH_V242 / SERVER_ROW_ORDER_V242
+# ---------------------------------------------------------------------------
+check(
+    "V242 connect-pill padding can never receive a spring overshoot",
+    "object ConnectPillMotion" in files["shellModel"]
+    and "fun insetDp(raw: Float): Float" in files["shellModel"]
+    and "raw.isFinite()" in files["shellModel"]
+    and "raw.coerceIn(0f, RESTING_INSET_DP)" in files["shellModel"]
+    and "ConnectPillMotion.RESTING_INSET_DP.dp" in files["shellUi"]
+    and "animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),\n        label = \"connectPillInset\"" in files["shellUi"]
+    and ".padding(horizontal = ConnectPillMotion.insetDp(inset.value).dp)" in files["shellUi"]
+    and "class ConnectPillMotionV242Test" in read("app/src/test/java/com/marbleng/app/model/ConnectPillMotionV242Test.kt")
+    and "class ConnectPillCrashV242Test" in read("app/src/test/java/com/marbleng/app/ui/ConnectPillCrashV242Test.kt"),
+)
+
+check(
+    "V242 server rows reserve their columns, key their swipe state and speak RTL",
+    "internal fun ServerRowContent(" in files["serversScreen"]
+    and ".width(88.dp)" in files["serversScreen"]
+    and ".size(48.dp)" in files["serversScreen"]
+    and "key(profile.id)" in files["serversScreen"]
+    and "LaunchedEffect(pendingDelete, profile.id)" in files["serversScreen"]
+    and "contentAlignment = Alignment.CenterEnd" in files["serversScreen"]
+    and "\\u2068${profile.host}\\u2069" in files["serversScreen"]
+    and "scrollable = true" in files["serversScreen"]
+    and "scrollable: Boolean = false" in files["marbleComponents"]
+    and "class ServerRowLayoutV242Test" in read("app/src/test/java/com/marbleng/app/ui/ServerRowLayoutV242Test.kt")
+    and "Server actions" in files["persianLexicon"],
+)
+
+check(
+    "V242 release keeps an R8 mapping artifact and the crash chapter",
+    "Upload R8 mapping" in files["buildWorkflow"]
+    and "app/build/outputs/mapping/release/mapping.txt" in files["buildWorkflow"]
+    and "CRASH_AND_SERVER_ROWS_V242.md" in files["readme"],
 )
 
 failed = [name for name, passed in checks if not passed]

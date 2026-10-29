@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.model.ConnectModeChip
+import com.marbleng.app.model.ConnectPillMotion
 import com.marbleng.app.model.QuickLogLine
 import com.marbleng.app.model.ServerHealth
 import com.marbleng.app.model.SmartPreset
@@ -154,9 +155,12 @@ fun MarbleConnectPill(
         animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
         label = "connectPillHeight"
     )
+    // V242: padding is a layout constraint, not a springy visual. The expressive spatial
+    // spring overshoots 20 -> 0 below zero and crashed every connect/reconnect. Effects
+    // springs do not overshoot; ConnectPillMotion.insetDp is the second line of defence.
     val inset by animateDpAsState(
-        targetValue = if (connected) 0.dp else 20.dp,
-        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        targetValue = if (connected) 0.dp else ConnectPillMotion.RESTING_INSET_DP.dp,
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "connectPillInset"
     )
     val corner by animateDpAsState(
@@ -181,7 +185,7 @@ fun MarbleConnectPill(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = inset)
+            .padding(horizontal = ConnectPillMotion.insetDp(inset.value).dp)
             .height(height)
             .scale(pressScale)
             .clip(shape)
@@ -393,9 +397,11 @@ fun MarbleHealthPill(
         MarbleHealthDot(health = health, size = 8.dp)
         Text(
             text = text,
+            modifier = Modifier.weight(1f, fill = false),
             color = if (health == ServerHealth.DEAD) colors.onSurfaceVariant else tone,
             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            maxLines = 1
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

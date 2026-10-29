@@ -17,8 +17,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -38,6 +40,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -52,7 +55,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,7 +76,9 @@ import com.marbleng.app.model.Subscription
 import com.marbleng.app.model.serverHealthOf
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.onSuccess
 import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.successContainer
 import com.marbleng.app.ui.theme.warning
 
 private data class ServerGroupBucket(
@@ -830,27 +838,31 @@ private fun ServerGroupCard(
             )
 
             if (!collapsed) {
-                bucket.profiles.forEach { profile ->
+                bucket.profiles.forEachIndexed { index, profile ->
                     val active = repo.isActiveProfile(profile)
                     val selected = repo.isSelectedProfile(profile)
                     val result = benchmarks[profile.id]
                     val probeState = repo.probeStateOf(profile.id)
                     val countryCode = repo.serverLocation(profile).code
 
-                    MarbleDivider(insetStart = 66.dp)
-                    ServerRowItem(
-                        profile = profile,
-                        countryCode = countryCode,
-                        active = active,
-                        selected = selected,
-                        result = result,
-                        probeState = probeState,
-                        swipeEnabled = !repo.probeActive && !repo.probeCancelling,
-                        pendingDelete = pendingDeleteId == profile.id,
-                        onClick = { onSelectProfile(profile) },
-                        onMore = { onMoreProfile(profile) },
-                        onSwipeDelete = { onSwipeDelete(profile) }
-                    )
+                    if (index > 0) MarbleDivider()
+                    // V242: swipe/dismiss state belongs to the profile, not to the visual slot.
+                    // Sorting or filtering must never hand a half-swiped row to another server.
+                    key(profile.id) {
+                        ServerRowItem(
+                            profile = profile,
+                            countryCode = countryCode,
+                            active = active,
+                            selected = selected,
+                            result = result,
+                            probeState = probeState,
+                            swipeEnabled = !repo.probeActive && !repo.probeCancelling,
+                            pendingDelete = pendingDeleteId == profile.id,
+                            onClick = { onSelectProfile(profile) },
+                            onMore = { onMoreProfile(profile) },
+                            onSwipeDelete = { onSwipeDelete(profile) }
+                        )
+                    }
                 }
                 // Council: gentle footer hint for discoverability
                 if (bucket.profiles.size > 6) {
@@ -892,7 +904,7 @@ private fun ServerRowItem(
 
     // The swipe only OPENS the confirm dialog: if the user backs out, the row
     // slides home again. (On confirm the row leaves with its profile anyway.)
-    LaunchedEffect(pendingDelete) {
+    LaunchedEffect(pendingDelete, profile.id) {
         if (!pendingDelete && dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
             dismissState.reset()
         }
@@ -950,7 +962,7 @@ private fun ServerRowItem(
 }
 
 @Composable
-private fun ServerRowContent(
+internal fun ServerRowContent(
     profile: ProxyProfile,
     countryCode: String?,
     active: Boolean,
@@ -961,72 +973,156 @@ private fun ServerRowContent(
     onMore: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    val pingText = trx(pingBadgeText(result, probeState))
+    val strings = Tr.now
+    // V242: the probe column is reserved before the first result arrives. A long localized
+    // "checking" label must not push the name, the address or the next row sideways.
+    val pingText = when (probeState) {
+        ProbeState.TESTING -> strings.pingMeasuringValue
+        ProbeState.QUEUED -> "…"
+        ProbeState.IDLE -> trx(pingBadgeText(result, probeState))
+    }
     val quietFailure = result != null && (result.success <= 0 || result.latencyMs <= 0.0)
-    // MARBLE_EXPRESSIVE_SHELL_V241 — one of three calm states, never a red field: mint for a
-    // healthy answer, amber for a slow one, muted grey for silence. Testing keeps the neutral
-    // "untested" tone so a running sweep never looks like a failure.
     val health = when {
         probeState == ProbeState.TESTING || probeState == ProbeState.QUEUED -> ServerHealth.UNTESTED
         quietFailure -> ServerHealth.DEAD
         result == null -> ServerHealth.UNTESTED
         else -> serverHealthOf(result.latencyMs, result.success > 0)
     }
-    val subtitleText = buildString {
-        append(protocolShortLabel(profile))
-        if (profile.host.isNotBlank()) {
-            append(" · ")
-            append(profile.host)
-        }
+    val title = cleanServerName(profile.name).ifBlank { strings.node }
+    val stateLabel = when {
+        active -> trx("Active")
+        selected -> trx("Selected")
+        else -> ""
+    }
+    val container = when {
+        active -> colors.successContainer.copy(alpha = 0.32f)
+        selected -> colors.primaryContainer.copy(alpha = 0.30f)
+        else -> Color.Transparent
+    }
+    val accent = when {
+        active -> colors.success
+        selected -> colors.primary
+        else -> colors.onSurface
     }
 
-    MarbleListItem(
-        title = cleanServerName(profile.name),
-        subtitle = subtitleText,
-        titleColor = when {
-            active -> colors.success
-            selected -> colors.primary
-            quietFailure -> colors.onSurface.copy(alpha = 0.58f)
-            else -> colors.onSurface
-        },
-        leading = {
-            MarbleServerAvatar(profile = profile, countryCode = countryCode)
-        },
-        showChevron = true,
-        trailing = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                if (result != null || probeState != ProbeState.IDLE) {
-                    MarbleHealthPill(health = health, text = pingText)
-                }
-                if (active || selected) {
-                    MarbleGlyphIcon(
-                        glyph = MarbleGlyph.CHECK,
-                        color = if (active) colors.success else colors.primary,
-                        modifier = Modifier.size(16.dp),
-                        weight = 1.2f
-                    )
-                }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("server-row-${profile.id}")
+            .heightIn(min = 88.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(container)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics {
+                contentDescription = listOfNotNull(
+                    title,
+                    protocolShortLabel(profile),
+                    profile.host.takeIf { it.isNotBlank() },
+                    stateLabel.takeIf { it.isNotBlank() },
+                    pingText
+                ).joinToString(" · ")
+            }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            MarbleServerAvatar(profile = profile, countryCode = countryCode, size = 44.dp)
+            if (active || selected) {
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .align(Alignment.BottomEnd)
+                        .size(18.dp)
                         .clip(CircleShape)
-                        .background(colors.surfaceContainer)
-                        .clickable(role = Role.Button, onClick = onMore),
+                        .background(accent),
                     contentAlignment = Alignment.Center
                 ) {
                     MarbleGlyphIcon(
-                        glyph = MarbleGlyph.MORE,
-                        color = colors.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
+                        glyph = MarbleGlyph.CHECK,
+                        color = if (active) colors.onSuccess else colors.onPrimary,
+                        modifier = Modifier.size(11.dp),
+                        weight = 1.25f
                     )
                 }
             }
-        },
-        onClick = onClick
-    )
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = title,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("server-row-title-${profile.id}"),
+                    color = if (quietFailure && !active && !selected) colors.onSurfaceVariant else accent,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                MarbleIconButton(
+                    glyph = MarbleGlyph.MORE,
+                    onClick = onMore,
+                    tint = colors.onSurfaceVariant,
+                    contentDescription = "${trx("Server actions")}: $title",
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("server-row-more-${profile.id}")
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = protocolShortLabel(profile),
+                        color = colors.primary,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1
+                    )
+                    if (profile.host.isNotBlank()) {
+                        Text(
+                            text = "·",
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1
+                        )
+                        Text(
+                            // FSI/PDI keep an IPv4/IPv6 literal in network order inside RTL copy.
+                            text = "\u2068${profile.host}\u2069",
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .testTag("server-row-host-${profile.id}"),
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                MarbleHealthPill(
+                    health = health,
+                    text = pingText,
+                    modifier = Modifier
+                        .width(88.dp)
+                        .testTag("server-row-ping-${profile.id}")
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -1040,7 +1136,8 @@ private fun ServersFilterSheet(
     MarbleBottomSheet(
         title = trx("Sort & Filter"),
         subtitle = trx("Organize servers by latency, score, country or protocol"),
-        onDismiss = onDismiss
+        onDismiss = onDismiss,
+        scrollable = true
     ) {
         MarbleSectionHeader(title = trx("Sort Order"))
         MarbleCard {
@@ -1113,7 +1210,8 @@ private fun ServerQuickActionsSheet(
     MarbleBottomSheet(
         title = cleanServerName(profile.name),
         subtitle = "${protocolShortLabel(profile)} · ${profile.host}:${profile.port}",
-        onDismiss = onDismiss
+        onDismiss = onDismiss,
+        scrollable = true
     ) {
         MarbleCard {
             MarbleListItem(

@@ -48,7 +48,14 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-`docs/EXPRESSIVE_SHELL_V241.md` is the newest chapter.
+`docs/CRASH_AND_SERVER_ROWS_V242.md` is the newest chapter.
+`docs/EXPRESSIVE_SHELL_V241.md` records the expressive shell before it.
+
+**V242 crash and server-row pass.** The connect pill no longer lets an expressive spring overshoot
+into negative padding: the inset uses a non-overshooting effects spring plus a finite layout clamp,
+with JVM and real-Compose frame regressions. Server rows now keep a stable two-line grammar —
+avatar, ellipsized name, 48dp actions, protocol/address and a reserved ping capsule — with
+profile-keyed swipe state, RTL-safe addresses and scrollable action sheets.
 
 **Home stopped asking a question it should answer.** The audit counted five controls for one
 action — a power orb, a slide-to-connect track and three deck cards — so the screen now has one

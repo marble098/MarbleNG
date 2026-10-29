@@ -236,6 +236,11 @@ android {
         buildConfig = true
     }
 
+    // V242: Compose regression tests inflate real resources (fonts, theme, manifest).
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     packaging {
         jniLibs {
             // MARBLE_APK_INSTALL_CONTRACT_V195 -- this flag is the installer
@@ -386,4 +391,10 @@ dependencies {
     debugImplementation(
         "androidx.compose.ui:ui-tooling"
     )
+
+    // V242: run the real Compose layout/animation on the JVM. The release crash was a
+    // frame-level padding invariant, so a string-only source audit is not enough.
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("org.robolectric:robolectric:${toolchainVersion("robolectric", "4.17")}")
 }

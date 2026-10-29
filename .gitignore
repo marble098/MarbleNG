@@ -18,3 +18,6 @@ __pycache__/
 
 .gradle-dist/
 app/src/main/assets/singbox/
+
+# Local-only UI regression captures (never commit screenshots or tool downloads)
+.ui-captures/
