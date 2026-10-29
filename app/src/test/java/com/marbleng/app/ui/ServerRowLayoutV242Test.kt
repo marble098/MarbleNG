@@ -85,8 +85,8 @@ class ServerRowLayoutV242Test {
         val ping = compose.onNodeWithTag("server-row-ping-row-1", useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
 
-        assertTrue("action target is too small: $more", more.width >= 48.dp)
-        assertEquals(88.dp, ping.width)
+        assertTrue("action target is too small: $more", (more.right - more.left) >= 48.dp)
+        assertEquals(88.dp, ping.right - ping.left)
         // RTL: the action sits to the left of the title; ping sits to the left of the address.
         assertTrue("more overlaps title: more=$more title=$title", more.right <= title.left)
         assertTrue("ping overlaps host: ping=$ping host=$host", ping.right <= host.left)
