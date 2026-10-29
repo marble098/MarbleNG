@@ -224,7 +224,7 @@ private fun MarbleRootShell(
         // Tablets, open foldables and wide windows get a navigation rail beside a
         // capped reading column; phones keep the overlay dock. The clearance the
         // screens and the Servers FAB float above follows the chrome.
-        val wide = maxWidth >= 840.dp
+        val wide = maxWidth >= MarbleSpec.WIDE_RAIL_MIN_WIDTH_DP.dp
         CompositionLocalProvider(
             LocalBottomClearance provides
                 (if (wide) MarbleSpec.RAIL_CLEARANCE_DP else MarbleSpec.BOTTOM_BAR_CLEARANCE_DP).dp
