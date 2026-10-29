@@ -1,10 +1,15 @@
 package com.marbleng.app.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -39,6 +44,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -248,6 +254,14 @@ fun ServersScreen(
         }
 
         item(key = "servers-search-and-chips") {
+            // MARBLE_M3_EXPRESSIVE_V242 — the 5-layer header collapses on scroll: the search
+            // stays pinned while the sort / group / protocol strips fold away with a spring,
+            // so half the viewport is not chrome before the first server appears.
+            val chipsCollapsed by remember {
+                derivedStateOf {
+                    listState.firstVisibleItemIndex > 0
+                }
+            }
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 MarbleSearchField(
                     value = searchQuery,
@@ -256,90 +270,104 @@ fun ServersScreen(
                     trailingCount = faDigits("${visibleProfiles.size}")
                 )
 
-                // MARBLE_EXPRESSIVE_SHELL_V241 — sorting is a first-class question on this page
-                // ("who is fastest?"), so it is a chip row, not a buried filter-sheet control.
-                MarbleChipStrip {
-                    MarblePillChip(
-                        label = trx("Lowest ping"),
-                        selected = settings.nodeSortMode == NodeSortMode.PING && !settings.nodeSortReverse,
-                        accent = colors.success,
-                        onClick = {
-                            repo.updateSettings(
-                                settings.copy(nodeSortMode = NodeSortMode.PING, nodeSortReverse = false)
-                            )
-                        }
-                    )
-                    MarblePillChip(
-                        label = trx("Best score"),
-                        selected = settings.nodeSortMode == NodeSortMode.SCORE && !settings.nodeSortReverse,
-                        accent = colors.secondary,
-                        onClick = {
-                            repo.updateSettings(
-                                settings.copy(nodeSortMode = NodeSortMode.SCORE, nodeSortReverse = false)
-                            )
-                        }
-                    )
-                    MarblePillChip(
-                        label = trx("Name"),
-                        selected = settings.nodeSortMode == NodeSortMode.NAME,
-                        accent = colors.tertiary,
-                        onClick = {
-                            repo.updateSettings(settings.copy(nodeSortMode = NodeSortMode.NAME))
-                        }
-                    )
-                    MarblePillChip(
-                        label = trx("Default order"),
-                        selected = settings.nodeSortMode == NodeSortMode.DEFAULT,
-                        onClick = {
-                            repo.updateSettings(
-                                settings.copy(nodeSortMode = NodeSortMode.DEFAULT, nodeSortReverse = false)
-                            )
-                        }
-                    )
-                }
-
-                MarbleChipStrip {
-                    MarblePillChip(
-                        label = strings.homeAllGroups,
-                        selected = repo.librarySourceFilter == "all",
-                        onClick = { repo.selectLibrarySource("all") }
-                    )
-                    repo.subscriptions.forEach { sub ->
-                        MarblePillChip(
-                            label = sub.name,
-                            selected = repo.librarySourceFilter == sub.id,
-                            onClick = { repo.selectLibrarySource(sub.id) }
-                        )
-                    }
-                    MarblePillChip(
-                        label = strings.homeManualGroup,
-                        selected = repo.librarySourceFilter == "manual",
-                        onClick = { repo.selectLibrarySource("manual") }
-                    )
-                }
-
-                if (protocolTallies.size > 1) {
-                    MarbleChipStrip {
-                        MarblePillChip(
-                            label = trx("All protocols"),
-                            selected = settings.serversProtocolFilter.isBlank(),
-                            accent = colors.secondary,
-                            onClick = { repo.updateSettings(settings.copy(serversProtocolFilter = "")) }
-                        )
-                        protocolTallies.forEach { tally ->
+                AnimatedVisibility(
+                    visible = !chipsCollapsed,
+                    enter = slideInVertically(
+                        initialOffsetY = { -it / 3 },
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+                    ) + fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                    exit = slideOutVertically(
+                        targetOffsetY = { -it / 3 },
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                    ) + fadeOut()
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // MARBLE_EXPRESSIVE_SHELL_V241 — sorting is a first-class question on this page
+                        // ("who is fastest?"), so it is a chip row, not a buried filter-sheet control.
+                        MarbleChipStrip {
                             MarblePillChip(
-                                label = "${tally.scheme} (${tally.count})",
-                                selected = settings.serversProtocolFilter.equals(tally.scheme, ignoreCase = true),
-                                accent = colors.secondary,
+                                label = trx("Lowest ping"),
+                                selected = settings.nodeSortMode == NodeSortMode.PING && !settings.nodeSortReverse,
+                                accent = colors.success,
                                 onClick = {
-                                    val next = if (settings.serversProtocolFilter.equals(tally.scheme, ignoreCase = true)) {
-                                        ""
-                                    } else {
-                                        tally.scheme
-                                    }
-                                    repo.updateSettings(settings.copy(serversProtocolFilter = next))
+                                    repo.updateSettings(
+                                        settings.copy(nodeSortMode = NodeSortMode.PING, nodeSortReverse = false)
+                                    )
                                 }
                             )
+                            MarblePillChip(
+                                label = trx("Best score"),
+                                selected = settings.nodeSortMode == NodeSortMode.SCORE && !settings.nodeSortReverse,
+                                accent = colors.secondary,
+                                onClick = {
+                                    repo.updateSettings(
+                                        settings.copy(nodeSortMode = NodeSortMode.SCORE, nodeSortReverse = false)
+                                    )
+                                }
+                            )
+                            MarblePillChip(
+                                label = trx("Name"),
+                                selected = settings.nodeSortMode == NodeSortMode.NAME,
+                                accent = colors.tertiary,
+                                onClick = {
+                                    repo.updateSettings(settings.copy(nodeSortMode = NodeSortMode.NAME))
+                                }
+                            )
+                            MarblePillChip(
+                                label = trx("Default order"),
+                                selected = settings.nodeSortMode == NodeSortMode.DEFAULT,
+                                onClick = {
+                                    repo.updateSettings(
+                                        settings.copy(nodeSortMode = NodeSortMode.DEFAULT, nodeSortReverse = false)
+                                    )
+                                }
+                            )
+                        }
+
+                        MarbleChipStrip {
+                            MarblePillChip(
+                                label = strings.homeAllGroups,
+                                selected = repo.librarySourceFilter == "all",
+                                onClick = { repo.selectLibrarySource("all") }
+                            )
+                            repo.subscriptions.forEach { sub ->
+                                MarblePillChip(
+                                    label = sub.name,
+                                    selected = repo.librarySourceFilter == sub.id,
+                                    onClick = { repo.selectLibrarySource(sub.id) }
+                                )
+                            }
+                            MarblePillChip(
+                                label = strings.homeManualGroup,
+                                selected = repo.librarySourceFilter == "manual",
+                                onClick = { repo.selectLibrarySource("manual") }
+                            )
+                        }
+
+                        if (protocolTallies.size > 1) {
+                            MarbleChipStrip {
+                                MarblePillChip(
+                                    label = trx("All protocols"),
+                                    selected = settings.serversProtocolFilter.isBlank(),
+                                    accent = colors.secondary,
+                                    onClick = { repo.updateSettings(settings.copy(serversProtocolFilter = "")) }
+                                )
+                                protocolTallies.forEach { tally ->
+                                    MarblePillChip(
+                                        label = "${tally.scheme} (${tally.count})",
+                                        selected = settings.serversProtocolFilter.equals(tally.scheme, ignoreCase = true),
+                                        accent = colors.secondary,
+                                        onClick = {
+                                            val next = if (settings.serversProtocolFilter.equals(tally.scheme, ignoreCase = true)) {
+                                                ""
+                                            } else {
+                                                tally.scheme
+                                            }
+                                            repo.updateSettings(settings.copy(serversProtocolFilter = next))
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -495,6 +523,26 @@ fun ServersScreen(
             }
         }
 
+        // MARBLE_M3_EXPRESSIVE_V242 — scrim + expressive speed-dial: dim the list behind the
+        // menu, rotate the + into × with a bouncy spring, and cascade the options with
+        // spring offsets so the dial never lands as a flat, unbalanced stack on the content.
+        AnimatedVisibility(
+            visible = fabExpanded,
+            enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+            exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(colors.scrim.copy(alpha = 0.32f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { fabExpanded = false }
+            )
+        }
+
         // MARBLE_EXPRESSIVE_SHELL_V241 — the FAB lives above the dock's clearance line and
         // leaves the screen while the list is moving, so it never sits on the last row the
         // user is trying to read. It returns the moment scrolling stops, or when opened.
@@ -519,7 +567,7 @@ fun ServersScreen(
                         color = colors.onPrimaryContainer,
                         modifier = Modifier
                             .size(24.dp)
-                            .rotate(checkedProgress * 135f),
+                            .rotate(checkedProgress * 45f),
                         weight = 1.2f
                     )
                 }

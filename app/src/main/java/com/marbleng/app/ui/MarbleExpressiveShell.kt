@@ -19,11 +19,21 @@ package com.marbleng.app.ui
 //
 // Every animation is a theme spring or a Canvas; no new dependency and no View is introduced.
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -182,6 +192,17 @@ fun MarbleConnectPill(
     )
 
     val shape = RoundedCornerShape(corner)
+    // MARBLE_M3_EXPRESSIVE_V242 — the pill is alive: animateContentSize with a medium-bouncy
+    // spring, a pulsating halo in idle, and a glowing emerald container when connected. The
+    // subtitle (uptime/ping/protocol) flips with AnimatedContent so the ticker feels like a
+    // live instrument, not a static label.
+    val haloTransition = rememberInfiniteTransition(label = "connectHalo")
+    val haloScale by haloTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.45f,
+        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 1100)),
+        label = "connectHaloScale"
+    )
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -207,7 +228,17 @@ fun MarbleConnectPill(
         contentAlignment = Alignment.Center
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (reducedMotion) Modifier
+                    else Modifier.animateContentSize(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
+                ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -218,6 +249,16 @@ fun MarbleConnectPill(
                     .background(onTone.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
             ) {
+                // Idle pulsating halo behind the icon
+                if (!connected && !working && !reducedMotion) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .scale(haloScale)
+                            .clip(CircleShape)
+                            .background(onTone.copy(alpha = 0.10f * (2f - haloScale)))
+                    )
+                }
                 MarbleGlyphIcon(
                     glyph = if (connected || connecting) MarbleGlyph.STOP else MarbleGlyph.POWER,
                     color = onTone,
@@ -229,23 +270,51 @@ fun MarbleConnectPill(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(
-                    text = title,
-                    color = onTone,
-                    style = MaterialTheme.typography.titleLargeEmphasized,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = subtitle,
-                    color = onTone.copy(alpha = 0.82f),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                AnimatedContent(
+                    targetState = title,
+                    transitionSpec = {
+                        (slideInVertically { height -> height / 2 } + fadeIn()) togetherWith
+                            slideOutVertically { height -> -height / 2 } + fadeOut()
+                    },
+                    label = "pillTitle"
+                ) { t ->
+                    Text(
+                        text = t,
+                        color = onTone,
+                        style = MaterialTheme.typography.titleLargeEmphasized,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                AnimatedContent(
+                    targetState = subtitle,
+                    transitionSpec = {
+                        (slideInVertically { height -> height / 3 } + fadeIn(
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                        )) togetherWith slideOutVertically { height -> -height / 3 } + fadeOut()
+                    },
+                    label = "pillSubtitle"
+                ) { s ->
+                    Text(
+                        text = s,
+                        color = onTone.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             if (connected) {
                 MarblePulseDot(color = onTone)
+            } else if (!working) {
+                // Prominent pulsating dot in idle — the one liveness signal before connect
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .scale(if (reducedMotion) 1f else haloScale * 0.78f)
+                        .clip(CircleShape)
+                        .background(onTone.copy(alpha = 0.92f))
+                )
             }
         }
     }
@@ -538,25 +607,56 @@ fun MarbleTrafficSparkline(
                     strokeWidth = 1f
                 )
 
+                val hasLiveData = downSeries.size > 1 || upSeries.size > 1
                 val showDown = lens != TrafficLens.UP
                 val showUp = lens != TrafficLens.DOWN
-                if (showDown && downSeries.size > 1) {
-                    drawSeries(
-                        values = downSeries,
-                        width = w,
-                        height = h,
-                        tone = downTone,
-                        smooth = !reducedMotion
-                    )
-                }
-                if (showUp && upSeries.size > 1) {
-                    drawSeries(
-                        values = upSeries,
-                        width = w,
-                        height = h,
-                        tone = upTone,
-                        smooth = !reducedMotion
-                    )
+                if (hasLiveData) {
+                    if (showDown && downSeries.size > 1) {
+                        drawSeries(
+                            values = downSeries,
+                            width = w,
+                            height = h,
+                            tone = downTone,
+                            smooth = !reducedMotion
+                        )
+                    }
+                    if (showUp && upSeries.size > 1) {
+                        drawSeries(
+                            values = upSeries,
+                            width = w,
+                            height = h,
+                            tone = upTone,
+                            smooth = !reducedMotion
+                        )
+                    }
+                } else {
+                    // MARBLE_M3_EXPRESSIVE_V242 — no flat dead line. When there is nothing to
+                    // measure yet, a faint idle Bézier wave with gradient keeps the card alive
+                    // instead of a vacant box with a straight line in the middle.
+                    val idleDown = (0..28).map { i ->
+                        0.46f + 0.14f * kotlin.math.sin(i * 0.52).toFloat() + 0.04f * kotlin.math.cos(i * 0.27).toFloat()
+                    }
+                    val idleUp = (0..28).map { i ->
+                        0.38f + 0.11f * kotlin.math.cos(i * 0.48).toFloat() + 0.03f * kotlin.math.sin(i * 0.31).toFloat()
+                    }
+                    if (showDown) {
+                        drawSeries(
+                            values = idleDown,
+                            width = w,
+                            height = h,
+                            tone = downTone.copy(alpha = 0.22f),
+                            smooth = true
+                        )
+                    }
+                    if (showUp) {
+                        drawSeries(
+                            values = idleUp,
+                            width = w,
+                            height = h,
+                            tone = upTone.copy(alpha = 0.18f),
+                            smooth = true
+                        )
+                    }
                 }
             }
 
