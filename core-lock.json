@@ -1,9 +1,9 @@
 {
   "xray": {
     "repo": "XTLS/Xray-core",
-    "tag": "v26.10.21",
-    "commit": "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74",
-    "publishedAt": "2026-10-21T12:07:11Z",
+    "tag": "v26.10.29",
+    "commit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
+    "publishedAt": "2026-10-29T08:43:27Z",
     "prerelease": false
   },
   "hev": {
@@ -34,6 +34,6 @@
     "publishedAt": "2026-07-12T09:48:53Z",
     "prerelease": false
   },
-  "updated": "2026-10-28",
+  "updated": "2026-10-29",
   "rule": "latest-published"
 }
