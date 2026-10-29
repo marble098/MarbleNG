@@ -149,6 +149,7 @@ fun SettingsAppearancePage(
                         FlatAccent.entries.forEach { candidate ->
                             val swatch = marbleAccentPrimary(candidate, resolveMarbleDarkMode(s.theme, isSystemInDarkTheme()))
                             val chosen = activeAccent == candidate
+                            val swatchDescription = trx(candidate.label)
                             Box(
                                 modifier = Modifier
                                     .size(48.dp)
@@ -162,7 +163,7 @@ fun SettingsAppearancePage(
                                         }
                                     )
                                     .semantics {
-                                        contentDescription = trx(candidate.label)
+                                        contentDescription = swatchDescription
                                     }
                                     .clickable(role = Role.Button) {
                                         haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)

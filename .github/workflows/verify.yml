@@ -494,7 +494,7 @@ jobs:
           set -o pipefail
           python3 scripts/system-integrity-check.py 2>&1 | tee integrity.log
 
-      - name: Verify iOS Product UI invariants
+      - name: Verify M3 Expressive Product UI invariants
         shell: bash
         run: |
           set -euo pipefail
@@ -503,12 +503,17 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          ios_theme = Path(
-              "app/src/main/java/com/marbleng/app/ui/IosTheme.kt"
+          # MARBLE_M3_EXPRESSIVE_V240 — the one-place theme package replaced IosTheme.kt.
+          marble_theme = Path(
+              "app/src/main/java/com/marbleng/app/ui/theme/MarbleTheme.kt"
           ).read_text(encoding="utf-8")
 
-          ios_components = Path(
-              "app/src/main/java/com/marbleng/app/ui/IosComponents.kt"
+          marble_color = Path(
+              "app/src/main/java/com/marbleng/app/ui/theme/MarbleColor.kt"
+          ).read_text(encoding="utf-8")
+
+          marble_components = Path(
+              "app/src/main/java/com/marbleng/app/ui/MarbleComponents.kt"
           ).read_text(encoding="utf-8")
 
           marble_app = Path(
@@ -536,14 +541,16 @@ jobs:
           ).read_text(encoding="utf-8")
 
           required = {
-              "iOS light canvas": "0xFFF8F9FA" in ios_theme,
-              "iOS pure white cards": "0xFFFFFFFF" in ios_theme,
-              "iOS 20dp card radius": "CARD_CORNER_DP: Int = 20" in ios_theme,
-              "iOS 12dp squircle radius": "SQUIRCLE_CORNER_DP: Int = 12" in ios_theme,
-              "iOS 1dp divider": "DIVIDER_THICKNESS_DP: Int = 1" in ios_theme,
-              "iOS RTL list row": (
-                  "fun IosListItem(" in ios_components
-                  and "MarbleGlyph.CHEVRON_LEFT" in ios_components
+              "expressive theme entry": "fun MarbleExpressiveTheme(" in marble_theme,
+              "expressive motion scheme": "MotionScheme.expressive()" in marble_theme,
+              "dynamic fallback schemes": (
+                  "fun marbleFallbackLightScheme(" in marble_color
+                  and "fun marbleFallbackDarkScheme(" in marble_color
+              ),
+              "1dp divider token": "DIVIDER_THICKNESS_DP: Int = 1" in marble_theme,
+              "RTL list row": (
+                  "fun MarbleListItem(" in marble_components
+                  and "MarbleGlyph.CHEVRON_LEFT" in marble_components
               ),
               "MarbleApp modular tabs": (
                   "HomeScreen(" in marble_app
@@ -579,7 +586,7 @@ jobs:
                   "Product UI invariant failure: " + ", ".join(failed)
               )
 
-          print("[OK] Marble iOS Product UI invariants")
+          print("[OK] Marble M3 Expressive Product UI invariants")
           PY
 
       - name: Verify release publishing safety

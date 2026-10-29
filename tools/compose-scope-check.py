@@ -200,14 +200,15 @@ TRANSPARENT = {
 }
 
 BAD = [
-    (re.compile(r"\bIosTheme\s*\."), "IosTheme.<token> — @Composable get()"),
+    # MARBLE_M3_EXPRESSIVE_V240 — IosTheme is deleted; the MarbleTheme.<token> rule below
+    # covers the expressive accessor.
     (re.compile(r"\bTr\s*\.\s*now\b"), "Tr.now — @Composable get()"),
     (re.compile(r"\bAether\s*\."), "Aether.<token> — @Composable get()"),
     (re.compile(r"\bMarbleTheme\s*\."), "MarbleTheme.<token> — @Composable get()"),
     (re.compile(r"\bMaterialTheme\s*\."), "MaterialTheme.<token> — @Composable get()"),
     (re.compile(r"\btrx(?:OrNull)?\s*\("), "trx() — @Composable"),
     (re.compile(r"\bLocal[A-Z]\w*\s*\.\s*current\b"), "Local*.current — @Composable"),
-    (re.compile(r"\b(rememberUptimeLabel|protocolSquircleColor|pingBadgeColor|pingBadgeText|dockSlotIosColor)\s*\("),
+    (re.compile(r"\b(rememberUptimeLabel|protocolRowColor|pingBadgeColor|pingBadgeText|dockSlotColor|faDigits)\s*\("),
      "UI @Composable helper"),
 ]
 
