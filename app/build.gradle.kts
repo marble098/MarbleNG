@@ -367,8 +367,12 @@ dependencies {
         "androidx.compose.animation:animation"
     )
 
+    // MARBLE_M3_EXPRESSIVE_V240 — the expressive design system (MaterialExpressiveTheme,
+    // MotionScheme, ButtonGroup, FloatingToolbar, wavy progress) lives on the Material 3
+    // 1.5 line, ahead of whatever the BOM pins. The explicit version wins over the BOM's
+    // managed one, and the toolchain autopilot keeps it the newest 1.5.x.
     implementation(
-        "androidx.compose.material3:material3"
+        "androidx.compose.material3:material3:${toolchainVersion("material3", "1.5.0-beta02")}"
     )
 
     implementation("com.github.mwiede:jsch:${toolchainVersion("jsch", "2.28.6")}")

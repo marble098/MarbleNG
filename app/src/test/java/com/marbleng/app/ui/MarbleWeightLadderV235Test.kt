@@ -1,6 +1,7 @@
 package com.marbleng.app.ui
 
 import androidx.compose.ui.text.font.FontWeight
+import com.marbleng.app.ui.theme.MarbleWeightSpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

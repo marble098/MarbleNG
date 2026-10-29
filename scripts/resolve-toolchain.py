@@ -75,6 +75,13 @@ COMPONENTS: "list[dict]" = [
     # ── the app's libraries ──────────────────────────────────────────────────────────────────
     {"key": "composeBom", "kind": "maven", "repo": GOOGLE, "group": "androidx.compose",
      "artifact": "compose-bom", "line": "year"},
+    # MARBLE_M3_EXPRESSIVE_V240 — Material 3 rides above the BOM pin: the expressive
+    # components (MaterialExpressiveTheme, MotionScheme, ButtonGroup, FloatingToolbar,
+    # wavy indicators) only exist on the 1.5 line, which no stable BOM carries yet. The
+    # autopilot keeps it the newest 1.5.x the same way it keeps every other androidx
+    # library the newest inside its minor.
+    {"key": "material3", "kind": "maven", "repo": GOOGLE, "group": "androidx.compose.material3",
+     "artifact": "material3", "line": "minor"},
     {"key": "coreKtx", "kind": "maven", "repo": GOOGLE, "group": "androidx.core",
      "artifact": "core-ktx", "line": "minor"},
     {"key": "activityCompose", "kind": "maven", "repo": GOOGLE, "group": "androidx.activity",
