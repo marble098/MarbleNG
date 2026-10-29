@@ -46,7 +46,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.AlignmentDirectional
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -923,7 +922,7 @@ private fun ServerRowItem(
                     .fillMaxSize()
                     .background(colors.surfaceContainerHighest)
                     .padding(horizontal = 20.dp),
-                contentAlignment = AlignmentDirectional.CenterEnd
+                contentAlignment = Alignment.CenterEnd
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

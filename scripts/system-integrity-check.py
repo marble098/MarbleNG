@@ -4188,7 +4188,7 @@ check(
     and ".size(48.dp)" in files["serversScreen"]
     and "key(profile.id)" in files["serversScreen"]
     and "LaunchedEffect(pendingDelete, profile.id)" in files["serversScreen"]
-    and "AlignmentDirectional.CenterEnd" in files["serversScreen"]
+    and "contentAlignment = Alignment.CenterEnd" in files["serversScreen"]
     and "\\u2068${profile.host}\\u2069" in files["serversScreen"]
     and "scrollable = true" in files["serversScreen"]
     and "scrollable: Boolean = false" in files["marbleComponents"]
