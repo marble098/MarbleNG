@@ -1,17 +1,8 @@
 package com.marbleng.app.ui
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,25 +11,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.draw.alpha
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SplitButtonDefaults
-import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -46,14 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -62,26 +40,23 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.coreEngine
-import com.marbleng.app.model.ConnectButtonStyle
-import com.marbleng.app.model.ConnectDeckAction
+import com.marbleng.app.model.ConnectModeChip
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.HomePingAction
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.ProxyProfile
-import com.marbleng.app.model.SlideConnectSpec
-import com.marbleng.app.model.parseConnectButtonStyle
+import com.marbleng.app.model.ServerHealth
+import com.marbleng.app.model.applyTo
+import com.marbleng.app.model.connectModeChipOf
 import com.marbleng.app.model.parseHomePingAction
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
 import com.marbleng.app.ui.theme.MarbleCardShape
-import com.marbleng.app.ui.theme.rememberReducedMotion
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
 
@@ -130,52 +105,30 @@ fun HomeScreen(
         }
     }
 
-    // MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — the three deck buttons own independent lights.
-    // Only the button that actually lit the current route stays on; disconnecting clears it.
-    var litDeckId by rememberSaveable { mutableStateOf("") }
-    val litDeckAction = if (litDeckId.isBlank()) {
-        null
+    // MARBLE_EXPRESSIVE_SHELL_V241 — one control, one decision.
+    //
+    // The old Home asked the user to pick between five ways to connect (a power orb, a slide
+    // track and three deck cards). The pill above owns the action; this chip owns the *mode*
+    // and nothing else, and its label always states the mode it is in. Choosing FULL or LOCAL
+    // changes the persisted connection mode (which stops a live tunnel, because the transport
+    // itself changes); SMART leaves the mode alone and lets the ranker pick the route.
+    var chosenChipId by rememberSaveable { mutableStateOf("") }
+    val modeChip = if (chosenChipId.isBlank()) {
+        connectModeChipOf(settings.connectionMode)
     } else {
-        ConnectDeckAction.fromId(litDeckId)
+        ConnectModeChip.fromId(chosenChipId)
     }
-
-    LaunchedEffect(repo.state) {
-        if (repo.state == "DISCONNECTED" || repo.state == "BLOCKED") {
-            litDeckId = ""
+    val selectModeChip: (ConnectModeChip) -> Unit = { chip ->
+        chosenChipId = chip.id
+        if (chip != ConnectModeChip.SMART) {
+            repo.setConnectionMode(chip.applyTo(settings).connectionMode)
+        } else {
+            repo.setRuntimeMessage(
+                "Smart mode • the ranker picks the best measured route"
+            )
         }
     }
-
-    val activateDeck: (ConnectDeckAction) -> Unit = { action ->
-        if (!disconnecting) {
-            when {
-                (connected || connecting) && litDeckId == action.id -> {
-                    litDeckId = ""
-                    repo.stopVpn()
-                }
-                else -> {
-                    litDeckId = action.id
-                    when (action) {
-                        ConnectDeckAction.QUICK -> repo.reconnectLastOrAuto(onConnect)
-                        ConnectDeckAction.SMART -> {
-                            val winner = repo.runAutoServerSelection(reason = "connect-deck")?.profile
-                            if (winner != null) {
-                                onConnect(winner)
-                            } else {
-                                litDeckId = ""
-                                repo.setRuntimeMessage(
-                                    "No route to recommend yet — measure a server first"
-                                )
-                            }
-                        }
-                        ConnectDeckAction.LIGHT -> {
-                            repo.setConnectionMode(ConnectionMode.LOCAL_PROXY)
-                            repo.auto(onConnect)
-                        }
-                    }
-                }
-            }
-        }
-    }
+    var showQuickLogs by rememberSaveable { mutableStateOf(false) }
 
     val triggerHomePing: () -> Unit = {
         if (repo.probeActive || repo.probeCancelling) {
@@ -216,7 +169,11 @@ fun HomeScreen(
         item(key = "home-header") {
             MarbleLargeHeader(
                 title = "MarbleNG",
-                subtitle = headerSubtitle
+                subtitle = headerSubtitle,
+                collapseFraction = collapseFractionOf(
+                    firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                    firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+                )
             ) {
                 MarbleIconButton(
                     glyph = MarbleGlyph.QR,
@@ -236,26 +193,26 @@ fun HomeScreen(
             }
         }
 
-        item(key = "home-hero-card") {
-            HomeConnectionHeroCard(
+        item(key = "home-hero") {
+            HomeHero(
                 connected = connected,
                 connecting = connecting,
                 disconnecting = disconnecting,
                 uptime = uptime,
                 activeRoute = activeRoute,
-                sliderMode = parseConnectButtonStyle(settings.connectButtonStyle) == ConnectButtonStyle.SLIDE,
+                stateLabel = headlineFor(connected, connecting, disconnecting),
+                modeChip = modeChip,
+                onSelectMode = selectModeChip,
                 onToggle = toggleConnection,
-                onOpenServers = onOpenServers
+                onOpenServers = onOpenServers,
+                onOpenLogs = { showQuickLogs = true }
             )
         }
 
-        item(key = "home-connect-deck") {
-            ConnectDeckSection(
-                litAction = litDeckAction,
-                connected = connected,
-                connecting = connecting,
-                disconnecting = disconnecting,
-                onActivate = activateDeck
+        item(key = "home-presets") {
+            SmartPresetStrip(
+                repo = repo,
+                onOpenAll = { onOpenSettingsPage(SettingsDestination.SMART_PRESETS) }
             )
         }
 
@@ -281,6 +238,7 @@ fun HomeScreen(
                     HomeTelemetryCard(
                         downBps = repo.liveDownBps,
                         upBps = repo.liveUpBps,
+                        live = connected,
                         sessionBytes = repo.sessionBytes,
                         totalBytes = repo.totalUsageBytes,
                         showSocks = settings.connectionMode == ConnectionMode.LOCAL_PROXY || settings.modularShowSocks,
@@ -338,226 +296,133 @@ fun HomeScreen(
             }
         }
     }
+
+    // MARBLE_EXPRESSIVE_SHELL_V241 — the live core log, one tap from the status chip instead of
+    // five taps into Settings → Diagnostics.
+    if (showQuickLogs) {
+        QuickLogsSheet(
+            repo = repo,
+            onDismiss = { showQuickLogs = false }
+        )
+    }
 }
 
+/**
+ * MARBLE_EXPRESSIVE_SHELL_V241 — Home's whole decision, in two rows.
+ *
+ * Row one: the one pill. Row two: the mode chip (how to connect) and the status chip (why it
+ * is not connected, plus the live core log one tap away). There is no second connect control,
+ * no slide track and no deck of alternatives: the happy path is a single, physical button.
+ *
+ * MARBLE_WEIGHT_LADDER_V235 — the hierarchy survives the simplification: the pill's label is
+ * the TITLE rung's emphasized twin (the one focal point of the screen), the chip labels stay on
+ * LABEL and the status line on BODY. Nothing here invents a weight outside the ladder.
+ */
 @Composable
-private fun HomeConnectionHeroCard(
+private fun HomeHero(
     connected: Boolean,
     connecting: Boolean,
     disconnecting: Boolean,
     uptime: String,
     activeRoute: ProxyProfile?,
-    sliderMode: Boolean,
+    stateLabel: String,
+    modeChip: ConnectModeChip,
+    onSelectMode: (ConnectModeChip) -> Unit,
     onToggle: () -> Unit,
-    onOpenServers: () -> Unit
+    onOpenServers: () -> Unit,
+    onOpenLogs: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
-    val haptics = LocalHapticFeedback.current
-    val reducedMotion = rememberReducedMotion()
     val working = connecting || disconnecting
 
-    val stateTone by animateColorAsState(
-        targetValue = when {
-            connected -> colors.success
-            working -> colors.warning
-            else -> colors.primary
-        },
-        animationSpec = if (reducedMotion) {
-            snap()
-        } else {
-            spring(stiffness = Spring.StiffnessMediumLow)
-        },
-        label = "heroTone"
-    )
-
-    val ringScale by animateFloatAsState(
-        targetValue = if (connected) 1.06f else 1f,
-        animationSpec = if (reducedMotion) {
-            snap()
-        } else {
-            spring(stiffness = Spring.StiffnessLow, dampingRatio = 0.62f)
-        },
-        label = "heroRingScale"
-    )
-
-    val tappedToggle: () -> Unit = {
-        haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
-        onToggle()
-    }
-
-    val headline = when {
-        connected -> strings.statusProtected
-        connecting -> strings.securingRoute
-        disconnecting -> strings.disconnecting
-        else -> strings.readyToConnect
-    }
-
     val subline = when {
-        connected -> "${strings.uptime} · $uptime"
-        connecting -> strings.securingRoute
-        disconnecting -> strings.closingRoute
+        connected -> "${trx(stateLabel)} · ${strings.uptime} $uptime"
+        working -> trx(stateLabel)
         activeRoute != null -> cleanServerName(activeRoute.name)
         else -> strings.chooseRoute
     }
 
-    val actionLabel = when {
-        connected || connecting -> strings.disconnect
-        else -> strings.connect
-    }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        MarbleConnectPill(
+            connected = connected,
+            connecting = connecting,
+            disconnecting = disconnecting,
+            title = if (connected) strings.disconnect else strings.connect,
+            subtitle = subline,
+            onToggle = onToggle
+        )
 
-    MarbleCard(contentPadding = PaddingValues(22.dp)) {
-        Column(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Council: breathing outer halo when protected — signals liveness without animation spam
-            Box(
-                modifier = Modifier
-                    .size(118.dp)
-                    .scale(ringScale)
-                    .clip(CircleShape)
-                    .background(stateTone.copy(alpha = if (connected) 0.14f else 0.10f))
-                    .border(1.dp, stateTone.copy(alpha = if (connected) 0.18f else 0.0f), CircleShape)
-                    .clickable(
-                        enabled = !disconnecting,
-                        role = Role.Button,
-                        onClick = tappedToggle
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(84.dp)
-                        .clip(CircleShape)
-                        .background(stateTone)
-                        .border(0.75.dp, Color.White.copy(alpha = 0.18f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MarbleGlyphIcon(
-                        glyph = if (connected) MarbleGlyph.SHIELD else MarbleGlyph.POWER,
-                        color = Color.White,
-                        modifier = Modifier.size(32.dp),
-                        weight = 1.18f
-                    )
-                }
-            }
-
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text(
-                    text = headline,
-                    color = colors.onSurface,
-                    // MARBLE_WEIGHT_LADDER_V235 — headlineSmall already carries the HEADLINE
-                    // rung (700); the copy() restated it. The status hero is a headline,
-                    // the page's large-header title above it is the DISPLAY rung (800).
-                    style = MaterialTheme.typography.headlineSmall,
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    text = subline,
-                    color = if (connected) stateTone else colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontWeight = if (connected) FontWeight.SemiBold else FontWeight.Normal
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
-                )
-                if (!connected && activeRoute == null) {
-                    Text(
-                        text = trx("Import a server to begin — paste, QR or file"),
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
-            }
-
-            if (sliderMode) {
-                MarbleSlideConnectBar(
-                    connected = connected || connecting,
-                    enabled = !disconnecting,
-                    tone = stateTone,
-                    label = if (connected || connecting) strings.slideToDisconnect else strings.slideToConnect,
-                    onTriggered = tappedToggle
-                )
-            } else {
-                // Expressive split action: the big half toggles the tunnel, the small half
-                // opens the library to change route. Error-red while lit, primary at rest.
-                val lit = connected || connecting
-                SplitButtonLayout(
-                    leadingButton = {
-                        SplitButtonDefaults.LeadingButton(
-                            onClick = tappedToggle,
-                            enabled = !disconnecting,
-                            colors = if (lit) {
-                                ButtonDefaults.buttonColors(
-                                    containerColor = colors.error,
-                                    contentColor = colors.onError
-                                )
-                            } else {
-                                ButtonDefaults.buttonColors()
-                            }
-                        ) {
-                            MarbleGlyphIcon(
-                                glyph = if (lit) MarbleGlyph.STOP else MarbleGlyph.POWER,
-                                color = if (lit) colors.onError else colors.onPrimary,
-                                modifier = Modifier.size(18.dp),
-                                weight = 1.15f
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = actionLabel,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    },
-                    trailingButton = {
-                        SplitButtonDefaults.TrailingButton(
-                            onClick = onOpenServers,
-                            enabled = !disconnecting,
-                            colors = if (lit) {
-                                ButtonDefaults.buttonColors(
-                                    containerColor = colors.error,
-                                    contentColor = colors.onError
-                                )
-                            } else {
-                                ButtonDefaults.buttonColors()
-                            }
-                        ) {
-                            Box(
-                                modifier = Modifier.semantics {
-                                    contentDescription = strings.changeRoute
-                                },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                MarbleGlyphIcon(
-                                    glyph = MarbleGlyph.CHEVRON_DOWN,
-                                    color = if (lit) colors.onError else colors.onPrimary,
-                                    modifier = Modifier.size(18.dp),
-                                    weight = 1.2f
-                                )
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            // The tunnel takes a moment to come up: a wavy progress line says "working"
-            // where a spinner would steal the focal point from the status orb.
-            if (working) {
-                LinearWavyProgressIndicator(color = stateTone)
-            }
+            MarbleModeMenuChip(
+                selected = modeChip,
+                onSelect = onSelectMode,
+                enabled = !disconnecting
+            )
+            Spacer(Modifier.weight(1f))
+            HomeStatusChip(
+                connected = connected,
+                working = working,
+                label = if (connected) strings.statusProtected else if (working) strings.securingRoute else strings.readyToConnect,
+                onClick = onOpenLogs
+            )
+            MarbleIconButton(
+                glyph = MarbleGlyph.ROUTE,
+                onClick = onOpenServers,
+                tint = colors.onSurfaceVariant
+            )
         }
     }
 }
+
+/** The one-line state of the tunnel; tapping it opens the live core log. */
+@Composable
+private fun HomeStatusChip(
+    connected: Boolean,
+    working: Boolean,
+    label: String,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val health = when {
+        connected -> ServerHealth.GOOD
+        working -> ServerHealth.SLOW
+        else -> ServerHealth.UNTESTED
+    }
+    Row(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(colors.surfaceContainerHigh)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label }
+            .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        MarbleHealthDot(health = health, size = 9.dp)
+        MarbleGlyphIcon(
+            glyph = MarbleGlyph.TUNERS,
+            color = colors.onSurfaceVariant,
+            modifier = Modifier.size(14.dp),
+            weight = 1.1f
+        )
+    }
+}
+
+internal fun headlineFor(connected: Boolean, connecting: Boolean, disconnecting: Boolean): String =
+    when {
+        connected -> "Protected"
+        connecting -> "Securing the route"
+        disconnecting -> "Closing the route"
+        else -> "Ready when you are"
+    }
 
 @Composable
 private fun HomeQuickTile(
@@ -569,11 +434,12 @@ private fun HomeQuickTile(
     onClick: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
+    // MARBLE_EXPRESSIVE_SHELL_V241 — no hairline around a quick tile either: the tonal step
+    // from the page surface is the whole edge.
     Column(
         modifier = modifier
             .clip(MarbleCardShape)
             .background(colors.surfaceContainerLow)
-            .border(0.85.dp, colors.outlineVariant, MarbleCardShape)
             .alpha(if (enabled) 1f else 0.5f)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 14.dp),
@@ -594,123 +460,6 @@ private fun HomeQuickTile(
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center
         )
-    }
-}
-
-@Composable
-private fun MarbleSlideConnectBar(
-    connected: Boolean,
-    enabled: Boolean,
-    tone: Color,
-    label: String,
-    onTriggered: () -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val density = LocalDensity.current
-    // MARBLE_RTL_CONNECT_CONTROL_V234 — the slide control mirrors with the language. `IntOffset`
-    // is a pixel offset: on a Persian phone the thumb rests on the right edge and may only travel
-    // left, the drag delta is negative, and both chevrons point the other way. All three signs live
-    // in `SlideConnectSpec`, which the host JVM test pins.
-    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    var dragFraction by remember(connected) { mutableFloatStateOf(0f) }
-
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(MarbleSpec.SLIDE_TRACK_HEIGHT_DP.dp)
-            .clip(CircleShape)
-            .background(colors.surfaceContainer)
-            .border(0.85.dp, colors.outlineVariant, CircleShape)
-            .padding(4.dp)
-    ) {
-        val thumbSize = MarbleSpec.SLIDE_THUMB_SIZE_DP.dp
-        val travelPx = with(density) { (maxWidth - thumbSize).toPx().coerceAtLeast(1f) }
-        val offsetPx = SlideConnectSpec.thumbOffsetPx(travelPx, dragFraction, rtl)
-        val fillFraction = dragFraction.coerceIn(0f, 1f)
-
-        // Energy fill — grows under thumb, brighter at head
-        if (fillFraction > 0.01f) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .fillMaxWidth(fraction = ((fillFraction * travelPx + with(density) { thumbSize.toPx() }) / with(density) { maxWidth.toPx() }).coerceIn(0f, 1f))
-                    .height(48.dp)
-                    .clip(CircleShape)
-                    .background(tone.copy(alpha = 0.16f))
-            )
-        }
-
-        // Guide chevrons fading as thumb approaches
-        if (!connected && dragFraction < 0.6f) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 18.dp)
-                    .alpha((1f - dragFraction * 1.8f).coerceIn(0f, 0.55f)),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                repeat(3) {
-                    MarbleGlyphIcon(
-                        glyph = if (rtl) MarbleGlyph.CHEVRON_LEFT else MarbleGlyph.CHEVRON,
-                        color = colors.onSurfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-            }
-        }
-
-        Text(
-            text = label,
-            color = colors.onSurfaceVariant,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            modifier = Modifier.align(Alignment.Center)
-        )
-
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(offsetPx, 0) }
-                .size(thumbSize)
-                .clip(CircleShape)
-                .background(if (connected) colors.error else tone)
-                .border(0.75.dp, Color.White.copy(alpha = 0.22f), CircleShape)
-                .pointerInput(connected, enabled, travelPx, rtl) {
-                    if (!enabled) return@pointerInput
-                    detectHorizontalDragGestures(
-                        onHorizontalDrag = { change, dragAmount ->
-                            change.consume()
-                            dragFraction = SlideConnectSpec.dragFraction(
-                                current = dragFraction,
-                                dragAmountPx = dragAmount,
-                                travelPx = travelPx,
-                                rtl = rtl
-                            )
-                        },
-                        onDragEnd = {
-                            if (SlideConnectSpec.released(dragFraction)) {
-                                dragFraction = 0f
-                                onTriggered()
-                            } else {
-                                dragFraction = 0f
-                            }
-                        },
-                        onDragCancel = { dragFraction = 0f }
-                    )
-                }
-                .clickable(enabled = enabled, onClick = onTriggered),
-            contentAlignment = Alignment.Center
-        ) {
-            MarbleGlyphIcon(
-                glyph = when {
-                    connected -> MarbleGlyph.STOP
-                    rtl -> MarbleGlyph.CHEVRON_LEFT
-                    else -> MarbleGlyph.CHEVRON
-                },
-                color = Color.White,
-                modifier = Modifier.size(20.dp),
-                weight = 1.15f
-            )
-        }
     }
 }
 
@@ -845,6 +594,7 @@ private fun HomeRouteAndIdentityCard(
 private fun HomeTelemetryCard(
     downBps: Long,
     upBps: Long,
+    live: Boolean,
     sessionBytes: Long,
     totalBytes: Long,
     showSocks: Boolean,
@@ -854,12 +604,19 @@ private fun HomeTelemetryCard(
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
 
-    MarbleCard {
-        // Council: split down/up into scannable pair, session/total into second pair
+    MarbleCard(contentPadding = PaddingValues(14.dp)) {
+        // MARBLE_EXPRESSIVE_SHELL_V241 — the numbers alone were four dead strings. The graph
+        // is the answer to "is anything actually moving?"; the tiles below stay because the
+        // graph is a shape and the numbers are the truth.
+        MarbleTrafficSparkline(
+            downBps = downBps,
+            upBps = upBps,
+            active = live,
+            height = MarbleSpec.SPARKLINE_HEIGHT_DP.dp
+        )
+        Spacer(Modifier.height(14.dp))
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             HomeStatTile(
@@ -877,11 +634,9 @@ private fun HomeTelemetryCard(
                 modifier = Modifier.weight(1f)
             )
         }
-        MarbleDivider(insetStart = 16.dp)
+        Spacer(Modifier.height(10.dp))
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             HomeStatTile(
@@ -900,7 +655,7 @@ private fun HomeTelemetryCard(
             )
         }
         if (showSocks) {
-            MarbleDivider()
+            Spacer(Modifier.height(6.dp))
             MarbleListItem(
                 title = "${strings.socksProxyLabel} · 127.0.0.1:$socksPort",
                 subtitle = trx("Tap to copy local SOCKS5 address"),

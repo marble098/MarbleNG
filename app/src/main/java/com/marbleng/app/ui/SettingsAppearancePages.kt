@@ -30,7 +30,6 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.model.AppFont
 import com.marbleng.app.model.AppLanguage
-import com.marbleng.app.model.ConnectButtonStyle
 import com.marbleng.app.model.DOCK_SLOT_CAPTION_MAX
 import com.marbleng.app.model.DockPresentation
 import com.marbleng.app.model.DockSize
@@ -43,7 +42,6 @@ import com.marbleng.app.model.dockShowsIcons
 import com.marbleng.app.model.dockShowsLabels
 import com.marbleng.app.model.parseAppFont
 import com.marbleng.app.model.parseAppLanguage
-import com.marbleng.app.model.parseConnectButtonStyle
 import com.marbleng.app.model.encodeDockPreference
 import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSize
@@ -513,7 +511,6 @@ fun SettingsHomeLayoutPage(
 ) {
     val colors = MaterialTheme.colorScheme
     val s = repo.settings
-    val connectStyle = parseConnectButtonStyle(s.connectButtonStyle)
 
     MarbleSubPageScaffold(
         title = Tr.now.homeStyleTitle,
@@ -521,24 +518,16 @@ fun SettingsHomeLayoutPage(
     ) {
         item(key = "home-connect-style") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Connect Control Style"))
-                MarbleCard {
-                    MarbleChoiceRow(
-                        title = trx("Split connect button"),
-                        subtitle = trx("Tap the status emblem or the big Connect half; the small half changes route"),
-                        selected = connectStyle != ConnectButtonStyle.SLIDE,
-                        glyph = MarbleGlyph.POWER,
-                        iconTint = colors.success,
-                        onClick = { repo.updateSettings(s.copy(connectButtonStyle = ConnectButtonStyle.ROUND.id)) }
-                    )
-                    MarbleDivider()
-                    MarbleChoiceRow(
-                        title = trx("Slide to connect"),
-                        subtitle = trx("Swipe horizontally across the pill track to connect or disconnect"),
-                        selected = connectStyle == ConnectButtonStyle.SLIDE,
-                        glyph = MarbleGlyph.CHEVRON,
-                        iconTint = colors.primary,
-                        onClick = { repo.updateSettings(s.copy(connectButtonStyle = ConnectButtonStyle.SLIDE.id)) }
+                MarbleSectionHeader(title = trx("Connect Control"))
+                MarbleCard(contentPadding = PaddingValues(18.dp)) {
+                    // MARBLE_EXPRESSIVE_SHELL_V241 — the style choice is gone because the
+                    // control it chose between is gone. There is one pill, one mode chip and
+                    // one status chip on Home; this page describes that instead of offering a
+                    // setting that no longer changes anything.
+                    Text(
+                        text = trx("One pill connects and disconnects. The chip under it picks Smart, Full TUN or Local proxy. The slide track was removed: a swipe that had to land in the right half was a second thing to learn for one action."),
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }

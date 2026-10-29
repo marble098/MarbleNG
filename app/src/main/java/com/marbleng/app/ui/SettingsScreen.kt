@@ -1,12 +1,17 @@
 package com.marbleng.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,9 +36,11 @@ import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.JitterSmartMode
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.RoutingMode
+import com.marbleng.app.model.SmartPreset
 import com.marbleng.app.model.SplitTunnelMode
 import com.marbleng.app.model.autoServerStrategyEnum
 import com.marbleng.app.model.jitterSmartModeEnum
+import com.marbleng.app.model.matchSmartPreset
 import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseFlatAccent
 import com.marbleng.app.model.parsePowerProfile
@@ -55,6 +62,7 @@ enum class SettingsDestination {
     PING_TESTING,
     NETWORK_COUNCIL,
     AUTO_SELECTOR,
+    SMART_PRESETS,
     SMART_JITTER,
     IDENTITY_LOCATION,
     APPEARANCE,
@@ -97,6 +105,7 @@ fun SettingsScreen(
             SettingsDestination.PING_TESTING -> SettingsPingTestingPage(repo, onCloseDestination)
             SettingsDestination.NETWORK_COUNCIL -> SettingsNetworkCouncilPage(repo, onCloseDestination)
             SettingsDestination.AUTO_SELECTOR -> SettingsAutoSelectorPage(repo, onCloseDestination)
+            SettingsDestination.SMART_PRESETS -> SettingsSmartPresetsPage(repo, onCloseDestination)
             SettingsDestination.SMART_JITTER -> SettingsSmartJitterPage(repo, onCloseDestination)
             SettingsDestination.IDENTITY_LOCATION -> SettingsIdentityLocationPage(repo, onCloseDestination)
             SettingsDestination.APPEARANCE -> SettingsAppearancePage(repo, onCloseDestination)
@@ -217,6 +226,13 @@ fun SettingsScreen(
             } ?: trx("12 experts measure this link, then apply the best settings"),
             glyph = MarbleGlyph.RADAR,
             iconTint = colors.tertiary
+        ),
+        SettingsRowSpec(
+            destination = SettingsDestination.SMART_PRESETS,
+            title = trx("Smart Presets"),
+            subtitle = trx("Gaming, Streaming and Extreme Bypass in one tap"),
+            glyph = MarbleGlyph.SPARK,
+            iconTint = colors.warning
         ),
         SettingsRowSpec(
             destination = SettingsDestination.AUTO_SELECTOR,
@@ -365,7 +381,13 @@ fun SettingsScreen(
     ) {
         item(key = "settings-header") {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                MarbleLargeHeader(title = strings.settingsTitle)
+                MarbleLargeHeader(
+                    title = strings.settingsTitle,
+                    collapseFraction = collapseFractionOf(
+                        firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                        firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+                    )
+                )
                 MarbleSearchField(
                     value = search,
                     onValueChange = { search = it },
@@ -421,6 +443,78 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.labelSmall,
                     textAlign = TextAlign.Center
                 )
+            }
+        }
+    }
+}
+
+/**
+ * MARBLE_EXPRESSIVE_SHELL_V241 — the page behind the Home preset strip.
+ *
+ * The same three decisions, with their consequences written out, and a derived check mark on
+ * whichever one the current settings already match. Applying a preset writes tuning knobs only
+ * (see [SmartPreset.apply]); routing, DNS, the split tunnel and the selected server are untouched.
+ */
+@Composable
+internal fun SettingsSmartPresetsPage(
+    repo: AppRepository,
+    onBack: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val active = matchSmartPreset(repo.settings)
+
+    MarbleSubPageScaffold(
+        title = trx("Smart Presets"),
+        onBack = onBack
+    ) {
+        item(key = "presets-intro") {
+            MarbleSectionFooter(
+                trx("A preset bundles the tuning knobs behind a named decision. Your servers, routing, DNS and split tunnel are never changed.")
+            )
+        }
+        items(SmartPreset.ordered) { preset ->
+            val selected = preset == active
+            val appliedLabel = trx(preset.title) + " • " + trx("applied")
+            MarbleCard(
+                modifier = Modifier.clickable {
+                    repo.updateSettings(preset.apply(repo.settings))
+                    repo.setRuntimeMessage(appliedLabel)
+                },
+                contentPadding = PaddingValues(18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    MarbleRowIcon(
+                        glyph = presetGlyph(preset),
+                        tint = if (selected) colors.primary else colors.secondary
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = trx(preset.title),
+                            color = colors.onSurface,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = trx(preset.body),
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    if (selected) {
+                        MarbleGlyphIcon(
+                            glyph = MarbleGlyph.CHECK,
+                            color = colors.primary,
+                            modifier = Modifier.size(18.dp),
+                            weight = 1.15f
+                        )
+                    }
+                }
             }
         }
     }

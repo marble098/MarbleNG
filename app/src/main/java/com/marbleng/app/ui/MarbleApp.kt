@@ -8,6 +8,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,7 +33,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Badge
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
@@ -127,6 +128,10 @@ private fun MarbleRootShell(
     var showAddSheet by remember { mutableStateOf(false) }
     var showQrSheet by remember { mutableStateOf(false) }
     var showExitIpSheet by remember { mutableStateOf(false) }
+    // MARBLE_EXPRESSIVE_SHELL_V241 — the bottom bar now hides while a page is scrolling, so
+    // reading a long server list never happens through a strip of chrome. The pages already
+    // report their scroll state; this shell is the one place that acts on it.
+    var contentScrolling by remember { mutableStateOf(false) }
 
     val visibleTabs = dockSlots(
         all = MarbleRootTab.entries,
@@ -193,6 +198,11 @@ private fun MarbleRootShell(
             else -> MarbleRootTab.SETTINGS
         }
         activeSettingsPage = destination
+    }
+
+    val reportScroll: (Boolean) -> Unit = { scrolling ->
+        contentScrolling = scrolling
+        onContentScrollChanged(scrolling)
     }
 
     val openDetail: (ProxyProfile) -> Unit = { profile ->
@@ -267,7 +277,7 @@ private fun MarbleRootShell(
                     onOpenExitIpSheet = { showExitIpSheet = true },
                     onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
                     onOpenSettingsPage = openSettingsDest,
-                    onContentScrollChanged = onContentScrollChanged
+                    onContentScrollChanged = reportScroll
                 )
 
                 MarbleRootTab.SERVERS -> ServersScreen(
@@ -276,7 +286,7 @@ private fun MarbleRootShell(
                     onOpenDetail = openDetail,
                     onOpenAddSheet = { showAddSheet = true },
                     onOpenQrImport = { showQrSheet = true },
-                    onContentScrollChanged = onContentScrollChanged
+                    onContentScrollChanged = reportScroll
                 )
 
                 MarbleRootTab.CUSTOM_SLOT -> CustomSlotScreen(
@@ -285,7 +295,7 @@ private fun MarbleRootShell(
                     onOpenDetail = openDetail,
                     onCustomizeSlot = { openSettingsDest(SettingsDestination.TAB_BAR) },
                     onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
-                    onContentScrollChanged = onContentScrollChanged
+                    onContentScrollChanged = reportScroll
                 )
 
                 MarbleRootTab.SETTINGS -> SettingsScreen(
@@ -293,7 +303,7 @@ private fun MarbleRootShell(
                     activeDestination = activeSettingsPage,
                     onOpenDestination = { activeSettingsPage = it },
                     onCloseDestination = { activeSettingsPage = null },
-                    onContentScrollChanged = onContentScrollChanged
+                    onContentScrollChanged = reportScroll
                 )
             }
         }
@@ -308,11 +318,14 @@ private fun MarbleRootShell(
                 .statusBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
+            // MARBLE_EXPRESSIVE_SHELL_V241 — the transient message is a floating tonal pill
+            // with one soft shadow; it used to carry the same hairline the rest of the app has
+            // now lost.
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(colors.surfaceContainerLow)
-                    .border(1.dp, colors.outlineVariant, RoundedCornerShape(16.dp))
+                    .shadow(10.dp, RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(colors.surfaceContainerHigh)
                     .clickable { repo.clearMessage() }
                     .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
@@ -327,13 +340,20 @@ private fun MarbleRootShell(
         }
 
         if (!wide) {
-            MarbleBottomTabBar(
-                repo = repo,
-                tabs = visibleTabs,
-                selected = activeTab,
-                onSelect = selectTab,
+            // Fully qualified: inside the rail Row the RowScope overload would win resolution.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !contentScrolling,
+                enter = slideInVertically(initialOffsetY = { height -> height }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { height -> height }) + fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter)
-            )
+            ) {
+                MarbleBottomTabBar(
+                    repo = repo,
+                    tabs = visibleTabs,
+                    selected = activeTab,
+                    onSelect = selectTab
+                )
+            }
         }
                     }
                 }
@@ -494,17 +514,33 @@ private fun MarbleBottomTabBar(
         null
     }
 
+    // MARBLE_EXPRESSIVE_SHELL_V241 — the dock is a floating tonal object: wide 28 dp corners,
+    // one soft shadow, and no hairline on top of it. The line was the "patch stitched onto the
+    // content" the audit complained about; the shadow and the tone step do the separation now.
     val barShape = RoundedCornerShape(if (floating) 28.dp else 0.dp)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (floating) Modifier.padding(horizontal = 14.dp, vertical = 8.dp) else Modifier)
+            .then(
+                if (floating) {
+                    Modifier.padding(
+                        horizontal = 14.dp,
+                        vertical = MarbleSpec.DOCK_FLOAT_MARGIN_DP.dp
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .navigationBarsPadding()
-            .then(if (floating) Modifier.shadow(12.dp, barShape).clip(barShape) else Modifier)
+            .then(
+                if (floating) {
+                    Modifier.shadow(14.dp, barShape).clip(barShape)
+                } else {
+                    Modifier
+                }
+            )
             .background(colors.surfaceContainer)
-            .then(if (floating) Modifier.border(1.dp, colors.outlineVariant, barShape) else Modifier)
     ) {
-        HorizontalDivider(thickness = 0.75.dp, color = colors.outlineVariant)
         Row(
             modifier = Modifier
                 .fillMaxWidth()

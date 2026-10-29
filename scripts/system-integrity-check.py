@@ -360,9 +360,6 @@ files = {
     "v233ConnectDeckModel": read(
         "app/src/main/java/com/marbleng/app/model/ConnectDeck.kt"
     ),
-    "v233ConnectDeckUi": read(
-        "app/src/main/java/com/marbleng/app/ui/MarbleConnectDeck.kt"
-    ),
     "v233DockSpec": read(
         "app/src/main/java/com/marbleng/app/model/DockIndicatorSpec.kt"
     ),
@@ -504,6 +501,18 @@ files = {
     "councilPage": read("app/src/main/java/com/marbleng/app/ui/SettingsNetworkCouncilPages.kt"),
     "councilTest": read("app/src/test/java/com/marbleng/app/core/NetworkCouncilV236Test.kt"),
     "councilDoc": read("docs/NETWORK_COUNCIL_SCANNER_V236.md"),
+    # MARBLE_EXPRESSIVE_SHELL_V241 — the redesign the audit asked for: one connect control, a
+    # live traffic graph, health capsules, a quick-log overlay, three presets, air instead of
+    # hairlines and a dock that leaves while the page moves. Model, UI, test, chapter, the four
+    # screens the rules land on, and the one file the quick log reads.
+    "shellModel": read("app/src/main/java/com/marbleng/app/model/ExpressiveShell.kt"),
+    "shellUi": read("app/src/main/java/com/marbleng/app/ui/MarbleExpressiveShell.kt"),
+    "shellTest": read("app/src/test/java/com/marbleng/app/model/ExpressiveShellV241Test.kt"),
+    "shellDoc": read("docs/EXPRESSIVE_SHELL_V241.md"),
+    "shellShape": read("app/src/main/java/com/marbleng/app/ui/theme/MarbleShape.kt"),
+    "settingsAppearance": read(
+        "app/src/main/java/com/marbleng/app/ui/SettingsAppearancePages.kt"
+    ),
 }
 
 workflow_sources = "\n".join(
@@ -3541,24 +3550,20 @@ check(
 )
 
 check(
-    "V233 three connect buttons have three behaviours and three lights",
+    "V233 three connect buttons had three behaviours and three lights (retired on Home by V241)",
     "enum class ConnectDeckAction" in files["v233ConnectDeckModel"]
     and "enum class ConnectDeckLight" in files["v233ConnectDeckModel"]
     and "behavior = \"reconnect_last_or_auto\"" in files["v233ConnectDeckModel"]
     and "behavior = \"auto_selector_winner\"" in files["v233ConnectDeckModel"]
     and "behavior = \"local_proxy_only\"" in files["v233ConnectDeckModel"]
     and "fun isIndependent(): Boolean" in files["v233ConnectDeckModel"]
-    and "fun ConnectDeckSection(" in files["v233ConnectDeckUi"]
-    and "ConnectDeckLight.IGNITION" in files["v233ConnectDeckUi"]
-    and "ConnectDeckLight.ORBIT" in files["v233ConnectDeckUi"]
-    and "ConnectDeckLight.RIPPLE" in files["v233ConnectDeckUi"]
-    and "rememberInfiniteTransition(" in files["v233ConnectDeckUi"]
-    and 'item(key = "home-connect-deck")' in files["homeScreen"]
-    and "ConnectDeckSection(" in files["homeScreen"]
-    and "litDeckId" in files["homeScreen"]
-    and "repo.runAutoServerSelection(reason = \"connect-deck\")" in files["homeScreen"]
-    and "repo.setConnectionMode(ConnectionMode.LOCAL_PROXY)" in files["homeScreen"]
-    and "class ConnectDeckActionV233Test" in files["v233DeckTest"],
+    and "class ConnectDeckActionV233Test" in files["v233DeckTest"]
+    # MARBLE_EXPRESSIVE_SHELL_V241 — the audit counted five controls for one action on Home
+    # (power orb, slide track, three deck cards). The catalogue keeps its behaviours and its
+    # test; the deck composable is gone, and Home must not mount a second connect control.
+    and "fun ConnectDeckSection(" not in files["homeScreen"]
+    and "ConnectDeckSection(" not in files["homeScreen"]
+    and "litDeckId" not in files["homeScreen"],
 )
 
 check(
@@ -3650,24 +3655,20 @@ check(
 # ---------------------------------------------------------------------------
 
 check(
-    "V234 the Home connect control mirrors when the app is RTL",
+    "V234 the mirrored slide gesture is measured in its spec and retired from Home by V241",
     "MARBLE_RTL_CONNECT_CONTROL_V234" in files["slideSpec"]
     and "fun dragFraction(current: Float, dragAmountPx: Float, travelPx: Float, rtl: Boolean): Float"
     in files["slideSpec"]
     and "fun thumbOffsetPx(travelPx: Float, fraction: Float, rtl: Boolean): Int"
     in files["slideSpec"]
     and "fun released(fraction: Float): Boolean" in files["slideSpec"]
-    and "val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl" in files["homeScreen"]
-    and "SlideConnectSpec.thumbOffsetPx(travelPx, dragFraction, rtl)" in files["homeScreen"]
-    and "SlideConnectSpec.dragFraction(" in files["homeScreen"]
-    and "SlideConnectSpec.released(dragFraction)" in files["homeScreen"]
-    and "if (rtl) MarbleGlyph.CHEVRON_LEFT else MarbleGlyph.CHEVRON" in files["homeScreen"]
-    # The three signs that made the control unusable in Persian must stay out of the composable.
-    and "(dragFraction + dragAmount / travelPx)" not in files["homeScreen"]
-    and "(dragFraction * travelPx)" not in files["homeScreen"]
-    and "dragFraction >= 0.76f" not in files["homeScreen"]
     and "class SlideConnectSpecV234Test" in files["slideTest"]
-    and "fun theSameGestureCommitsInBothDirections()" in files["slideTest"],
+    and "fun theSameGestureCommitsInBothDirections()" in files["slideTest"]
+    # MARBLE_EXPRESSIVE_SHELL_V241 — there is no track to drag any more: the pill is a button.
+    # The spec and its test remain as the proof that the mirrored gesture was correct, and Home
+    # must not quietly grow the control back.
+    and "MarbleSlideConnectBar(" not in files["homeScreen"]
+    and "SlideConnectSpec.dragFraction(" not in files["homeScreen"],
 )
 
 # ---------------------------------------------------------------------------
@@ -4032,6 +4033,135 @@ check(
     and "fun everyAppliedValueIsBoundedToWhatTheCoresAccept()" in files["councilTest"]
     and "fun theSavedVerdictRoundTripsThroughItsJsonForm()" in files["councilTest"]
     and "fun theCouncilNeverTouchesRoutingIdentityOrSplitTunnelling()" in files["councilTest"],
+)
+
+
+# ---------------------------------------------------------------------------
+# MARBLE_EXPRESSIVE_SHELL_V241 — one decision per screen, surfaces over outlines
+# ---------------------------------------------------------------------------
+#
+# The audit named five failures: five controls for one action on Home, a pink field behind the
+# server list, a settings page built out of rounded rectangles and grey lines, a FAB sitting on
+# the last row, and four dead strings where a traffic graph belongs. These invariants pin the
+# answer to each one, plus the three things the answer is built on (the pure model, its test and
+# the chapter), so a later branch cannot quietly re-add the clutter.
+
+check(
+    "V241 Home has one connect control and names its mode",
+    "MarbleConnectPill(" in files["homeScreen"]
+    and "MarbleModeMenuChip(" in files["homeScreen"]
+    and "connectModeChipOf(settings.connectionMode)" in files["homeScreen"]
+    and "ConnectModeChip.ordered" not in files["homeScreen"]
+    and "MarbleSlideConnectBar(" not in files["homeScreen"]
+    and "ConnectDeckSection(" not in files["homeScreen"]
+    and "splitButton" not in files["homeScreen"].lower()
+    and "MarbleConnectPill(" in files["shellUi"]
+    and "fun MarbleModeMenuChip(" in files["shellUi"]
+    and "val pressScale by animateFloatAsState(" in files["shellUi"]
+    and "MarbleSpec.PRESSED_SCALE" in files["shellUi"],
+)
+
+check(
+    "V241 surfaces carry tone, not outlines, and rows are separated by air",
+    "border = borderColor?.let { BorderStroke(1.dp, it) }" in files["marbleComponents"]
+    and "BorderStroke(1.dp, borderColor ?: colors.outlineVariant)" not in files["marbleComponents"]
+    and "height(MarbleSpec.ROW_GAP_DP.dp)" in files["marbleComponents"]
+    and "HorizontalDivider(" not in files["marbleComponents"]
+    and "const val DIVIDER_THICKNESS_DP: Int = 1" in files["marbleTheme"]
+    and "const val CARD_CORNER_DP: Int = 24" in files["marbleTheme"]
+    and "const val GROUP_CORNER_DP: Int = 32" in files["marbleTheme"]
+    and "RoundedCornerShape(MarbleSpec.CARD_CORNER_DP.dp)" in files["shellShape"],
+)
+
+check(
+    "V241 server rows report health as a calm capsule and delete by swipe",
+    "MarbleHealthPill(" in files["serversScreen"]
+    and "serverHealthOf(result.latencyMs, result.success > 0)" in files["serversScreen"]
+    and "background(colors.errorContainer)" not in files["serversScreen"]
+    and "onSwipeDelete()" in files["serversScreen"]
+    and "HapticFeedbackType.LongPress" in files["serversScreen"]
+    and "fun ServerHealth.fromId" not in files["serversScreen"]
+    and "fun MarbleHealthPill(" in files["shellUi"]
+    and "fun MarbleHealthDot(" in files["shellUi"]
+    and "ServerHealth.SLOW_LINE_MS" in files["shellModel"],
+)
+
+check(
+    "V241 the ping question is a chip row and the graph is live",
+    '"Lowest ping"' in files["serversScreen"]
+    and '"Best score"' in files["serversScreen"]
+    and "NodeSortMode.PING" in files["serversScreen"]
+    and "NodeSortMode.SCORE" in files["serversScreen"]
+    and "MarbleTrafficSparkline(" in files["homeScreen"]
+    and "fun MarbleTrafficSparkline(" in files["shellUi"]
+    and "class TrafficTimeline(" in files["shellModel"]
+    and "fun sparklinePoints(" in files["shellModel"]
+    and "fun sparklineAreaPoints(" in files["shellModel"]
+    and "TrafficTimeline.DEFAULT_CAPACITY" in files["shellUi"]
+    and "var lens by remember { mutableStateOf(TrafficLens.BOTH) }" in files["shellUi"],
+)
+
+check(
+    "V241 the core log is one tap away, not five, and reads only its tail",
+    "QuickLogsSheet(" in files["homeScreen"]
+    and "fun QuickLogsSheet(" in files["shellUi"]
+    and "fun readCoreLogTail()" in files["repo"]
+    and "RuntimeDiagnostics(context).coreLogTail(xray.logFile)" in files["repo"]
+    and "fun coreLogTail(file: File, maxBytes: Int = QUICK_LOG_TAIL_BYTES): String" in
+    files["diag"]
+    and "fun quickLogLines(" in files["shellModel"]
+    and "fun classifyLogLine(" in files["shellModel"]
+    and ".bundle(" not in files["shellUi"],
+)
+
+check(
+    "V241 the tuning knobs are behind three named presets",
+    "enum class SmartPreset(" in files["shellModel"]
+    and "fun apply(settings: AppSettings): AppSettings" in files["shellModel"]
+    and "fun matchSmartPreset(settings: AppSettings): SmartPreset?" in files["shellModel"]
+    and "SmartPreset.ordered" in files["shellUi"]
+    and "SmartPresetStrip(" in files["homeScreen"]
+    and "SettingsDestination.SMART_PRESETS" in files["settingsScreen"]
+    and "SettingsSmartPresetsPage(" in files["settingsScreen"]
+    and "repo.updateSettings(preset.apply(repo.settings))" in files["settingsScreen"],
+)
+
+check(
+    "V241 the dock floats with no hairline and leaves while the page moves",
+    "slideOutVertically(targetOffsetY = { height -> height })" in files["marbleApp"]
+    and "visible = !contentScrolling" in files["marbleApp"]
+    and "onContentScrollChanged = reportScroll" in files["marbleApp"]
+    and "HorizontalDivider(thickness = 0.75.dp" not in files["marbleApp"]
+    and "colors.outlineVariant, barShape" not in files["marbleApp"]
+    and "!listState.isScrollInProgress" in files["serversScreen"]
+    and "AnimatedVisibility(" in files["serversScreen"]
+    and "MarbleTheme.bottomClearance + 12.dp" in files["serversScreen"],
+)
+
+check(
+    "V241 display titles collapse while the page scrolls under them",
+    "collapseFractionOf(" in files["homeScreen"]
+    and "collapseFractionOf(" in files["serversScreen"]
+    and "collapseFractionOf(" in files["settingsScreen"]
+    and "fun collapseFractionOf(" in files["marbleComponents"]
+    and "fun headerCollapseFraction(" in files["shellModel"]
+    and "lerp(expanded.fontSize, collapsed.fontSize, fraction)" in files["marbleComponents"]
+    and "1f - fraction" in files["marbleComponents"],
+)
+
+check(
+    "V241 the model, the test, the chapter and the README all record the pass",
+    "MARBLE_EXPRESSIVE_SHELL_V241" in files["shellModel"]
+    and "MARBLE_EXPRESSIVE_SHELL_V241" in files["shellUi"]
+    and "class ExpressiveShellV241Test" in files["shellTest"]
+    and "fun thePolylineStartsAtTheLeftEdgeAndEndsAtTheRightOneWithYInverted()" in files["shellTest"]
+    and "fun aPresetMovesOnlyTheKnobsItNames()" in files["shellTest"]
+    and "fun theLogTailLosesItsHalfLineInsteadOfShowingItAsTruth()" in files["shellTest"]
+    and "MARBLE_EXPRESSIVE_SHELL_V241" in files["shellDoc"]
+    and "## ۱. یک کنترل، یک تصمیم" in files["shellDoc"]
+    and "## ۵. جدول اجرا" in files["shellDoc"]
+    and "## ۶. آنچه عمداً انجام نشد" in files["shellDoc"]
+    and "EXPRESSIVE_SHELL_V241.md" in files["readme"],
 )
 
 failed = [name for name, passed in checks if not passed]

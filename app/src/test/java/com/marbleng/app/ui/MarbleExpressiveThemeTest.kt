@@ -120,7 +120,10 @@ class MarbleExpressiveThemeTest {
     }
 
     @Test
-    fun settingsHubCoversAllTwentyOneDestinations() {
-        assertEquals(22, SettingsDestination.entries.size)
+    fun settingsHubCoversEveryDestination() {
+        // MARBLE_EXPRESSIVE_SHELL_V241 — SMART_PRESETS joined the hub: the tuning knobs behind
+        // Gaming / Streaming / Extreme Bypass need a page, and every destination must dispatch.
+        assertEquals(23, SettingsDestination.entries.size)
+        assertTrue(SettingsDestination.entries.contains(SettingsDestination.SMART_PRESETS))
     }
 }

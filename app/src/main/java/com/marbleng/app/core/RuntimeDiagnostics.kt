@@ -65,6 +65,9 @@ class RuntimeDiagnostics(private val context: Context) {
         private const val MIRROR_CHUNK_BYTES = 256 * 1024
         private const val HEARTBEAT_INTERVAL_MS = 30_000L
 
+        /** MARBLE_EXPRESSIVE_SHELL_V241 — how much of the core log the quick overlay reads. */
+        private const val QUICK_LOG_TAIL_BYTES = 24_000
+
         private val started = AtomicBoolean(false)
         private val schedulerStarted = AtomicBoolean(false)
         private val crashHandlerInstalled = AtomicBoolean(false)
@@ -746,6 +749,15 @@ class RuntimeDiagnostics(private val context: Context) {
 
     fun exportReport(label: String, text: String): Boolean =
         RuntimeDiagnostics.exportReport(context, label, text)
+
+    /**
+     * MARBLE_EXPRESSIVE_SHELL_V241 — the quick-log overlay's whole data source.
+     *
+     * It is deliberately not [bundle]: bundling flushes the queue, reads four files and builds
+     * a full report, which is the right cost for a one-off export and the wrong cost for a
+     * panel that refreshes every 1.5 seconds. This reads the tail of one file and nothing else.
+     */
+    fun coreLogTail(file: File, maxBytes: Int = QUICK_LOG_TAIL_BYTES): String = tail(file, maxBytes)
 
     private fun tail(file: File, maxBytes: Int): String {
         if (!file.isFile) return "No log file yet: ${file.name}"

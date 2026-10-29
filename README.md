@@ -46,6 +46,34 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A Servers page that shows its hierarchy** — subscription cards with a real usage bar, and their servers nested inside them, smaller in every dimension.
 - **A twelve-expert network council in Settings** — one scan reads the link, the operator, ping, TCP, UDP, DNS, ports, MTU and both address families, then applies the settings it can defend on both cores — with a dissent line for every seat that lost the argument.
 
+## The expressive shell: one control, one decision
+
+`docs/EXPRESSIVE_SHELL_V241.md` is the newest chapter.
+
+**Home stopped asking a question it should answer.** The audit counted five controls for one
+action — a power orb, a slide-to-connect track and three deck cards — so the screen now has one
+**pill** that squishes when pressed and grows into its connected shape, one **menu chip** that
+names the mode it is in (Smart, Full TUN, Local proxy) and one **status chip** that opens the
+live core log. The slide track and the deck are gone from the screen; their catalogues and
+tests stay as the record of how the mirrored gesture and the three behaviours were proven.
+
+**The servers page breathes.** Rows carry a calm health capsule (mint / amber / muted grey)
+instead of a coloured field, sorting is a chip row (`Lowest ping`, `Best score`, `Name`), the
+trash icon is gone — a swipe with a haptic confirmation is the affordance — and the FAB leaves
+the screen while the list is moving instead of sitting on the last row.
+
+**Surfaces, not outlines.** `MarbleCard` has no border any more and `MarbleDivider` is air: the
+whole Settings page lost its grey ruling and its box-inside-a-box rhythm. Corners sit at 24–32 dp,
+display titles collapse into the toolbar as the page scrolls, and the floating dock is a tonal
+object with one soft shadow that slides away while you read.
+
+**Live telemetry instead of four dead strings.** A one-minute traffic window is drawn as a
+sparkline against its own peak (so a slow link and a fast link both fill the height) and a tap
+cycles down+up, down and up. The core log is one tap from Home, reading only the tail of one file
+every 1.5 s. And the tuning knobs behind Smart Jitter and the Censorship Lab are now three named
+presets — **Gaming**, **Streaming**, **Extreme Bypass** — that never touch routing, DNS, the
+split tunnel or the selected server.
+
 ## The surface, the icons, and the whole window
 
 `docs/AURORA_SURFACE_V219.md` is the newest chapter.

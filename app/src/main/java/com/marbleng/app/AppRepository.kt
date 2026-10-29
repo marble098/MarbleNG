@@ -5082,6 +5082,12 @@ private fun postToMain(block: () -> Unit) {
     fun clearMessage() { message = "" }
     fun readLogs(): String = RuntimeDiagnostics(context).bundle(xray.logFile)
 
+    /**
+     * MARBLE_EXPRESSIVE_SHELL_V241 — the quick-log overlay reads only the core tail. Exporting a
+     * full bundle is `readLogs()`; a panel that refreshes while you watch it must not.
+     */
+    fun readCoreLogTail(): String = RuntimeDiagnostics(context).coreLogTail(xray.logFile)
+
     fun backgroundExemptionGranted(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
         val power = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
