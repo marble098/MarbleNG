@@ -2,14 +2,23 @@
 
 package com.marbleng.app.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -70,9 +79,11 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -433,7 +444,41 @@ internal fun MarbleNumberStepperRow(
 ) {
     val colors = MaterialTheme.colorScheme
     val haptics = LocalHapticFeedback.current
-    val display = "$value$suffix"
+    val latestValue by rememberUpdatedState(value)
+    val latestOnChange by rememberUpdatedState(onValueChange)
+    val minusInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val plusInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isMinusPressed by minusInteraction.collectIsPressedAsState()
+    val isPlusPressed by plusInteraction.collectIsPressedAsState()
+
+    // MARBLE_M3_EXPRESSIVE_V242 — long-press continuous auto-increment with haptic tick,
+    // started after a short hold. The spring-driven pill and AnimatedContent number flip
+    // replace the cramped +- pair the audit called \"squeezed\".
+    LaunchedEffect(isMinusPressed) {
+        if (!isMinusPressed) return@LaunchedEffect
+        kotlinx.coroutines.delay(420)
+        while (isMinusPressed) {
+            val current = latestValue
+            val next = (current - step).coerceIn(range)
+            if (next == current) break
+            latestOnChange(next)
+            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+            kotlinx.coroutines.delay(90)
+        }
+    }
+    LaunchedEffect(isPlusPressed) {
+        if (!isPlusPressed) return@LaunchedEffect
+        kotlinx.coroutines.delay(420)
+        while (isPlusPressed) {
+            val current = latestValue
+            val next = (current + step).coerceIn(range)
+            if (next == current) break
+            latestOnChange(next)
+            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+            kotlinx.coroutines.delay(90)
+        }
+    }
+
     MarbleListItem(
         title = title,
         subtitle = subtitle,
@@ -442,40 +487,88 @@ internal fun MarbleNumberStepperRow(
         showChevron = false,
         trailing = {
             Row(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(colors.surfaceContainerHighest)
+                    .padding(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(
-                    text = display,
-                    color = colors.primary,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                FilledTonalIconButton(
-                    onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                        onValueChange((value - step).coerceIn(range))
-                    },
-                    enabled = value > range.first
+                // Minus capsule button
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (value > range.first) colors.surfaceContainerHigh else colors.surfaceContainerHighest
+                        )
+                        .clickable(
+                            enabled = value > range.first,
+                            interactionSource = minusInteraction,
+                            indication = null
+                        ) {
+                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            latestOnChange((latestValue - step).coerceIn(range))
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "−",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         color = if (value > range.first) colors.onSurface else colors.outline
                     )
                 }
-                FilledTonalIconButton(
-                    onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                        onValueChange((value + step).coerceIn(range))
+
+                // Animated number flip - expressive pill center
+                AnimatedContent(
+                    targetState = value,
+                    transitionSpec = {
+                        (slideInVertically { height -> height / 2 } + fadeIn(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )) togetherWith slideOutVertically { height -> -height / 2 } + fadeOut()
                     },
-                    enabled = value < range.last
+                    label = "stepperNumber"
+                ) { target ->
+                    Box(
+                        modifier = Modifier.width(64.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "$target$suffix",
+                            color = colors.primary,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                // Plus capsule button
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (value < range.last) colors.surfaceContainerHigh else colors.surfaceContainerHighest
+                        )
+                        .clickable(
+                            enabled = value < range.last,
+                            interactionSource = plusInteraction,
+                            indication = null
+                        ) {
+                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            latestOnChange((latestValue + step).coerceIn(range))
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "+",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                         color = if (value < range.last) colors.onSurface else colors.outline
                     )
                 }

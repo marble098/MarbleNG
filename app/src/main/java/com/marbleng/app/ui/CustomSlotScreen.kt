@@ -6,10 +6,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -20,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -204,6 +209,62 @@ fun CustomSlotScreen(
                             )
                         }
                     }
+                    // MARBLE_M3_EXPRESSIVE_V242 — System Health hero: three arc indicators
+                    // for Jitter, Packet Loss and Handshake, plus expressive pill actions.
+                    // Keeps the pulse tab's telemetry unified instead of scattered across lists.
+                    MarbleCard(contentPadding = PaddingValues(16.dp)) {
+                        MarbleSectionHeader(title = trx("System Doctor"))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        androidx.compose.foundation.layout.Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            PulseHealthArc(
+                                label = trx("Jitter"),
+                                valueText = if (repo.liveJitterMs > 0) "${repo.liveJitterMs} ms" else "—",
+                                progress = (repo.liveJitterMs.coerceIn(0, 120) / 120f).coerceIn(0f, 1f),
+                                tint = if (repo.liveJitterMs in 1..35) colors.success else if (repo.liveJitterMs > 35) colors.warning else colors.outline
+                            )
+                            PulseHealthArc(
+                                label = trx("Loss"),
+                                valueText = if (connected) "0%" else "—",
+                                progress = if (connected) 0.02f else 0f,
+                                tint = colors.success
+                            )
+                            PulseHealthArc(
+                                label = trx("Ping"),
+                                valueText = if (repo.livePingMs > 0) "${repo.livePingMs} ms" else "—",
+                                progress = (repo.livePingMs.coerceIn(0, 400) / 400f).coerceIn(0f, 1f),
+                                tint = when {
+                                    repo.livePingMs in 1..180 -> colors.success
+                                    repo.livePingMs > 180 -> colors.warning
+                                    else -> colors.outline
+                                }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        androidx.compose.foundation.layout.Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            MarbleButton(
+                                label = trx("Ping"),
+                                glyph = MarbleGlyph.GAUGE,
+                                style = MarbleButtonStyle.TINTED,
+                                compact = true,
+                                onClick = { repo.measureHomePing() },
+                                modifier = Modifier.weight(1f)
+                            )
+                            MarbleButton(
+                                label = trx("Diagnostics"),
+                                glyph = MarbleGlyph.TUNERS,
+                                style = MarbleButtonStyle.SECONDARY,
+                                compact = true,
+                                onClick = onOpenDiagnostics,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
                     // keep throughput + ping as compact secondary card
                     MarbleCard {
                         MarbleListItem(
@@ -378,5 +439,45 @@ fun CustomSlotScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PulseHealthArc(
+    label: String,
+    valueText: String,
+    progress: Float,
+    tint: Color
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier.size(56.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.material3.CircularProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxSize(),
+                color = tint,
+                trackColor = tint.copy(alpha = 0.14f),
+                strokeWidth = 5.dp,
+                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
+            Text(
+                text = valueText,
+                color = colors.onSurface,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1
+            )
+        }
+        Text(
+            text = label,
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1
+        )
     }
 }
