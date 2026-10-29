@@ -298,7 +298,8 @@ private fun MarbleRootShell(
             }
         }
 
-        AnimatedVisibility(
+        // Fully qualified: inside the rail Row the RowScope overload would win resolution.
+        androidx.compose.animation.AnimatedVisibility(
             visible = repo.message.isNotBlank(),
             enter = fadeIn(),
             exit = fadeOut(),

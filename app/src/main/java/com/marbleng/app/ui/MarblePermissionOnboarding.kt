@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.ui.theme.MarbleCardShape
+import com.marbleng.app.ui.theme.MarbleExpressiveTheme
 import com.marbleng.app.ui.theme.warning
 
 enum class ConnectionPermissionStep {
