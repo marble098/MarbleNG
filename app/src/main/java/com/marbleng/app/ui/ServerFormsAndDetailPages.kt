@@ -28,6 +28,8 @@ import com.marbleng.app.core.ManualConfigDraft
 import com.marbleng.app.core.ManualProtocol
 import com.marbleng.app.core.ProfileSecurityAuditor
 import com.marbleng.app.model.ProxyProfile
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 private enum class AddSheetTab {
     IMPORT,
@@ -57,7 +59,7 @@ fun ServerAddSheet(
     onOpenQrImport: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val clipboard = LocalClipboardManager.current
     var activeTab by rememberSaveable { mutableStateOf(AddSheetTab.IMPORT) }
@@ -66,16 +68,16 @@ fun ServerAddSheet(
     }
 
     val groupChoices = buildList {
-        add(IosMenuOption("manual", strings.homeManualGroup))
-        repo.subscriptions.forEach { add(IosMenuOption(it.id, it.name)) }
+        add(MarbleMenuOption("manual", strings.homeManualGroup))
+        repo.subscriptions.forEach { add(MarbleMenuOption(it.id, it.name)) }
     }
 
-    IosBottomSheet(
+    MarbleBottomSheet(
         title = trx("Add Server or Source"),
         subtitle = trx("Import links, add an HTTPS subscription, build a node or compose a chain"),
         onDismiss = onDismiss
     ) {
-        IosSegmentedControl(
+        MarbleSegmentedControl(
             options = listOf(
                 AddSheetTab.IMPORT to trx("Import"),
                 AddSheetTab.SUBSCRIPTION to trx("Sub"),
@@ -95,12 +97,12 @@ fun ServerAddSheet(
             when (activeTab) {
                 AddSheetTab.IMPORT -> {
                     var pastedText by remember { mutableStateOf("") }
-                    IosCard {
-                        IosListItem(
+                    MarbleCard {
+                        MarbleListItem(
                             title = strings.addFromClipboard,
                             subtitle = trx("Automatically detects proxy links, JSON or HTTPS subscription URLs"),
                             glyph = MarbleGlyph.COPY,
-                            squircleColor = colors.blue,
+                            iconTint = colors.primary,
                             onClick = {
                                 val raw = clipboard.getText()?.text?.trim().orEmpty()
                                 if (raw.isBlank()) {
@@ -111,23 +113,23 @@ fun ServerAddSheet(
                                 }
                             }
                         )
-                        IosDivider()
-                        IosListItem(
+                        MarbleDivider()
+                        MarbleListItem(
                             title = trx("Scan or Pick QR Code"),
                             subtitle = trx("Read QR code from camera or gallery image"),
                             glyph = MarbleGlyph.QR,
-                            squircleColor = colors.indigo,
+                            iconTint = colors.secondary,
                             onClick = {
                                 onDismiss()
                                 onOpenQrImport()
                             }
                         )
-                        IosDivider()
-                        IosListItem(
+                        MarbleDivider()
+                        MarbleListItem(
                             title = trx("Import from File"),
                             subtitle = trx("Load a .txt or .json file from device storage"),
                             glyph = MarbleGlyph.FOLDER,
-                            squircleColor = colors.teal,
+                            iconTint = colors.tertiary,
                             onClick = {
                                 onDismiss()
                                 onImportFile()
@@ -136,7 +138,7 @@ fun ServerAddSheet(
                     }
 
                     if (groupChoices.size > 1) {
-                        IosDropdownField(
+                        MarbleDropdownField(
                             label = trx("Save Imported Nodes Into"),
                             value = targetGroup,
                             options = groupChoices,
@@ -144,7 +146,7 @@ fun ServerAddSheet(
                         )
                     }
 
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("Paste Links or JSON"),
                         value = pastedText,
                         onValueChange = { pastedText = it },
@@ -154,7 +156,7 @@ fun ServerAddSheet(
                         minLines = 4,
                         maxLines = 8
                     )
-                    IosButton(
+                    MarbleButton(
                         label = trx("Import Text"),
                         glyph = MarbleGlyph.PLUS,
                         enabled = pastedText.trim().isNotBlank() && !repo.busy,
@@ -170,24 +172,24 @@ fun ServerAddSheet(
                     var subName by remember { mutableStateOf("") }
                     var subUrl by remember { mutableStateOf("") }
 
-                    IosCard(contentPadding = PaddingValues(16.dp)) {
+                    MarbleCard(contentPadding = PaddingValues(16.dp)) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            IosTextField(
+                            MarbleTextField(
                                 label = trx("Subscription Name"),
                                 value = subName,
                                 onValueChange = { subName = it },
                                 placeholder = trx("My Provider")
                             )
-                            IosTextField(
+                            MarbleTextField(
                                 label = trx("HTTPS Subscription URL"),
                                 value = subUrl,
                                 onValueChange = { subUrl = it },
                                 placeholder = "https://example.com/sub"
                             )
-                            IosSectionFooter(
+                            MarbleSectionFooter(
                                 text = trx("Leave URL blank to create a local-only server group.")
                             )
-                            IosButton(
+                            MarbleButton(
                                 label = trx("Save Subscription"),
                                 glyph = MarbleGlyph.PLUS,
                                 enabled = subName.trim().isNotBlank() && !repo.busy,
@@ -202,7 +204,7 @@ fun ServerAddSheet(
                 }
 
                 AddSheetTab.NODE -> {
-                    IosManualNodeForm(
+                    MarbleManualNodeForm(
                         repo = repo,
                         targetGroup = targetGroup,
                         groupChoices = groupChoices,
@@ -212,7 +214,7 @@ fun ServerAddSheet(
                 }
 
                 AddSheetTab.CHAIN -> {
-                    IosChainBuilderForm(
+                    MarbleChainBuilderForm(
                         repo = repo,
                         targetGroup = targetGroup,
                         groupChoices = groupChoices,
@@ -227,35 +229,35 @@ fun ServerAddSheet(
 }
 
 @Composable
-private fun IosManualNodeForm(
+private fun MarbleManualNodeForm(
     repo: AppRepository,
     targetGroup: String,
-    groupChoices: List<IosMenuOption>,
+    groupChoices: List<MarbleMenuOption>,
     onTargetGroupChange: (String) -> Unit,
     onSaved: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     var draft by remember { mutableStateOf(ManualConfigDraft()) }
     val protocol = draft.protocol
     val streamCapable = protocol in setOf(ManualProtocol.VLESS, ManualProtocol.VMESS, ManualProtocol.TROJAN)
     val realityCapable = draft.transport in setOf("raw", "xhttp", "grpc")
     val missing = ManualConfigBuilder.missingRequirement(draft)
 
-    IosCard(contentPadding = PaddingValues(16.dp)) {
+    MarbleCard(contentPadding = PaddingValues(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            IosTextField(
+            MarbleTextField(
                 label = trx("Server Name"),
                 value = draft.name,
                 onValueChange = { draft = draft.copy(name = it) },
                 placeholder = trx("Frankfurt · 01")
             )
 
-            IosDropdownField(
+            MarbleDropdownField(
                 label = trx("Protocol"),
                 value = protocol.name,
-                options = ManualProtocol.entries.map { IosMenuOption(it.name, it.label) },
+                options = ManualProtocol.entries.map { MarbleMenuOption(it.name, it.label) },
                 onSelect = { raw ->
-                    val picked = ManualProtocol.entries.firstOrNull { it.name == raw } ?: return@IosDropdownField
+                    val picked = ManualProtocol.entries.firstOrNull { it.name == raw } ?: return@MarbleDropdownField
                     draft = ManualConfigDraft(protocol = picked).copy(
                         name = draft.name,
                         host = draft.host,
@@ -280,14 +282,14 @@ private fun IosManualNodeForm(
 
             if (protocol != ManualProtocol.XRAY_JSON) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("Server Host / IP"),
                         value = draft.host,
                         onValueChange = { draft = draft.copy(host = it) },
                         placeholder = "example.com",
                         modifier = Modifier.weight(1.7f)
                     )
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("Port"),
                         value = draft.port,
                         onValueChange = { draft = draft.copy(port = it.filter(Char::isDigit).take(5)) },
@@ -298,7 +300,7 @@ private fun IosManualNodeForm(
 
             when (protocol) {
                 ManualProtocol.XRAY_JSON -> {
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("Xray Outbound / Config JSON"),
                         value = draft.customJson,
                         onValueChange = { draft = draft.copy(customJson = it) },
@@ -310,26 +312,26 @@ private fun IosManualNodeForm(
                 }
 
                 ManualProtocol.VLESS -> {
-                    IosSecretField(
+                    MarbleSecretField(
                         label = "UUID",
                         value = draft.uuid,
                         onValueChange = { draft = draft.copy(uuid = it) }
                     )
-                    IosDropdownField(
+                    MarbleDropdownField(
                         label = trx("Flow"),
                         value = draft.flow,
-                        options = VLESS_FLOWS.map { IosMenuOption(it, it.ifBlank { "none" }) },
+                        options = VLESS_FLOWS.map { MarbleMenuOption(it, it.ifBlank { "none" }) },
                         onSelect = { draft = draft.copy(flow = it) }
                     )
                 }
 
                 ManualProtocol.VMESS -> {
-                    IosSecretField(
+                    MarbleSecretField(
                         label = "UUID",
                         value = draft.uuid,
                         onValueChange = { draft = draft.copy(uuid = it) }
                     )
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("Cipher"),
                         value = draft.encryption,
                         onValueChange = { draft = draft.copy(encryption = it) },
@@ -338,7 +340,7 @@ private fun IosManualNodeForm(
                 }
 
                 ManualProtocol.TROJAN -> {
-                    IosSecretField(
+                    MarbleSecretField(
                         label = trx("Password"),
                         value = draft.password,
                         onValueChange = { draft = draft.copy(password = it) }
@@ -346,13 +348,13 @@ private fun IosManualNodeForm(
                 }
 
                 ManualProtocol.SHADOWSOCKS -> {
-                    IosDropdownField(
+                    MarbleDropdownField(
                         label = trx("Cipher Method"),
                         value = draft.method,
-                        options = SS_METHODS.map { IosMenuOption(it) },
+                        options = SS_METHODS.map { MarbleMenuOption(it) },
                         onSelect = { draft = draft.copy(method = it) }
                     )
-                    IosSecretField(
+                    MarbleSecretField(
                         label = trx("Password"),
                         value = draft.password,
                         onValueChange = { draft = draft.copy(password = it) }
@@ -360,23 +362,23 @@ private fun IosManualNodeForm(
                 }
 
                 ManualProtocol.HYSTERIA2 -> {
-                    IosSecretField(
+                    MarbleSecretField(
                         label = trx("Auth Password"),
                         value = draft.password,
                         onValueChange = { draft = draft.copy(password = it) }
                     )
-                    IosTextField(
+                    MarbleTextField(
                         label = "SNI",
                         value = draft.sni,
                         onValueChange = { draft = draft.copy(sni = it) }
                     )
-                    IosTextField(
+                    MarbleTextField(
                         label = "ALPN",
                         value = draft.alpn,
                         onValueChange = { draft = draft.copy(alpn = it) },
                         placeholder = "h3"
                     )
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("Pinned Cert SHA-256 (optional)"),
                         value = draft.pinnedPeerCertSha256,
                         onValueChange = { draft = draft.copy(pinnedPeerCertSha256 = it) }
@@ -384,18 +386,18 @@ private fun IosManualNodeForm(
                 }
 
                 ManualProtocol.HTTP, ManualProtocol.HTTPS, ManualProtocol.SOCKS5 -> {
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("Username (optional)"),
                         value = draft.username,
                         onValueChange = { draft = draft.copy(username = it) }
                     )
-                    IosSecretField(
+                    MarbleSecretField(
                         label = trx("Password (optional)"),
                         value = draft.password,
                         onValueChange = { draft = draft.copy(password = it) }
                     )
                     if (protocol == ManualProtocol.HTTPS) {
-                        IosTextField(
+                        MarbleTextField(
                             label = "SNI",
                             value = draft.sni,
                             onValueChange = { draft = draft.copy(sni = it) }
@@ -404,17 +406,17 @@ private fun IosManualNodeForm(
                 }
 
                 ManualProtocol.SSH -> {
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("SSH Username"),
                         value = draft.username,
                         onValueChange = { draft = draft.copy(username = it) }
                     )
-                    IosSecretField(
+                    MarbleSecretField(
                         label = trx("SSH Password"),
                         value = draft.password,
                         onValueChange = { draft = draft.copy(password = it) }
                     )
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("Host Key SHA-256 (optional)"),
                         value = draft.sshHostKeySha256,
                         onValueChange = { draft = draft.copy(sshHostKeySha256 = it) }
@@ -422,29 +424,29 @@ private fun IosManualNodeForm(
                 }
 
                 ManualProtocol.WIREGUARD -> {
-                    IosSecretField(
+                    MarbleSecretField(
                         label = trx("Private Key"),
                         value = draft.wireguardSecretKey,
                         onValueChange = { draft = draft.copy(wireguardSecretKey = it) }
                     )
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("Peer Public Key"),
                         value = draft.wireguardPeerPublicKey,
                         onValueChange = { draft = draft.copy(wireguardPeerPublicKey = it) }
                     )
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("Local CIDR Address"),
                         value = draft.wireguardAddress,
                         onValueChange = { draft = draft.copy(wireguardAddress = it) }
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IosTextField(
+                        MarbleTextField(
                             label = "MTU",
                             value = draft.wireguardMtu,
                             onValueChange = { draft = draft.copy(wireguardMtu = it) },
                             modifier = Modifier.weight(1f)
                         )
-                        IosTextField(
+                        MarbleTextField(
                             label = trx("Keepalive"),
                             value = draft.wireguardKeepAlive,
                             onValueChange = { draft = draft.copy(wireguardKeepAlive = it) },
@@ -455,10 +457,10 @@ private fun IosManualNodeForm(
             }
 
             if (streamCapable) {
-                IosDropdownField(
+                MarbleDropdownField(
                     label = trx("Transport"),
                     value = draft.transport,
-                    options = STREAM_TRANSPORTS.map { IosMenuOption(it, it.uppercase()) },
+                    options = STREAM_TRANSPORTS.map { MarbleMenuOption(it, it.uppercase()) },
                     onSelect = { transport ->
                         draft = draft.copy(
                             transport = transport,
@@ -473,13 +475,13 @@ private fun IosManualNodeForm(
 
                 if (draft.transport in setOf("websocket", "xhttp", "httpupgrade")) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IosTextField(
+                        MarbleTextField(
                             label = trx("Path"),
                             value = draft.path,
                             onValueChange = { draft = draft.copy(path = it) },
                             modifier = Modifier.weight(1f)
                         )
-                        IosTextField(
+                        MarbleTextField(
                             label = trx("Host Header"),
                             value = draft.hostHeader,
                             onValueChange = { draft = draft.copy(hostHeader = it) },
@@ -487,7 +489,7 @@ private fun IosManualNodeForm(
                         )
                     }
                 } else if (draft.transport == "grpc") {
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("gRPC Service Name"),
                         value = draft.serviceName,
                         onValueChange = { draft = draft.copy(serviceName = it) }
@@ -500,53 +502,53 @@ private fun IosManualNodeForm(
                     realityCapable -> listOf("none", "tls", "reality")
                     else -> listOf("none", "tls")
                 }
-                IosDropdownField(
+                MarbleDropdownField(
                     label = trx("Security"),
                     value = draft.security,
-                    options = securityChoices.map { IosMenuOption(it, it.uppercase()) },
+                    options = securityChoices.map { MarbleMenuOption(it, it.uppercase()) },
                     onSelect = { draft = draft.copy(security = it) }
                 )
 
                 if (draft.security in setOf("tls", "reality")) {
-                    IosTextField(
+                    MarbleTextField(
                         label = "SNI",
                         value = draft.sni,
                         onValueChange = { draft = draft.copy(sni = it) }
                     )
-                    IosDropdownField(
+                    MarbleDropdownField(
                         label = trx("TLS Fingerprint"),
                         value = draft.fingerprint,
-                        options = TLS_FINGERPRINTS.map { IosMenuOption(it) },
+                        options = TLS_FINGERPRINTS.map { MarbleMenuOption(it) },
                         onSelect = { draft = draft.copy(fingerprint = it) }
                     )
                 }
 
                 if (draft.security == "tls") {
-                    IosTextField(
+                    MarbleTextField(
                         label = "ALPN",
                         value = draft.alpn,
                         onValueChange = { draft = draft.copy(alpn = it) },
                         placeholder = "h2,http/1.1"
                     )
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("Pinned Cert SHA-256 (optional)"),
                         value = draft.pinnedPeerCertSha256,
                         onValueChange = { draft = draft.copy(pinnedPeerCertSha256 = it) }
                     )
                 } else if (draft.security == "reality") {
-                    IosTextField(
+                    MarbleTextField(
                         label = trx("REALITY Public Key"),
                         value = draft.realityPublicKey,
                         onValueChange = { draft = draft.copy(realityPublicKey = it) }
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IosTextField(
+                        MarbleTextField(
                             label = trx("Short ID"),
                             value = draft.realityShortId,
                             onValueChange = { draft = draft.copy(realityShortId = it) },
                             modifier = Modifier.weight(1f)
                         )
-                        IosTextField(
+                        MarbleTextField(
                             label = "SpiderX",
                             value = draft.realitySpiderX,
                             onValueChange = { draft = draft.copy(realitySpiderX = it) },
@@ -557,7 +559,7 @@ private fun IosManualNodeForm(
             }
 
             if (groupChoices.size > 1) {
-                IosDropdownField(
+                MarbleDropdownField(
                     label = trx("Save To Group"),
                     value = targetGroup,
                     options = groupChoices,
@@ -568,14 +570,14 @@ private fun IosManualNodeForm(
             if (missing != null) {
                 Text(
                     text = trx(missing),
-                    color = colors.orange,
+                    color = colors.warning,
                     // MARBLE_WEIGHT_LADDER_V235 — a blocking warning steps up to TITLE weight;
                     // colour alone should not be the only thing saying "this blocks Save".
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
                 )
             }
 
-            IosButton(
+            MarbleButton(
                 label = trx("Save Server"),
                 glyph = MarbleGlyph.CHECK,
                 enabled = missing == null && !repo.busy,
@@ -591,21 +593,21 @@ private fun IosManualNodeForm(
 }
 
 @Composable
-private fun IosChainBuilderForm(
+private fun MarbleChainBuilderForm(
     repo: AppRepository,
     targetGroup: String,
-    groupChoices: List<IosMenuOption>,
+    groupChoices: List<MarbleMenuOption>,
     onTargetGroupChange: (String) -> Unit,
     onSaved: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val eligible = repo.libraryProfiles.filterNot { it.scheme.equals("ssh", ignoreCase = true) }
 
     if (eligible.size < 2) {
-        IosCard(contentPadding = PaddingValues(16.dp)) {
+        MarbleCard(contentPadding = PaddingValues(16.dp)) {
             Text(
                 text = trx("Add at least two Xray-compatible servers first to compose a multi-hop proxy chain."),
-                color = colors.subtitle,
+                color = colors.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium
             )
         }
@@ -613,7 +615,7 @@ private fun IosChainBuilderForm(
     }
 
     val options = eligible.map { p ->
-        IosMenuOption(
+        MarbleMenuOption(
             value = "${p.subscriptionId}|${p.id}",
             label = cleanServerName(p.name),
             detail = "${protocolShortLabel(p)} · ${p.subscriptionName}"
@@ -629,41 +631,41 @@ private fun IosChainBuilderForm(
         return if (parts.size == 2) parts[0] to parts[1] else null
     }
 
-    IosCard(contentPadding = PaddingValues(16.dp)) {
+    MarbleCard(contentPadding = PaddingValues(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            IosTextField(
+            MarbleTextField(
                 label = trx("Chain Name"),
                 value = chainName,
                 onValueChange = { chainName = it },
                 placeholder = trx("Relay → Exit")
             )
-            IosDropdownField(
+            MarbleDropdownField(
                 label = trx("Entry Relay (First Hop)"),
                 value = entryKey,
                 options = options,
                 onSelect = { entryKey = it }
             )
-            IosDropdownField(
+            MarbleDropdownField(
                 label = trx("Exit Server (Final Hop)"),
                 value = exitKey,
                 options = options,
                 onSelect = { exitKey = it }
             )
             if (groupChoices.size > 1) {
-                IosDropdownField(
+                MarbleDropdownField(
                     label = trx("Save To Group"),
                     value = targetGroup,
                     options = groupChoices,
                     onSelect = onTargetGroupChange
                 )
             }
-            IosButton(
+            MarbleButton(
                 label = trx("Create Multi-Hop Chain"),
                 glyph = MarbleGlyph.ROUTE,
                 enabled = entryKey != exitKey && !repo.busy,
                 onClick = {
-                    val hop1 = decodeRef(entryKey) ?: return@IosButton
-                    val hop2 = decodeRef(exitKey) ?: return@IosButton
+                    val hop1 = decodeRef(entryKey) ?: return@MarbleButton
+                    val hop2 = decodeRef(exitKey) ?: return@MarbleButton
                     if (repo.addManualChain(chainName, listOf(hop1, hop2), targetGroup)) {
                         onSaved()
                     }
@@ -681,7 +683,7 @@ fun ServerDetailPage(
     onBack: () -> Unit,
     onConnect: (ProxyProfile) -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val clipboard = LocalClipboardManager.current
     val liveProfile = repo.profile(profile.id, profile.subscriptionId) ?: profile
     val isActive = repo.isActiveProfile(liveProfile)
@@ -696,46 +698,46 @@ fun ServerDetailPage(
     var showQrSheet by remember { mutableStateOf(false) }
 
     val securityTone = when (audit.level) {
-        ProfileSecurityAuditor.SecurityLevel.STRONG -> colors.green
-        ProfileSecurityAuditor.SecurityLevel.ADEQUATE -> colors.blue
-        ProfileSecurityAuditor.SecurityLevel.WEAK -> colors.orange
-        ProfileSecurityAuditor.SecurityLevel.INSECURE -> colors.red
-        else -> colors.subtitle
+        ProfileSecurityAuditor.SecurityLevel.STRONG -> colors.success
+        ProfileSecurityAuditor.SecurityLevel.ADEQUATE -> colors.primary
+        ProfileSecurityAuditor.SecurityLevel.WEAK -> colors.warning
+        ProfileSecurityAuditor.SecurityLevel.INSECURE -> colors.error
+        else -> colors.onSurfaceVariant
     }
 
-    IosSubPageScaffold(
+    MarbleSubPageScaffold(
         title = cleanServerName(liveProfile.name),
         onBack = onBack
     ) {
         item(key = "detail-summary") {
-            IosCard {
-                IosListItem(
+            MarbleCard {
+                MarbleListItem(
                     title = cleanServerName(liveProfile.name),
                     subtitle = "${protocolShortLabel(liveProfile)} · ${country.name}",
                     leading = {
-                        IosServerAvatar(profile = liveProfile, countryCode = country.code)
+                        MarbleServerAvatar(profile = liveProfile, countryCode = country.code)
                     },
                     showChevron = false,
                     trailing = {
-                        IosBadge(text = audit.level.name, color = securityTone)
+                        MarbleBadge(text = audit.level.name, color = securityTone)
                     }
                 )
-                IosDivider()
-                IosListItem(
+                MarbleDivider()
+                MarbleListItem(
                     title = "${liveProfile.host}:${liveProfile.port}",
                     subtitle = "${trx("Source")}: ${liveProfile.subscriptionName}",
                     glyph = MarbleGlyph.SERVER,
-                    squircleColor = colors.indigo,
+                    iconTint = colors.secondary,
                     showChevron = false
                 )
                 if (audit.findings.isNotEmpty()) {
                     audit.findings.take(3).forEach { finding ->
-                        IosDivider()
-                        IosListItem(
+                        MarbleDivider()
+                        MarbleListItem(
                             title = trx(finding.category),
                             subtitle = trx(finding.detail),
                             glyph = MarbleGlyph.SHIELD,
-                            squircleColor = securityTone,
+                            iconTint = securityTone,
                             showChevron = false
                         )
                     }
@@ -745,9 +747,9 @@ fun ServerDetailPage(
 
         item(key = "detail-actions") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Actions"))
-                IosCard {
-                    IosListItem(
+                MarbleSectionHeader(title = trx("Actions"))
+                MarbleCard {
+                    MarbleListItem(
                         title = if (isActive) Tr.now.disconnect else Tr.now.connect,
                         subtitle = if (isActive) {
                             trx("Stop the active VPN session")
@@ -755,43 +757,43 @@ fun ServerDetailPage(
                             trx("Start protected tunnel through this server")
                         },
                         glyph = if (isActive) MarbleGlyph.STOP else MarbleGlyph.POWER,
-                        squircleColor = if (isActive) colors.red else colors.green,
+                        iconTint = if (isActive) colors.error else colors.success,
                         onClick = {
                             if (isActive) repo.stopVpn() else onConnect(liveProfile)
                         }
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = trx("Run Full Route Test"),
                         subtitle = trx("Measure tunnel latency, jitter and stability"),
                         glyph = MarbleGlyph.GAUGE,
-                        squircleColor = colors.blue,
+                        iconTint = colors.primary,
                         enabled = !repo.busy && !repo.probeActive,
                         onClick = { repo.fullTest(liveProfile) }
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = trx("Scan IPv4 & IPv6 Reachability"),
                         subtitle = familyScan?.headline ?: trx("Probe A / AAAA DNS records and dual-stack TCP handshakes"),
                         glyph = MarbleGlyph.RADAR,
-                        squircleColor = colors.teal,
+                        iconTint = colors.tertiary,
                         enabled = !repo.ipFamilyScanning && !repo.busy,
                         onClick = { repo.scanIpFamily(liveProfile) }
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = trx("Share QR Code"),
                         subtitle = trx("Show scannable QR code for this server"),
                         glyph = MarbleGlyph.QR,
-                        squircleColor = colors.purple,
+                        iconTint = colors.secondary,
                         onClick = { showQrSheet = true }
                     )
-                    IosDivider()
-                    IosListItem(
+                    MarbleDivider()
+                    MarbleListItem(
                         title = trx("Copy Share URI"),
                         subtitle = trx("Copy raw share link to clipboard"),
                         glyph = MarbleGlyph.COPY,
-                        squircleColor = colors.orange,
+                        iconTint = colors.warning,
                         onClick = {
                             clipboard.setText(AnnotatedString(liveProfile.raw.ifBlank { liveProfile.configJson }))
                             repo.setRuntimeMessage("Config link copied")
@@ -803,10 +805,10 @@ fun ServerDetailPage(
 
         item(key = "detail-json-editor") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IosSectionHeader(title = trx("Outbound JSON Configuration"))
-                IosCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleSectionHeader(title = trx("Outbound JSON Configuration"))
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        IosTextField(
+                        MarbleTextField(
                             label = trx("Xray JSON"),
                             value = jsonDraft,
                             onValueChange = { jsonDraft = it },
@@ -816,7 +818,7 @@ fun ServerDetailPage(
                             maxLines = 22
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            IosButton(
+                            MarbleButton(
                                 label = trx("Save JSON"),
                                 glyph = MarbleGlyph.CHECK,
                                 enabled = !repo.busy && !isActive && jsonDraft != liveProfile.configJson,
@@ -825,10 +827,10 @@ fun ServerDetailPage(
                                 },
                                 modifier = Modifier.weight(1f)
                             )
-                            IosButton(
+                            MarbleButton(
                                 label = Tr.now.copyAction,
                                 glyph = MarbleGlyph.COPY,
-                                style = IosButtonStyle.SECONDARY,
+                                style = MarbleButtonStyle.SECONDARY,
                                 onClick = {
                                     clipboard.setText(AnnotatedString(jsonDraft))
                                     repo.setRuntimeMessage("JSON copied")
@@ -839,7 +841,7 @@ fun ServerDetailPage(
                         if (isActive) {
                             Text(
                                 text = trx("Disconnect first to edit the active server's JSON."),
-                                color = colors.subtitle,
+                                color = colors.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium)
                             )
                         }

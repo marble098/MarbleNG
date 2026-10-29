@@ -18,45 +18,47 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.AppUpdateInfo
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 
 @Composable
 fun ExitIpDetailsSheet(
     repo: AppRepository,
     onDismiss: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val clipboard = LocalClipboardManager.current
     val intel = repo.serverIntel
 
-    IosBottomSheet(
+    MarbleBottomSheet(
         title = strings.ipAddress,
         subtitle = trx("Public exit identity & ASN intelligence"),
         onDismiss = onDismiss
     ) {
         if (intel == null) {
-            IosCard {
-                IosListItem(
+            MarbleCard {
+                MarbleListItem(
                     title = if (repo.serverIntelLoading) strings.resolving else strings.unavailable,
                     subtitle = repo.serverIntelError.ifBlank {
                         trx("Connect to a server or tap Refresh below to resolve exit IP details")
                     },
                     glyph = MarbleGlyph.GLOBE,
-                    squircleColor = colors.teal,
+                    iconTint = colors.tertiary,
                     showChevron = false
                 )
             }
         } else {
-            IosCard {
-                IosListItem(
+            MarbleCard {
+                MarbleListItem(
                     title = intel.ip,
                     subtitle = intel.ipType.ifBlank { trx("Public Exit IP") },
                     glyph = MarbleGlyph.GLOBE,
-                    squircleColor = colors.blue,
+                    iconTint = colors.primary,
                     trailing = {
                         Text(
                             text = strings.copyAction,
-                            color = colors.accent,
+                            color = colors.primary,
                             style = MaterialTheme.typography.labelLarge
                         )
                     },
@@ -66,28 +68,28 @@ fun ExitIpDetailsSheet(
                         repo.setRuntimeMessage(strings.ipCopied)
                     }
                 )
-                IosDivider()
-                IosListItem(
+                MarbleDivider()
+                MarbleListItem(
                     title = intel.locationLabel.ifBlank { strings.unavailable },
                     subtitle = trx("Location"),
                     leading = {
-                        IosServerAvatar(profile = null, countryCode = intel.countryCode)
+                        MarbleServerAvatar(profile = null, countryCode = intel.countryCode)
                     },
                     showChevron = false
                 )
-                IosDivider()
-                IosListItem(
+                MarbleDivider()
+                MarbleListItem(
                     title = intel.datacenterLabel,
                     subtitle = listOf(intel.asn, intel.domain).filter { it.isNotBlank() }.joinToString(" · "),
                     glyph = MarbleGlyph.SERVER,
-                    squircleColor = colors.indigo,
+                    iconTint = colors.secondary,
                     showChevron = false
                 )
             }
         }
 
         Row(modifier = Modifier.fillMaxWidth()) {
-            IosButton(
+            MarbleButton(
                 label = strings.refreshIp,
                 glyph = MarbleGlyph.REFRESH,
                 enabled = !repo.serverIntelLoading,
@@ -96,10 +98,10 @@ fun ExitIpDetailsSheet(
             )
             if (intel != null && intel.ip.isNotBlank()) {
                 Spacer(Modifier.width(10.dp))
-                IosButton(
+                MarbleButton(
                     label = strings.copyIp,
                     glyph = MarbleGlyph.COPY,
-                    style = IosButtonStyle.TINTED,
+                    style = MarbleButtonStyle.TINTED,
                     onClick = {
                         clipboard.setText(AnnotatedString(intel.ip))
                         repo.setRuntimeMessage(strings.ipCopied)
@@ -137,29 +139,29 @@ fun QrImportSourceDialogController(
 
     if (!open) return
 
-    val colors = IosTheme.colors
-    IosBottomSheet(
+    val colors = MaterialTheme.colorScheme
+    MarbleBottomSheet(
         title = trx("Import from QR Code"),
         subtitle = trx("Scan with your camera or choose a QR image from your library"),
         onDismiss = onDismiss
     ) {
-        IosCard {
-            IosListItem(
+        MarbleCard {
+            MarbleListItem(
                 title = trx("Scan with Camera"),
                 subtitle = trx("Capture a QR code directly"),
                 glyph = MarbleGlyph.QR,
-                squircleColor = colors.green,
+                iconTint = colors.success,
                 onClick = {
                     onDismiss()
                     cameraLauncher.launch(null)
                 }
             )
-            IosDivider()
-            IosListItem(
+            MarbleDivider()
+            MarbleListItem(
                 title = trx("Choose from Photo Library"),
                 subtitle = trx("Pick a screenshot or saved QR image"),
                 glyph = MarbleGlyph.FOLDER,
-                squircleColor = colors.indigo,
+                iconTint = colors.secondary,
                 onClick = {
                     onDismiss()
                     galleryLauncher.launch("image/*")
@@ -174,10 +176,10 @@ fun AppUpdateAvailableDialog(
     update: AppUpdateInfo,
     onDismiss: () -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
 
-    IosAlertDialog(
+    MarbleAlertDialog(
         title = update.title.ifBlank { "${trx("Update Available")}: ${update.version}" },
         onDismiss = onDismiss,
         confirmLabel = trx("Download"),
@@ -193,12 +195,12 @@ fun AppUpdateAvailableDialog(
         // offered openly as one, never dressed as a stable.
         if (update.prerelease) {
             Row {
-                IosBadge(text = trx("Pre-release"), color = colors.orange)
+                MarbleBadge(text = trx("Pre-release"), color = colors.warning)
             }
         }
         Text(
             text = update.notes.take(420).ifBlank { trx("A newer release of MarbleNG is available on GitHub.") },
-            color = colors.subtitle,
+            color = colors.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall
         )
     }

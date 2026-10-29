@@ -2,6 +2,7 @@ package com.marbleng.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -13,10 +14,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -25,10 +29,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Badge
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,8 +70,13 @@ import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSlotAccent
 import com.marbleng.app.model.parseDockSlotIcon
 import kotlinx.coroutines.delay
+import com.marbleng.app.ui.theme.LocalBottomClearance
+import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
+import com.marbleng.app.ui.theme.MarbleExpressiveTheme
 
-enum class IosRootTab {
+enum class MarbleRootTab {
     HOME,
     SERVERS,
     CUSTOM_SLOT,
@@ -75,13 +92,14 @@ fun MarbleApp(
 ) {
     ProvideMarbleLanguage(repo.settings.appLanguage) {
         ProvideMarbleTextScale(repo.settings.textScalePercent) {
-            MarbleIosTheme(
+            MarbleExpressiveTheme(
                 themeId = repo.settings.theme,
                 accentId = repo.settings.accentTheme,
                 fontId = repo.settings.fontFamily,
-                flatSurfaces = repo.settings.flatInterface
+                flatSurfaces = repo.settings.flatInterface,
+                dynamicColor = repo.settings.dynamicColor
             ) {
-                MarbleIosRootShell(
+                MarbleRootShell(
                     repo = repo,
                     onConnect = onConnect,
                     onImportFile = onImportFile,
@@ -93,16 +111,16 @@ fun MarbleApp(
 }
 
 @Composable
-private fun MarbleIosRootShell(
+private fun MarbleRootShell(
     repo: AppRepository,
     onConnect: (ProxyProfile) -> Unit,
     onImportFile: () -> Unit,
     onContentScrollChanged: (Boolean) -> Unit
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val settings = repo.settings
 
-    var rememberedTab by rememberSaveable { mutableStateOf(IosRootTab.HOME) }
+    var rememberedTab by rememberSaveable { mutableStateOf(MarbleRootTab.HOME) }
     var activeSettingsPage by rememberSaveable { mutableStateOf<SettingsDestination?>(null) }
     var inspectingProfileId by rememberSaveable { mutableStateOf("") }
     var inspectingProfileSource by rememberSaveable { mutableStateOf("") }
@@ -111,8 +129,8 @@ private fun MarbleIosRootShell(
     var showExitIpSheet by remember { mutableStateOf(false) }
 
     val visibleTabs = dockSlots(
-        all = IosRootTab.entries,
-        optional = IosRootTab.CUSTOM_SLOT,
+        all = MarbleRootTab.entries,
+        optional = MarbleRootTab.CUSTOM_SLOT,
         showOptional = settings.dockSlotEnabled
     )
     val activeTab = visibleTabs[dockSlotIndex(visibleTabs, rememberedTab)]
@@ -125,8 +143,8 @@ private fun MarbleIosRootShell(
     }
 
     val canNavigateBack = detailProfile != null ||
-        (activeTab == IosRootTab.SETTINGS && activeSettingsPage != null) ||
-        activeTab != IosRootTab.HOME
+        (activeTab == MarbleRootTab.SETTINGS && activeSettingsPage != null) ||
+        activeTab != MarbleRootTab.HOME
 
     BackHandler(enabled = canNavigateBack) {
         when {
@@ -134,11 +152,11 @@ private fun MarbleIosRootShell(
                 inspectingProfileId = ""
                 inspectingProfileSource = ""
             }
-            activeTab == IosRootTab.SETTINGS && activeSettingsPage != null -> {
+            activeTab == MarbleRootTab.SETTINGS && activeSettingsPage != null -> {
                 activeSettingsPage = null
             }
             else -> {
-                rememberedTab = IosRootTab.HOME
+                rememberedTab = MarbleRootTab.HOME
             }
         }
     }
@@ -170,9 +188,9 @@ private fun MarbleIosRootShell(
             NotificationRoute.SUBSCRIPTIONS -> SettingsDestination.SUBSCRIPTIONS_DATA
         }
         rememberedTab = when {
-            route == NotificationRoute.SERVERS -> IosRootTab.SERVERS
-            destination == null -> IosRootTab.HOME
-            else -> IosRootTab.SETTINGS
+            route == NotificationRoute.SERVERS -> MarbleRootTab.SERVERS
+            destination == null -> MarbleRootTab.HOME
+            else -> MarbleRootTab.SETTINGS
         }
         activeSettingsPage = destination
     }
@@ -186,14 +204,47 @@ private fun MarbleIosRootShell(
         inspectingProfileId = ""
         inspectingProfileSource = ""
         activeSettingsPage = dest
-        rememberedTab = IosRootTab.SETTINGS
+        rememberedTab = MarbleRootTab.SETTINGS
     }
 
-    Box(
+    val selectTab: (MarbleRootTab) -> Unit = { chosen ->
+        inspectingProfileId = ""
+        inspectingProfileSource = ""
+        if (chosen == MarbleRootTab.SETTINGS && activeTab == MarbleRootTab.SETTINGS) {
+            activeSettingsPage = null
+        }
+        rememberedTab = chosen
+    }
+
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.background)
+            .background(colors.surface)
     ) {
+        // Tablets, open foldables and wide windows get a navigation rail beside a
+        // capped reading column; phones keep the overlay dock. The clearance the
+        // screens and the Servers FAB float above follows the chrome.
+        val wide = maxWidth >= 840.dp
+        CompositionLocalProvider(
+            LocalBottomClearance provides
+                (if (wide) MarbleSpec.RAIL_CLEARANCE_DP else MarbleSpec.BOTTOM_BAR_CLEARANCE_DP).dp
+        ) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                if (wide) {
+                    MarbleNavigationRail(
+                        repo = repo,
+                        tabs = visibleTabs,
+                        selected = activeTab,
+                        onSelect = selectTab
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Box(modifier = Modifier.fillMaxSize().widthIn(max = 840.dp)) {
         if (detailProfile != null) {
             ServerDetailPage(
                 repo = repo,
@@ -206,10 +257,10 @@ private fun MarbleIosRootShell(
             )
         } else {
             when (activeTab) {
-                IosRootTab.HOME -> HomeScreen(
+                MarbleRootTab.HOME -> HomeScreen(
                     repo = repo,
                     onConnect = onConnect,
-                    onOpenServers = { rememberedTab = IosRootTab.SERVERS },
+                    onOpenServers = { rememberedTab = MarbleRootTab.SERVERS },
                     onOpenServerDetail = openDetail,
                     onOpenQrImport = { showQrSheet = true },
                     onOpenAddSheet = { showAddSheet = true },
@@ -219,7 +270,7 @@ private fun MarbleIosRootShell(
                     onContentScrollChanged = onContentScrollChanged
                 )
 
-                IosRootTab.SERVERS -> ServersScreen(
+                MarbleRootTab.SERVERS -> ServersScreen(
                     repo = repo,
                     onConnect = onConnect,
                     onOpenDetail = openDetail,
@@ -228,7 +279,7 @@ private fun MarbleIosRootShell(
                     onContentScrollChanged = onContentScrollChanged
                 )
 
-                IosRootTab.CUSTOM_SLOT -> CustomSlotScreen(
+                MarbleRootTab.CUSTOM_SLOT -> CustomSlotScreen(
                     repo = repo,
                     onConnect = onConnect,
                     onOpenDetail = openDetail,
@@ -237,7 +288,7 @@ private fun MarbleIosRootShell(
                     onContentScrollChanged = onContentScrollChanged
                 )
 
-                IosRootTab.SETTINGS -> SettingsScreen(
+                MarbleRootTab.SETTINGS -> SettingsScreen(
                     repo = repo,
                     activeDestination = activeSettingsPage,
                     onOpenDestination = { activeSettingsPage = it },
@@ -259,14 +310,14 @@ private fun MarbleIosRootShell(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(16.dp))
-                    .background(colors.card)
-                    .border(1.dp, colors.divider, RoundedCornerShape(16.dp))
+                    .background(colors.surfaceContainerLow)
+                    .border(1.dp, colors.outlineVariant, RoundedCornerShape(16.dp))
                     .clickable { repo.clearMessage() }
                     .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 Text(
                     text = trx(repo.message),
-                    color = colors.title,
+                    color = colors.onSurface,
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -274,20 +325,19 @@ private fun MarbleIosRootShell(
             }
         }
 
-        IosBottomTabBar(
-            repo = repo,
-            tabs = visibleTabs,
-            selected = activeTab,
-            onSelect = { chosen ->
-                inspectingProfileId = ""
-                inspectingProfileSource = ""
-                if (chosen == IosRootTab.SETTINGS && activeTab == IosRootTab.SETTINGS) {
-                    activeSettingsPage = null
+        if (!wide) {
+            MarbleBottomTabBar(
+                repo = repo,
+                tabs = visibleTabs,
+                selected = activeTab,
+                onSelect = selectTab,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+        }
+                    }
                 }
-                rememberedTab = chosen
-            },
-            modifier = Modifier.align(Alignment.BottomCenter)
-        )
+            }
+        }
     }
 
     if (showAddSheet) {
@@ -320,16 +370,105 @@ private fun MarbleIosRootShell(
     }
 }
 
+/**
+ * Wide-screen chrome: a Material 3 navigation rail carrying the same tabs, slot icon /
+ * accent and status badge as the dock. Labels follow the tab-labels setting; the rail
+ * always shows icons.
+ */
 @Composable
-private fun IosBottomTabBar(
+private fun MarbleNavigationRail(
     repo: AppRepository,
-    tabs: List<IosRootTab>,
-    selected: IosRootTab,
-    onSelect: (IosRootTab) -> Unit,
+    tabs: List<MarbleRootTab>,
+    selected: MarbleRootTab,
+    onSelect: (MarbleRootTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val colors = IosTheme.colors
+    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
+    val haptics = LocalHapticFeedback.current
+    val s = repo.settings
+    val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
+    val slot = resolveDockSlot(repo)
+    val slotIcon = dockSlotMarbleGlyph(parseDockSlotIcon(s.dockSlotIcon))
+    val slotColor = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
+    val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
+        when (repo.state) {
+            "CONNECTED" -> colors.success
+            "CONNECTING", "DISCONNECTING" -> colors.warning
+            else -> null
+        }
+    } else {
+        null
+    }
+
+    NavigationRail(
+        modifier = modifier,
+        containerColor = colors.surfaceContainer
+    ) {
+        tabs.forEach { tab ->
+            val isSelected = tab == selected
+            val accent = if (tab == MarbleRootTab.CUSTOM_SLOT) slotColor else colors.primary
+            val glyph = when (tab) {
+                MarbleRootTab.HOME -> MarbleGlyph.HOME
+                MarbleRootTab.SERVERS -> MarbleGlyph.SERVER
+                MarbleRootTab.CUSTOM_SLOT -> slotIcon
+                MarbleRootTab.SETTINGS -> MarbleGlyph.TUNERS
+            }
+            val label = when (tab) {
+                MarbleRootTab.HOME -> strings.tabHome
+                MarbleRootTab.SERVERS -> strings.tabLibrary
+                MarbleRootTab.CUSTOM_SLOT -> trx(slot.title)
+                MarbleRootTab.SETTINGS -> strings.tabSettings
+            }
+            NavigationRailItem(
+                selected = isSelected,
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                    onSelect(tab)
+                },
+                icon = {
+                    BadgedBox(
+                        badge = {
+                            if (tab == MarbleRootTab.CUSTOM_SLOT && statusDotColor != null) {
+                                Badge(containerColor = statusDotColor)
+                            }
+                        }
+                    ) {
+                        MarbleGlyphIcon(
+                            glyph = glyph,
+                            color = if (isSelected) accent else colors.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp),
+                            weight = if (isSelected) 1.18f else 1f
+                        )
+                    }
+                },
+                label = if (showLabels) {
+                    { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                } else {
+                    null
+                },
+                alwaysShowLabel = true,
+                colors = NavigationRailItemDefaults.colors(
+                    selectedIconColor = accent,
+                    selectedTextColor = accent,
+                    indicatorColor = colors.secondaryContainer
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun MarbleBottomTabBar(
+    repo: AppRepository,
+    tabs: List<MarbleRootTab>,
+    selected: MarbleRootTab,
+    onSelect: (MarbleRootTab) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val strings = Tr.now
+    val haptics = LocalHapticFeedback.current
     val s = repo.settings
     val size = parseDockSize(s.dockSize)
     val presentation = parseDockPresentation(s.dockSize)
@@ -338,7 +477,7 @@ private fun IosBottomTabBar(
     val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
     val slot = resolveDockSlot(repo)
     val slotIcon = dockSlotMarbleGlyph(parseDockSlotIcon(s.dockSlotIcon))
-    val slotColor = dockSlotIosColor(parseDockSlotAccent(s.dockSlotAccent))
+    val slotColor = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
 
     // MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — one measured geometry, shared with the JVM test.
     val barHeight = DockIndicatorSpec.barHeightDp(size).dp
@@ -346,8 +485,8 @@ private fun IosBottomTabBar(
 
     val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
         when (repo.state) {
-            "CONNECTED" -> colors.green
-            "CONNECTING", "DISCONNECTING" -> colors.orange
+            "CONNECTED" -> colors.success
+            "CONNECTING", "DISCONNECTING" -> colors.warning
             else -> null
         }
     } else {
@@ -361,10 +500,10 @@ private fun IosBottomTabBar(
             .then(if (floating) Modifier.padding(horizontal = 14.dp, vertical = 8.dp) else Modifier)
             .navigationBarsPadding()
             .then(if (floating) Modifier.shadow(12.dp, barShape).clip(barShape) else Modifier)
-            .background(colors.tabBar)
-            .then(if (floating) Modifier.border(1.dp, colors.tabBarBorder, barShape) else Modifier)
+            .background(colors.surfaceContainer)
+            .then(if (floating) Modifier.border(1.dp, colors.outlineVariant, barShape) else Modifier)
     ) {
-        HorizontalDivider(thickness = 0.75.dp, color = colors.tabBarBorder)
+        HorizontalDivider(thickness = 0.75.dp, color = colors.outlineVariant)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -375,34 +514,39 @@ private fun IosBottomTabBar(
         ) {
             tabs.forEach { tab ->
                 val isSelected = tab == selected
-                val activeColor = if (tab == IosRootTab.CUSTOM_SLOT) slotColor else colors.accent
-                val tint = if (isSelected) activeColor else colors.subtitle
+                val activeColor = if (tab == MarbleRootTab.CUSTOM_SLOT) slotColor else colors.primary
+                val tint = if (isSelected) activeColor else colors.onSurfaceVariant
                 val glyph = when (tab) {
-                    IosRootTab.HOME -> MarbleGlyph.HOME
-                    IosRootTab.SERVERS -> MarbleGlyph.SERVER
-                    IosRootTab.CUSTOM_SLOT -> slotIcon
-                    IosRootTab.SETTINGS -> MarbleGlyph.TUNERS
+                    MarbleRootTab.HOME -> MarbleGlyph.HOME
+                    MarbleRootTab.SERVERS -> MarbleGlyph.SERVER
+                    MarbleRootTab.CUSTOM_SLOT -> slotIcon
+                    MarbleRootTab.SETTINGS -> MarbleGlyph.TUNERS
                 }
                 val label = when (tab) {
-                    IosRootTab.HOME -> strings.tabHome
-                    IosRootTab.SERVERS -> strings.tabLibrary
-                    IosRootTab.CUSTOM_SLOT -> trx(slot.title)
-                    IosRootTab.SETTINGS -> strings.tabSettings
+                    MarbleRootTab.HOME -> strings.tabHome
+                    MarbleRootTab.SERVERS -> strings.tabLibrary
+                    MarbleRootTab.CUSTOM_SLOT -> trx(slot.title)
+                    MarbleRootTab.SETTINGS -> strings.tabSettings
                 }
 
-                val pillShape = RoundedCornerShape(IosSpec.DOCK_ACTIVE_PILL_CORNER_DP.dp)
+                val pillShape = RoundedCornerShape(MarbleSpec.DOCK_ACTIVE_PILL_CORNER_DP.dp)
+                val pillColor by animateColorAsState(
+                    targetValue = if (isSelected) colors.secondaryContainer else Color.Transparent,
+                    label = "dockPill"
+                )
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .clip(pillShape)
-                        .background(
-                            if (isSelected) activeColor.copy(alpha = if (colors.dark) 0.18f else 0.10f) else Color.Transparent
-                        )
+                        .background(pillColor)
                         .clickable(
                             role = Role.Tab,
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
-                        ) { onSelect(tab) }
+                        ) {
+                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            onSelect(tab)
+                        }
                         .padding(
                             vertical = DockIndicatorSpec.TAB_VERTICAL_PADDING_DP.dp,
                             horizontal = 4.dp
@@ -421,7 +565,7 @@ private fun IosBottomTabBar(
                                     modifier = Modifier.size(iconSize),
                                     weight = if (isSelected) 1.18f else 1f
                                 )
-                                if (tab == IosRootTab.CUSTOM_SLOT && statusDotColor != null) {
+                                if (tab == MarbleRootTab.CUSTOM_SLOT && statusDotColor != null) {
                                     Box(
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
@@ -429,7 +573,7 @@ private fun IosBottomTabBar(
                                             .size(8.dp)
                                             .clip(CircleShape)
                                             .background(statusDotColor)
-                                            .border(1.2.dp, colors.tabBar, CircleShape)
+                                            .border(1.2.dp, colors.surfaceContainer, CircleShape)
                                     )
                                 }
                                 // V233: the line is NOT here any more. It used to be an unmeasured
