@@ -4172,7 +4172,7 @@ check(
     and "onContentScrollChanged = reportScroll" in files["marbleApp"]
     and "HorizontalDivider(thickness = 0.75.dp" not in files["marbleApp"]
     and "colors.outlineVariant, barShape" not in files["marbleApp"]
-    and "!listState.isScrollInProgress" in files["serversScreen"]
+    and "onContentScrollChanged(listState.isScrollInProgress)" in files["serversScreen"]
     and "AnimatedVisibility(" in files["serversScreen"]
     and "MarbleTheme.bottomClearance + 12.dp" in files["serversScreen"],
 )
@@ -4440,9 +4440,11 @@ check(
     and "RuntimeShader" not in liquidGlassSurface
     and "filterQuality" not in liquidGlassSurface
     and "ImageBitmap" not in liquidGlassSurface
-    # The material is drawn, not sampled: a white wash, a vertical rim gradient, the crystal core.
+    # The material is drawn, not sampled; its core now follows light/dark/AMOLED.
     and "Brush.verticalGradient(" in files["liquidGlassBar"]
-    and "Color.White.copy(alpha = LiquidGlassLensSpec.LENS_CORE_ALPHA)" in files["liquidGlassBar"],
+    and "glassLight.copy(alpha = coreAlpha)" in files["liquidGlassBar"]
+    and "val glassLight = if (darkGlass) colors.primary else Color.White" in files["liquidGlassBar"]
+    and "val coreAlpha = if (blackGlass) 0.06f else if (darkGlass) 0.10f else 0.12f" in files["liquidGlassBar"],
 )
 
 check(
@@ -5015,7 +5017,7 @@ check(
     "V249 four themes and nine accents, on a page narrow enough to have to wrap them",
     # `amoled` was already understood by the resolver and unreachable from the UI: the fourth theme
     # needed a door, not a new preference.
-    "\"dark\", \"amoled\", \"oled\", \"night\" -> true" in files["marbleTheme"]
+    "\"dark\", \"amoled\", \"oled\", \"night\", \"trueblack\", \"true-black\", \"black\" -> true" in files["marbleTheme"]
     and "fun marbleTrueBlackSurfaces(scheme: ColorScheme): ColorScheme" in files["marbleColor"]
     and "fun isTrueBlack(themeId: String): Boolean" in files["marbleColor"]
     and "trueBlack = isTrueBlack(themeId)" in files["marbleTheme"]
@@ -5087,6 +5089,13 @@ check(
     and "class MapMotionV249Test" in v249_map_test
     and "class HomeStudioV249Test" in v249_home_test
     and "class ShadeRouteStudioV249Test" in v249_shade_test,
+)
+
+check(
+    "Design council aggregate sources keep management without a duplicate card rail",
+    'if (selectedId != "all") LazyRow(' in files["serversScreen"]
+    and 'contentDescription = trx("Manage sources")' in files["serversScreen"]
+    and 'onManage = { librarySheetOpen = true }' in files["serversScreen"],
 )
 
 failed = [name for name, passed in checks if not passed]

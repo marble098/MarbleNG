@@ -989,6 +989,7 @@ fun MarbleSearchField(
     trailingCount: String = ""
 ) {
     val colors = MaterialTheme.colorScheme
+    val clearSearchLabel = trx("Clear search")
     val ime = rememberMarbleImeHider()
     TextField(
         value = value,
@@ -1011,7 +1012,7 @@ fun MarbleSearchField(
         trailingIcon = {
             when {
                 value.isNotEmpty() -> IconButton(
-                    modifier = Modifier.semantics { contentDescription = trx("Clear search") },
+                    modifier = Modifier.semantics { contentDescription = clearSearchLabel },
                     onClick = { onValueChange("") }
                 ) {
                     MarbleGlyphIcon(
