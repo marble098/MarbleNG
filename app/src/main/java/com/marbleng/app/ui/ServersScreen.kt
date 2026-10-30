@@ -27,11 +27,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -75,22 +78,25 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.PendingServerRemoval
 import com.marbleng.app.core.PingReadout
 import com.marbleng.app.core.QrCode
+import com.marbleng.app.core.ServersAtlas
 import com.marbleng.app.core.ServersDeck
 import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersFilterChip
+import com.marbleng.app.core.ServersLibraryCard
 import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.core.ServersSelection
 import com.marbleng.app.core.ServersUndo
 import com.marbleng.app.core.activeFilterChips
+import com.marbleng.app.core.libraryCards
 import com.marbleng.app.core.pingBars
 import com.marbleng.app.core.pingReadout
 import com.marbleng.app.core.protocolChip
-import com.marbleng.app.core.transportLine
 import com.marbleng.app.model.BenchmarkResult
 import com.marbleng.app.model.NodeSortMode
 import com.marbleng.app.model.ProbeState
@@ -109,27 +115,34 @@ private data class ServerGroupBucket(
     val id: String,
     val title: String,
     val subscription: Subscription?,
-    val profiles: List<ProxyProfile>
+    val profiles: List<ProxyProfile>,
+    val countryCode: String = ""
 )
 
 /**
- * MARBLE_SERVERS_DECK_V243 — the Servers page is a list of servers, not a wall of chrome.
+ * MARBLE_SERVERS_ATLAS_V244 — the Servers page is an atlas: libraries, places, and one live route.
  *
- * What this page is now, top to bottom:
+ * V243 emptied the page until it was a list of servers. The twelve-seat design council that
+ * reviewed it found the list honest and anonymous: twelve identical rows, a country the app had
+ * already measured living in a settings page, a subscription you could only change through a
+ * filter sheet, two "add" affordances, and a live-tunnel card louder than the servers the page
+ * exists to choose between. V244 draws the library and the map:
  *
- * 1. one header line with the title and two actions (test every server, add);
- * 2. one search line whose filter action opens a bottom sheet carrying sort, protocol and group;
- * 3. the compact chip row — only when a filter is really narrowing something;
- * 4. the pinned "active server" card while a tunnel is up, so the page always answers
- *    "what am I connected to?";
- * 5. collapsible group sections with **one** overflow action each, and no header at all when
- *    there is only one group;
- * 6. compact 68dp rows: protocol chip, name, "TLS · XHTTP", ping with semantic colour and a
- *    four-level bar, and one 48dp overflow target. No address (it lives in the details page), no
- *    Delete label (the gesture is the affordance), no country flag repeated twelve times.
+ * 1. one header line: the title, the measured library line ("32 servers · 12 located"), one
+ *    test action and one **Add** pill — the floating add button is gone;
+ * 2. the live route as a single strip (flag, name, live ping, one stop target) while a tunnel is
+ *    up or connecting — never a full-width Disconnect competing with Home;
+ * 3. one search line, with a sort menu and the filter sheet one tap apart;
+ * 4. the **sources rail**: every subscription as a card with its plan, its node count and its
+ *    measured flag cluster, one tap to switch, one sheet to manage;
+ * 5. quiet section labels (flag, name, count, one overflow) only when the page really has more
+ *    than one section, and only when a section is not folded;
+ * 6. compact rows that wear their **measured flag** (or the protocol monogram before the sweep
+ *    answers), the country and transport line, a reserved ping column and one 48dp overflow.
  *
- * The column arithmetic, the ping levels, the transport line, the selection roster and the undo
- * window are pure functions in [ServersDeck]; this file only draws their answers.
+ * The row arithmetic, the flag cluster, the plan bar, the sources model and the row's own
+ * subtitle are pure functions in [ServersAtlas]; the ping levels, the transport line, the
+ * selection roster and the undo window stay in [ServersDeck]. This file only draws their answers.
  */
 @Composable
 fun ServersScreen(
@@ -170,8 +183,14 @@ fun ServersScreen(
     var openGroupMenu by remember { mutableStateOf("") }
     var selection by remember { mutableStateOf(emptySet<String>()) }
     var pendingRemoval by remember { mutableStateOf<PendingServerRemoval?>(null) }
+    var sortMenuOpen by remember { mutableStateOf(false) }
+    var librarySheetOpen by remember { mutableStateOf(false) }
 
     BackHandler(enabled = selection.isNotEmpty()) { selection = emptySet() }
+    // V244 — the flags are the page's identity, so the sweep starts when the page opens instead
+    // of waiting for a connect, a refresh or a trip to Settings. It is the same idempotent
+    // repository sweep the rest of the app triggers; only the queue is empty is a no-op.
+    LaunchedEffect(repo) { repo.ensureServerLocations() }
 
     val pasteFromClipboard: () -> Unit = {
         val raw = clipboard.getText()?.text?.trim().orEmpty()
@@ -217,7 +236,8 @@ fun ServersScreen(
                 id = "country:${bucket.country.code.ifBlank { "other" }}",
                 title = bucket.country.name,
                 subscription = null,
-                profiles = bucket.profiles
+                profiles = bucket.profiles,
+                countryCode = bucket.country.code
             )
         }
     } else {
@@ -242,12 +262,24 @@ fun ServersScreen(
         }
     }
     val showGroupHeaders = ServersDeck.showsGroupHeaders(groups.size)
+    // V244 — one rail model, consumed by the rail and by the sources sheet, so the two can never
+    // disagree about what a library is called or how many servers it holds.
+    val sourceCards = libraryCards(
+        subscriptions = repo.subscriptions,
+        profiles = allProfiles,
+        countryCodeOf = { profile -> repo.serverLocation(profile).code },
+        allTitle = trx("All sources"),
+        manualTitle = strings.homeManualGroup
+    )
     val activeRoute = repo.profile(repo.activeProfileId)
     val routeLive = repo.state == "CONNECTED" || repo.state == "CONNECTING" || repo.state == "DISCONNECTING"
 
+    // Resolved in the composition: the connect lambda is not a composable context.
+    val pingBusyLabel = trx("Wait until ping finishes before changing server")
+
     val selectOrConnect: (ProxyProfile) -> Unit = { profile ->
         if (repo.probeActive || repo.probeCancelling) {
-            repo.setRuntimeMessage("Wait until ping finishes before changing server")
+            repo.setRuntimeMessage(pingBusyLabel)
         } else if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
             onConnect(profile)
         } else {
@@ -317,18 +349,31 @@ fun ServersScreen(
                     start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
                     end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
                     top = 4.dp,
-                    // V243: the extended FAB floats over this page, so the list keeps a full
-                    // FAB's worth of slack plus the dock clearance. The last server can never
-                    // sit under the button again.
-                    bottom = MarbleTheme.bottomClearance + ServersDeck.FAB_CLEARANCE_DP.dp
+                    // V244 — the extended "Add" FAB is gone: adding is the header's pill and the
+                    // empty state's primary action. The list no longer pays the whole
+                    // ServersDeck.FAB_CLEARANCE_DP for a button that was never over it.
+                    bottom = MarbleTheme.bottomClearance + 12.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
 
                 item(key = "servers-header") {
+                    val located = repo.serverLocationSummary()
+                    val locatedCount = located.first
+                    val libraryCount = allProfiles.size
+                    val headerSubtitle = when {
+                        repo.serverLocationScanning ->
+                            "${trx("Scanning flags")} · ${faDigits("$locatedCount/$libraryCount")}"
+
+                        ServersAtlas.showsLocationNotice(locatedCount) ->
+                            "${faDigits("$libraryCount")} ${strings.serversUnit} · " +
+                                "${faDigits("$locatedCount")} ${trx("located")}"
+
+                        else -> "${faDigits("$libraryCount")} ${strings.serversUnit}"
+                    }
                     MarbleLargeHeader(
                         title = strings.serversTitle,
-                        subtitle = "${faDigits("${visibleProfiles.size}")} ${strings.serversUnit}",
+                        subtitle = headerSubtitle,
                         collapseFraction = collapseFractionOf(
                             firstVisibleItemIndex = listState.firstVisibleItemIndex,
                             firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
@@ -346,21 +391,30 @@ fun ServersScreen(
                                 }
                             }
                         )
-                        MarbleIconButton(
-                            glyph = MarbleGlyph.PLUS,
-                            tint = colors.primary,
-                            contentDescription = trx("Add Server or Subscription"),
-                            onClick = onOpenAddSheet
+                        AddServerPill(onClick = onOpenAddSheet)
+                    }
+                }
+
+                // V244 — the live route is the first answer on the page, not a card the reader
+                // has to scroll past a filter rail to find.
+                if (routeLive && activeRoute != null) {
+                    item(key = "servers-active-route") {
+                        ActiveServerCard(
+                            repo = repo,
+                            profile = activeRoute,
+                            state = repo.state,
+                            livePingMs = repo.livePingMs,
+                            onInspect = { onOpenDetail(activeRoute) },
+                            onDisconnect = { repo.stopVpn() }
                         )
                     }
                 }
 
-                // V243 — search is one line. Sort, protocol and group live behind the filter
-                // action in a sheet: three chip strips above the first server were 40 % of the
-                // page spent on questions the user had not asked yet.
                 item(key = "servers-search") {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -370,6 +424,78 @@ fun ServersScreen(
                             placeholder = strings.searchServersHint,
                             modifier = Modifier.weight(1f)
                         )
+                        Box {
+                            MarbleIconButton(
+                                glyph = MarbleGlyph.TUNERS,
+                                tint = if (
+                                    settings.nodeSortMode != NodeSortMode.DEFAULT ||
+                                    settings.nodeSortReverse
+                                ) {
+                                    colors.primary
+                                } else {
+                                    colors.onSurfaceVariant
+                                },
+                                contentDescription = trx("Sort"),
+                                onClick = { sortMenuOpen = true }
+                            )
+                            DropdownMenu(
+                                expanded = sortMenuOpen,
+                                onDismissRequest = { sortMenuOpen = false },
+                                containerColor = colors.surfaceContainerHigh
+                            ) {
+                                serverSortChoices().forEach { (mode, label) ->
+                                    val chosen = settings.nodeSortMode == mode
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = label,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            MarbleGlyphIcon(
+                                                glyph = if (chosen) MarbleGlyph.CHECK else MarbleGlyph.FILTER,
+                                                color = if (chosen) colors.primary else colors.onSurfaceVariant,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        },
+                                        onClick = {
+                                            repo.updateSettings(settings.copy(nodeSortMode = mode))
+                                            sortMenuOpen = false
+                                        }
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = trx("Reverse sort direction"),
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        MarbleGlyphIcon(
+                                            glyph = if (settings.nodeSortReverse) {
+                                                MarbleGlyph.CHECK
+                                            } else {
+                                                MarbleGlyph.TUNERS
+                                            },
+                                            color = if (settings.nodeSortReverse) {
+                                                colors.primary
+                                            } else {
+                                                colors.onSurfaceVariant
+                                            },
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        repo.updateSettings(
+                                            settings.copy(nodeSortReverse = !settings.nodeSortReverse)
+                                        )
+                                        sortMenuOpen = false
+                                    }
+                                )
+                            }
+                        }
                         MarbleIconButton(
                             glyph = MarbleGlyph.FILTER,
                             tint = if (filterChips.isNotEmpty()) colors.warning else colors.onSurfaceVariant,
@@ -410,15 +536,21 @@ fun ServersScreen(
                     }
                 }
 
-                if (routeLive && activeRoute != null) {
-                    item(key = "servers-active-route") {
-                        ActiveServerCard(
-                            repo = repo,
-                            profile = activeRoute,
-                            state = repo.state,
-                            livePingMs = repo.livePingMs,
-                            onInspect = { onOpenDetail(activeRoute) },
-                            onDisconnect = { repo.stopVpn() }
+                // V244 — the sources rail. One tap chooses a library; the sheet behind the ⋯
+                // manages it. This replaces the chip strip that used to hide behind a filter
+                // sheet three taps away from the question "which subscription am I looking at?".
+                if (allProfiles.isNotEmpty()) {
+                    item(key = "servers-sources") {
+                        val located = repo.serverLocationSummary()
+                        ServersLibraryRail(
+                            cards = sourceCards,
+                            selectedId = repo.librarySourceFilter,
+                            scanning = repo.serverLocationScanning,
+                            located = located.first,
+                            total = allProfiles.size,
+                            showSweep = !listState.isScrollInProgress,
+                            onSelect = { id -> repo.selectLibrarySource(id) },
+                            onManage = { librarySheetOpen = true }
                         )
                     }
                 }
@@ -484,6 +616,13 @@ fun ServersScreen(
                             glyph = MarbleGlyph.SERVER,
                             tint = colors.primary,
                             action = {
+                                MarbleButton(
+                                    label = trx("Add Server or Subscription"),
+                                    glyph = MarbleGlyph.PLUS,
+                                    onClick = onOpenAddSheet,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(Modifier.height(10.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -491,6 +630,7 @@ fun ServersScreen(
                                     MarbleButton(
                                         label = strings.pasteShortcut,
                                         glyph = MarbleGlyph.COPY,
+                                        style = MarbleButtonStyle.TINTED,
                                         onClick = pasteFromClipboard,
                                         modifier = Modifier.weight(1f)
                                     )
@@ -502,14 +642,6 @@ fun ServersScreen(
                                         modifier = Modifier.weight(1f)
                                     )
                                 }
-                                Spacer(Modifier.height(10.dp))
-                                MarbleButton(
-                                    label = trx("Add Server or Subscription"),
-                                    glyph = MarbleGlyph.PLUS,
-                                    style = MarbleButtonStyle.SECONDARY,
-                                    onClick = onOpenAddSheet,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
                             }
                         )
                     }
@@ -541,6 +673,7 @@ fun ServersScreen(
                         )
                     }
                 } else {
+                    val pendingDeleteId = deleteTarget?.id ?: pendingRemoval?.profileId.orEmpty()
                     groups.forEach { bucket ->
                         val isCollapsed = bucket.id in collapsedGroups
                         if (showGroupHeaders) {
@@ -575,39 +708,56 @@ fun ServersScreen(
                                 )
                             }
                         }
-                        item(key = "group-section-${bucket.id}") {
-                            ServerGroupCard(
-                                repo = repo,
-                                bucket = bucket,
-                                collapsed = isCollapsed && showGroupHeaders,
-                                benchmarks = benchmarks,
-                                selection = selection,
-                                onSelectProfile = selectOrConnect,
-                                onMoreProfile = { actionTarget = it },
-                                onLongPressProfile = { profile ->
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    selection = ServersSelection.toggle(selection, profile.id)
-                                },
-                                pendingDeleteId = deleteTarget?.id
-                                    ?: pendingRemoval?.profileId.orEmpty(),
-                                onSwipeDelete = { scheduleRemoval(it) }
-                            )
+                        if (!isCollapsed || !showGroupHeaders) {
+                            items(
+                                items = bucket.profiles,
+                                key = { profile -> profile.id }
+                            ) { profile ->
+                                val country = repo.serverLocation(profile)
+                                ServerRowItem(
+                                    profile = profile,
+                                    countryCode = country.code.takeIf { country.isKnown },
+                                    countryName = country.name.takeIf { country.isKnown }.orEmpty(),
+                                    active = repo.isActiveProfile(profile),
+                                    selected = repo.isSelectedProfile(profile),
+                                    result = benchmarks[profile.id],
+                                    probeState = repo.probeStateOf(profile.id),
+                                    swipeEnabled = !repo.probeActive &&
+                                        !repo.probeCancelling &&
+                                        selection.isEmpty(),
+                                    pendingDelete = pendingDeleteId == profile.id,
+                                    selectionMode = selection.isNotEmpty(),
+                                    checked = profile.id in selection,
+                                    onClick = { selectOrConnect(profile) },
+                                    onMore = { actionTarget = profile },
+                                    onLongPress = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        selection = ServersSelection.toggle(selection, profile.id)
+                                    },
+                                    onSwipeDelete = { scheduleRemoval(profile) }
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // V243 — a contextual bar for the multi-select roster, floating over the list so it is
-        // reachable wherever the user long-pressed, and never a second header row in the flow.
+        // V244 — the multi-select roster floats at the BOTTOM now. At the top it sat on the
+        // search line (the one control a long-press never needs), and the thumb that started a
+        // selection is already at the bottom of the screen.
         AnimatedVisibility(
             visible = selection.isNotEmpty(),
-            enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 2 }),
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = MarbleTheme.bottomClearance + 8.dp
+                )
         ) {
             SelectionBar(
                 count = selection.size,
@@ -628,44 +778,6 @@ fun ServersScreen(
             )
         }
 
-        // V243 — an extended FAB that folds to its icon while the page moves. It sits above the
-        // dock clearance and the list reserves its height, so it covers no ping.
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = MarbleTheme.bottomClearance + 12.dp)
-                .shadow(12.dp, CircleShape)
-                .clip(CircleShape)
-                .background(colors.primaryContainer)
-                .clickable(role = Role.Button) {
-                    haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                    onOpenAddSheet()
-                }
-                .heightIn(min = 56.dp)
-                .padding(horizontal = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            MarbleGlyphIcon(
-                glyph = MarbleGlyph.PLUS,
-                color = colors.onPrimaryContainer,
-                modifier = Modifier.size(20.dp),
-                weight = 1.2f
-            )
-            AnimatedVisibility(
-                visible = !listState.isScrollInProgress,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                Text(
-                    text = trx("Add"),
-                    color = colors.onPrimaryContainer,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1
-                )
-            }
-        }
-
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier
@@ -683,13 +795,37 @@ fun ServersScreen(
         ServersFilterSheet(
             repo = repo,
             protocolTallies = protocolTallies,
+            onDismiss = { filterSheetOpen = false }
+        )
+    }
+
+    // V244 — the sources sheet: one place to see every library as a library (name, node count,
+    // plan usage, measured flags) instead of a row of chips inside the filter sheet.
+    if (librarySheetOpen) {
+        ServersLibrarySheet(
+            cards = sourceCards,
+            selectedId = repo.librarySourceFilter,
+            busy = repo.busy,
+            scanning = repo.serverLocationScanning,
+            located = repo.serverLocationSummary().first,
+            total = allProfiles.size,
+            onSelect = { id ->
+                repo.selectLibrarySource(id)
+                librarySheetOpen = false
+            },
             onManageSubscription = { sub ->
-                filterSheetOpen = false
+                librarySheetOpen = false
                 editSubscription = sub
                 editSubName = sub.name
                 editSubUrl = sub.url
             },
-            onDismiss = { filterSheetOpen = false }
+            onRefreshAll = { if (!repo.busy) repo.refreshAll() },
+            onScanFlags = { repo.ensureServerLocations(force = true) },
+            onAdd = {
+                librarySheetOpen = false
+                onOpenAddSheet()
+            },
+            onDismiss = { librarySheetOpen = false }
         )
     }
 
@@ -889,9 +1025,13 @@ private fun clearFilterChip(
 }
 
 /**
- * The pinned answer to "what am I connected to?": name, protocol, live ping and one way out.
- * It is the only card on this page allowed to shout, because it is the only one describing a
- * live tunnel rather than a stored row.
+ * MARBLE_SERVERS_ATLAS_V244 — the live route is a strip, not a card with a button.
+ *
+ * V243 drew the active tunnel as a card carrying five facts and a full-width Disconnect: the
+ * loudest object on a page whose job is choosing the *next* server, and a second stop control
+ * competing with the Home pill. The strip keeps the three facts the reader actually needs —
+ * which route, where it is, and how fast it answers — plus one 48dp stop target, in the height
+ * of a single row.
  */
 @Composable
 private fun ActiveServerCard(
@@ -905,68 +1045,73 @@ private fun ActiveServerCard(
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val connected = state == "CONNECTED"
+    val country = repo.serverLocation(profile)
+    val tone = if (connected) colors.success else colors.warning
     val health = when {
         !connected -> ServerHealth.UNTESTED
         livePingMs <= 0 -> ServerHealth.UNTESTED
         else -> serverHealthOf(livePingMs.toDouble(), true)
     }
-    val subtitle = listOfNotNull(
-        protocolShortLabel(profile),
-        transportLine(profile).takeIf { it.isNotBlank() },
-        repo.serverLocation(profile).code.takeIf { it.isNotBlank() }
-    ).joinToString(" · ")
 
-    MarbleCard(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .clickable(onClick = onInspect)
-                .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(tone.copy(alpha = 0.11f))
+            .clickable(role = Role.Button, onClick = onInspect)
+            .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        ServerFlagTile(
+            code = country.code.takeIf { country.isKnown },
+            profile = profile,
+            width = 34.dp,
+            height = 26.dp
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            MarblePulseDot(color = if (connected) colors.success else colors.warning, modifier = Modifier.size(10.dp))
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                MarblePulseDot(color = tone, modifier = Modifier.size(7.dp))
                 Text(
-                    text = if (connected) trx("Active server") else trx("Connecting"),
-                    color = colors.success,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    text = if (connected) trx("Active route") else trx("Connecting"),
+                    color = tone,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 1
                 )
                 Text(
-                    text = cleanServerName(profile.name).ifBlank { strings.node },
-                    color = colors.onSurface,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    text = ServersAtlas.rowSubtitle(
+                        profile = profile,
+                        countryName = country.name.takeIf { country.isKnown }.orEmpty()
+                    ),
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (subtitle.isNotBlank()) {
-                    Text(
-                        text = subtitle,
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
             }
-            MarbleHealthPill(
-                health = health,
-                text = if (livePingMs > 0) faDigits("$livePingMs ms") else strings.pingIdleValue
+            Text(
+                text = cleanServerName(profile.name).ifBlank { strings.node },
+                color = colors.onSurface,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(Modifier.height(10.dp))
-        MarbleButton(
-            label = strings.disconnect,
-            glyph = MarbleGlyph.POWER,
-            style = MarbleButtonStyle.TINTED,
-            colorOverride = colors.error,
-            compact = true,
-            onClick = onDisconnect,
-            modifier = Modifier.fillMaxWidth()
+        MarbleHealthPill(
+            health = health,
+            text = if (livePingMs > 0) faDigits("$livePingMs ms") else strings.pingIdleValue
+        )
+        MarbleIconButton(
+            glyph = MarbleGlyph.STOP,
+            tint = colors.error,
+            contentDescription = strings.disconnect,
+            onClick = onDisconnect
         )
     }
 }
@@ -1027,11 +1172,13 @@ private fun SelectionBar(
 }
 
 /**
- * One collapsible section header: title, count, freshness and a single overflow action.
+ * MARBLE_SERVERS_ATLAS_V244 — a section label, not a card header.
  *
- * V243 — Refresh / Ping / Edit used to be three green words of label text on the header line:
- * too small to hit, too loud to ignore, and duplicated by the icons at the top of the page.
- * They are one 48dp overflow target now.
+ * V243's header was a 40dp line of labelSmall text with a 14dp chevron: it read as a divider,
+ * not as the thing that owns the eighteen rows beneath it. V244 gives it the measured flag when
+ * the section is a country, the name at title size, the count as a badge, freshness as a quiet
+ * tail, and one 44dp overflow — inside a 48dp touch target, so folding a section is no longer a
+ * precision gesture.
  */
 @Composable
 private fun ServerGroupHeader(
@@ -1054,21 +1201,27 @@ private fun ServerGroupHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onToggleCollapse)
-            .padding(start = 4.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
+            .padding(start = 4.dp, end = 0.dp, top = 10.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         MarbleGlyphIcon(
             glyph = if (collapsed) MarbleGlyph.CHEVRON else MarbleGlyph.CHEVRON_DOWN,
             color = colors.onSurfaceVariant,
-            modifier = Modifier.size(14.dp)
+            modifier = Modifier.size(16.dp)
         )
+        if (bucket.countryCode.isNotBlank()) {
+            CountryFlagCircle(
+                code = bucket.countryCode,
+                size = ServersAtlas.SECTION_FLAG_SIZE_DP.dp
+            )
+        }
         Text(
             text = bucket.title,
-            color = colors.onSurfaceVariant,
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+            color = colors.onSurface,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false)
@@ -1152,87 +1305,463 @@ private fun ServerGroupHeader(
 }
 
 /**
- * The group body: rows only. The card no longer repeats the group's own name, count and address
- * under the header that already said them.
+ * MARBLE_SERVERS_ATLAS_V244 — one "add" affordance, in the header, with its verb on it.
+ *
+ * V243 shipped two of them: a `+` icon beside the title and an extended FAB over the last row,
+ * plus a third button in the empty state. The pill is the only add on a populated page, and the
+ * empty state keeps a full-width one because that page has nothing else to tap.
  */
 @Composable
-private fun ServerGroupCard(
-    repo: AppRepository,
-    bucket: ServerGroupBucket,
-    collapsed: Boolean,
-    benchmarks: Map<String, BenchmarkResult>,
-    selection: Set<String>,
-    onSelectProfile: (ProxyProfile) -> Unit,
-    onMoreProfile: (ProxyProfile) -> Unit,
-    onLongPressProfile: (ProxyProfile) -> Unit,
-    pendingDeleteId: String,
-    onSwipeDelete: (ProxyProfile) -> Unit
+private fun AddServerPill(onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
+    Row(
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clip(CircleShape)
+            .background(colors.primaryContainer)
+            .clickable(role = Role.Button) {
+                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                onClick()
+            }
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        MarbleGlyphIcon(
+            glyph = MarbleGlyph.PLUS,
+            color = colors.onPrimaryContainer,
+            modifier = Modifier.size(18.dp),
+            weight = 1.2f
+        )
+        Text(
+            text = trx("Add"),
+            color = colors.onPrimaryContainer,
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+            maxLines = 1
+        )
+    }
+}
+
+/** The six orderings of the page, named once so the menu and the sheet cannot drift apart. */
+@Composable
+private fun serverSortChoices(): List<Pair<NodeSortMode, String>> = listOf(
+    NodeSortMode.DEFAULT to trx("Subscription order"),
+    NodeSortMode.PING to trx("Lowest ping"),
+    NodeSortMode.SCORE to trx("Best score"),
+    NodeSortMode.NAME to trx("Name (A–Z)"),
+    NodeSortMode.COUNTRY to trx("Country"),
+    NodeSortMode.PROTOCOL to trx("Protocol")
+)
+
+/**
+ * MARBLE_SERVERS_ATLAS_V244 — the sources rail.
+ *
+ * The rail answers "which library am I in?" as a picture: name, measured flag cluster and node
+ * count per card, one tap to switch, and the selected card carries the accent tone. The header
+ * of the rail also reports the flag sweep, so "auto-scanned" is a visible fact rather than a
+ * setting the reader has to trust.
+ */
+@Composable
+private fun ServersLibraryRail(
+    cards: List<ServersLibraryCard>,
+    selectedId: String,
+    scanning: Boolean,
+    located: Int,
+    total: Int,
+    showSweep: Boolean,
+    onSelect: (String) -> Unit,
+    onManage: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    val strings = Tr.now
-    val sub = bucket.subscription
-    val usedBytes = if (sub != null) sub.uploadBytes + sub.downloadBytes else 0L
-    val quotaSubtitle = faDigits(
-        when {
-            sub != null && sub.totalBytes > 0L ->
-                "${bucket.profiles.size} ${strings.serversUnit} · ${formatBytes(usedBytes)} / ${formatBytes(sub.totalBytes)}"
-            sub != null && sub.updatedAt > 0L ->
-                "${bucket.profiles.size} ${strings.serversUnit} · ${trx(relativeTimeLabel(sub.updatedAt))}"
-            else -> "${bucket.profiles.size} ${strings.serversUnit}"
-        }
-    )
+    val railState = rememberLazyListState()
+    LaunchedEffect(selectedId, cards.size) {
+        val index = cards.indexOfFirst { it.id == selectedId }
+        if (index > 0) railState.animateScrollToItem(index)
+    }
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        // With one group there is no header, so the subscription's quota line still needs a home.
-        if (sub != null && sub.totalBytes > 0L) {
-            MarbleSectionFooter(text = quotaSubtitle)
-        }
-        MarbleCard(contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)) {
-            if (collapsed) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.CenterStart
+    Column(
+        modifier = Modifier.padding(top = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MarbleGlyphIcon(
+                glyph = MarbleGlyph.LAYERS,
+                color = colors.onSurfaceVariant,
+                modifier = Modifier.size(15.dp)
+            )
+            Text(
+                text = trx("Sources"),
+                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.weight(1f),
+                maxLines = 1
+            )
+            // V244 — while the list is moving, the sweep's counter goes quiet: the rail is
+            // chrome for a decision, not a progress report, and the page already learns to be
+            // still under a thumb.
+            when {
+                !showSweep -> Unit
+
+                scanning -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    MarblePulseDot(color = colors.primary, modifier = Modifier.size(8.dp))
                     Text(
-                        text = "${faDigits("${bucket.profiles.size}")} ${strings.serversUnit} · ${trx("Collapsed")}",
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelMedium
+                        text = "${trx("Scanning flags")} ${faDigits("$located/$total")}",
+                        color = colors.primary,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1
                     )
                 }
-            } else {
-                bucket.profiles.forEachIndexed { index, profile ->
-                    val active = repo.isActiveProfile(profile)
-                    val selected = repo.isSelectedProfile(profile)
-                    val result = benchmarks[profile.id]
-                    val probeState = repo.probeStateOf(profile.id)
-                    val countryCode = repo.serverLocation(profile).code
 
-                    if (index > 0) MarbleDivider(insetStart = 12.dp, insetEnd = 12.dp)
-                    // V242: swipe/dismiss state belongs to the profile, not to the visual slot.
-                    // Sorting or filtering must never hand a half-swiped row to another server.
-                    key(profile.id) {
-                        ServerRowItem(
-                            profile = profile,
-                            countryCode = countryCode,
-                            active = active,
-                            selected = selected,
-                            result = result,
-                            probeState = probeState,
-                            swipeEnabled = !repo.probeActive && !repo.probeCancelling && selection.isEmpty(),
-                            pendingDelete = pendingDeleteId == profile.id,
-                            selectionMode = selection.isNotEmpty(),
-                            checked = profile.id in selection,
-                            onClick = { onSelectProfile(profile) },
-                            onMore = { onMoreProfile(profile) },
-                            onLongPress = { onLongPressProfile(profile) },
-                            onSwipeDelete = { onSwipeDelete(profile) }
-                        )
-                    }
-                }
+                ServersAtlas.showsLocationNotice(total - located) -> Text(
+                    text = "${faDigits("$located/$total")} ${trx("located")}",
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1
+                )
+            }
+            MarbleIconButton(
+                glyph = MarbleGlyph.MENU,
+                tint = colors.onSurfaceVariant,
+                contentDescription = trx("Manage sources"),
+                onClick = onManage
+            )
+        }
+        LazyRow(
+            state = railState,
+            horizontalArrangement = Arrangement.spacedBy(ServersAtlas.LIBRARY_RAIL_GAP_DP.dp),
+            contentPadding = PaddingValues(end = 4.dp)
+        ) {
+            items(items = cards, key = { card -> card.id }) { card ->
+                LibraryCardTile(
+                    card = card,
+                    selected = card.id == selectedId,
+                    onClick = { onSelect(card.id) }
+                )
             }
         }
+    }
+}
+
+/**
+ * One source card: name and count on top, the country cluster and the plan bar below.
+ * Selected is a tone change plus a check — never an outline, per the V241 rule.
+ */
+@Composable
+private fun LibraryCardTile(
+    card: ServersLibraryCard,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
+    val container = if (selected) colors.primaryContainer else colors.surfaceContainerLow
+    val titleColor = if (selected) colors.onPrimaryContainer else colors.onSurface
+    val metaColor = if (selected) {
+        colors.onPrimaryContainer.copy(alpha = 0.78f)
+    } else {
+        colors.onSurfaceVariant
+    }
+
+    Column(
+        modifier = Modifier
+            .width(ServersAtlas.LIBRARY_CARD_WIDTH_DP.dp)
+            .height(ServersAtlas.LIBRARY_CARD_HEIGHT_DP.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(container)
+            .clickable(role = Role.RadioButton) {
+                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                onClick()
+            }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = card.title,
+                modifier = Modifier.weight(1f),
+                color = titleColor,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (selected) {
+                MarbleGlyphIcon(
+                    glyph = MarbleGlyph.CHECK,
+                    color = colors.primary,
+                    modifier = Modifier.size(15.dp),
+                    weight = 1.2f
+                )
+            }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FlagCluster(
+                codes = card.flags,
+                size = ServersAtlas.LIBRARY_FLAG_SIZE_DP.dp,
+                overlap = ServersAtlas.LIBRARY_FLAG_OVERLAP_DP.dp,
+                ring = container
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = faDigits("${card.count}"),
+                color = metaColor,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .clip(CircleShape)
+                .background(titleColor.copy(alpha = 0.10f))
+        ) {
+            if (card.usageFraction > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(card.usageFraction)
+                        .height(3.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) colors.primary else colors.secondary)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The measured flags of a library, stacked like a signature. An unknown country is not drawn:
+ * the cluster shows only what the sweep actually answered, and a globe stands in when it
+ * answered nothing.
+ */
+@Composable
+private fun FlagCluster(
+    codes: List<String>,
+    size: Dp = ServersAtlas.LIBRARY_FLAG_SIZE_DP.dp,
+    overlap: Dp = ServersAtlas.LIBRARY_FLAG_OVERLAP_DP.dp,
+    ring: Color? = null
+) {
+    val colors = MaterialTheme.colorScheme
+    if (codes.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .height(size)
+                .width(size),
+            contentAlignment = Alignment.Center
+        ) {
+            MarbleGlyphIcon(
+                glyph = MarbleGlyph.GLOBE,
+                color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.size(size * 0.72f)
+            )
+        }
+        return
+    }
+    Box(
+        modifier = Modifier
+            .height(size)
+            .width(size + overlap * (codes.size - 1).toFloat())
+    ) {
+        codes.forEachIndexed { index, code ->
+            CountryFlagCircle(
+                code = code,
+                size = size,
+                ring = ring,
+                modifier = Modifier.offset(x = overlap * index.toFloat())
+            )
+        }
+    }
+}
+
+/**
+ * MARBLE_SERVERS_ATLAS_V244 — the leading identity of a row.
+ *
+ * A measured country is a real flag, drawn by the app's own vector art. A server whose location
+ * is still unknown is not a grey circle: the tile shows the protocol monogram in the protocol's
+ * tone, so the leading column always says something true. This is also why the row no longer
+ * spends 38dp on a second protocol chip — the tile is the identity, and the subtitle explains it.
+ */
+@Composable
+private fun ServerFlagTile(
+    code: String?,
+    profile: ProxyProfile,
+    modifier: Modifier = Modifier,
+    width: Dp = ServersAtlas.ROW_FLAG_WIDTH_DP.dp,
+    height: Dp = ServersAtlas.ROW_FLAG_HEIGHT_DP.dp
+) {
+    val colors = MaterialTheme.colorScheme
+    val tone = protocolRowColor(profile.scheme)
+    val supported = CountryFlagSupported(code)
+    Box(
+        modifier = modifier
+            .size(width, height)
+            .clip(RoundedCornerShape(ServersAtlas.ROW_FLAG_CORNER_DP.dp))
+            .background(
+                if (supported) colors.surfaceContainerHighest else tone.copy(alpha = 0.16f)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (supported) {
+            Canvas(Modifier.matchParentSize()) {
+                drawCountryFlag(code!!)
+            }
+        } else {
+            Text(
+                text = protocolChip(profile),
+                color = tone,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+                maxLines = 1
+            )
+        }
+    }
+}
+
+/** One library's quiet second line: how many servers, and what the plan is doing. */
+@Composable
+private fun libraryCardSubtitle(card: ServersLibraryCard): String {
+    val strings = Tr.now
+    val parts = mutableListOf("${faDigits("${card.count}")} ${strings.serversUnit}")
+    card.subscription?.let { sub ->
+        when {
+            sub.totalBytes > 0L ->
+                parts += "${formatBytes(sub.uploadBytes + sub.downloadBytes)} / " +
+                    formatBytes(sub.totalBytes)
+
+            sub.updatedAt > 0L -> parts += trx(relativeTimeLabel(sub.updatedAt))
+        }
+    }
+    return parts.joinToString(" · ")
+}
+
+/**
+ * MARBLE_SERVERS_ATLAS_V244 — the sources sheet.
+ *
+ * Choosing a library used to be: open the filter sheet, find a scrolling chip strip, tap, dismiss.
+ * The sheet lists every library as a card with its node count, its plan and its flags, puts the
+ * two library-wide actions (refresh every source, re-scan every flag) at the top, and gives each
+ * subscription one pencil to edit it — the same actions the old "This group" section carried,
+ * without the four-tap round trip.
+ */
+@Composable
+private fun ServersLibrarySheet(
+    cards: List<ServersLibraryCard>,
+    selectedId: String,
+    busy: Boolean,
+    scanning: Boolean,
+    located: Int,
+    total: Int,
+    onSelect: (String) -> Unit,
+    onManageSubscription: (Subscription) -> Unit,
+    onRefreshAll: () -> Unit,
+    onScanFlags: () -> Unit,
+    onAdd: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+
+    MarbleBottomSheet(
+        title = trx("Sources"),
+        subtitle = trx("Pick a library, refresh it, or scan its flags"),
+        onDismiss = onDismiss,
+        scrollable = true
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MarbleButton(
+                label = trx("Refresh all"),
+                glyph = MarbleGlyph.REFRESH,
+                style = MarbleButtonStyle.TINTED,
+                compact = true,
+                enabled = !busy,
+                onClick = onRefreshAll,
+                modifier = Modifier.weight(1f)
+            )
+            MarbleButton(
+                label = trx("Scan flags"),
+                glyph = MarbleGlyph.RADAR,
+                style = MarbleButtonStyle.TINTED,
+                compact = true,
+                enabled = !scanning,
+                onClick = onScanFlags,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Text(
+            text = if (scanning) {
+                "${trx("Scanning flags")} · ${faDigits("$located/$total")}"
+            } else {
+                "${faDigits("$located")} / ${faDigits("$total")} ${trx("located")}"
+            },
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        MarbleCard {
+            cards.forEachIndexed { index, card ->
+                if (index > 0) MarbleDivider()
+                MarbleListItem(
+                    title = card.title,
+                    subtitle = libraryCardSubtitle(card),
+                    leading = {
+                        FlagCluster(
+                            codes = card.flags,
+                            size = ServersAtlas.LIBRARY_FLAG_SIZE_DP.dp,
+                            overlap = ServersAtlas.LIBRARY_FLAG_OVERLAP_DP.dp,
+                            ring = colors.surfaceContainer
+                        )
+                    },
+                    showChevron = false,
+                    onClick = { onSelect(card.id) },
+                    trailing = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            if (card.id == selectedId) {
+                                MarbleGlyphIcon(
+                                    glyph = MarbleGlyph.CHECK,
+                                    color = colors.primary,
+                                    modifier = Modifier.size(18.dp),
+                                    weight = 1.2f
+                                )
+                            }
+                            card.subscription?.let { sub ->
+                                MarbleIconButton(
+                                    glyph = MarbleGlyph.PENCIL,
+                                    tint = colors.onSurfaceVariant,
+                                    contentDescription = trx("Edit subscription"),
+                                    onClick = { onManageSubscription(sub) }
+                                )
+                            }
+                        }
+                    }
+                )
+            }
+        }
+
+        MarbleButton(
+            label = trx("Add Server or Subscription"),
+            glyph = MarbleGlyph.PLUS,
+            style = MarbleButtonStyle.SECONDARY,
+            onClick = onAdd,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
@@ -1240,6 +1769,7 @@ private fun ServerGroupCard(
 private fun ServerRowItem(
     profile: ProxyProfile,
     countryCode: String?,
+    countryName: String = "",
     active: Boolean,
     selected: Boolean,
     result: BenchmarkResult?,
@@ -1266,6 +1796,9 @@ private fun ServerRowItem(
 
     SwipeToDismissBox(
         state = dismissState,
+        // V244 — the row is its own rounded slab now, so the destructive reveal is clipped to
+        // the same radius instead of showing square corners through it.
+        modifier = Modifier.clip(RoundedCornerShape(20.dp)),
         backgroundContent = {
             // V241/V243: the destructive reveal is a neutral tonal step with error ink, and the
             // label gets its own padding so it can never be clipped to "Delet" again.
@@ -1301,40 +1834,47 @@ private fun ServerRowItem(
             onSwipeDelete()
         }
     ) {
-        ServerRowContent(
-            profile = profile,
-            countryCode = countryCode,
-            active = active,
+        key(profile.id) {
+            ServerRowContent(
+                profile = profile,
+                countryCode = countryCode,
+                countryName = countryName,
+                active = active,
             selected = selected,
-            result = result,
-            probeState = probeState,
-            onClick = onClick,
-            onMore = onMore,
-            selectionMode = selectionMode,
-            checked = checked,
-            onLongPress = onLongPress
-        )
+                result = result,
+                probeState = probeState,
+                onClick = onClick,
+                onMore = onMore,
+                selectionMode = selectionMode,
+                checked = checked,
+                onLongPress = onLongPress
+            )
+        }
     }
 }
 
 /**
- * The compact server row.
+ * MARBLE_SERVERS_ATLAS_V244 — the row carries a place, not a protocol badge.
  *
  * | zone | content |
  * |---|---|
- * | start | 3dp state bar (active/selected/checked), then the protocol chip |
- * | middle | name (bold) + "TLS · XHTTP" — never the address, never the group name |
+ * | start | the measured flag (or the protocol monogram when the location sweep has not answered), or the selection check |
+ * | middle | name (bold) + "Germany · TLS · XHTTP" — the country, then how it carries traffic; never the address |
  * | ping | reserved 88dp: four semantic bars + the number, or a skeleton while measuring |
  * | end | one 48dp overflow target |
  *
- * There is no Delete control here by design: the row is a server, and the delete lives behind
- * the swipe (with an undo) or the overflow sheet.
+ * The 38dp protocol chip is gone: a row can afford one leading identity, and "which country is
+ * this?" is the question a server list is asked far more often than "which wire scheme?" — the
+ * protocol is answered by the tile on a server with no measured location, and it still has its
+ * own filter in the filter sheet. There is no Delete control here by design: the row is a
+ * server, and the delete lives behind the swipe (with an undo) or the overflow sheet.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ServerRowContent(
     profile: ProxyProfile,
     countryCode: String?,
+    countryName: String = "",
     active: Boolean,
     selected: Boolean,
     result: BenchmarkResult?,
@@ -1354,34 +1894,27 @@ internal fun ServerRowContent(
         else -> serverHealthOf(result.latencyMs, result.success > 0)
     }
     val title = cleanServerName(profile.name).ifBlank { strings.node }
-    val transport = transportLine(profile)
-    val subtitle = when {
-        transport.isNotBlank() -> transport
-        countryCode.isNullOrBlank() -> trx("TCP")
-        else -> countryCode
-    }
+    // The country is measured once by the repository sweep and named here; the transport line
+    // follows it. A server with no answer yet leads with its protocol instead of lying.
+    val subtitle = ServersAtlas.rowSubtitle(profile = profile, countryName = countryName)
     val stateLabel = when {
         active -> trx("Active")
         selected -> trx("Selected")
         checked -> trx("Checked")
         else -> ""
     }
+    // One tonal slab per row: quiet at rest, green-washed when the tunnel is on it, secondary
+    // when it is the route the Home pill will use, and primary-tinted when it is selected.
     val container = when {
-        active -> colors.secondaryContainer.copy(alpha = 0.55f)
-        selected || checked -> colors.secondaryContainer.copy(alpha = 0.32f)
-        else -> Color.Transparent
-    }
-    val accentBar = when {
-        active -> colors.success
-        selected || checked -> colors.primary
-        else -> null
+        active -> colors.primaryContainer.copy(alpha = 0.55f)
+        selected || checked -> colors.secondaryContainer.copy(alpha = 0.38f)
+        else -> colors.surfaceContainerLow
     }
     val accent = when {
         active -> colors.success
         selected || checked -> colors.primary
         else -> colors.onSurface
     }
-    val protocolTone = protocolRowColor(profile.scheme)
     // Read in the composition: a semantics lambda is not a composable context.
     val spokenPing = pingBadgeText(result, probeState)
     val spokenAddress = "\u2068${profile.host}\u2069".takeIf { profile.host.isNotBlank() }
@@ -1390,8 +1923,8 @@ internal fun ServerRowContent(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("server-row-${profile.id}")
-            .heightIn(min = ServersDeck.ROW_MIN_HEIGHT_DP.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .heightIn(min = ServersDeck.ROW_MIN_HEIGHT_DP.dp, max = ServersDeck.ROW_MAX_HEIGHT_DP.dp)
+            .clip(RoundedCornerShape(20.dp))
             .background(container)
             .combinedClickable(
                 role = Role.Button,
@@ -1410,20 +1943,10 @@ internal fun ServerRowContent(
                     spokenPing
                 ).joinToString(" · ")
             }
-            .padding(start = 6.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+            .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (accentBar != null) {
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .height(32.dp)
-                    .clip(CircleShape)
-                    .background(accentBar)
-            )
-        }
-
         if (selectionMode) {
             Box(
                 modifier = Modifier
@@ -1442,19 +1965,21 @@ internal fun ServerRowContent(
                 }
             }
         } else {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(protocolTone.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = protocolChip(profile),
-                    color = protocolTone,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 1
-                )
+            Box(contentAlignment = Alignment.Center) {
+                ServerFlagTile(code = countryCode, profile = profile)
+                if (active) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = 3.dp, y = 3.dp)
+                            .size(13.dp)
+                            .clip(CircleShape)
+                            .background(colors.surface)
+                            .padding(2.dp)
+                            .clip(CircleShape)
+                            .background(colors.success)
+                    )
+                }
             }
         }
 
@@ -1641,67 +2166,62 @@ private fun PingSkeleton() {
 }
 
 /**
- * Sort, protocol, group and the one group action set, in a sheet instead of four rows of page.
+ * MARBLE_SERVERS_ATLAS_V244 — the sheet answers only what the page cannot show.
+ *
+ * The group chip strip moved to the sources rail and the "This group" action list moved to the
+ * sources sheet, so this sheet has one job again: order, narrow and regroup. It also exposes the
+ * latency ceiling the filter model always supported but the page never offered, and one row to
+ * re-run the flag sweep.
  */
 @Composable
 private fun ServersFilterSheet(
     repo: AppRepository,
     protocolTallies: List<com.marbleng.app.core.ProtocolTally>,
-    onManageSubscription: (Subscription) -> Unit,
     onDismiss: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    val strings = Tr.now
     val settings = repo.settings
-    val selectedSubscription = repo.subscriptions.firstOrNull { it.id == repo.librarySourceFilter }
+    val narrowing = settings.serversProtocolFilter.isNotBlank() ||
+        settings.serversOnlyReachable ||
+        settings.serversMaxPingMs > ServersQuery.MAX_PING_OFF
 
     MarbleBottomSheet(
         title = trx("Sort & Filter"),
-        subtitle = trx("Organize servers by latency, score, country or protocol"),
+        subtitle = trx("Order the list, narrow it, or regroup it by country"),
         onDismiss = onDismiss,
         scrollable = true
     ) {
+        if (narrowing) {
+            MarbleButton(
+                label = trx("Reset Filters"),
+                glyph = MarbleGlyph.CLOSE,
+                style = MarbleButtonStyle.TINTED,
+                compact = true,
+                onClick = {
+                    repo.updateSettings(
+                        settings.copy(
+                            serversProtocolFilter = "",
+                            serversOnlyReachable = false,
+                            serversMaxPingMs = ServersQuery.MAX_PING_OFF
+                        )
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
         MarbleSectionHeader(title = trx("Sort Order"))
         MarbleCard {
-            val sortChoices = listOf(
-                NodeSortMode.DEFAULT to trx("Subscription order"),
-                NodeSortMode.PING to trx("Lowest ping"),
-                NodeSortMode.SCORE to trx("Best score"),
-                NodeSortMode.NAME to trx("Name (A–Z)"),
-                NodeSortMode.COUNTRY to trx("Country"),
-                NodeSortMode.PROTOCOL to trx("Protocol")
-            )
-            sortChoices.forEachIndexed { idx, (mode, label) ->
+            serverSortChoices().forEachIndexed { idx, (mode, label) ->
                 if (idx > 0) MarbleDivider()
                 MarbleChoiceRow(
                     title = label,
                     selected = settings.nodeSortMode == mode,
-                    glyph = MarbleGlyph.FILTER,
+                    glyph = MarbleGlyph.TUNERS,
                     iconTint = colors.primary,
                     onClick = { repo.updateSettings(settings.copy(nodeSortMode = mode)) }
                 )
             }
-        }
-
-        MarbleSectionHeader(title = trx("Group"))
-        MarbleChipStrip {
-            MarblePillChip(
-                label = strings.homeAllGroups,
-                selected = repo.librarySourceFilter == "all",
-                onClick = { repo.selectLibrarySource("all") }
-            )
-            repo.subscriptions.forEach { sub ->
-                MarblePillChip(
-                    label = sub.name,
-                    selected = repo.librarySourceFilter == sub.id,
-                    onClick = { repo.selectLibrarySource(sub.id) }
-                )
-            }
-            MarblePillChip(
-                label = strings.homeManualGroup,
-                selected = repo.librarySourceFilter == "manual",
-                onClick = { repo.selectLibrarySource("manual") }
-            )
         }
 
         if (protocolTallies.size > 1) {
@@ -1719,7 +2239,9 @@ private fun ServersFilterSheet(
                         selected = settings.serversProtocolFilter.equals(tally.scheme, ignoreCase = true),
                         accent = colors.secondary,
                         onClick = {
-                            val next = if (settings.serversProtocolFilter.equals(tally.scheme, ignoreCase = true)) {
+                            val next = if (
+                                settings.serversProtocolFilter.equals(tally.scheme, ignoreCase = true)
+                            ) {
                                 ""
                             } else {
                                 tally.scheme
@@ -1728,6 +2250,23 @@ private fun ServersFilterSheet(
                         }
                     )
                 }
+            }
+        }
+
+        // V244 — the filter model always had a latency ceiling; the page never showed it.
+        MarbleSectionHeader(title = trx("Latency ceiling"))
+        MarbleChipStrip {
+            ServersQuery.MAX_PING_CHOICES.forEach { choice ->
+                MarblePillChip(
+                    label = if (choice == ServersQuery.MAX_PING_OFF) {
+                        trx("Off")
+                    } else {
+                        "${faDigits("$choice")} ms"
+                    },
+                    selected = settings.serversMaxPingMs == choice,
+                    accent = colors.warning,
+                    onClick = { repo.updateSettings(settings.copy(serversMaxPingMs = choice)) }
+                )
             }
         }
 
@@ -1760,35 +2299,17 @@ private fun ServersFilterSheet(
             )
         }
 
-        if (selectedSubscription != null) {
-            MarbleSectionHeader(title = trx("This group"))
-            MarbleCard {
-                MarbleListItem(
-                    title = trx("Refresh this group"),
-                    subtitle = trx("Fetch the subscription again"),
-                    glyph = MarbleGlyph.REFRESH,
-                    iconTint = colors.primary,
-                    enabled = !repo.busy,
-                    onClick = { repo.refresh(selectedSubscription.id) }
-                )
-                MarbleDivider()
-                MarbleListItem(
-                    title = strings.connectionPing,
-                    subtitle = trx("Test every server in this group"),
-                    glyph = MarbleGlyph.GAUGE,
-                    iconTint = colors.success,
-                    enabled = !repo.probeActive,
-                    onClick = { repo.testSource(selectedSubscription.id) }
-                )
-                MarbleDivider()
-                MarbleListItem(
-                    title = trx("Edit subscription"),
-                    subtitle = selectedSubscription.name,
-                    glyph = MarbleGlyph.PENCIL,
-                    iconTint = colors.onSurfaceVariant,
-                    onClick = { onManageSubscription(selectedSubscription) }
-                )
-            }
+        MarbleSectionHeader(title = trx("Server flags"))
+        MarbleCard {
+            MarbleListItem(
+                title = trx("Scan flags"),
+                subtitle = trx("Measure the country of every server again"),
+                glyph = MarbleGlyph.RADAR,
+                iconTint = colors.primary,
+                showChevron = false,
+                enabled = !repo.serverLocationScanning,
+                onClick = { repo.ensureServerLocations(force = true) }
+            )
         }
     }
 }
