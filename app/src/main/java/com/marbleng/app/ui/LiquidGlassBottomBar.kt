@@ -573,6 +573,7 @@ fun LiquidGlassBottomBar(
                         badgeContent = colors.badgeContent,
                         iconScale = { 1f },
                         labelScale = { 1f },
+                        decorations = true,
                         interactive = true,
                         selected = index == activeIndex,
                         onSelect = {
@@ -644,6 +645,10 @@ fun LiquidGlassBottomBar(
                         labelScale = {
                             LiquidGlassLensSpec.labelMagnification(projectionAt(anchorX))
                         },
+                        // The counter and the connection light belong to the bar, not to the
+                        // projection: they are drawn once, on the base layer, where the finger
+                        // and the screen reader both expect them.
+                        decorations = false,
                         interactive = false,
                         selected = index == activeIndex,
                         onSelect = {},
@@ -789,6 +794,7 @@ private fun GlassTabSlot(
     badgeContent: Color,
     iconScale: () -> Float,
     labelScale: () -> Float,
+    decorations: Boolean,
     interactive: Boolean,
     selected: Boolean,
     onSelect: () -> Unit,
@@ -830,7 +836,7 @@ private fun GlassTabSlot(
                         glyph.invoke(tint, glyphWeight, Modifier.matchParentSize())
                     }
                 }
-                if (item.statusDot != null) {
+                if (decorations && item.statusDot != null) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
@@ -841,7 +847,7 @@ private fun GlassTabSlot(
                             .border(1.2.dp, statusRing, CircleShape)
                     )
                 }
-                if (item.badgeCount > 0) {
+                if (decorations && item.badgeCount > 0) {
                     Box(
                         modifier = Modifier
                             .testTag(badgeTag)

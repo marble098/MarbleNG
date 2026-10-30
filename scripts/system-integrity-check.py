@@ -4516,6 +4516,10 @@ check(
     and "const val LENS_MAGNIFICATION: Float = 0.36f" in files["liquidGlassLens"]
     and "const val MIN_MAGNIFICATION: Float = 1.30f" in files["liquidGlassLens"]
     and "const val MAX_MAGNIFICATION: Float = 1.38f" in files["liquidGlassLens"]
+    # The counter and the connection light are drawn once, on the base layer: an optical duplicate
+    # of a notification is two notifications to a screen reader and a test.
+    and "decorations = true" in files["liquidGlassBar"]
+    and "decorations = false" in files["liquidGlassBar"]
     # Text is read, not measured: the label gets a third of the geometric projection.
     and "fun labelMagnification(projection: Float): Float" in files["liquidGlassLens"]
     and "const val LABEL_MAGNIFICATION_RATIO: Float = 0.35f" in files["liquidGlassLens"]

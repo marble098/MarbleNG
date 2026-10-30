@@ -106,7 +106,8 @@ lensOffsetX = newX.coerceIn(minX, maxX)
    گلیف، ۱٬۱۲۶ برای متن. با ضریب کامل، متن هم نرم می‌شد و هم از دیافراگم بیرون می‌زد.
 3. **دو ردیف کنترل.** لایهٔ تصویر `clearAndSetSemantics { }` دارد: برای screen reader و تست،
    نوار همان چهار تب است، نه هشت. `theProjectionNeverBecomesASecondSetOfControls` این را با
-   `onAllNodesWithText(...).assertCountEquals(1)` می‌گیرد.
+   `onAllNodesWithText(...).assertCountEquals(1)` می‌گیرد. شمارندهٔ قرمز و چراغ اتصال هم فقط روی
+   لایهٔ پایه رسم می‌شوند (`decorations`): عددِ اعلان اپتیک نیست، دو اعلان است اگر دو بار رسم شود.
 4. **حذف V245.** `LiquidDockSpec`، تستش و فصلش می‌مانند؛ چیزی که بازنشسته شد خودِ اپتیک بود.
    `MarbleLiquidDock` حالا فقط آداپتور است و همان تگ‌های تست (`dock-tab-*`, `dock-badge-*`) را
    نگه می‌دارد، پس رگرسیونِ V245 همان چهار تب و همان شمارنده را می‌سنجد.

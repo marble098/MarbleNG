@@ -38,14 +38,24 @@ class LiquidGlassLensV247Test {
 
     @Test
     fun aClampedCentreStillReachesEveryTabAnchor() {
+        // A third, a fifth, a sixth of a pixel do not divide exactly in binary floating point: the
+        // last anchor of such a bar lands a few hundred-thousandths of a pixel past the bound, and
+        // the clamp absorbs exactly that. Sub-pixel tolerance is the honest assertion here.
+        val subPixel = 1e-3f
         for (tabs in 1..6) {
             val item = LiquidGlassLensSpec.itemWidthPx(width, tabs)
             val min = LiquidGlassLensSpec.minLensCenterX(item)
             val max = LiquidGlassLensSpec.maxLensCenterX(width, item)
             for (index in 0 until tabs) {
                 val anchor = LiquidGlassLensSpec.tabCenterX(index, item, width)
-                assertEquals(anchor, LiquidGlassLensSpec.clampLensCenterX(anchor, width, item), 1e-4f)
-                assertTrue("anchor $anchor outside [$min, $max]", anchor >= min && anchor <= max)
+                assertEquals(anchor, LiquidGlassLensSpec.clampLensCenterX(anchor, width, item), subPixel)
+                assertTrue(
+                    "anchor $anchor outside [$min, $max]",
+                    anchor >= min - subPixel && anchor <= max + subPixel
+                )
+                // Whatever the float noise, the clamped centre is always legal.
+                val seated = LiquidGlassLensSpec.clampLensCenterX(anchor, width, item)
+                assertTrue("clamped $seated outside [$min, $max]", seated >= min && seated <= max)
             }
         }
     }
