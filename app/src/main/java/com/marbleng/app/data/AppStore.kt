@@ -520,12 +520,12 @@ class AppStore(context: Context) {
         // MARBLE_SHADE_STUDIO_V249 — the shade's route control. Every default is the behaviour the
         // app already had plus the studio, so a backup restored from before this page exists keeps
         // working and an upgrade changes nobody's notification until they ask.
-        notificationShadePicker = prefs.getBoolean("notificationShadePicker", true),
-        notificationShadeCycle = prefs.getBoolean("notificationShadeCycle", true),
-        notificationShadeStyle = storedShadeStyle(),
-        notificationShadePing = prefs.getBoolean("notificationShadePing", true),
-        notificationShadeRows = ShadeControlDefaults.rowChoice(
-            prefs.getInt("notificationShadeRows", ShadeControlDefaults.ROWS)
+        shadeControl = ShadeRouteControl.of(
+            picker = prefs.getBoolean("notificationShadePicker", true),
+            cycle = prefs.getBoolean("notificationShadeCycle", true),
+            style = storedShadeStyle(),
+            showPing = prefs.getBoolean("notificationShadePing", true),
+            rows = prefs.getInt("notificationShadeRows", ShadeControlDefaults.ROWS)
         ),
 
         routingMode = enumValue("routingMode", RoutingMode.GEO_DIRECT),
@@ -686,13 +686,9 @@ class AppStore(context: Context) {
         // MARBLE_HOME_STUDIO_V249 — the layout Home actually draws. Both strings are canonicalized
         // on the way in, so a section added by a future build appears in the order (at the end)
         // instead of being silently dropped, and a section retired by one disappears from it.
-        homeSectionOrder = HomeStudio.canonicalOrder(
-            prefs.getString("homeSectionOrder", HomeStudio.DEFAULT_ORDER)
-                ?: HomeStudio.DEFAULT_ORDER
-        ),
-        homeHiddenSections = HomeStudio.canonicalHidden(
-            prefs.getString("homeHiddenSections", HomeStudio.DEFAULT_HIDDEN)
-                ?: HomeStudio.DEFAULT_HIDDEN
+        homeLayout = HomeLayout.of(
+            sectionOrder = prefs.getString("homeSectionOrder", HomeStudio.DEFAULT_ORDER),
+            hiddenSections = prefs.getString("homeHiddenSections", HomeStudio.DEFAULT_HIDDEN)
         ),
         appCalmMotion = prefs.getBoolean("appCalmMotion", false),
         modularShowStatus = prefs.getBoolean("modularShowStatus", true),
@@ -864,11 +860,11 @@ class AppStore(context: Context) {
         .putBoolean("notifyPrivacyHeadsUp", s.notifyPrivacyHeadsUp)
         .putBoolean("notificationSessionTimer", s.notificationSessionTimer)
         // MARBLE_SHADE_STUDIO_V249 — written through the same normalizers the load uses.
-        .putBoolean("notificationShadePicker", s.notificationShadePicker)
-        .putBoolean("notificationShadeCycle", s.notificationShadeCycle)
-        .putString("notificationShadeStyle", ShadeControlDefaults.styleId(s.notificationShadeStyle))
-        .putBoolean("notificationShadePing", s.notificationShadePing)
-        .putInt("notificationShadeRows", ShadeControlDefaults.rowChoice(s.notificationShadeRows))
+        .putBoolean("notificationShadePicker", s.shadeControl.picker)
+        .putBoolean("notificationShadeCycle", s.shadeControl.cycle)
+        .putString("notificationShadeStyle", ShadeControlDefaults.styleId(s.shadeControl.style))
+        .putBoolean("notificationShadePing", s.shadeControl.showPing)
+        .putInt("notificationShadeRows", ShadeControlDefaults.rowChoice(s.shadeControl.rows))
         .putString("routingMode", s.routingMode.name)
         .putBoolean("customRoutingEnabled", s.customRoutingEnabled)
         .putString(
@@ -958,8 +954,11 @@ class AppStore(context: Context) {
         .putBoolean("modularShowShortcuts", s.modularShowShortcuts)
         // MARBLE_HOME_STUDIO_V249 — the layout Home draws, canonicalized on the way out too, so a
         // restored backup can never carry an id this build does not know.
-        .putString("homeSectionOrder", HomeStudio.canonicalOrder(s.homeSectionOrder))
-        .putString("homeHiddenSections", HomeStudio.canonicalHidden(s.homeHiddenSections))
+        .putString("homeSectionOrder", HomeStudio.canonicalOrder(s.homeLayout.sectionOrder))
+        .putString(
+            "homeHiddenSections",
+            HomeStudio.canonicalHidden(s.homeLayout.hiddenSections)
+        )
         .putBoolean("appCalmMotion", s.appCalmMotion)
         .putBoolean("modularShowStatus", s.modularShowStatus)
         .putBoolean("modularShowServers", s.modularShowServers)

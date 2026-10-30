@@ -4386,14 +4386,14 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             // the studio is standing right now. The ping labels are read only when the column is
             // on: they come from the remembered sweep, and building a map nobody draws is work the
             // telemetry loop would repeat every second.
-            showRoutePicker = current.notificationShadePicker,
-            showCycleVerbs = current.notificationShadeCycle,
-            pickerStyle = current.notificationShadeStyle,
+            showRoutePicker = current.shadeControl.picker,
+            showCycleVerbs = current.shadeControl.cycle,
+            pickerStyle = current.shadeControl.style,
             pickerLevel = repo.shadeRouteLevel.id,
             pickerPage = repo.shadeRoutePage,
-            pickerRows = current.notificationShadeRows,
-            showRoutePing = current.notificationShadePing,
-            routePingLabels = if (current.notificationShadePing) {
+            pickerRows = current.shadeControl.rows,
+            showRoutePing = current.shadeControl.showPing,
+            routePingLabels = if (current.shadeControl.showPing) {
                 repo.notificationShadePingLabels()
             } else {
                 emptyMap()

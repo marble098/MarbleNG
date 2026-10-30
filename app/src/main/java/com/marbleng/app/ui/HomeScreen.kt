@@ -155,8 +155,8 @@ fun HomeScreen(
     }
 
     val homeSections = HomeStudio.visible(
-        orderRaw = settings.homeSectionOrder,
-        hiddenRaw = settings.homeHiddenSections,
+        orderRaw = settings.homeLayout.sectionOrder,
+        hiddenRaw = settings.homeLayout.hiddenSections,
         legacyStatsVisible = settings.modularShowStats,
         legacyShortcutsVisible = settings.modularShowShortcuts
     )

@@ -88,6 +88,13 @@ floor exists), and `clampPage` so a library that shrank between two taps shows t
 shapes; five switches (`notificationShadePicker`, `notificationShadeCycle`, `notificationShadeStyle`,
 `notificationShadePing`, `notificationShadeRows`) decide how much of it the shade carries, and every
 row reaches the service as `ACTION_SHADE_CONTROL` with its own `marbleng://shade/<verb>` data URI.
+Those five are persisted under the keys they always had but held in memory as one `ShadeRouteControl`
+value — and Home's order and hidden set as one `HomeLayout` — because `AppSettings` was already at 241
+parameters, and the JVM will not *load* a class whose generated `copy$default` bridge passes more than
+255 arguments. Five loose fields made 249 parameters and 259 arguments: the compiler said nothing and
+162 tests failed at once with `ClassFormatError: Too many arguments in method signature`. The pass now
+sits at 244 parameters and 254 arguments, and `scripts/system-integrity-check.py` counts the ceiling
+itself so the next one fails offline instead of at runtime.
 The other four asks were motion and layout. `Protected Uptime 00:10:01` split into still Persian
 words and a rolling clock: `UptimeTicker` decides which cells changed (reading both ASCII and
 Persian digits), `MarbleRollingClock` rolls only those, forced left-to-right with tabular figures,

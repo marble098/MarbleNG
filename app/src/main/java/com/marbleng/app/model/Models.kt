@@ -1022,6 +1022,75 @@ object ShadeControlDefaults {
         ROW_CHOICES.minByOrNull { kotlin.math.abs(it - raw.coerceIn(ROWS_MIN, ROWS_MAX)) } ?: ROWS
 }
 
+/**
+ * MARBLE_SHADE_STUDIO_V249 — how much route control the ongoing notification carries.
+ *
+ * One value instead of five loose settings, for two reasons. The first is the JVM's 255-argument
+ * ceiling described on [AppSettings.shadeControl]: this class was four parameters away from a
+ * `ClassFormatError` at load time. The second is that the five are one decision — "what may the
+ * shade do" — and a page that changes one of them is describing the others beside it.
+ *
+ * The ids and bounds still live in [ShadeControlDefaults], so the persisted strings, the settings
+ * dial and the studio's page counter keep one spelling between them. The stored keys are unchanged
+ * (`notificationShadePicker`, `notificationShadeCycle`, `notificationShadeStyle`,
+ * `notificationShadePing`, `notificationShadeRows`): grouping is a shape in memory, not a migration.
+ */
+data class ShadeRouteControl(
+    /** Route rows inside the ongoing item at all. Off means the state, the route and the verbs. */
+    val picker: Boolean = true,
+
+    /** The two one-tap verbs, which work without a list. */
+    val cycle: Boolean = true,
+
+    /** [ShadeControlDefaults.STYLE_STUDIO] or [ShadeControlDefaults.STYLE_LIST]. */
+    val style: String = ShadeControlDefaults.STYLE_STUDIO,
+
+    /** The measured latency beside each server, from the sweep the app already ran. */
+    val showPing: Boolean = true,
+
+    /** The shade's height budget: servers or subscriptions listed per page. */
+    val rows: Int = ShadeControlDefaults.ROWS
+) {
+    companion object {
+        /**
+         * The one place a stored control is normalized, so the store cannot invent a second
+         * normalization beside the page that draws the dial.
+         */
+        fun of(
+            picker: Boolean,
+            cycle: Boolean,
+            style: String?,
+            showPing: Boolean,
+            rows: Int
+        ): ShadeRouteControl = ShadeRouteControl(
+            picker = picker,
+            cycle = cycle,
+            style = ShadeControlDefaults.styleId(style),
+            showPing = showPing,
+            rows = ShadeControlDefaults.rowChoice(rows)
+        )
+    }
+}
+
+/**
+ * MARBLE_HOME_STUDIO_V249 — the Home layout the user arranged: an order and a hidden set.
+ *
+ * Grouped for the same ceiling as [ShadeRouteControl], and because the two strings are one record:
+ * an order without a hidden set (or the reverse) is a layout half of whose meaning is missing.
+ */
+data class HomeLayout(
+    val sectionOrder: String = HomeStudio.DEFAULT_ORDER,
+    val hiddenSections: String = HomeStudio.DEFAULT_HIDDEN
+) {
+    companion object {
+        /** Canonical on the way in, so a hand-edited backup resolves to a complete layout. */
+        fun of(sectionOrder: String?, hiddenSections: String?): HomeLayout = HomeLayout(
+            sectionOrder = HomeStudio.canonicalOrder(sectionOrder ?: HomeStudio.DEFAULT_ORDER),
+            hiddenSections = HomeStudio.canonicalHidden(hiddenSections ?: HomeStudio.DEFAULT_HIDDEN)
+        )
+    }
+}
+
 object RoutingDefaults {
     const val GEOIP_URL =
         "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/release/geoip.dat"
@@ -1248,19 +1317,21 @@ data class AppSettings(
 
     // MARBLE_SHADE_STUDIO_V249 — the shade's route control, in the user's hands. V234 added two
     // verbs and V238 added a list of rows, and neither could be turned off, shortened or shaped:
-    // the notification decided for everybody. These five answer that, and every default is what the
-    // app already did plus the studio, so an upgrade changes nothing until someone asks for less.
-    val notificationShadePicker: Boolean = true,
-    val notificationShadeCycle: Boolean = true,
-    val notificationShadeStyle: String = ShadeControlDefaults.STYLE_STUDIO,
-    val notificationShadePing: Boolean = true,
-    val notificationShadeRows: Int = ShadeControlDefaults.ROWS,
+    // the notification decided for everybody. Five settings answer that, and every default is what
+    // the app already did plus the studio, so an upgrade changes nothing until someone asks for less.
+    //
+    // They arrive as ONE parameter, and the reason is a hard ceiling rather than taste: this data
+    // class was at 241 parameters, and Kotlin generates a `copy$default` bridge carrying one
+    // argument per parameter plus one bitmask word per 32 of them. The JVM rejects a method with
+    // more than 255 arguments, so five loose fields here did not compile *and run* — they produced a
+    // class that fails to load with `ClassFormatError: Too many arguments in method signature`, in
+    // every test and every screen that touches settings. See [ShadeRouteControl] and [HomeLayout].
+    val shadeControl: ShadeRouteControl = ShadeRouteControl(),
 
     // MARBLE_HOME_STUDIO_V249 — Home as a layout the user owns. Two strings instead of six
     // booleans: the order every section is drawn in, and the ids that are switched off. The legacy
     // `modularShow*` switches stay as the floor for the two sections they already owned.
-    val homeSectionOrder: String = HomeStudio.DEFAULT_ORDER,
-    val homeHiddenSections: String = HomeStudio.DEFAULT_HIDDEN,
+    val homeLayout: HomeLayout = HomeLayout(),
 
     // MARBLE_MAP_MOTION_V249 — the app's own motion, one switch. The map pan between tabs, the
     // ticker's roll and the dock's flight all read it; the platform's "remove animations" scale

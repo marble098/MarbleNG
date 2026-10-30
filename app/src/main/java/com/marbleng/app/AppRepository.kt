@@ -3685,7 +3685,7 @@ private fun postToMain(block: () -> Unit) {
      */
     fun stepShadeRoutePage(delta: Int) {
         if (delta == 0) return
-        val budget = ShadeControlDefaults.rowChoice(settings.notificationShadeRows)
+        val budget = ShadeControlDefaults.rowChoice(settings.shadeControl.rows)
         val items = shadeRouteItemCount(shadeRouteLevelState.value)
         shadeRoutePageState.value = NotificationRoutePicker.clampPage(
             shadeRoutePageState.value + delta,

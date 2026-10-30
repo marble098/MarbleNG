@@ -333,19 +333,19 @@ fun SettingsNotificationsPage(
             // row is a switch or a named choice, and nothing here is buried behind a long-press or a
             // diagnostic: the notification is the surface a user touches most often in a day, so the
             // settings that shape it belong on the page that describes it.
-            val pickerOn = s.notificationShadePicker
-            val studio = ShadeControlDefaults.styleId(s.notificationShadeStyle) ==
+            val pickerOn = s.shadeControl.picker
+            val studio = ShadeControlDefaults.styleId(s.shadeControl.style) ==
                 ShadeControlDefaults.STYLE_STUDIO
             val rowChoices = ShadeControlDefaults.ROW_CHOICES
             val rowChoice = rowChoices.firstOrNull {
-                it == ShadeControlDefaults.rowChoice(s.notificationShadeRows)
+                it == ShadeControlDefaults.rowChoice(s.shadeControl.rows)
             } ?: ShadeControlDefaults.ROWS
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(
                     title = trx("Route control in the notification"),
-                    badge = if (pickerOn || s.notificationShadeCycle) trx("ON") else trx("OFF"),
-                    badgeColor = if (pickerOn || s.notificationShadeCycle) {
+                    badge = if (pickerOn || s.shadeControl.cycle) trx("ON") else trx("OFF"),
+                    badgeColor = if (pickerOn || s.shadeControl.cycle) {
                         colors.success
                     } else {
                         colors.onSurfaceVariant
@@ -358,16 +358,16 @@ fun SettingsNotificationsPage(
                         checked = pickerOn,
                         glyph = MarbleGlyph.SERVER,
                         iconTint = colors.primary,
-                        onCheckedChange = { repo.updateSettings(s.copy(notificationShadePicker = it)) }
+                        onCheckedChange = { repo.updateSettings(s.copy(shadeControl = s.shadeControl.copy(picker = it))) }
                     )
                     MarbleDivider()
                     MarbleSwitchRow(
                         title = trx("Next server and next subscription buttons"),
                         subtitle = trx("Two actions that move the live route in one tap, without a list"),
-                        checked = s.notificationShadeCycle,
+                        checked = s.shadeControl.cycle,
                         glyph = MarbleGlyph.REFRESH,
                         iconTint = colors.secondary,
-                        onCheckedChange = { repo.updateSettings(s.copy(notificationShadeCycle = it)) }
+                        onCheckedChange = { repo.updateSettings(s.copy(shadeControl = s.shadeControl.copy(cycle = it))) }
                     )
                     if (pickerOn) {
                         MarbleDivider()
@@ -379,7 +379,7 @@ fun SettingsNotificationsPage(
                             iconTint = colors.tertiary,
                             onClick = {
                                 repo.updateSettings(
-                                    s.copy(notificationShadeStyle = ShadeControlDefaults.STYLE_STUDIO)
+                                    s.copy(shadeControl = s.shadeControl.copy(style = ShadeControlDefaults.STYLE_STUDIO))
                                 )
                             }
                         )
@@ -392,7 +392,7 @@ fun SettingsNotificationsPage(
                             iconTint = colors.onSurfaceVariant,
                             onClick = {
                                 repo.updateSettings(
-                                    s.copy(notificationShadeStyle = ShadeControlDefaults.STYLE_LIST)
+                                    s.copy(shadeControl = s.shadeControl.copy(style = ShadeControlDefaults.STYLE_LIST))
                                 )
                             }
                         )
@@ -401,11 +401,11 @@ fun SettingsNotificationsPage(
                             MarbleSwitchRow(
                                 title = trx("Measured ping beside each server"),
                                 subtitle = trx("Reuses what the app already measured; nothing is pinged for the notification"),
-                                checked = s.notificationShadePing,
+                                checked = s.shadeControl.showPing,
                                 glyph = MarbleGlyph.GAUGE,
                                 iconTint = colors.primary,
                                 onCheckedChange = {
-                                    repo.updateSettings(s.copy(notificationShadePing = it))
+                                    repo.updateSettings(s.copy(shadeControl = s.shadeControl.copy(showPing = it)))
                                 }
                             )
                             MarbleDivider()
@@ -427,7 +427,7 @@ fun SettingsNotificationsPage(
                                     options = rowChoices.map { count -> count to faDigits("$count") },
                                     selected = rowChoice,
                                     onSelect = { count ->
-                                        repo.updateSettings(s.copy(notificationShadeRows = count))
+                                        repo.updateSettings(s.copy(shadeControl = s.shadeControl.copy(rows = count)))
                                     }
                                 )
                             }
@@ -435,7 +435,7 @@ fun SettingsNotificationsPage(
                     }
                 }
                 MarbleSectionFooter(
-                    text = if (!pickerOn && !s.notificationShadeCycle) {
+                    text = if (!pickerOn && !s.shadeControl.cycle) {
                         trx("The notification will only show the state, the route and the disconnect action")
                     } else {
                         trx("Everything here happens inside the notification — the tunnel answers the tap and redraws itself")
@@ -746,7 +746,7 @@ private fun NotificationPreviewCard(repo: AppRepository) {
             }
             // MARBLE_NOTIFICATION_SWITCH_V234 — the shade switches the route itself now, so the
             // preview names both verbs and says they act in place.
-            if (s.notificationShadeCycle) {
+            if (s.shadeControl.cycle) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MarbleBadge(
                         text = "↔ ${trx(NotificationCopy.actionNextServer(NotificationLanguage.EN))}",
@@ -766,7 +766,7 @@ private fun NotificationPreviewCard(repo: AppRepository) {
             // its language the same way), and the route names are drawn *raw* — a server is called
             // what the user called it, and the fallback translator would transliterate `Frankfurt`
             // into Persian letters that the real notification never shows.
-            if (s.notificationShadePicker) {
+            if (s.shadeControl.picker) {
                 val shadeLanguage = if (Tr.now.language == MarbleLanguage.FA) {
                     NotificationLanguage.FA
                 } else {
@@ -774,7 +774,7 @@ private fun NotificationPreviewCard(repo: AppRepository) {
                 }
                 val previewRoutes = repo.notificationPickerRoutes()
                 val previewRows = if (
-                    ShadeControlDefaults.styleId(s.notificationShadeStyle) ==
+                    ShadeControlDefaults.styleId(s.shadeControl.style) ==
                     ShadeControlDefaults.STYLE_STUDIO
                 ) {
                     NotificationRoutePicker.studio(
@@ -784,8 +784,8 @@ private fun NotificationPreviewCard(repo: AppRepository) {
                             currentSourceId = repo.selectedProfileSourceId,
                             level = ShadeLevel.SERVERS,
                             page = 0,
-                            rowBudget = s.notificationShadeRows,
-                            showPing = s.notificationShadePing,
+                            rowBudget = s.shadeControl.rows,
+                            showPing = s.shadeControl.showPing,
                             pingLabels = repo.notificationShadePingLabels(),
                             chrome = NotificationCopy.shadeChrome(shadeLanguage)
                         )
@@ -841,7 +841,7 @@ private fun NotificationPreviewCard(repo: AppRepository) {
                     }
                 }
             }
-            if (s.notificationShadeCycle || s.notificationShadePicker) {
+            if (s.shadeControl.cycle || s.shadeControl.picker) {
                 Text(
                     text = trx("Every one of these works from the shade — no need to open the app"),
                     color = colors.onSurfaceVariant,

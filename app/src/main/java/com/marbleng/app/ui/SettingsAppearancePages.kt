@@ -604,15 +604,15 @@ fun SettingsHomeLayoutPage(
         //     choice somebody might actually make (a pill and nothing else), and a product that
         //     quietly refuses it is a product that knows better than its user.
         item(key = "home-sections-studio") {
-            val order = HomeStudio.order(s.homeSectionOrder)
+            val order = HomeStudio.order(s.homeLayout.sectionOrder)
             val hiddenCount = HomeStudio.hiddenCount(
-                hiddenRaw = s.homeHiddenSections,
+                hiddenRaw = s.homeLayout.hiddenSections,
                 legacyStatsVisible = s.modularShowStats,
                 legacyShortcutsVisible = s.modularShowShortcuts
             )
             val bare = HomeStudio.isBare(
-                orderRaw = s.homeSectionOrder,
-                hiddenRaw = s.homeHiddenSections,
+                orderRaw = s.homeLayout.sectionOrder,
+                hiddenRaw = s.homeLayout.hiddenSections,
                 legacyStatsVisible = s.modularShowStats,
                 legacyShortcutsVisible = s.modularShowShortcuts
             )
@@ -629,11 +629,11 @@ fun SettingsHomeLayoutPage(
             // One write per change, and the two legacy switches are written with it: the studio's
             // record and the record an older build reads must never disagree about the same section.
             fun setSectionVisible(section: HomeSection, visible: Boolean) {
-                val hidden = HomeStudio.hiddenIds(s.homeHiddenSections).toMutableSet()
+                val hidden = HomeStudio.hiddenIds(s.homeLayout.hiddenSections).toMutableSet()
                 if (visible) hidden -= section.id else hidden += section.id
                 repo.updateSettings(
                     s.copy(
-                        homeHiddenSections = HomeStudio.serializeHidden(hidden),
+                        homeLayout = s.homeLayout.copy(hiddenSections = HomeStudio.serializeHidden(hidden)),
                         modularShowStats = if (section == HomeSection.STATS) {
                             visible
                         } else {
@@ -649,8 +649,8 @@ fun SettingsHomeLayoutPage(
             }
 
             fun moveSection(section: HomeSection, steps: Int) {
-                val moved = HomeStudio.move(s.homeSectionOrder, section, steps) ?: return
-                repo.updateSettings(s.copy(homeSectionOrder = moved))
+                val moved = HomeStudio.move(s.homeLayout.sectionOrder, section, steps) ?: return
+                repo.updateSettings(s.copy(homeLayout = s.homeLayout.copy(sectionOrder = moved)))
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -664,7 +664,7 @@ fun SettingsHomeLayoutPage(
                         if (index > 0) MarbleDivider()
                         val hidden = HomeStudio.isHidden(
                             section = section,
-                            hiddenRaw = s.homeHiddenSections,
+                            hiddenRaw = s.homeLayout.hiddenSections,
                             legacyStatsVisible = s.modularShowStats,
                             legacyShortcutsVisible = s.modularShowShortcuts
                         )
@@ -690,7 +690,7 @@ fun SettingsHomeLayoutPage(
                                             .size(32.dp)
                                             .rotate(180f),
                                         tint = colors.onSurfaceVariant,
-                                        enabled = HomeStudio.canMove(s.homeSectionOrder, section, -1),
+                                        enabled = HomeStudio.canMove(s.homeLayout.sectionOrder, section, -1),
                                         contentDescription = upLabel
                                     )
                                     MarbleIconButton(
@@ -698,7 +698,7 @@ fun SettingsHomeLayoutPage(
                                         onClick = { moveSection(section, 1) },
                                         modifier = Modifier.size(32.dp),
                                         tint = colors.onSurfaceVariant,
-                                        enabled = HomeStudio.canMove(s.homeSectionOrder, section, 1),
+                                        enabled = HomeStudio.canMove(s.homeLayout.sectionOrder, section, 1),
                                         contentDescription = downLabel
                                     )
                                     MarbleSwitch(
@@ -725,8 +725,10 @@ fun SettingsHomeLayoutPage(
                     onClick = {
                         repo.updateSettings(
                             s.copy(
-                                homeSectionOrder = HomeStudio.resetOrder(),
-                                homeHiddenSections = HomeStudio.resetHidden(),
+                                homeLayout = s.homeLayout.copy(
+                                    sectionOrder = HomeStudio.resetOrder(),
+                                    hiddenSections = HomeStudio.resetHidden()
+                                ),
                                 modularShowStats = true,
                                 modularShowShortcuts = true
                             )

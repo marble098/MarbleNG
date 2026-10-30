@@ -4882,12 +4882,19 @@ check(
     and "val ROW_CHOICES: List<Int> = listOf(2, 4, 6, 8)" in files["models"]
     and "fun rowChoice(raw: Int): Int =" in files["models"]
     and "fun styleId(raw: String?): String =" in files["models"]
-    and "val notificationShadeStyle: String = ShadeControlDefaults.STYLE_STUDIO" in files["models"]
-    and "val notificationShadePing: Boolean = true" in files["models"]
-    and "val notificationShadeRows: Int = ShadeControlDefaults.ROWS" in files["models"]
-    # Both directions are normalized, so a hand-edited backup cannot desync the three readers.
-    and "ShadeControlDefaults.styleId(" in files["store"]
-    and "ShadeControlDefaults.rowChoice(" in files["store"]
+    and "val shadeControl: ShadeRouteControl = ShadeRouteControl()" in files["models"]
+    and "val style: String = ShadeControlDefaults.STYLE_STUDIO" in files["models"]
+    and "val showPing: Boolean = true" in files["models"]
+    and "val rows: Int = ShadeControlDefaults.ROWS" in files["models"]
+    # Both directions are normalized, and in one place: a hand-edited backup cannot desync the three
+    # readers, because the store never normalizes anything itself.
+    and "ShadeRouteControl.of(" in files["store"]
+    and "style = ShadeControlDefaults.styleId(style)" in files["models"]
+    and "rows = ShadeControlDefaults.rowChoice(rows)" in files["models"]
+    and "s.shadeControl.picker" in files["store"]
+    # The persisted keys did not move: grouping is a shape in memory, not a migration.
+    and "\"notificationShadePicker\"" in files["store"]
+    and "\"notificationShadeRows\"" in files["store"]
     and "ShadeControlDefaults.rowChoice(input.rowBudget)" in files["routePicker"]
     and 'item(key = "shade-route-control")' in files["settingsSystem"],
 )
@@ -4986,11 +4993,14 @@ check(
     # A move past the end is refused, not wrapped: wrap-around is not a move the user asked for.
     and "fun canMove(" in v249_home_studio
     and "fun isBare(" in v249_home_studio
-    and "val homeSectionOrder: String = HomeStudio.DEFAULT_ORDER" in files["models"]
-    and "val homeHiddenSections: String = HomeStudio.DEFAULT_HIDDEN" in files["models"]
-    # Both records are read on the way in and written on the way out, canonically.
-    and "HomeStudio.canonicalOrder(" in files["store"]
-    and "HomeStudio.canonicalHidden(" in files["store"]
+    and "val homeLayout: HomeLayout = HomeLayout()" in files["models"]
+    and "val sectionOrder: String = HomeStudio.DEFAULT_ORDER" in files["models"]
+    and "val hiddenSections: String = HomeStudio.DEFAULT_HIDDEN" in files["models"]
+    # Both records are read on the way in and written on the way out, canonically, in one place.
+    and "HomeLayout.of(" in files["store"]
+    and "sectionOrder = HomeStudio.canonicalOrder(" in files["models"]
+    and "hiddenSections = HomeStudio.canonicalHidden(" in files["models"]
+    and "s.homeLayout.sectionOrder" in files["store"]
     and "legacyStatsVisible = settings.modularShowStats" in files["homeScreen"]
     and "homeSections.forEach { section ->" in files["homeScreen"]
     and 'item(key = "home-sections-studio")' in files["settingsAppearance"]
@@ -5020,6 +5030,45 @@ check(
     and "MOSS(\"moss\", \"Moss\")" in files["models"]
     # Expressive is the floor this sits on, not something the pass replaced.
     and "MotionScheme.expressive()" in files["marbleTheme"],
+)
+
+def v249_settings_arguments(source):
+    """`(parameters, arguments)` for the bridge Kotlin generates around `AppSettings`.
+
+    A data class gets a synthetic `copy$default` carrying one argument per parameter, one bitmask
+    word per 32 of them, the receiver and a marker. The JVM refuses to *load* a class whose method
+    takes more than 255 arguments — and it refuses at runtime, as a `ClassFormatError`, not at
+    compile time. V249 added five loose notification settings to a class that was already at 241
+    parameters and every test that touched settings failed at once (162 of them), with a compiler
+    that had nothing to say. This is the invariant that should have existed before that.
+    """
+    start = source.index("data class AppSettings(")
+    cursor = source.index("(", start)
+    depth = 0
+    while True:
+        if source[cursor] == "(":
+            depth += 1
+        elif source[cursor] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        cursor += 1
+    parameters = len(re.findall(r"^\s*(?:val|var)\s+\w+\s*:", source[start:cursor], re.M))
+    return parameters, parameters + -(-parameters // 32) + 2
+
+
+v249_parameters, v249_arguments = v249_settings_arguments(files["models"])
+
+check(
+    "V249 the settings class stays inside the JVM's 255-argument ceiling",
+    # The floor keeps the counter honest: a rename would otherwise "pass" by matching nothing.
+    v249_parameters >= 235
+    and v249_arguments <= 255
+    # Two grouped values, not seven loose fields, and the grouping is documented where it is used.
+    and "data class ShadeRouteControl(" in files["models"]
+    and "data class HomeLayout(" in files["models"]
+    and "255" in files["models"]
+    and "ClassFormatError" in files["models"],
 )
 
 v249_doc = read("docs/PERSIAN_JOIN_SHADE_STUDIO_AND_MAP_MOTION_V249.md")

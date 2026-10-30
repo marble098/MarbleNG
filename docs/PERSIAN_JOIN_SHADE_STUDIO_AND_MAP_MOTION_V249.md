@@ -117,13 +117,23 @@ V249 همان ردیف‌ها را نگه می‌دارد و سه چیز اضا�
 
 **قابل خاموش‌کردن.** خواسته صریح بود. پنج تنظیم، همه روی صفحهٔ نوتیفیکیشن:
 
-| تنظیم | کلید | چه چیزی را روشن/خاموش می‌کند |
-|---|---|---|
-| ردیف‌های مسیر | `notificationShadePicker` | کل کنترلِ مسیر داخل شید |
-| دو دکمهٔ چرخش | `notificationShadeCycle` | «سرور بعدی» و «اشتراک بعدی» بدون فهرست |
-| شکلِ کنترل | `notificationShadeStyle` | استودیو (`studio`) یا فهرست V238 (`list`) |
-| ستون پینگ | `notificationShadePing` | عددِ اندازه‌گیری کنار هر ردیف |
-| تعداد ردیف | `notificationShadeRows` | بودجهٔ ارتفاع (۲/۴/۶/۸) |
+| تنظیم | در مدل | کلیدِ ذخیره‌شده | چه چیزی را روشن/خاموش می‌کند |
+|---|---|---|---|
+| ردیف‌های مسیر | `shadeControl.picker` | `notificationShadePicker` | کل کنترلِ مسیر داخل شید |
+| دو دکمهٔ چرخش | `shadeControl.cycle` | `notificationShadeCycle` | «سرور بعدی» و «اشتراک بعدی» بدون فهرست |
+| شکلِ کنترل | `shadeControl.style` | `notificationShadeStyle` | استودیو (`studio`) یا فهرست V238 (`list`) |
+| ستون پینگ | `shadeControl.showPing` | `notificationShadePing` | عددِ اندازه‌گیری کنار هر ردیف |
+| تعداد ردیف | `shadeControl.rows` | `notificationShadeRows` | بودجهٔ ارتفاع (۲/۴/۶/۸) |
+
+پنج تنظیم **یک فیلد** هستند (`ShadeRouteControl`)، و دلیلش سلیقه نیست؛ سقفِ ماشینِ مجازی است.
+`AppSettings` یک data class با ۲۴۱ پارامتر بود و کاتلین برای هر data class یک پلِ
+`copy$default` می‌سازد: یک آرگومان به ازای هر پارامتر، یک کلمهٔ بیت‌ماسک به ازای هر ۳۲ تای آن‌ها،
+گیرنده و یک marker. JVM کلاسی را که متدی با بیش از ۲۵۵ آرگومان دارد *بارگذاری* نمی‌کند — و این
+را نه هنگام کامپایل، که هنگام اجرا با `ClassFormatError: Too many arguments in method signature`
+می‌گوید. پنج فیلدِ جدا اینجا ۲۴۹ پارامتر می‌شد و ۲۵۹ آرگومان: کامپایل سبز، و ۱۶۲ تست قرمز، همه
+با یک خطا. گروه‌کردن، ۲۴۴ پارامتر و ۲۵۴ آرگومان می‌دهد. کلیدهای ذخیره‌شده دست‌نخورده‌اند —
+گروه‌کردن یک شکل در حافظه است، نه یک مهاجرت — و `scripts/system-integrity-check.py` حالا خودِ
+سقف را می‌شمارد تا پاسِ بعدی پیش از JVM به آن بخورد.
 
 **چطور بدون بازکردن برنامه جابه‌جا می‌شود.** هر ردیفِ کنترل یک `PendingIntent.getService` است با
 اکشنِ `ACTION_SHADE_CONTROL` و یک فعل (`previous` / `next` / `level` / `select:<id>`)، data‌اش
@@ -212,7 +222,8 @@ V249 همان ردیف‌ها را نگه می‌دارد و سه چیز اضا�
 سه کلیدِ قدیمی («کارت سرعت را نشان بده») هرگز جوابِ خواسته نبودند؛ خواسته این بود که خانه یک
 چیدمانِ *متعلق به کاربر* باشد. `model/HomeStudio.kt` (مارکر `MARBLE_HOME_STUDIO_V249`) شش بخش را
 می‌شناسد — `HEADER`، `CONNECT`، `PRESETS`، `ROUTE`، `STATS`، `SHORTCUTS` — و دو رشته را: ترتیب
-(`homeSectionOrder`) و پنهان‌ها (`homeHiddenSections`).
+(`homeLayout.sectionOrder`) و پنهان‌ها (`homeLayout.hiddenSections`)، که به همان دلیلِ بخشِ ۲ در یک
+`HomeLayout` نشسته‌اند.
 
 دو قاعده که صفحه از آنها می‌آید:
 
@@ -264,6 +275,7 @@ V249 همان ردیف‌ها را نگه می‌دارد و سه چیز اضا�
 | ۶ | تب‌ها «مثل نقشه» | `model/MapMotion.kt` + `ui/MarbleApp.kt` (`marbleTabMap`) | ✅ |
 | ۷ | شخصی‌سازی خانه + پوسته‌های جدید | `model/HomeStudio.kt` + `ui/HomeScreen.kt` + `ui/SettingsAppearancePages.kt` + `ui/theme/MarbleColor.kt` + `ui/theme/MarbleTheme.kt` | ✅ |
 | — | مدلِ حرکت/ساعت/چیدمان در لایهٔ model، بدون Compose | `model/MapMotion.kt`، `model/UptimeTicker.kt`، `model/HomeStudio.kt`، `model/Models.kt` (`ShadeControlDefaults`) | ✅ |
+| — | تنظیماتِ جدید در یک فیلد، نه هفت فیلد (سقفِ ۲۵۵ آرگومانِ JVM) | `model/Models.kt` (`ShadeRouteControl`, `HomeLayout`) + اینواریانتِ شمارنده در `scripts/system-integrity-check.py` | ✅ |
 | — | فارسیِ رشته‌های جدید، و املای ۱۶۴ مقدارِ قدیمی | `ui/MarblePersianLexicon.kt` (+۱۸ مدخل، ۲۱۷۷ → ۲۱۹۵) | ✅ |
 | — | تست JVM برای هر چهار قاعدهٔ تازه | `PersianOrthographyV249Test`، `UptimeTickerV249Test`، `MapMotionV249Test`، `HomeStudioV249Test`، `ShadeRouteStudioV249Test` | ✅ |
 | — | این فصل + README + ممیزی یکپارچگی | `docs/`, `README.md`, `scripts/system-integrity-check.py` | ✅ |
@@ -294,7 +306,13 @@ V249 همان ردیف‌ها را نگه می‌دارد و سه چیز اضا�
 8. **حذفِ حرکت به‌جای کوتاه‌کردنش در «حالت آرام».** مقیاسِ `0.6` روی مدت و مسافت. رابطِ کاملاً
    بی‌حرکت برای کسی که فقط حرکتِ زیاد اذیتش می‌کند، گم‌کننده است — و تنظیمِ سیستم
    («حذف انیمیشن‌ها») همچنان همه‌چیز را به `snap()` می‌برد.
-9. **`RuntimeShader`/بلور برای ترنزیشنِ تب‌ها.** همان دلیلی که V248 بلور را کنار گذاشت: چیزی
+9. **گروه‌کردنِ بقیهٔ `AppSettings`.** این پاس ۷ فیلدِ تازه را در ۲ فیلد جمع کرد و کلاس را از
+   ۲۵۱ آرگومان به ۲۵۴ رساند — یعنی **یک** جای خالی تا سقفِ ۲۵۵. بازگروه‌کردنِ خانوادهٔ
+   `modularShow*` یا `notify*` ده‌ها جای خالی می‌داد، ولی هر کدامشان ده‌ها نقطهٔ `s.copy(…)` در
+   صفحه‌ها، نوتیفیکیشن و سرویس دارد و این PR هفت کارِ دیگر هم روی دوشش بود. به‌جایش، اینواریانتِ
+   تازهٔ `scripts/system-integrity-check.py` خودِ عدد را می‌شمارد و پیش از آن‌که JVM بشکند، قرمز
+   می‌شود؛ پاسِ بعدی می‌تواند با یک گروه‌بندیِ بی‌خطر (بدون تغییرِ کلیدهای ذخیره‌شده) جا بخرد.
+10. **`RuntimeShader`/بلور برای ترنزیشنِ تب‌ها.** همان دلیلی که V248 بلور را کنار گذاشت: چیزی
    که روی دستگاهی کامپایل نشود *هیچ‌چیز* رسم نمی‌کند، و اینجا «هیچ‌چیز» یعنی کلِ محتوای صفحه.
 
 ---
