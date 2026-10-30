@@ -2605,7 +2605,7 @@ private val FaFriendlyVoice: Map<String, String> = mapOf(
         "کشور همه سرورها رو دوباره اندازه بگیر",
     "All sources" to "همه منابع",
     "Wait until ping finishes before changing server" to
-        "صبر کن تا تست پینگ تموم بشه، بعد سرور رو عوض کن"
+        "صبر کن تا تست پینگ تموم بشه، بعد سرور رو عوض کن",
 
     // MARBLE_PLAIN_VOICE_V246 — Settings stopped talking like a datasheet. Every rewritten
     // title keeps its exact meaning and loses only the jargon: no more "Datapath",

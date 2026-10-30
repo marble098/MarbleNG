@@ -27,14 +27,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.BuildConfig
-import com.marbleng.app.core.CoreEngineInfo
 import com.marbleng.app.core.AutoServerSelector
+import com.marbleng.app.core.CoreEngineInfo
+import com.marbleng.app.core.TunnelCoreInfo
 import com.marbleng.app.core.coreEngine
 import com.marbleng.app.core.tunnelCore
 import com.marbleng.app.model.AppLanguage
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.JitterSmartMode
 import com.marbleng.app.model.PlainVoice
+import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.RoutingMode
 import com.marbleng.app.model.SmartPreset
 import com.marbleng.app.model.SplitTunnelMode

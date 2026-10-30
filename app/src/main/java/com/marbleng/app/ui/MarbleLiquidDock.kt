@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.LiquidDockSpec
 import com.marbleng.app.ui.theme.rememberReducedMotion
+import kotlinx.coroutines.launch
 
 /**
  * MARBLE_LIQUID_DOCK_V245 — one tab of the glass pill.
@@ -144,6 +146,9 @@ internal fun MarbleLiquidDock(
     val count = tabs.size
     val activeIndex = selectedIndex.coerceIn(0, count - 1)
 
+    // The spring is launched here: `awaitEachGesture` is a restricted suspension scope, so it
+    // cannot await an Animatable itself.
+    val scope = rememberCoroutineScope()
     val dark = colors.surface.luminance() < 0.35f
     val barHeight = LiquidDockSpec.barHeightDp(size).dp
     val lensWidth = LiquidDockSpec.lensWidthDp(size).dp
@@ -278,15 +283,17 @@ internal fun MarbleLiquidDock(
                         val released = heldFraction ?: downFraction
                         val target = LiquidDockSpec.nearestIndex(released, count)
                         pressed = false
-                        // Hand the live position to the animatable in the same frame the drag
-                        // ends, so the lens never jumps back before the spring starts.
-                        settled.snapTo(released)
-                        heldFraction = null
                         onSelect(target)
-                        settled.animateTo(
-                            LiquidDockSpec.slotCenterFraction(target, count),
-                            snapSpec
-                        )
+                        // The held fraction stays live until the spring's coroutine has adopted
+                        // it, so the lens never jumps back to the old tab for a frame.
+                        scope.launch {
+                            settled.snapTo(released)
+                            heldFraction = null
+                            settled.animateTo(
+                                LiquidDockSpec.slotCenterFraction(target, count),
+                                snapSpec
+                            )
+                        }
                     }
                 }
         ) {
@@ -350,7 +357,9 @@ internal fun MarbleLiquidDock(
                 val halfWidth = lensWidth.toPx() * lensScale / 2f
                 val halfHeight = lensHeight.toPx() * lensScale / 2f
                 val left = centreX - halfWidth
-                val top = size.height / 2f - halfHeight
+                // `size` is the DockSize parameter out here: the draw scope's own size is
+                // the only one that knows how tall the pill is.
+                val top = this.size.height / 2f - halfHeight
                 val oval = Size(halfWidth * 2f, halfHeight * 2f)
                 val corner = Offset(left, top)
 

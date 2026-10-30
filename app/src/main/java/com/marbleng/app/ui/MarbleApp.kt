@@ -70,6 +70,7 @@ import com.marbleng.app.AppRepository
 import com.marbleng.app.core.NotificationRoute
 import com.marbleng.app.model.DockIndicatorSpec
 import com.marbleng.app.model.DockPresentation
+import com.marbleng.app.model.LiquidDockNotices
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.dockShowsIcons
 import com.marbleng.app.model.dockShowsLabels
