@@ -3644,6 +3644,109 @@ private fun postToMain(block: () -> Unit) {
             }
 
     // ------------------------------------------------------------------------------------------
+    // MARBLE_SHADE_STUDIO_V249 — where the shade's route control is standing.
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * The floor and the page the studio is showing.
+     *
+     * Both are *session* state and deliberately not settings. They answer "where is the user
+     * browsing right now", and the honest answer after a reconnect — or after a phone that was off
+     * for a day — is the servers of the live subscription, page one. Persisting them would open the
+     * shade on page four of a subscription that is no longer live, which is a bookmark, not a
+     * control.
+     */
+    private val shadeRouteLevelState = mutableStateOf(ShadeLevel.SERVERS)
+    private val shadeRoutePageState = mutableStateOf(0)
+
+    val shadeRouteLevel: ShadeLevel get() = shadeRouteLevelState.value
+    val shadeRoutePage: Int get() = shadeRoutePageState.value
+
+    /**
+     * The floor control: servers ⇄ subscriptions. The page resets with the floor, because page
+     * three of a forty-server subscription means nothing on a six-subscription floor.
+     *
+     * These three mutators write snapshot state directly instead of through [postToMain], and that
+     * is deliberate: the tunnel service calls them from its control worker and re-publishes the
+     * notification in the *same* call, so a write that lands on the next main-loop turn would draw
+     * the shade as it was before the tap. One `Int` and one enum in a `MutableState` is a legal
+     * write from any thread, and unlike [selectProfile] there is nothing else to sequence — no
+     * persistence, no flow, no second state that has to agree.
+     */
+    fun flipShadeRouteLevel() {
+        shadeRouteLevelState.value = ShadeLevel.other(shadeRouteLevelState.value)
+        shadeRoutePageState.value = 0
+    }
+
+    /**
+     * One page turn. The studio clamps the page against the library when it draws, so a library
+     * that shrank between the tap and the redraw cannot leave the shade on a page that does not
+     * exist; [stepShadeRoutePage] clamps here too so the state itself never says "page 9 of 2".
+     */
+    fun stepShadeRoutePage(delta: Int) {
+        if (delta == 0) return
+        val budget = ShadeControlDefaults.rowChoice(settings.notificationShadeRows)
+        val items = shadeRouteItemCount(shadeRouteLevelState.value)
+        shadeRoutePageState.value = NotificationRoutePicker.clampPage(
+            shadeRoutePageState.value + delta,
+            items,
+            budget
+        )
+    }
+
+    /** Back to the floor and page the studio starts on: a new route, or the tunnel going down. */
+    fun resetShadeRouteControl() {
+        shadeRouteLevelState.value = ShadeLevel.SERVERS
+        shadeRoutePageState.value = 0
+    }
+
+    /**
+     * How many rows the studio would list on [level].
+     *
+     * This has to agree with [NotificationRoutePicker.studio] or the page control lies: the studio
+     * lists the *live subscription's* servers and widens to the whole library only when that
+     * subscription has a single server, so counting every route in the library here would let
+     * "next page" count pages that are not there — a button that moves and changes nothing.
+     */
+    fun shadeRouteItemCount(level: ShadeLevel): Int {
+        val routes = notificationPickerRoutes()
+        if (routes.isEmpty()) return 0
+        if (level == ShadeLevel.SOURCES) return routes.map { it.sourceId }.distinct().size
+        val currentSource = NotificationRouteCycle.currentSource(
+            routes,
+            activeProfileId.ifBlank { selectedProfileId },
+            activeProfileSourceId.ifBlank { selectedProfileSourceId }
+        )
+        val scoped = routes.count { it.sourceId == currentSource }
+        return if (scoped > 1) scoped else routes.size
+    }
+
+    /**
+     * The measured latency of every route the shade may offer, already formatted.
+     *
+     * The numbers come from [benchmarks] — the same remembered sweep the Servers page prints — so
+     * the shade never measures anything itself and never shows a ping the app would not show. A
+     * route that has not answered, or has never been measured, is simply absent from the map: the
+     * studio draws no meta for it, which is the difference between "not measured" and "42 ms".
+     */
+    fun notificationShadePingLabels(): Map<String, String> {
+        val snapshot = benchmarks
+        if (snapshot.isEmpty()) return emptyMap()
+        val labels = HashMap<String, String>(snapshot.size)
+        // [benchmarks] is a list, already sorted best-score-first, so the first honest reading of a
+        // profile is the one the Servers page would print. A profile with more than one entry (a
+        // second probe kind, a remembered sweep from before an update) keeps its best.
+        snapshot.forEach { result ->
+            val id = result.profileId
+            if (id.isBlank() || labels.containsKey(id)) return@forEach
+            val ms = result.latencyMs
+            if (result.success <= 0 || ms <= 0.0 || ms >= RouteProbe.UNREACHABLE) return@forEach
+            labels[id] = NotificationCopy.latency(ms.roundToInt())
+        }
+        return labels
+    }
+
+    // ------------------------------------------------------------------------------------------
     // MARBLE_SMART_JITTER_V238 — the Smart Jitter Reducer's host bindings.
     // ------------------------------------------------------------------------------------------
 

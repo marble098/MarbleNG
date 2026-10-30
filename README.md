@@ -50,16 +50,66 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A crystal liquid-lens navigation bar** — a 68dp frosted stadium with a 52dp glass lens: 22dp glyphs and 11sp labels at rest, a 1.30× bold projection inside the lens, a translucent 0.12 white core, a dual specular rim, a caustic inner glow and a droplet shadow, all drawn — never blurred.
 - **A dual pass that cannot ghost** — the passive row is clipped *out* of the lens oval (even-odd) and the magnified projection is clipped *into* it, so the glass never shows two glyphs at two scales. The lens is dragged with a `VelocityTracker`, stretches `1 + min(|v|/3000, 0.25)`, squashes `1 − min(|v|/6000, 0.12)`, snaps to the nearest anchor at `dampingRatio 0.65`, and its centre obeys `paddingStart + lensWidth/2 … width − paddingEnd − lensWidth/2` in every path.
 - **Settings that speak plainly** — 71 titles and sentences rewritten from mechanism to meaning (`Tunnel Datapath` → `Tunnel path`, `Geo direct domestic separation` → `Iranian sites stay direct`, `Network Council Scanner` → `Network check`), constants no longer printed where words belong (`1.1.1.1 · FORCE_IPV4` → `1.1.1.1 · IPv4 only`), with a test that forbids the jargon and a Persian voice for every one of them.
+- **Persian that is spelled the way it is read** — one orthography rule (`PersianOrthography`) separates every glued plural, indefinite and `می`-prefix verb with a half-space (`نسخهها` → `نسخه‌ها`, `میکنه` → `می‌کنه`) and never touches the words that only look glued (`همیشه`, `تنهایی`, `سرورها`). It runs on every translated string at runtime, and its build-time twin sweeps the source literals to zero.
+- **Full route control inside the notification** — a two-floor studio (servers / subscriptions) with paging over a library of any depth, the measured ping beside every row, and one row that flips the floor. Five switches on the notification page decide how much of it exists, and the V238 list is still one of the two shapes.
+- **A rolling uptime clock** — `Protected Uptime 00:10:01` keeps its Persian words still and rolls only the digits that changed, one cell at a time, tabular, left-to-right, with a breathing colon, and cross-fades when the reading changes shape.
+- **Motion that behaves like a map** — a tab change pans the page from the side the tab is on (mirrored for RTL) while the departing page leaves the other way, a detail page zooms instead of sliding, and Settings gained one depth transition between its menu and its pages. A calm-motion setting scales every duration and distance to 0.6, and Android's own *remove animations* still snaps everything.
+- **A Home you arrange, and four themes** — six Home sections each with a switch and two move buttons (an empty Home is allowed, and the page says so), plus a fourth theme, True Black, and nine accent colours laid out in rows of five.
 
 ## The expressive shell: one control, one decision
 
-`docs/LIQUID_GLASS_LENS_V248.md` is the newest chapter.
-`docs/LIQUID_GLASS_LENS_V247.md` is the chapter before it.
+`docs/PERSIAN_JOIN_SHADE_STUDIO_AND_MAP_MOTION_V249.md` is the newest chapter.
+`docs/LIQUID_GLASS_LENS_V248.md` is the chapter before it.
+`docs/LIQUID_GLASS_LENS_V247.md` is the one before that.
 `docs/PLAIN_VOICE_V246.md` is the one before that.
 `docs/LIQUID_DOCK_V245.md` is the one before that.
 `docs/SERVERS_DECK_V243.md` is the one before that.
 `docs/CRASH_AND_SERVER_ROWS_V242.md` is the chapter before it.
 `docs/EXPRESSIVE_SHELL_V241.md` records the expressive shell before that.
+
+**V249 — seven asks: two words, one studio, one clock, and a map.** Three of the seven were about
+words. The swipe reveal stopped drawing the word *delete* inside a selected row — the reveal is not
+composed at all until the finger has really moved the row, only the trash glyph is drawn, and the row
+sits on an opaque base of its own surface first, so a selected row is never a window onto what is
+behind it; the word is still spoken through semantics. Persian spelling got one rule instead of one
+hundred edits: `model/PersianOrthography.kt` separates glued plurals, ezafe plurals, indefinites,
+compound stems and colloquial `می`-prefix verbs with a half-space, and refuses to split the words
+that only look glued (`همیشه`, `تنهایی`, `نهایی`, `گیتهاب`, `شما`) or that end in a letter which
+never joins. Every translated string passes through it at runtime
+(`faTranslate = PersianOrthography.normalize(faTranslateRaw(…))`), `tools/persian-normalize.py` is
+its build-time twin over the source literals and reports zero glued words, and
+`PersianOrthographyV249Test` pins the rules *and* the exceptions. The third word ask was the
+notification: V234's two verbs and V238's list became a studio with two floors
+(`ShadeLevel.SERVERS` / `SOURCES`), paging whose budget comes from `ShadeControlDefaults.rowChoice`
+so the store, the settings dial and the page counter cannot disagree, a measured ping in a new
+`picker_meta` column of both row layouts, one control row that flips the floor (only when a second
+floor exists), and `clampPage` so a library that shrank between two taps shows the last real page.
+`NotificationRoutePicker.build()` — the V238 list — is untouched and still one of the two selectable
+shapes; five switches (`notificationShadePicker`, `notificationShadeCycle`, `notificationShadeStyle`,
+`notificationShadePing`, `notificationShadeRows`) decide how much of it the shade carries, and every
+row reaches the service as `ACTION_SHADE_CONTROL` with its own `marbleng://shade/<verb>` data URI.
+The other four asks were motion and layout. `Protected Uptime 00:10:01` split into still Persian
+words and a rolling clock: `UptimeTicker` decides which cells changed (reading both ASCII and
+Persian digits), `MarbleRollingClock` rolls only those, forced left-to-right with tabular figures,
+a colon that dims on the off-second, a cross-fade when the reading changes shape, and one
+`clearAndSetSemantics` so a screen reader reads the time instead of eight animating characters.
+`model/MapMotion.kt` gives tabs a *pan* rather than a slideshow — the arriving and departing offsets
+have opposite signs, the direction comes from the tabs' indices and mirrors for RTL, and the flight
+is `380 + 40·steps` clamped to 260–520ms with 0.97/0.93 scale — while a detail page zooms
+(`DETAIL_ENTER_SCALE 0.94`) and `SettingsScreen` became a single `AnimatedContent` depth transition
+between its menu and its pages. `ui/theme/MarbleMotion.kt` owns the shared style: `ProvideMarbleMotion`,
+non-composable `panSpec<T>()`/`settleSpec<T>()` (an `AnimatedContent.transitionSpec` is not a
+composable scope), a calm-motion scale of 0.6 on durations *and* distances behind one switch, and
+`rememberReducedMotion()` so Android's own animation setting still wins. Home became a layout the
+user owns: `model/HomeStudio.kt` describes six sections with an order and a hidden set, Home paints
+`HomeStudio.visible(…)` through one `forEach`/`when` with unchanged item keys, and the appearance
+page offers a switch plus two move buttons per section, a reset, an allowed-but-announced empty
+Home, and the two legacy `modularShow*` switches written in the same update as a hide-floor rather
+than deleted. The fourth theme, `amoled` / True Black, was already understood by
+`resolveMarbleDarkMode` and simply had no row; `marbleTrueBlackSurfaces` draws it, accents grew to
+nine (Sky, Plum, Moss) laid out with `chunked(5)` instead of an experimental `FlowRow`, and
+`MotionScheme.expressive()` stayed exactly where it was. `MapMotionV249Test`, `UptimeTickerV249Test`,
+`HomeStudioV249Test` and `ShadeRouteStudioV249Test` hold the rules on the host JVM.
 
 **V248 — the crystal lens, rebuilt from scratch.** The V247 bar was rejected for three material
 faults that a screenshot made obvious. First, it kept the muted base row visible *underneath* the

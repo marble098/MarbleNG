@@ -52,7 +52,7 @@ class PersianCoverageV233Test {
         assertEquals("بزن وصل شو", faTranslate("Connect"))
         assertEquals("قطعش کن", faTranslate("Disconnect"))
         assertEquals("وصل شدی!", faTranslate("Connected"))
-        assertEquals("آمادهای؟", faTranslate("Ready"))
+        assertEquals("آماده‌ای؟", faTranslate("Ready"))
         assertEquals("باشه، ادامه", faTranslate("Continue"))
         assertEquals("بذار وصلت کنم", faTranslate("Allow VPN connection"))
         assertTrue(isPersian(faTranslate("Turn on Smart Event Alerts to send a test")))

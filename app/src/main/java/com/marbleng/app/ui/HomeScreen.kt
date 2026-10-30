@@ -48,6 +48,8 @@ import com.marbleng.app.model.ConnectModeChip
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.HomePingAction
+import com.marbleng.app.model.HomeSection
+import com.marbleng.app.model.HomeStudio
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.ServerHealth
@@ -152,6 +154,13 @@ fun HomeScreen(
         }
     }
 
+    val homeSections = HomeStudio.visible(
+        orderRaw = settings.homeSectionOrder,
+        hiddenRaw = settings.homeHiddenSections,
+        legacyStatsVisible = settings.modularShowStats,
+        legacyShortcutsVisible = settings.modularShowShortcuts
+    )
+
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -166,130 +175,138 @@ fun HomeScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
     ) {
-        item(key = "home-header") {
-            MarbleLargeHeader(
-                title = "MarbleNG",
-                subtitle = headerSubtitle,
-                collapseFraction = collapseFractionOf(
-                    firstVisibleItemIndex = listState.firstVisibleItemIndex,
-                    firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
-                )
-            ) {
-                MarbleIconButton(
-                    glyph = MarbleGlyph.QR,
-                    onClick = onOpenQrImport,
-                    tint = colors.secondary
-                )
-                MarbleIconButton(
-                    glyph = MarbleGlyph.PLUS,
-                    onClick = onOpenAddSheet,
-                    tint = colors.primary
-                )
-                MarbleIconButton(
-                    glyph = MarbleGlyph.SHIELD,
-                    onClick = onOpenDiagnostics,
-                    tint = if (connected) colors.success else colors.onSurfaceVariant
-                )
-            }
-        }
+        // MARBLE_HOME_STUDIO_V249 — Home draws the sections the user kept, in the order they put
+        // them. Every section is one branch of one `when`, so there is exactly one place that decides
+        // what a section is and one that decides whether it is here: the layout lives in
+        // [HomeStudio], and this list only paints it.
+        //
+        // The two legacy switches (`modularShowStats`, `modularShowShortcuts`) are honoured as a
+        // floor inside [HomeStudio.visible], so somebody who turned the speed card off two versions
+        // ago still has it off, and the settings page keeps writing both records in one update.
+        homeSections.forEach { section ->
+            when (section) {
+                HomeSection.HEADER -> item(key = "home-header") {
+                    MarbleLargeHeader(
+                        title = "MarbleNG",
+                        subtitle = headerSubtitle,
+                        collapseFraction = collapseFractionOf(
+                            firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                            firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+                        )
+                    ) {
+                        MarbleIconButton(
+                            glyph = MarbleGlyph.QR,
+                            onClick = onOpenQrImport,
+                            tint = colors.secondary
+                        )
+                        MarbleIconButton(
+                            glyph = MarbleGlyph.PLUS,
+                            onClick = onOpenAddSheet,
+                            tint = colors.primary
+                        )
+                        MarbleIconButton(
+                            glyph = MarbleGlyph.SHIELD,
+                            onClick = onOpenDiagnostics,
+                            tint = if (connected) colors.success else colors.onSurfaceVariant
+                        )
+                    }
+                }
 
-        item(key = "home-hero") {
-            HomeHero(
-                connected = connected,
-                connecting = connecting,
-                disconnecting = disconnecting,
-                uptime = uptime,
-                activeRoute = activeRoute,
-                stateLabel = headlineFor(connected, connecting, disconnecting),
-                modeChip = modeChip,
-                onSelectMode = selectModeChip,
-                onToggle = toggleConnection,
-                onOpenServers = onOpenServers,
-                onOpenLogs = { showQuickLogs = true }
-            )
-        }
-
-        item(key = "home-presets") {
-            SmartPresetStrip(
-                repo = repo,
-                onOpenAll = { onOpenSettingsPage(SettingsDestination.SMART_PRESETS) }
-            )
-        }
-
-        item(key = "home-route-section") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Active Route"))
-                HomeRouteAndIdentityCard(
-                    repo = repo,
-                    activeRoute = activeRoute,
-                    connected = connected,
-                    onOpenServers = onOpenServers,
-                    onOpenServerDetail = onOpenServerDetail,
-                    onTriggerPing = triggerHomePing,
-                    onOpenExitIpSheet = onOpenExitIpSheet
-                )
-            }
-        }
-
-        if (settings.modularShowStats) {
-            item(key = "home-telemetry-section") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MarbleSectionHeader(title = strings.networkSpeed)
-                    HomeTelemetryCard(
-                        downBps = repo.liveDownBps,
-                        upBps = repo.liveUpBps,
-                        live = connected,
-                        sessionBytes = repo.sessionBytes,
-                        totalBytes = repo.totalUsageBytes,
-                        showSocks = settings.connectionMode == ConnectionMode.LOCAL_PROXY || settings.modularShowSocks,
-                        socksPort = settings.localProxyPort,
-                        onCopySocks = {
-                            clipboard.setText(AnnotatedString("127.0.0.1:${settings.localProxyPort}"))
-                            repo.setRuntimeMessage(strings.socksCopied)
-                        }
+                HomeSection.CONNECT -> item(key = "home-hero") {
+                    HomeHero(
+                        connected = connected,
+                        connecting = connecting,
+                        disconnecting = disconnecting,
+                        uptime = uptime,
+                        activeRoute = activeRoute,
+                        stateLabel = headlineFor(connected, connecting, disconnecting),
+                        modeChip = modeChip,
+                        onSelectMode = selectModeChip,
+                        onToggle = toggleConnection,
+                        onOpenServers = onOpenServers,
+                        onOpenLogs = { showQuickLogs = true }
                     )
                 }
-            }
-        }
 
-        if (settings.modularShowShortcuts) {
-            item(key = "home-shortcuts-section") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MarbleSectionHeader(title = trx("Quick Actions"))
-                    // Council grid: 2x2 tiles — faster scan, less scroll, no duplicate list chrome
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            HomeQuickTile(
-                                title = strings.addFromClipboard,
-                                glyph = MarbleGlyph.COPY,
-                                tint = colors.primary,
-                                onClick = pasteFromClipboard,
-                                modifier = Modifier.weight(1f)
-                            )
-                            HomeQuickTile(
-                                title = trx("Scan QR"),
-                                glyph = MarbleGlyph.QR,
-                                tint = colors.secondary,
-                                onClick = onOpenQrImport,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                            HomeQuickTile(
-                                title = trx("Smart Rank"),
-                                glyph = MarbleGlyph.SPARK,
-                                tint = colors.warning,
-                                enabled = !repo.busy && !repo.probeActive,
-                                onClick = { repo.smartRank() },
-                                modifier = Modifier.weight(1f)
-                            )
-                            HomeQuickTile(
-                                title = trx("Censorship Lab"),
-                                glyph = MarbleGlyph.SHIELD,
-                                tint = colors.success,
-                                onClick = { onOpenSettingsPage(SettingsDestination.CENSORSHIP_LAB) },
-                                modifier = Modifier.weight(1f)
-                            )
+                HomeSection.PRESETS -> item(key = "home-presets") {
+                    SmartPresetStrip(
+                        repo = repo,
+                        onOpenAll = { onOpenSettingsPage(SettingsDestination.SMART_PRESETS) }
+                    )
+                }
+
+                HomeSection.ROUTE -> item(key = "home-route-section") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MarbleSectionHeader(title = trx("Active Route"))
+                        HomeRouteAndIdentityCard(
+                            repo = repo,
+                            activeRoute = activeRoute,
+                            connected = connected,
+                            onOpenServers = onOpenServers,
+                            onOpenServerDetail = onOpenServerDetail,
+                            onTriggerPing = triggerHomePing,
+                            onOpenExitIpSheet = onOpenExitIpSheet
+                        )
+                    }
+                }
+
+                HomeSection.STATS -> item(key = "home-telemetry-section") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MarbleSectionHeader(title = strings.networkSpeed)
+                        HomeTelemetryCard(
+                            downBps = repo.liveDownBps,
+                            upBps = repo.liveUpBps,
+                            live = connected,
+                            sessionBytes = repo.sessionBytes,
+                            totalBytes = repo.totalUsageBytes,
+                            showSocks = settings.connectionMode == ConnectionMode.LOCAL_PROXY || settings.modularShowSocks,
+                            socksPort = settings.localProxyPort,
+                            onCopySocks = {
+                                clipboard.setText(AnnotatedString("127.0.0.1:${settings.localProxyPort}"))
+                                repo.setRuntimeMessage(strings.socksCopied)
+                            }
+                        )
+                    }
+                }
+
+                HomeSection.SHORTCUTS -> item(key = "home-shortcuts-section") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MarbleSectionHeader(title = trx("Quick Actions"))
+                        // Council grid: 2x2 tiles — faster scan, less scroll, no duplicate list chrome
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                HomeQuickTile(
+                                    title = strings.addFromClipboard,
+                                    glyph = MarbleGlyph.COPY,
+                                    tint = colors.primary,
+                                    onClick = pasteFromClipboard,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                HomeQuickTile(
+                                    title = trx("Scan QR"),
+                                    glyph = MarbleGlyph.QR,
+                                    tint = colors.secondary,
+                                    onClick = onOpenQrImport,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                HomeQuickTile(
+                                    title = trx("Smart Rank"),
+                                    glyph = MarbleGlyph.SPARK,
+                                    tint = colors.warning,
+                                    enabled = !repo.busy && !repo.probeActive,
+                                    onClick = { repo.smartRank() },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                HomeQuickTile(
+                                    title = trx("Censorship Lab"),
+                                    glyph = MarbleGlyph.SHIELD,
+                                    tint = colors.success,
+                                    onClick = { onOpenSettingsPage(SettingsDestination.CENSORSHIP_LAB) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }
@@ -336,12 +353,19 @@ private fun HomeHero(
     val strings = Tr.now
     val working = connecting || disconnecting
 
+    // MARBLE_LIVE_TICKER_V249 — the line under the pill is two readings with two tempos. The words
+    // say what the tunnel is doing and change when the state changes; the clock says how long it has
+    // been doing it and changes every second. They used to be one string, and the pill animated the
+    // whole string, so "Protected · Uptime" re-flew sixty times a minute around the one digit that
+    // had moved. The label stays with the words (it names the clock, so it belongs to the sentence)
+    // and only the reading goes to the ticker.
     val subline = when {
-        connected -> "${trx(stateLabel)} · ${strings.uptime} $uptime"
+        connected -> "${trx(stateLabel)} · ${strings.uptime}"
         working -> trx(stateLabel)
         activeRoute != null -> cleanServerName(activeRoute.name)
         else -> strings.chooseRoute
     }
+    val ticker = if (connected) faDigits(uptime) else ""
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -353,7 +377,8 @@ private fun HomeHero(
             disconnecting = disconnecting,
             title = if (connected) strings.disconnect else strings.connect,
             subtitle = subline,
-            onToggle = onToggle
+            onToggle = onToggle,
+            ticker = ticker
         )
 
         Row(

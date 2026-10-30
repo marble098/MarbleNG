@@ -517,6 +517,17 @@ class AppStore(context: Context) {
         notifyPrivacyHeadsUp = prefs.getBoolean("notifyPrivacyHeadsUp", true),
         notificationSessionTimer = prefs.getBoolean("notificationSessionTimer", true),
 
+        // MARBLE_SHADE_STUDIO_V249 — the shade's route control. Every default is the behaviour the
+        // app already had plus the studio, so a backup restored from before this page exists keeps
+        // working and an upgrade changes nobody's notification until they ask.
+        notificationShadePicker = prefs.getBoolean("notificationShadePicker", true),
+        notificationShadeCycle = prefs.getBoolean("notificationShadeCycle", true),
+        notificationShadeStyle = storedShadeStyle(),
+        notificationShadePing = prefs.getBoolean("notificationShadePing", true),
+        notificationShadeRows = ShadeControlDefaults.rowChoice(
+            prefs.getInt("notificationShadeRows", ShadeControlDefaults.ROWS)
+        ),
+
         routingMode = enumValue("routingMode", RoutingMode.GEO_DIRECT),
         customRoutingEnabled = prefs.getBoolean("customRoutingEnabled", false),
         geoAssetSourceId = prefs.getString("geoAssetSourceId", RoutingDefaults.SOURCE_CHOCOLATE4U)
@@ -672,6 +683,18 @@ class AppStore(context: Context) {
         modularShowStats = prefs.getBoolean("modularShowStats", true),
         modularShowSocks = prefs.getBoolean("modularShowSocks", false),
         modularShowShortcuts = prefs.getBoolean("modularShowShortcuts", true),
+        // MARBLE_HOME_STUDIO_V249 — the layout Home actually draws. Both strings are canonicalized
+        // on the way in, so a section added by a future build appears in the order (at the end)
+        // instead of being silently dropped, and a section retired by one disappears from it.
+        homeSectionOrder = HomeStudio.canonicalOrder(
+            prefs.getString("homeSectionOrder", HomeStudio.DEFAULT_ORDER)
+                ?: HomeStudio.DEFAULT_ORDER
+        ),
+        homeHiddenSections = HomeStudio.canonicalHidden(
+            prefs.getString("homeHiddenSections", HomeStudio.DEFAULT_HIDDEN)
+                ?: HomeStudio.DEFAULT_HIDDEN
+        ),
+        appCalmMotion = prefs.getBoolean("appCalmMotion", false),
         modularShowStatus = prefs.getBoolean("modularShowStatus", true),
         modularShowServers = prefs.getBoolean("modularShowServers", true),
         modularConnectStyle = prefs.getString("modularConnectStyle", "SLIDER") ?: "SLIDER",
@@ -840,6 +863,12 @@ class AppStore(context: Context) {
         .putInt("notificationCooldownSec", s.notificationCooldownSec.coerceIn(5, 300))
         .putBoolean("notifyPrivacyHeadsUp", s.notifyPrivacyHeadsUp)
         .putBoolean("notificationSessionTimer", s.notificationSessionTimer)
+        // MARBLE_SHADE_STUDIO_V249 — written through the same normalizers the load uses.
+        .putBoolean("notificationShadePicker", s.notificationShadePicker)
+        .putBoolean("notificationShadeCycle", s.notificationShadeCycle)
+        .putString("notificationShadeStyle", ShadeControlDefaults.styleId(s.notificationShadeStyle))
+        .putBoolean("notificationShadePing", s.notificationShadePing)
+        .putInt("notificationShadeRows", ShadeControlDefaults.rowChoice(s.notificationShadeRows))
         .putString("routingMode", s.routingMode.name)
         .putBoolean("customRoutingEnabled", s.customRoutingEnabled)
         .putString(
@@ -927,6 +956,11 @@ class AppStore(context: Context) {
         .putBoolean("modularShowStats", s.modularShowStats)
         .putBoolean("modularShowSocks", s.modularShowSocks)
         .putBoolean("modularShowShortcuts", s.modularShowShortcuts)
+        // MARBLE_HOME_STUDIO_V249 — the layout Home draws, canonicalized on the way out too, so a
+        // restored backup can never carry an id this build does not know.
+        .putString("homeSectionOrder", HomeStudio.canonicalOrder(s.homeSectionOrder))
+        .putString("homeHiddenSections", HomeStudio.canonicalHidden(s.homeHiddenSections))
+        .putBoolean("appCalmMotion", s.appCalmMotion)
         .putBoolean("modularShowStatus", s.modularShowStatus)
         .putBoolean("modularShowServers", s.modularShowServers)
         .putString("modularConnectStyle", s.modularConnectStyle)
@@ -994,6 +1028,13 @@ class AppStore(context: Context) {
         return HomeStyle.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
             ?: HomeStyle.DEFAULT
     }
+
+    /**
+     * MARBLE_SHADE_STUDIO_V249 — the shade's picker shape. [ShadeControlDefaults.styleId] owns the
+     * normalization so the read and the write can never disagree about a spelling.
+     */
+    private fun storedShadeStyle(): String =
+        ShadeControlDefaults.styleId(prefs.getString("notificationShadeStyle", null))
 
     private fun probeMethod(): ProbeMethod = when (prefs.getString("probeMethod", null)) {
         ProbeMethod.REAL_DELAY.name, "TUNNEL" -> ProbeMethod.REAL_DELAY

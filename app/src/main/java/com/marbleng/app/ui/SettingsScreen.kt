@@ -25,6 +25,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import com.marbleng.app.AppRepository
 import com.marbleng.app.BuildConfig
 import com.marbleng.app.core.AutoServerSelector
@@ -33,6 +39,7 @@ import com.marbleng.app.core.TunnelCoreInfo
 import com.marbleng.app.core.coreEngine
 import com.marbleng.app.core.tunnelCore
 import com.marbleng.app.model.AppLanguage
+import com.marbleng.app.model.MapMotion
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.JitterSmartMode
 import com.marbleng.app.model.PlainVoice
@@ -47,6 +54,9 @@ import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseFlatAccent
 import com.marbleng.app.model.parsePowerProfile
 import androidx.compose.material3.MaterialTheme
+import com.marbleng.app.ui.theme.marbleMotion
+import com.marbleng.app.ui.theme.panSpec
+import com.marbleng.app.ui.theme.settleSpec
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
 import com.marbleng.app.ui.theme.success
@@ -94,34 +104,90 @@ fun SettingsScreen(
     onCloseDestination: () -> Unit,
     onContentScrollChanged: (Boolean) -> Unit
 ) {
-    if (activeDestination != null) {
-        when (activeDestination) {
-            SettingsDestination.CONNECTION_MODE -> SettingsConnectionModePage(repo, onCloseDestination)
-            SettingsDestination.CORE_ENGINE -> SettingsCoreEnginePage(repo, onCloseDestination)
-            SettingsDestination.TUNNEL_DATAPATH -> SettingsTunnelDatapathPage(repo, onCloseDestination)
-            SettingsDestination.POWER_PROFILE -> SettingsPowerProfilePage(repo, onCloseDestination)
-            SettingsDestination.ROUTING -> SettingsRoutingPage(repo, onCloseDestination)
-            SettingsDestination.DNS_FAMILY -> SettingsDnsAndFamilyPage(repo, onCloseDestination)
-            SettingsDestination.SPLIT_TUNNEL -> SettingsSplitTunnelPage(repo, onCloseDestination)
-            SettingsDestination.CENSORSHIP_LAB -> SettingsCensorshipLabPage(repo, onCloseDestination)
-            SettingsDestination.PING_TESTING -> SettingsPingTestingPage(repo, onCloseDestination)
-            SettingsDestination.NETWORK_COUNCIL -> SettingsNetworkCouncilPage(repo, onCloseDestination)
-            SettingsDestination.AUTO_SELECTOR -> SettingsAutoSelectorPage(repo, onCloseDestination)
-            SettingsDestination.SMART_PRESETS -> SettingsSmartPresetsPage(repo, onCloseDestination)
-            SettingsDestination.SMART_JITTER -> SettingsSmartJitterPage(repo, onCloseDestination)
-            SettingsDestination.IDENTITY_LOCATION -> SettingsIdentityLocationPage(repo, onCloseDestination)
-            SettingsDestination.APPEARANCE -> SettingsAppearancePage(repo, onCloseDestination)
-            SettingsDestination.LANGUAGE_FONT -> SettingsLanguageAndFontPage(repo, onCloseDestination)
-            SettingsDestination.TAB_BAR -> SettingsTabBarPage(repo, onCloseDestination)
-            SettingsDestination.HOME_LAYOUT -> SettingsHomeLayoutPage(repo, onCloseDestination)
-            SettingsDestination.SUBSCRIPTIONS_DATA -> SettingsSubscriptionsPage(repo, onCloseDestination)
-            SettingsDestination.BACKUP_RESTORE -> SettingsBackupRestorePage(repo, onCloseDestination)
-            SettingsDestination.NOTIFICATIONS_BG -> SettingsNotificationsPage(repo, onCloseDestination)
-            SettingsDestination.DIAGNOSTICS -> SettingsDiagnosticsPage(repo, onCloseDestination)
-            SettingsDestination.ABOUT -> SettingsAboutPage(repo, onCloseDestination)
+    // MARBLE_MAP_MOTION_V249 — opening a setting is a zoom into the map, and going back is the same
+    // zoom reversed.
+    //
+    // This used to be an early return: `if (activeDestination != null) { …page…; return }` and then
+    // the menu, which meant the two could never be on screen at the same time and neither could
+    // move. The cost of making them one `AnimatedContent` is that the menu becomes its own
+    // composable ([SettingsMenuPage]); the gain is that a drill-in and a drill-out are the same
+    // movement in opposite directions, on the same curve and at the same tempo as the tab map one
+    // level up — which is what makes the app read as one surface instead of a stack of screens.
+    val motion = marbleMotion()
+    AnimatedContent(
+        targetState = activeDestination,
+        transitionSpec = {
+            val duration = MapMotion.durationMs(1)
+            val arrivingScale = if (targetState != null) {
+                MapMotion.DETAIL_ENTER_SCALE
+            } else {
+                MapMotion.DETAIL_EXIT_SCALE
+            }
+            val departingScale = if (targetState != null) {
+                MapMotion.DETAIL_EXIT_SCALE
+            } else {
+                MapMotion.DETAIL_ENTER_SCALE
+            }
+            (
+                fadeIn(motion.settleSpec(duration)) + scaleIn(
+                    animationSpec = motion.panSpec(duration),
+                    initialScale = arrivingScale
+                )
+                ) togetherWith (
+                fadeOut(motion.settleSpec(duration)) + scaleOut(
+                    animationSpec = motion.panSpec(duration),
+                    targetScale = departingScale
+                )
+                )
+        },
+        label = "marbleSettingsDepth"
+    ) { destination ->
+        if (destination == null) {
+            SettingsMenuPage(
+                repo = repo,
+                onOpenDestination = onOpenDestination,
+                onContentScrollChanged = onContentScrollChanged
+            )
+        } else {
+            when (destination) {
+                SettingsDestination.CONNECTION_MODE -> SettingsConnectionModePage(repo, onCloseDestination)
+                SettingsDestination.CORE_ENGINE -> SettingsCoreEnginePage(repo, onCloseDestination)
+                SettingsDestination.TUNNEL_DATAPATH -> SettingsTunnelDatapathPage(repo, onCloseDestination)
+                SettingsDestination.POWER_PROFILE -> SettingsPowerProfilePage(repo, onCloseDestination)
+                SettingsDestination.ROUTING -> SettingsRoutingPage(repo, onCloseDestination)
+                SettingsDestination.DNS_FAMILY -> SettingsDnsAndFamilyPage(repo, onCloseDestination)
+                SettingsDestination.SPLIT_TUNNEL -> SettingsSplitTunnelPage(repo, onCloseDestination)
+                SettingsDestination.CENSORSHIP_LAB -> SettingsCensorshipLabPage(repo, onCloseDestination)
+                SettingsDestination.PING_TESTING -> SettingsPingTestingPage(repo, onCloseDestination)
+                SettingsDestination.NETWORK_COUNCIL -> SettingsNetworkCouncilPage(repo, onCloseDestination)
+                SettingsDestination.AUTO_SELECTOR -> SettingsAutoSelectorPage(repo, onCloseDestination)
+                SettingsDestination.SMART_PRESETS -> SettingsSmartPresetsPage(repo, onCloseDestination)
+                SettingsDestination.SMART_JITTER -> SettingsSmartJitterPage(repo, onCloseDestination)
+                SettingsDestination.IDENTITY_LOCATION -> SettingsIdentityLocationPage(repo, onCloseDestination)
+                SettingsDestination.APPEARANCE -> SettingsAppearancePage(repo, onCloseDestination)
+                SettingsDestination.LANGUAGE_FONT -> SettingsLanguageAndFontPage(repo, onCloseDestination)
+                SettingsDestination.TAB_BAR -> SettingsTabBarPage(repo, onCloseDestination)
+                SettingsDestination.HOME_LAYOUT -> SettingsHomeLayoutPage(repo, onCloseDestination)
+                SettingsDestination.SUBSCRIPTIONS_DATA -> SettingsSubscriptionsPage(repo, onCloseDestination)
+                SettingsDestination.BACKUP_RESTORE -> SettingsBackupRestorePage(repo, onCloseDestination)
+                SettingsDestination.NOTIFICATIONS_BG -> SettingsNotificationsPage(repo, onCloseDestination)
+                SettingsDestination.DIAGNOSTICS -> SettingsDiagnosticsPage(repo, onCloseDestination)
+                SettingsDestination.ABOUT -> SettingsAboutPage(repo, onCloseDestination)
+            }
         }
-        return
     }
+}
+
+/**
+ * MARBLE_MAP_MOTION_V249 — the Settings menu, extracted unchanged so [SettingsScreen] can cross
+ * between it and a sub-page instead of returning early into one or the other.
+ */
+@Composable
+private fun SettingsMenuPage(
+    repo: AppRepository,
+    onOpenDestination: (SettingsDestination) -> Unit,
+    onContentScrollChanged: (Boolean) -> Unit
+) {
 
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now

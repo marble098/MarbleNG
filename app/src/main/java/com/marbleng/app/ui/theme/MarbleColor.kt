@@ -129,6 +129,61 @@ private fun accentRamp(accent: FlatAccent, dark: Boolean): AccentRamp = when (ac
             onPrimaryContainer = Color(0xFF1C1C1E)
         )
     }
+
+    // MARBLE_HOME_STUDIO_V249 — cyan: the hue between OCEAN's blue and EMERALD's green that no
+    // seed covered. Its light primary is a dark teal (AA on white), its dark primary a bright
+    // aqua, and the two are further from OCEAN's pair than the swatch row's 48dp circles are.
+    FlatAccent.SKY -> if (dark) {
+        AccentRamp(
+            primary = Color(0xFF6CD9F2),
+            onPrimary = Color(0xFF003541),
+            primaryContainer = Color(0xFF004D5D),
+            onPrimaryContainer = Color(0xFFB4EAFF)
+        )
+    } else {
+        AccentRamp(
+            primary = Color(0xFF00687A),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFA8EDFF),
+            onPrimaryContainer = Color(0xFF001F26)
+        )
+    }
+
+    // Magenta: ROSE is a pink that leans red, VIOLET a purple that leans blue, and neither is the
+    // orchid between them.
+    FlatAccent.PLUM -> if (dark) {
+        AccentRamp(
+            primary = Color(0xFFF5A8E8),
+            onPrimary = Color(0xFF570068),
+            primaryContainer = Color(0xFF6E2379),
+            onPrimaryContainer = Color(0xFFFFD6F8)
+        )
+    } else {
+        AccentRamp(
+            primary = Color(0xFF86368F),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFFFD6F8),
+            onPrimaryContainer = Color(0xFF330039)
+        )
+    }
+
+    // Olive: EMERALD is a garden green, AMBER a warm gold, and olive is the earthy yellow-green
+    // that sits between them without being either.
+    FlatAccent.MOSS -> if (dark) {
+        AccentRamp(
+            primary = Color(0xFFC7D87F),
+            onPrimary = Color(0xFF303800),
+            primaryContainer = Color(0xFF46510A),
+            onPrimaryContainer = Color(0xFFE3F49A)
+        )
+    } else {
+        AccentRamp(
+            primary = Color(0xFF5E6B1E),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFE3F49A),
+            onPrimaryContainer = Color(0xFF1B2000)
+        )
+    }
 }
 
 /**
@@ -245,6 +300,41 @@ fun marbleFallbackDarkScheme(accent: FlatAccent): ColorScheme {
         onTertiaryFixed = Color(0xFF00201C),
         onTertiaryFixedVariant = Color(0xFF00201C)
     )
+}
+
+/**
+ * MARBLE_HOME_STUDIO_V249 — the "true black" pass, for OLED screens and for the theme id `amoled`
+ * that [resolveMarbleDarkMode] already accepted but nothing could draw.
+ *
+ * It is a *pass over* a dark scheme rather than a fourth scheme, for one reason: the accent ramp,
+ * the error ramp and every container tone are contrast-proven in [marbleFallbackDarkScheme] (and
+ * chosen by the wallpaper when dynamic colour is on), and a hand-written black scheme would have to
+ * re-prove all of them. So this changes only what has to change — the page and the lowest surfaces
+ * go to `Color.Black`, which on an OLED panel is a pixel that is off — and leaves the lifted
+ * containers exactly where the dark ladder put them, so a card still reads as a card. The hierarchy
+ * survives because it is carried by the containers, not by the background.
+ *
+ * Applying it to a light scheme would paint black text on black, so the caller only ever passes a
+ * dark scheme; [isTrueBlack] keeps that decision in one place.
+ */
+fun marbleTrueBlackSurfaces(scheme: ColorScheme): ColorScheme = scheme.copy(
+    background = Color.Black,
+    surface = Color.Black,
+    surfaceDim = Color.Black,
+    surfaceBright = Color(0xFF2A2A30),
+    surfaceContainerLowest = Color.Black,
+    surfaceContainerLow = Color(0xFF0B0B0E),
+    surfaceContainer = Color(0xFF151519),
+    surfaceContainerHigh = Color(0xFF1E1E23),
+    surfaceContainerHighest = Color(0xFF27272D),
+    outlineVariant = Color(0xFF2C2C31),
+    scrim = Color.Black
+)
+
+/** `amoled`/`oled` in the theme id means "the darkest thing this app can draw". */
+fun isTrueBlack(themeId: String): Boolean = when (themeId.trim().lowercase()) {
+    "amoled", "oled", "trueblack", "true-black", "black" -> true
+    else -> false
 }
 
 /**

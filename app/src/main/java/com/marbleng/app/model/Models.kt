@@ -532,7 +532,15 @@ enum class FlatAccent(val id: String, val label: String) {
     EMERALD("emerald", "Emerald"),
     AMBER("amber", "Amber"),
     ROSE("rose", "Rose"),
-    GRAPHITE("graphite", "Graphite");
+    GRAPHITE("graphite", "Graphite"),
+
+    // MARBLE_HOME_STUDIO_V249 — three more seeds, because "pick a colour" that stops at six is a
+    // menu, not a choice. Each one is a hue the first six do not cover (cyan, magenta, olive) and
+    // each paints a *distinct* primary in both modes, so no two swatches can look like the same
+    // theme with a different name.
+    SKY("sky", "Sky"),
+    PLUM("plum", "Plum"),
+    MOSS("moss", "Moss");
 
     companion object {
         val DEFAULT: FlatAccent get() = OCEAN
@@ -548,6 +556,9 @@ fun parseFlatAccent(raw: String): FlatAccent =
             "gold", "yellow", "orange" -> FlatAccent.AMBER
             "pink", "red", "crimson" -> FlatAccent.ROSE
             "gray", "grey", "mono", "slate" -> FlatAccent.GRAPHITE
+            "aqua", "turquoise", "ice", "sky blue" -> FlatAccent.SKY
+            "magenta", "fuchsia", "orchid", "berry" -> FlatAccent.PLUM
+            "olive", "lime", "khaki", "moss green" -> FlatAccent.MOSS
             else -> FlatAccent.DEFAULT
         }
 
@@ -966,6 +977,51 @@ object ModularLayout {
     fun serialize(order: List<String>): String = order(order.joinToString(",")).joinToString(",")
 }
 
+/**
+ * MARBLE_SHADE_STUDIO_V249 — the persisted shape of the notification's route control.
+ *
+ * The ids live here and not in `core` because `AppSettings` stores them as strings and the model
+ * layer may not reach up into the notification layer; `ShadeLevel` and `ShadePickerStyle` read
+ * these constants, so the enum and the persisted default can never disagree about a spelling.
+ *
+ * The row bounds are the shade's height, not a taste: a notification is drawn inside a budget
+ * SystemUI enforces, and nine 34dp rows already fill it. Four content rows plus the heading, the
+ * two page controls, the floor control and the way back into the app is the most that fits.
+ */
+object ShadeControlDefaults {
+    const val STYLE_STUDIO: String = "studio"
+    const val STYLE_LIST: String = "list"
+    const val LEVEL_SERVERS: String = "servers"
+    const val LEVEL_SOURCES: String = "sources"
+
+    const val ROWS: Int = 4
+    const val ROWS_MIN: Int = 2
+    const val ROWS_MAX: Int = 8
+
+    /** The four row counts the settings page offers. A dial with nine positions is not a choice. */
+    val ROW_CHOICES: List<Int> = listOf(2, 4, 6, 8)
+
+    /**
+     * One spelling for the persisted style, used on the way in *and* on the way out so the store
+     * and the settings page cannot each invent their own normalization. An unknown value — a key
+     * written by a newer build, a hand-edited backup — resolves to the studio rather than to
+     * nothing: the one setting on this page whose absence the user notices at a glance.
+     */
+    fun styleId(raw: String?): String =
+        if (raw?.trim().equals(STYLE_LIST, ignoreCase = true)) STYLE_LIST else STYLE_STUDIO
+
+    /**
+     * The row count, snapped to one of [ROW_CHOICES].
+     *
+     * Snapping — not merely clamping — is what keeps three readers of this number in agreement: the
+     * store, the page that draws the dial, and the studio that counts pages. A clamped `5` would let
+     * the shade offer five rows while the page counter assumed four, and "next page" would then be a
+     * button that moves and changes nothing.
+     */
+    fun rowChoice(raw: Int): Int =
+        ROW_CHOICES.minByOrNull { kotlin.math.abs(it - raw.coerceIn(ROWS_MIN, ROWS_MAX)) } ?: ROWS
+}
+
 object RoutingDefaults {
     const val GEOIP_URL =
         "https://raw.githubusercontent.com/Chocolate4U/Iran-v2ray-rules/release/geoip.dat"
@@ -1189,6 +1245,27 @@ data class AppSettings(
     // interrupt; the session clock is the platform's chronometer rather than a re-posted string.
     val notifyPrivacyHeadsUp: Boolean = true,
     val notificationSessionTimer: Boolean = true,
+
+    // MARBLE_SHADE_STUDIO_V249 — the shade's route control, in the user's hands. V234 added two
+    // verbs and V238 added a list of rows, and neither could be turned off, shortened or shaped:
+    // the notification decided for everybody. These five answer that, and every default is what the
+    // app already did plus the studio, so an upgrade changes nothing until someone asks for less.
+    val notificationShadePicker: Boolean = true,
+    val notificationShadeCycle: Boolean = true,
+    val notificationShadeStyle: String = ShadeControlDefaults.STYLE_STUDIO,
+    val notificationShadePing: Boolean = true,
+    val notificationShadeRows: Int = ShadeControlDefaults.ROWS,
+
+    // MARBLE_HOME_STUDIO_V249 — Home as a layout the user owns. Two strings instead of six
+    // booleans: the order every section is drawn in, and the ids that are switched off. The legacy
+    // `modularShow*` switches stay as the floor for the two sections they already owned.
+    val homeSectionOrder: String = HomeStudio.DEFAULT_ORDER,
+    val homeHiddenSections: String = HomeStudio.DEFAULT_HIDDEN,
+
+    // MARBLE_MAP_MOTION_V249 — the app's own motion, one switch. The map pan between tabs, the
+    // ticker's roll and the dock's flight all read it; the platform's "remove animations" scale
+    // keeps working on top of it, because that one is the user's phone asking, not the app.
+    val appCalmMotion: Boolean = false,
 
     val routingMode: RoutingMode = RoutingMode.GEO_DIRECT,
 
