@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -91,6 +92,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -310,6 +312,7 @@ internal fun MarbleListItem(
         if (value.isNotBlank()) {
             Text(
                 text = value,
+                modifier = Modifier.widthIn(max = 120.dp),
                 color = colors.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                 maxLines = 1,
@@ -321,7 +324,7 @@ internal fun MarbleListItem(
             trailing()
         }
 
-        if (showChevron) {
+        if (showChevron && onClick != null && trailing == null) {
             MarbleChevron()
         }
     }
@@ -351,7 +354,7 @@ fun MarbleSwitch(
         modifier = modifier,
         enabled = enabled,
         colors = SwitchDefaults.colors(
-            checkedThumbColor = Color.White,
+            checkedThumbColor = if (activeColor.luminance() > 0.179f) Color.Black else Color.White,
             checkedTrackColor = activeColor,
             checkedBorderColor = Color.Transparent
         )
@@ -763,7 +766,7 @@ internal fun MarbleButton(
             overflow = TextOverflow.Ellipsis
         )
     }
-    val sized = if (compact) modifier else modifier.heightIn(min = 52.dp)
+    val sized = modifier.heightIn(min = if (compact) 48.dp else 52.dp)
     when (style) {
         MarbleButtonStyle.PRIMARY -> Button(
             onClick = tapped,
@@ -772,7 +775,7 @@ internal fun MarbleButton(
             colors = if (colorOverride != null) {
                 ButtonDefaults.buttonColors(
                     containerColor = colorOverride,
-                    contentColor = Color.White
+                    contentColor = if (colorOverride.luminance() > 0.179f) Color.Black else Color.White
                 )
             } else {
                 ButtonDefaults.buttonColors()
@@ -1007,7 +1010,10 @@ fun MarbleSearchField(
         },
         trailingIcon = {
             when {
-                value.isNotEmpty() -> IconButton(onClick = { onValueChange("") }) {
+                value.isNotEmpty() -> IconButton(
+                    modifier = Modifier.semantics { contentDescription = trx("Clear search") },
+                    onClick = { onValueChange("") }
+                ) {
                     MarbleGlyphIcon(
                         glyph = MarbleGlyph.CLOSE,
                         color = colors.onSurfaceVariant,
@@ -1028,7 +1034,7 @@ fun MarbleSearchField(
         colors = TextFieldDefaults.colors(
             focusedContainerColor = colors.surfaceContainerHighest,
             unfocusedContainerColor = colors.surfaceContainerHighest,
-            focusedIndicatorColor = Color.Transparent,
+            focusedIndicatorColor = colors.primary,
             unfocusedIndicatorColor = Color.Transparent
         )
     )
@@ -1270,7 +1276,7 @@ internal fun MarbleIconButton(
             haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
             onClick()
         },
-        modifier = describedModifier,
+        modifier = describedModifier.size(48.dp),
         enabled = enabled,
         colors = IconButtonDefaults.filledTonalIconButtonColors(
             containerColor = colors.surfaceContainerHighest,

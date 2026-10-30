@@ -109,6 +109,10 @@ import com.marbleng.app.model.Subscription
 import com.marbleng.app.model.serverHealthOf
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.successContainer
+import com.marbleng.app.ui.theme.onSuccessContainer
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.selected
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
 import kotlin.math.roundToInt
@@ -501,7 +505,7 @@ fun ServersScreen(
                         }
                         MarbleIconButton(
                             glyph = MarbleGlyph.FILTER,
-                            tint = if (filterChips.isNotEmpty()) colors.warning else colors.onSurfaceVariant,
+                            tint = if (filterChips.isNotEmpty()) colors.primary else colors.onSurfaceVariant,
                             contentDescription = trx("Sort & Filter"),
                             onClick = { filterSheetOpen = true }
                         )
@@ -544,14 +548,9 @@ fun ServersScreen(
                 // sheet three taps away from the question "which subscription am I looking at?".
                 if (allProfiles.isNotEmpty()) {
                     item(key = "servers-sources") {
-                        val located = repo.serverLocationSummary()
                         ServersLibraryRail(
                             cards = sourceCards,
                             selectedId = repo.librarySourceFilter,
-                            scanning = repo.serverLocationScanning,
-                            located = located.first,
-                            total = allProfiles.size,
-                            showSweep = !listState.isScrollInProgress,
                             onSelect = { id -> repo.selectLibrarySource(id) },
                             onManage = { librarySheetOpen = true }
                         )
@@ -1369,10 +1368,6 @@ private fun serverSortChoices(): List<Pair<NodeSortMode, String>> = listOf(
 private fun ServersLibraryRail(
     cards: List<ServersLibraryCard>,
     selectedId: String,
-    scanning: Boolean,
-    located: Int,
-    total: Int,
-    showSweep: Boolean,
     onSelect: (String) -> Unit,
     onManage: () -> Unit
 ) {
@@ -1404,32 +1399,6 @@ private fun ServersLibraryRail(
                 modifier = Modifier.weight(1f),
                 maxLines = 1
             )
-            // V244 — while the list is moving, the sweep's counter goes quiet: the rail is
-            // chrome for a decision, not a progress report, and the page already learns to be
-            // still under a thumb.
-            when {
-                !showSweep -> Unit
-
-                scanning -> Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    MarblePulseDot(color = colors.primary, modifier = Modifier.size(8.dp))
-                    Text(
-                        text = "${trx("Scanning flags")} ${faDigits("$located/$total")}",
-                        color = colors.primary,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        maxLines = 1
-                    )
-                }
-
-                ServersAtlas.showsLocationNotice(total - located) -> Text(
-                    text = "${faDigits("$located/$total")} ${trx("located")}",
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1
-                )
-            }
             MarbleIconButton(
                 glyph = MarbleGlyph.MENU,
                 tint = colors.onSurfaceVariant,
@@ -1437,7 +1406,7 @@ private fun ServersLibraryRail(
                 onClick = onManage
             )
         }
-        LazyRow(
+        if (selectedId != "all") LazyRow(
             state = railState,
             horizontalArrangement = Arrangement.spacedBy(ServersAtlas.LIBRARY_RAIL_GAP_DP.dp),
             contentPadding = PaddingValues(end = 4.dp)
@@ -1923,12 +1892,12 @@ internal fun ServerRowContent(
     // One tonal slab per row: quiet at rest, green-washed when the tunnel is on it, secondary
     // when it is the route the Home pill will use, and primary-tinted when it is selected.
     val container = when {
-        active -> colors.primaryContainer.copy(alpha = 0.55f)
+        active -> colors.successContainer
         selected || checked -> colors.secondaryContainer.copy(alpha = 0.38f)
         else -> colors.surfaceContainerLow
     }
     val accent = when {
-        active -> colors.success
+        active -> colors.onSuccessContainer
         selected || checked -> colors.primary
         else -> colors.onSurface
     }
@@ -1940,7 +1909,7 @@ internal fun ServerRowContent(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("server-row-${profile.id}")
-            .heightIn(min = ServersDeck.ROW_MIN_HEIGHT_DP.dp, max = ServersDeck.ROW_MAX_HEIGHT_DP.dp)
+            .heightIn(min = ServersDeck.ROW_MIN_HEIGHT_DP.dp)
             .clip(RoundedCornerShape(20.dp))
             // MARBLE_CLEAN_ROW_V249 — the selection and activity tints stay translucent so the page
             // can breathe behind them, but they are laid over an opaque base of the page's own
@@ -1954,6 +1923,8 @@ internal fun ServerRowContent(
                 onLongClick = { onLongPress?.invoke() }
             )
             .semantics {
+                this.selected = if (selectionMode) checked else selected
+                stateDescription = stateLabel
                 contentDescription = listOfNotNull(
                     title,
                     protocolShortLabel(profile),
@@ -1989,19 +1960,7 @@ internal fun ServerRowContent(
         } else {
             Box(contentAlignment = Alignment.Center) {
                 ServerFlagTile(code = countryCode, profile = profile)
-                if (active) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .offset(x = 3.dp, y = 3.dp)
-                            .size(13.dp)
-                            .clip(CircleShape)
-                            .background(colors.surface)
-                            .padding(2.dp)
-                            .clip(CircleShape)
-                            .background(colors.success)
-                    )
-                }
+
             }
         }
 
@@ -2024,17 +1983,10 @@ internal fun ServerRowContent(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (active) {
-                    MarbleGlyphIcon(
-                        glyph = MarbleGlyph.CHECK,
-                        color = colors.success,
-                        modifier = Modifier.size(13.dp),
-                        weight = 1.3f
-                    )
-                }
+
             }
             Text(
-                text = subtitle,
+                text = if (active) "${trx("Active")} · $subtitle" else subtitle,
                 modifier = Modifier.testTag("server-row-transport-${profile.id}"),
                 color = colors.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall,

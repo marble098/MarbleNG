@@ -101,7 +101,7 @@ object MarbleSpec {
 
 fun resolveMarbleDarkMode(themeId: String, systemDark: Boolean): Boolean =
     when (themeId.trim().lowercase()) {
-        "dark", "amoled", "oled", "night" -> true
+        "dark", "amoled", "oled", "night", "trueblack", "true-black", "black" -> true
         "system", "auto" -> systemDark
         else -> false
     }
