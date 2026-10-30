@@ -48,15 +48,42 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A Servers page that is an atlas** — a sources rail that makes a subscription one tap away (with its plan bar and its measured flag cluster), a flag tile on every server drawn from the app's own vector art and filled by the automatic location sweep, one Add pill instead of two buttons, and a sources sheet that owns refresh, scan and edit.
 - **A twelve-expert network council in Settings** — one scan reads the link, the operator, ping, TCP, UDP, DNS, ports, MTU and both address families, then applies the settings it can defend on both cores — with a dissent line for every seat that lost the argument.
 - **A liquid-glass navigation pill** — a floating frosted capsule with a drawn glass lens on top of the row: the glyph under the lens is magnified by a Gaussian profile and tinted electric blue, a finger drags the lens across the tabs with one haptic tick per edge, and letting go springs it to the nearest tab.
+- **A lens that projects the row instead of enlarging one icon** — the navigation pill renders the tabs twice: a muted base row, and an identical, vibrant, magnified copy revealed only through the glass aperture (`clipPath`), so the row under the disc is one continuous magnified image. The puck stretches with drag velocity, grows 8 % under the finger, snaps to the nearest tab on release, and can never leave the capsule.
 - **Settings that speak plainly** — 71 titles and sentences rewritten from mechanism to meaning (`Tunnel Datapath` → `Tunnel path`, `Geo direct domestic separation` → `Iranian sites stay direct`, `Network Council Scanner` → `Network check`), constants no longer printed where words belong (`1.1.1.1 · FORCE_IPV4` → `1.1.1.1 · IPv4 only`), with a test that forbids the jargon and a Persian voice for every one of them.
 
 ## The expressive shell: one control, one decision
 
-`docs/PLAIN_VOICE_V246.md` is the newest chapter.
-`docs/LIQUID_DOCK_V245.md` is the chapter before it.
+`docs/LIQUID_GLASS_LENS_V247.md` is the newest chapter.
+`docs/PLAIN_VOICE_V246.md` is the chapter before it.
+`docs/LIQUID_DOCK_V245.md` is the one before that.
 `docs/SERVERS_DECK_V243.md` is the one before that.
 `docs/CRASH_AND_SERVER_ROWS_V242.md` is the chapter before it.
 `docs/EXPRESSIVE_SHELL_V241.md` records the expressive shell before that.
+
+**V247 — the bottom bar stopped drawing a bigger icon and started projecting the row.** V245 put
+a drawn lens on top of the pill and magnified the glyph underneath it with a Gaussian falloff. That
+is an icon effect: the glass travels, and one icon is redrawn larger. A lens is an *aperture*:
+everything under the glass is a single, continuous, magnified image of the same row, and the glass
+only decides how much of it you see. The bar now renders the row twice inside one capsule — a muted
+base layer at scale 1.0, and an identical overlay at the same bounds, vibrant, bold and scaled
+about each tab's anchor by `1 + 0.36·(1 − d/R)²` (labels take a third of that gain: a glyph is
+measured with the eye, a word is read) — and clips the overlay to a circular path centred
+on the animated lens pixel. The profile reaches exactly 1.0 at the rim, so the two layers are
+continuous there: no seam, no pop, no "selected tab" switching colour at a boundary. The disc is
+drawn on top of the projection (contact shadow, glass body, 1.5dp specular rim, meniscus, caustic,
+reflective arc, chromatic fringe). The gesture is `detectHorizontalDragGestures` over a
+`VelocityTracker`: the aperture follows the finger in the same frame, stretches to
+`1 + min(|v|·0.0003, 0.25)` and squashes to `1 − min(|v|·0.00015, 0.12)`, grows 8 % while pressed,
+fires one `SegmentTick` per crossed edge, and on release publishes the nearest tab and springs to it
+at `dampingRatio 0.6 / stiffness 400`. The centre is clamped to `[itemWidth/2, width − itemWidth/2]`
+in every path — pointer-down, every drag frame, and rotation — so the puck can never protrude. The
+overlay clears its semantics, so the bar is still four tabs and not eight. The AGSL shader the brief
+offered as an optional extra is deliberately absent — a shader that fails to compile draws nothing,
+and losing the navigation row is not an acceptable risk — but its distortion formula is not lost:
+it is the profile the projection is sampled from, on the JVM. `LiquidGlassLensSpec` holds the
+geometry, optics and physics, `LiquidGlassLensV247Test` pins every number, and
+`LiquidGlassBottomBarV247Test` inflates the real bar. `MarbleLiquidDock` is now a thin adapter that
+keeps V245's tabs, accents, connection light, Persian counter and test tags.
 
 **V246 — the ghost text behind the ping, and a Settings page that stopped talking like a
 datasheet.** Two reports. The first said a text appears behind the ping and the three dots when a
