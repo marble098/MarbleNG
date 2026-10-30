@@ -518,6 +518,7 @@ private fun LiquidDockItem(
                 if (tab.badgeCount > 0) {
                     Box(
                         modifier = Modifier
+                            .testTag("dock-badge-${tab.key}")
                             .align(Alignment.TopEnd)
                             .offset(x = 8.dp, y = (-6).dp)
                             .defaultMinSize(

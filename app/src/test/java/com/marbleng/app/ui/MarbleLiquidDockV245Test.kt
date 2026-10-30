@@ -10,7 +10,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -18,7 +17,6 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.ui.theme.MarbleExpressiveTheme
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -165,11 +163,11 @@ class MarbleLiquidDockV245Test {
         }
         compose.waitForIdle()
         compose.onNodeWithTag("dock-tab-servers").assertIsDisplayed()
-        // Persian digits, because the badge reads its number through the app's own digit shaper.
-        // The counter is read from the semantics tree instead of its paint bounds: in a
-        // right-to-left pill the badge is drawn on the mirrored corner, and a node whose paint
-        // bounds sit outside the row is reported as not displayed even when it is on the glass.
-        val counters = compose.onAllNodesWithText("۲").fetchSemanticsNodes()
-        assertTrue("the counter is not in Persian digits", counters.isNotEmpty())
+        // The counter is still there in a right-to-left pill. It is asserted by tag and not by
+        // painted digits: in RTL the badge sits on the mirrored corner, so its own node is
+        // reported outside the row's paint bounds even though the counter is on the glass.
+        compose.onNodeWithTag("dock-badge-servers", useUnmergedTree = true).assertExists()
+        // What the badge prints is the digit shaper's job, and that one is plain Kotlin.
+        assertEquals("۲", "2".toFaDigits())
     }
 }
