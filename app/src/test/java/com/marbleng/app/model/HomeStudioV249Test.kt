@@ -97,12 +97,15 @@ class HomeStudioV249Test {
                 legacyShortcutsVisible = false
             )
         )
-        // …and toggling it from the studio writes the id, which the page saves *together* with the
-        // boolean, so the two records cannot drift apart.
+        // …and the studio's own switch turns it back *on*: the hidden set stays empty and the page
+        // writes the boolean in the same update, so the two records cannot drift apart. A section
+        // hidden only by the boolean is hidden with no id to remove, and removing nothing is right.
         assertEquals(
-            "stats",
+            "",
             HomeStudio.toggleHidden("", HomeSection.STATS, legacyStatsVisible = false)
         )
+        // The other direction needs no boolean at all: the id is the studio's own record.
+        assertEquals("stats", HomeStudio.toggleHidden("", HomeSection.STATS))
         // A section the legacy switches never owned ignores them entirely.
         assertFalse(
             HomeStudio.isHidden(
@@ -116,7 +119,9 @@ class HomeStudioV249Test {
 
     @Test
     fun `unknown ids never reach the hidden set`() {
-        assertEquals(emptySet(), HomeStudio.hiddenIds("bogus,,connect,bogus"))
+        // A real id survives the noise around it; the noise itself never becomes a section.
+        assertEquals(setOf("connect"), HomeStudio.hiddenIds("bogus,,connect,bogus"))
+        assertEquals(emptySet<String>(), HomeStudio.hiddenIds("bogus,,nope,bogus"))
         assertEquals("connect", HomeStudio.canonicalHidden("bogus,connect,connect"))
         assertEquals("", HomeStudio.canonicalHidden("nope"))
         assertEquals("", HomeStudio.canonicalHidden(""))

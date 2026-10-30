@@ -46,9 +46,11 @@ class MapMotionV249Test {
         assertEquals(1, MapMotion.mirrored(-1, rightToLeft = true))
         assertEquals(0, MapMotion.mirrored(0, rightToLeft = true))
         assertEquals(1, MapMotion.mirrored(1, rightToLeft = false))
-        // A direction out of range is clamped before it is mirrored, so a stray 2 cannot become -2.
+        // A direction out of range is clamped before it is mirrored, so a stray 2 cannot become -2
+        // and a stray -7 cannot become -7: the pan is always one of three things.
         assertEquals(-1, MapMotion.mirrored(2, rightToLeft = true))
-        assertEquals(1, MapMotion.mirrored(-7, rightToLeft = false))
+        assertEquals(-1, MapMotion.mirrored(-7, rightToLeft = false))
+        assertEquals(1, MapMotion.mirrored(7, rightToLeft = false))
     }
 
     @Test
