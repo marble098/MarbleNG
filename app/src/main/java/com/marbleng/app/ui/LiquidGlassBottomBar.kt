@@ -5,18 +5,17 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,9 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -39,10 +36,10 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
@@ -52,33 +49,28 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.layer.GraphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -86,25 +78,20 @@ import com.marbleng.app.model.LensDeformation
 import com.marbleng.app.model.LiquidGlassLensSpec
 import com.marbleng.app.ui.theme.rememberReducedMotion
 import kotlinx.coroutines.launch
-import kotlin.math.abs
-
-/** MARBLE_LIQUID_GLASS_LENS_V247 — the marker the integrity audit greps for. */
-const val LIQUID_GLASS_BAR_MARKER: String = "MARBLE_LIQUID_GLASS_LENS_V247"
 
 /**
  * One tab of [LiquidGlassBottomBar].
  *
- * [icon] and [selectedIcon] are composable slots rather than drawables, because the two-tier optic
- * renders the *same* slot twice — once flat and muted for the base layer, once magnified and
- * vibrant for the projection the lens reveals. A slot can draw a `MarbleGlyph` on a `Canvas`, an
- * `ImageVector` through [Icon] (see [glassTabItem]), or anything else the host app owns.
+ * [icon] and [selectedIcon] are composable slots rather than drawables because the two-pass optic
+ * renders the same slot twice: once flat for the passive layer, once bold for the magnified
+ * projection the lens reveals. A slot can draw a `MarbleGlyph` on a `Canvas`, an `ImageVector`
+ * through [Icon] (see [navigationTabItem]), or anything the host app owns.
  *
- * [accent] is the colour the tab turns while the glass is over it. [statusDot] is the living
- * connection light the fourth slot carries when a tunnel is up. [badgeCount] is the red counter;
- * zero draws nothing.
+ * [accent] is the colour the tab takes inside the lens. [statusDot] is the living connection light;
+ * [badgeCount] is the red counter, and zero draws nothing.
  */
 @Immutable
-data class GlassTabItem(
+data class NavigationTabItem(
     val key: String,
     val title: String,
     val badgeCount: Int = 0,
@@ -115,17 +102,17 @@ data class GlassTabItem(
 )
 
 /**
- * The `ImageVector` flavour of [GlassTabItem]: the brief's `title` / `icon` / `selectedIcon` /
- * `badgeCount` quadruple, without asking the caller to write a composable slot by hand.
+ * The `ImageVector` flavour of [NavigationTabItem]: the brief's title/icon/badge quadruple without
+ * asking the caller to write a composable slot by hand.
  */
-fun glassTabItem(
+fun navigationTabItem(
     title: String,
     icon: ImageVector,
     selectedIcon: ImageVector = icon,
     key: String = title,
     badgeCount: Int = 0,
     accent: Color? = null
-): GlassTabItem = GlassTabItem(
+): NavigationTabItem = NavigationTabItem(
     key = key,
     title = title,
     badgeCount = badgeCount,
@@ -139,186 +126,99 @@ fun glassTabItem(
 )
 
 /**
- * The material of the bar. Every stop the brief names is a field, so a host theme can replace the
- * whole skin without touching the optics.
- */
-@Immutable
-data class GlassBarColors(
-    val glassTop: Color,
-    val glassBottom: Color,
-    val rimTop: Color,
-    val rimMid: Color,
-    val rimBottom: Color,
-    val lensTint: Color,
-    val lensRimTop: Color,
-    val lensRimMid: Color,
-    val lensRimBottom: Color,
-    val lensCaustic: Color,
-    val lensFringe: Color,
-    val innerGlow: Color,
-    val inactiveContent: Color,
-    val activeContent: Color,
-    val badgeContainer: Color,
-    val badgeContent: Color,
-    val statusRing: Color,
-    val ambientShadow: Color
-) {
-    companion object {
-        /** The pure material: light or dark, from five colours. Tested on the JVM. */
-        fun of(
-            dark: Boolean,
-            accent: Color,
-            inactiveContent: Color,
-            badgeContainer: Color,
-            badgeContent: Color,
-            surface: Color
-        ): GlassBarColors {
-            val wash = if (dark) LiquidGlassLensSpec.GLASS_ALPHA_DARK else LiquidGlassLensSpec.GLASS_ALPHA
-            return GlassBarColors(
-                glassTop = Color.White.copy(alpha = wash),
-                glassBottom = Color.White.copy(
-                    alpha = if (dark) wash * 0.55f else (wash - 0.06f).coerceAtLeast(0f)
-                ),
-                rimTop = Color.White.copy(alpha = if (dark) 0.42f else 0.9f),
-                rimMid = Color.White.copy(alpha = 0.15f),
-                rimBottom = Color.White.copy(alpha = if (dark) 0.12f else 0.45f),
-                lensTint = Color.White.copy(
-                    alpha = LiquidGlassLensSpec.LENS_GLASS_ALPHA * if (dark) 0.7f else 1f
-                ),
-                lensRimTop = Color.White.copy(alpha = 0.85f),
-                lensRimMid = Color.White.copy(alpha = 0.15f),
-                lensRimBottom = Color.White.copy(alpha = 0.45f),
-                lensCaustic = Color.White.copy(alpha = if (dark) 0.1f else 0.22f),
-                lensFringe = accent.copy(alpha = 0.1f),
-                innerGlow = Color.White.copy(alpha = if (dark) 0.1f else 0.22f),
-                inactiveContent = inactiveContent,
-                activeContent = accent,
-                badgeContainer = badgeContainer,
-                badgeContent = badgeContent,
-                statusRing = if (dark) surface else Color.White,
-                ambientShadow = Color.Black.copy(alpha = LiquidGlassLensSpec.OUTER_SHADOW_ALPHA)
-            )
-        }
-
-        /** The theme-adaptive material: the bar follows the app's scheme unless told otherwise. */
-        @Composable
-        fun themed(accent: Color = MaterialTheme.colorScheme.primary): GlassBarColors {
-            val scheme = MaterialTheme.colorScheme
-            val dark = scheme.surface.luminance() < 0.35f
-            return remember(scheme, accent, dark) {
-                of(
-                    dark = dark,
-                    accent = accent,
-                    inactiveContent = scheme.onSurfaceVariant,
-                    badgeContainer = scheme.error,
-                    badgeContent = scheme.onError,
-                    surface = scheme.surface
-                )
-            }
-        }
-    }
-}
-
-/**
- * MARBLE_LIQUID_GLASS_LENS_V247 — the floating liquid-glass magnifier navigation bar.
+ * MARBLE_CRYSTAL_LENS_V248 — a crystal liquid lens travelling across a frosted stadium.
  *
- * ## The two-tier optical projection
+ * ## Why this file was rebuilt
  *
- * A lens is not an icon effect. Everything under the glass is one continuous, magnified image of
- * the row, and the glass is the aperture that reveals it. Two stacked rows deliver exactly that
- * without a single GPU shader:
+ * V247's optic had three fatal material properties, all visible in a screenshot: the muted base row
+ * stayed visible *underneath* the magnified copy (two glyphs at two scales, read by the eye as a
+ * milky smear); the capsule sampled the page into a blurred `GraphicsLayer` (which softens every
+ * edge it covers, including the row itself); and a 60dp capsule held a 23dp glyph plus a label with
+ * only 4dp of padding (vertical cramping). V248 discards that renderer completely.
  *
- * 1. **Base layer** — every tab at scale 1.0, muted (`#757575`-class content colour), regular
- *    weight. This is the bar as it is: nothing moves, nothing switches.
- * 2. **Overlay layer** — literally the same tabs, in the same [Row] with the same weights and the
- *    same padding, so their layout bounds are identical; drawn vibrant, bold, and scaled about each
- *    tab's own anchor by [LiquidGlassLensSpec.magnificationAt]. The whole layer is then clipped to
- *    the lens aperture (`clipPath` inside `drawWithContent`), so only the part of the magnified
- *    projection that the glass covers is visible.
+ * ## The dual pass
  *
- * Because the projection scale falls to exactly `1.0` at the rim, the two layers are continuous at
- * the aperture edge: there is no seam, no pop, and no "selected tab" that switches colour at a
- * boundary. The disc itself is drawn on top of the projection — contact shadow, glass body, rim
- * light, meniscus, caustic, specular arc — so it reads as a physical object over the row rather
- * than as a coloured circle behind it.
+ * | pass | what it draws | how it is bounded |
+ * |---|---|---|
+ * | base | every tab at scale 1.0, 22dp glyph, 11sp medium label, #5F6368 | clipped **out** of the lens oval, so no base pixel survives under the glass |
+ * | projection | the identical row at 1.30×, bold, accent-tinted | clipped **into** the lens oval only |
  *
- * ## The gesture and the physics
+ * Clipping the base *out* is the part V247 missed: a magnifier does not draw a second image over
+ * the first one, it replaces it. Because both passes use the same `Row`, the same weights, the same
+ * padding and the same anchors, the only thing that changes at the rim is the scale — a hard,
+ * optical boundary rather than a ghosted double image.
  *
- * One `pressure`/`drag` pair owns the aperture, and it is the only writer of its position:
+ * ## Crispness and frame budget
  *
- * - **down** — the aperture is under the finger in the next frame (the held pixel is read straight
- *   by the draw phase, never animated), it grows 8 %, and one `SegmentTick` fires.
- * - **drag** — every move writes the clamped centre; the [VelocityTracker] feeds the liquid squish
- *   (`scaleX = 1 + min(|v|·0.0003, 0.25)`, `scaleY = 1 − min(|v|·0.00015, 0.12)`); crossing a tab
- *   edge is one more tick and nothing else.
- * - **up** — the nearest tab is published, velocity decays, and the aperture springs to that tab's
- *   anchor at [LiquidGlassLensSpec.SNAP_DAMPING_RATIO] / [LiquidGlassLensSpec.SNAP_STIFFNESS].
+ * Nothing in this file is blurred, rasterised or scaled as a bitmap. The projection scale is a
+ * `graphicsLayer` on each slot's *vector* content, with `TransformOrigin.Center`; the aperture is a
+ * `clipPath` in the draw phase; the lens position and its velocity deformation are `Float` state
+ * read only inside `graphicsLayer` / `Canvas` / `drawWithContent` lambdas. A drag therefore
+ * invalidates drawing, never composition: the tab row is composed once per selection, not once per
+ * frame, which is what the 120 Hz requirement asks for.
  *
- * The drag position, the velocity and the press progress are only ever read inside `graphicsLayer`
- * and `Canvas` blocks, so a scrub invalidates drawing, not the composition tree. A 120 Hz panel
- * gets a frame-time cost of one clip path and one shape draw.
+ * ## The gesture
  *
- * ## Why there is no AGSL shader
- *
- * The brief offers an AGSL runtime shader on Android 13+ as an optional enhancement. It is not
- * used, for the reason the two-tier architecture exists: a shader that fails to compile on a
- * device draws nothing at all, which for a navigation bar means the app loses its bottom chrome.
- * The
- * distortion formula itself is not lost — it is evaluated on the JVM in
- * [LiquidGlassLensSpec.magnificationAt], sampled at every tab anchor, which is a curvature profile
- * rather than a flat scale. The only `RenderEffect` in the path is the platform backdrop blur of
- * the capsule, owned by `Modifier.blur`.
+ * `detectHorizontalDragGestures` plus a `VelocityTracker` owns the scrub. Touch-down seats the lens
+ * under the finger immediately; every move writes the clamped pixel; release publishes the nearest
+ * tab, fires one `HapticFeedbackType.TextHandleMove` and springs the lens to that anchor at
+ * `dampingRatio 0.65 / Spring.StiffnessMediumLow`. A tab tap travels the same spring.
  */
 @Composable
 fun LiquidGlassBottomBar(
-    tabs: List<GlassTabItem>,
+    items: List<NavigationTabItem>,
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    barHeight: Dp = 60.dp,
-    floating: Boolean = true,
+    barHeight: Dp = LiquidGlassLensSpec.BAR_HEIGHT_DP.dp,
+    lensDiameter: Dp = LiquidGlassLensSpec.LENS_DIAMETER_DP.dp,
+    horizontalMargin: Dp = LiquidGlassLensSpec.HORIZONTAL_MARGIN_DP.dp,
+    bottomMargin: Dp = LiquidGlassLensSpec.BOTTOM_MARGIN_DP.dp,
     showIcons: Boolean = true,
     showLabels: Boolean = true,
-    iconSize: Dp = 23.dp,
-    colors: GlassBarColors = GlassBarColors.themed(),
+    iconSize: Dp = LiquidGlassLensSpec.ICON_SIZE_DP.dp,
+    inactiveContent: Color = Color(LiquidGlassLensSpec.INACTIVE_CONTENT_ARGB),
+    activeContent: Color = Color(LiquidGlassLensSpec.ACTIVE_CONTENT_ARGB),
+    containerColor: Color = Color.White.copy(alpha = LiquidGlassLensSpec.CAPSULE_ALPHA),
+    badgeContainer: Color = Color(0xFFBA1A1A),
+    badgeContent: Color = Color.White,
     badgeLabel: @Composable (Int) -> String = { count -> LiquidGlassLensSpec.badgeText(count) },
-    backdrop: GraphicsLayer? = null,
-    backdropOrigin: Offset = Offset.Zero,
     tagPrefix: String = "glass-tab-",
     badgeTagPrefix: String = "glass-badge-"
 ) {
-    if (tabs.isEmpty()) return
-    val count = tabs.size
+    val count = items.size
+    if (count == 0) return
     val activeIndex = selectedIndex.coerceIn(0, count - 1)
-    val haptics = LocalHapticFeedback.current
+
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val rtl = layoutDirection == LayoutDirection.Rtl
-    val reducedMotion = rememberReducedMotion()
+    val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    val shape = if (floating) RoundedCornerShape(percent = 50) else RoundedCornerShape(0.dp)
+    val reducedMotion = rememberReducedMotion()
+    // A gesture can outlive the composition that started it; the callback the finger releases
+    // into must be the newest one the parent supplied.
+    val onSelectLatest by rememberUpdatedState(onTabSelected)
 
-    // ---- measured geometry -----------------------------------------------------------------
-    var containerSize by remember { mutableStateOf(IntSize.Zero) }
-    var containerOrigin by remember { mutableStateOf(Offset.Zero) }
-    val innerPaddingPx = with(density) { LiquidGlassLensSpec.INNER_PADDING_DP.dp.toPx() }
-    val insetPx = with(density) { LiquidGlassLensSpec.LENS_INSET_DP.dp.toPx() }
-    val barHeightPx = with(density) { barHeight.toPx() }
-    val contentWidthPx = (containerSize.width - innerPaddingPx * 2f).coerceAtLeast(1f)
-    val itemWidthPx = LiquidGlassLensSpec.itemWidthPx(contentWidthPx, count)
-    val lensRadiusPx = LiquidGlassLensSpec.lensRadiusPx(barHeightPx, insetPx)
+    // ---- measured geometry ----------------------------------------------------------------
+    // The capsule width arrives from layout; every other number is derived from it. The lens is
+    // exactly `lensDiameter` wide, and the clamp is the brief's formula verbatim.
+    var containerWidthPx by remember { mutableFloatStateOf(0f) }
+    val paddingPx = with(density) { LiquidGlassLensSpec.INNER_PADDING_DP.dp.toPx() }
+    val lensWidthPx = with(density) { lensDiameter.toPx() }
+    val itemWidthPx = LiquidGlassLensSpec.itemWidthPx(
+        containerWidthPx = containerWidthPx,
+        paddingStartPx = paddingPx,
+        paddingEndPx = paddingPx,
+        count = count
+    )
 
-    // ---- state: aperture, press, velocity ---------------------------------------------------
-    val lensOffsetX = remember { Animatable(0f) }
-    var heldOffsetX by remember { mutableStateOf<Float?>(null) }
+    // ---- animated state, all read in draw/layer phases only --------------------------------
+    val lensX = remember { Animatable(0f) }
+    var heldLensPx by remember { mutableStateOf<Float?>(null) }
     var velocityX by remember { mutableFloatStateOf(0f) }
-    var pressHeld by remember { mutableStateOf(false) }
-    var dragHeld by remember { mutableStateOf(false) }
     var placed by remember { mutableStateOf(false) }
-    // Press and drag are two pieces of state because they arrive from two detectors: a touch that
-    // has not moved yet is still a touch, and the puck has to answer it.
-    val pressed = pressHeld || dragHeld
-    val lensReady = placed && containerSize.width > 0
+    val lensReady = placed && containerWidthPx > 1f && itemWidthPx > 0f
 
     val settleSpec: FiniteAnimationSpec<Float> = remember(reducedMotion) {
         if (reducedMotion) {
@@ -326,24 +226,25 @@ fun LiquidGlassBottomBar(
         } else {
             spring(
                 dampingRatio = LiquidGlassLensSpec.SNAP_DAMPING_RATIO,
-                stiffness = LiquidGlassLensSpec.SNAP_STIFFNESS
+                stiffness = Spring.StiffnessMediumLow
             )
         }
     }
 
-    val pressProgress = animateFloatAsState(
-        targetValue = if (pressed) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = LiquidGlassLensSpec.PRESS_DAMPING_RATIO,
-            stiffness = LiquidGlassLensSpec.PRESS_STIFFNESS
-        ),
-        label = "liquidGlassPress"
-    )
+    // The single pixel reader the draw phase gets. Reading it during composition would recompose
+    // the row on every drag frame — the exact cost this architecture exists to avoid.
+    val currentLensPx: () -> Float = { heldLensPx ?: lensX.value }
+
+    // The velocity deformation, also a draw-phase read.
+    val currentDeformation: () -> LensDeformation = {
+        LiquidGlassLensSpec.deformation(velocityX)
+    }
 
     fun anchorOf(index: Int): Float = LiquidGlassLensSpec.tabCenterX(
         index = index,
         itemWidthPx = itemWidthPx,
-        containerWidthPx = contentWidthPx,
+        containerWidthPx = containerWidthPx,
+        paddingStartPx = paddingPx,
         rtl = rtl
     )
 
@@ -351,237 +252,210 @@ fun LiquidGlassBottomBar(
         lensCenterX = x,
         itemWidthPx = itemWidthPx,
         count = count,
-        containerWidthPx = contentWidthPx,
+        containerWidthPx = containerWidthPx,
+        paddingStartPx = paddingPx,
         rtl = rtl
     )
 
+    // The brief's bounds, in pixels: half a lens in from each inner padding. The model owns the
+    // arithmetic (and its test); the composable owns only the coercion.
+    val minLensX = LiquidGlassLensSpec.minLensCenterX(paddingPx, lensWidthPx)
+    val maxLensX = LiquidGlassLensSpec.maxLensCenterX(containerWidthPx, paddingPx, lensWidthPx)
+
     fun clamped(x: Float): Float =
-        LiquidGlassLensSpec.clampLensCenterX(x, contentWidthPx, itemWidthPx)
+        if (maxLensX <= minLensX) containerWidthPx / 2f else x.coerceIn(minLensX, maxLensX)
 
-    // The single reader the draw phase gets. Never called during composition, so a drag
-    // recomposes nothing: the pixel reaches the clip path and the disc through the draw phase.
-    val currentLensX: () -> Float = { heldOffsetX ?: lensOffsetX.value }
-    val lensDeformation: () -> LensDeformation = {
-        val press = LiquidGlassLensSpec.pressScale(pressProgress.value)
-        val squish = LiquidGlassLensSpec.deformation(velocityX)
-        LensDeformation(squish.scaleX * press, squish.scaleY * press)
-    }
-
-    // The projection of an anchor under the current aperture. Read-only over the draw state, so a
-    // drag calls it from `graphicsLayer` without recomposing a single tab.
-    fun projectionAt(anchorX: Float): Float =
-        if (!lensReady) {
-            1f
-        } else {
-            LiquidGlassLensSpec.magnificationAt(
-                distancePx = abs(currentLensX() - anchorX),
-                radiusPx = lensRadiusPx * lensDeformation().scaleX
-            )
-        }
-
-    // A selection that arrives from outside the bar — a deep link, the back gesture — travels with
-    // the same spring a finger would have produced. The first measurement seats the aperture on the
-    // active tab with no animation at all.
-    LaunchedEffect(activeIndex, count, contentWidthPx, itemWidthPx, rtl) {
-        if (contentWidthPx <= 1.5f) return@LaunchedEffect
+    // First measurement seats the lens on the active tab with no animation. Every later selection
+    // — a tap, a deep link, the back gesture — travels with the same spring a finger would use.
+    LaunchedEffect(activeIndex, count, containerWidthPx, itemWidthPx, rtl, placed) {
+        if (containerWidthPx <= 1f || itemWidthPx <= 0f) return@LaunchedEffect
         val target = anchorOf(activeIndex)
         if (!placed) {
-            lensOffsetX.snapTo(target)
+            lensX.snapTo(target)
             placed = true
             return@LaunchedEffect
         }
-        // A finger owns the aperture while it is down; the release path below owns it until the
-        // spring has adopted the pixel the finger let go at.
-        if (heldOffsetX != null) return@LaunchedEffect
-        // A rotation can leave the pixel outside a capsule that is now narrower: re-seat it before
-        // the spring, never during.
-        val seated = clamped(lensOffsetX.value)
-        if (seated != lensOffsetX.value) lensOffsetX.snapTo(seated)
-        lensOffsetX.animateTo(target, settleSpec)
+        if (heldLensPx != null) return@LaunchedEffect
+        val seated = clamped(lensX.value)
+        if (seated != lensX.value) lensX.snapTo(seated)
+        lensX.animateTo(target, settleSpec)
     }
 
-    // The press detector only reports that a finger is down, so the puck grows 8 % on the frame of
-    // the touch instead of on the first pixel of a swipe. It is an ancestor of the tabs, and
-    // Compose dispatches the main pass from the innermost node outwards, so a tab's own
-    // `selectable` click still resolves before this detector sees the up.
-    val pressModifier = Modifier.pointerInput(Unit) {
-        detectTapGestures(
-            onPress = {
-                pressHeld = true
-                tryAwaitRelease()
-                pressHeld = false
-            }
-        )
-    }
-
-    val dragModifier = Modifier.pointerInput(count, contentWidthPx, itemWidthPx, rtl, haptics) {
-        if (count == 0 || contentWidthPx <= 1.5f) return@pointerInput
+    // The finger owns the lens from touch-down to release. The pointer pixel is a physical
+    // left-to-right coordinate; the RTL mapping lives in `tabAt`/`anchorOf`, not here.
+    val dragModifier = Modifier.pointerInput(count, containerWidthPx, itemWidthPx, rtl) {
+        if (count == 0 || containerWidthPx <= 1f || itemWidthPx <= 0f) return@pointerInput
         val tracker = VelocityTracker()
-        var slopCarried = false
         detectHorizontalDragGestures(
             onDragStart = { offset ->
-                dragHeld = true
+                val start = clamped(offset.x)
+                heldLensPx = start
                 velocityX = 0f
-                val start = clamped(offset.x - innerPaddingPx)
-                heldOffsetX = start
-                // `onDragStart` fires after the touch slop has been consumed and reports the
-                // position at that instant, so the first drag delta is the slop itself. The puck
-                // was just placed under the finger; adding the slop again would push it ahead of
-                // the finger by the slop distance.
-                slopCarried = true
                 tracker.resetTracking()
                 tracker.addPosition(SystemClock.uptimeMillis(), Offset(start, 0f))
-                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             },
             onHorizontalDrag = { change, dragAmount ->
                 change.consume()
                 tracker.addPosition(change.uptimeMillis, change.position)
                 velocityX = tracker.calculateVelocity().x
-                if (slopCarried) {
-                    slopCarried = false
-                } else {
-                    val current = heldOffsetX ?: lensOffsetX.value
-                    val next = clamped(current + dragAmount)
-                    // One tick per crossed tab edge, and only when it is really crossed: a finger
-                    // jittering inside one slot stays silent.
-                    if (tabAt(current) != tabAt(next)) {
-                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                    }
-                    heldOffsetX = next
-                }
+                val current = heldLensPx ?: lensX.value
+                heldLensPx = clamped(current + dragAmount)
             },
             onDragEnd = {
-                val released = heldOffsetX ?: lensOffsetX.value
+                val released = heldLensPx ?: lensX.value
                 val target = tabAt(released)
-                dragHeld = false
-                onTabSelected(target)
-                val thrown = velocityX
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onSelectLatest(target)
                 // The held pixel stays live until the spring's coroutine has adopted it, so the
-                // aperture never jumps back to the old tab for a frame.
+                // lens never flashes back to the old anchor for a frame.
                 scope.launch {
-                    lensOffsetX.snapTo(released)
-                    heldOffsetX = null
-                    lensOffsetX.animateTo(anchorOf(target), settleSpec)
+                    lensX.snapTo(clamped(released))
+                    heldLensPx = null
+                    lensX.animateTo(anchorOf(target), settleSpec)
                 }
+                val thrown = velocityX
                 scope.launch {
                     animate(
                         initialValue = thrown,
                         targetValue = 0f,
                         initialVelocity = thrown,
                         animationSpec = spring(stiffness = Spring.StiffnessLow)
-                    ) { value, _ ->
-                        velocityX = value
-                    }
+                    ) { value, _ -> velocityX = value }
                 }
             },
             onDragCancel = {
-                val released = heldOffsetX ?: lensOffsetX.value
+                val released = heldLensPx ?: lensX.value
                 val target = tabAt(released)
-                dragHeld = false
                 scope.launch {
-                    lensOffsetX.snapTo(released)
-                    heldOffsetX = null
-                    lensOffsetX.animateTo(anchorOf(target), settleSpec)
+                    lensX.snapTo(clamped(released))
+                    heldLensPx = null
+                    lensX.animateTo(anchorOf(target), settleSpec)
                 }
                 velocityX = 0f
             }
         )
     }
 
+    // ---- paint constants, resolved once ----------------------------------------------------
+    val lensRadiusPx = lensWidthPx / 2f
+    val dropletOffsetPx = with(density) {
+        LiquidGlassLensSpec.DROPLET_SHADOW_OFFSET_Y_DP.dp.toPx()
+    }
+    // Canvas has no blur filter (and a filter over the row is exactly what this revision
+    // removes), so the 8dp droplet blur is expressed as the radial falloff radius of the contact
+    // shadow: lens radius plus half the blur.
+    val dropletBlurPx = with(density) { LiquidGlassLensSpec.DROPLET_SHADOW_DP.dp.toPx() }
+    val dropletShadowRadiusPx = lensRadiusPx + dropletBlurPx / 2f
+    val lensRimPx = with(density) { LiquidGlassLensSpec.LENS_RIM_WIDTH_DP.dp.toPx() }
+    val meniscusInsetPx = with(density) { 2.5.dp.toPx() }
+    val meniscusWidthPx = with(density) { 0.8.dp.toPx() }
+    val arcInsetPx = with(density) { 2.dp.toPx() }
+    val arcWidthPx = with(density) { 1.1.dp.toPx() }
+    val hotspotRadiusPx = lensRadiusPx * 0.2f
+
     Box(
         modifier = modifier
-            .then(
-                if (floating) {
-                    Modifier.padding(
-                        start = LiquidGlassLensSpec.HORIZONTAL_MARGIN_DP.dp,
-                        end = LiquidGlassLensSpec.HORIZONTAL_MARGIN_DP.dp,
-                        bottom = LiquidGlassLensSpec.BOTTOM_MARGIN_DP.dp
-                    )
-                } else {
-                    Modifier
-                }
-            )
             .navigationBarsPadding()
+            .padding(
+                start = horizontalMargin,
+                end = horizontalMargin,
+                bottom = bottomMargin
+            )
     ) {
+        // 1. The diffuse ambient elevation, offset downward. A separate layer from the capsule,
+        //    because Compose shadows are centred on their shape and the brief asks for 6dp of
+        //    vertical bias. No content: a graphics-layer shadow is cast from the outline.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(barHeight)
+                .offset(y = LiquidGlassLensSpec.CAPSULE_SHADOW_OFFSET_Y_DP.dp)
                 .shadow(
-                    elevation = LiquidGlassLensSpec.OUTER_SHADOW_DP.dp,
-                    shape = shape,
+                    elevation = LiquidGlassLensSpec.CAPSULE_SHADOW_DP.dp,
+                    shape = CircleShape,
                     clip = false,
-                    ambientColor = colors.ambientShadow,
-                    spotColor = colors.ambientShadow
-                )
-                .clip(shape)
-                .background(colors.glassBottom)
-                .border(
-                    width = LiquidGlassLensSpec.RIM_WIDTH_DP.dp,
-                    brush = Brush.verticalGradient(
-                        listOf(colors.rimTop, colors.rimMid, colors.rimBottom)
+                    ambientColor = Color.Black.copy(
+                        alpha = LiquidGlassLensSpec.CAPSULE_SHADOW_ALPHA
                     ),
-                    shape = shape
+                    spotColor = Color.Black.copy(
+                        alpha = LiquidGlassLensSpec.CAPSULE_SHADOW_ALPHA
+                    )
                 )
-                .onSizeChanged { containerSize = it }
-                .onGloballyPositioned { containerOrigin = it.positionInWindow() }
-                .then(pressModifier)
+        )
+
+        // 2. The acrylic capsule: a full stadium, frosted white, with one hairline of light.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(barHeight)
+                .clip(CircleShape)
+                .background(color = containerColor)
+                .border(
+                    width = LiquidGlassLensSpec.CAPSULE_RIM_WIDTH_DP.dp,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = LiquidGlassLensSpec.CAPSULE_RIM_TOP_ALPHA),
+                            Color.White.copy(alpha = LiquidGlassLensSpec.CAPSULE_RIM_BOTTOM_ALPHA)
+                        )
+                    ),
+                    shape = CircleShape
+                )
+                .onSizeChanged { containerWidthPx = it.width.toFloat() }
                 .then(dragModifier)
         ) {
-            // 1. The page behind the glass, sampled and blurred. `Modifier.blur` is the platform
-            //    RenderEffect on Android 12+ and a documented no-op below it.
-            if (backdrop != null) {
-                val shift = backdropOrigin - containerOrigin
-                Canvas(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .blur(LiquidGlassLensSpec.BACKDROP_BLUR_DP.dp)
-                ) {
-                    translate(left = shift.x, top = shift.y) {
-                        drawLayer(backdrop)
-                    }
-                }
-            }
-
-            // 2. The frosted acrylic of the capsule itself.
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(Brush.verticalGradient(listOf(colors.glassTop, colors.glassBottom)))
-            )
-
-            // 3. Base layer: the row as it is. Muted, regular weight, scale 1.0 — and the only
-            //    layer with semantics, so assistive tech and tests see one tab, not two.
+            // 3. Pass 1 — the passive row. Everything except the strip under the lens is drawn
+            //    here, in one crisp composition at scale 1.0.
             Row(
                 modifier = Modifier
                     .matchParentSize()
+                    .drawWithContent {
+                        if (!lensReady) {
+                            drawContent()
+                            return@drawWithContent
+                        }
+                        val cx = currentLensPx()
+                        val deformation = currentDeformation()
+                        val rx = lensRadiusPx * deformation.scaleX
+                        val ry = lensRadiusPx * deformation.scaleY
+                        val cy = size.height / 2f
+                        // Even-odd: the capsule minus the lens oval. The base row is *absent*
+                        // under the glass, so the magnified pass is not drawn over a ghost.
+                        val outsideLens = Path().apply {
+                            fillType = PathFillType.EvenOdd
+                            addRect(Rect(0f, 0f, size.width, size.height))
+                            addOval(Rect(cx - rx, cy - ry, cx + rx, cy + ry))
+                        }
+                        clipPath(outsideLens) {
+                            this@drawWithContent.drawContent()
+                        }
+                    }
                     .padding(horizontal = LiquidGlassLensSpec.INNER_PADDING_DP.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                tabs.forEachIndexed { index, tab ->
-                    GlassTabSlot(
-                        item = tab,
+                items.forEachIndexed { index, item ->
+                    CrystalTabSlot(
+                        item = item,
                         active = false,
-                        tint = colors.inactiveContent,
+                        tint = inactiveContent,
                         glyphWeight = 1f,
                         showIcons = showIcons,
                         showLabels = showLabels,
                         iconSize = iconSize,
                         badgeLabel = badgeLabel,
-                        statusRing = colors.statusRing,
-                        badgeContainer = colors.badgeContainer,
-                        badgeContent = colors.badgeContent,
-                        iconScale = { 1f },
-                        labelScale = { 1f },
+                        badgeContainer = badgeContainer,
+                        badgeContent = badgeContent,
+                        statusRing = Color.White,
+                        scale = 1f,
                         decorations = true,
                         interactive = true,
                         selected = index == activeIndex,
                         onSelect = {
-                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onTabSelected(index)
                         },
-                        tag = tagPrefix + tab.key,
-                        badgeTag = badgeTagPrefix + tab.key,
+                        tag = tagPrefix + item.key,
+                        badgeTag = badgeTagPrefix + item.key,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
@@ -589,71 +463,53 @@ fun LiquidGlassBottomBar(
                 }
             }
 
-            // 4. Overlay layer: the same row, same bounds, vibrant and magnified about each anchor,
-            //    revealed only inside the aperture. Semantics are cleared here — this layer is an
-            //    optical duplicate of layer 3, not a second set of controls.
+            // 4. Pass 2 — the projection. Identical row, identical anchors, 1.30× and bold,
+            //    visible only inside the aperture. Semantics are cleared: this is an optical
+            //    duplicate, not a second set of controls.
             Row(
                 modifier = Modifier
                     .matchParentSize()
-                    .padding(horizontal = LiquidGlassLensSpec.INNER_PADDING_DP.dp)
-                    .clearAndSetSemantics { }
                     .drawWithContent {
-                        // Before the first measurement there is no aperture to clip to; drawing
-                        // the projection unmasked for one frame would flash the whole row vibrant.
                         if (!lensReady) return@drawWithContent
-                        val lensX = currentLensX()
-                        val deformation = lensDeformation()
-                        val radiusX = lensRadiusPx * deformation.scaleX
-                        val radiusY = lensRadiusPx * deformation.scaleY
-                        val centreY = size.height / 2f
+                        val cx = currentLensPx()
+                        val deformation = currentDeformation()
+                        val rx = lensRadiusPx * deformation.scaleX
+                        val ry = lensRadiusPx * deformation.scaleY
+                        val cy = size.height / 2f
                         val aperture = Path().apply {
-                            addOval(
-                                Rect(
-                                    lensX - radiusX,
-                                    centreY - radiusY,
-                                    lensX + radiusX,
-                                    centreY + radiusY
-                                )
-                            )
+                            addOval(Rect(cx - rx, cy - ry, cx + rx, cy + ry))
                         }
                         clipPath(aperture) {
                             this@drawWithContent.drawContent()
                         }
-                    },
+                    }
+                    .padding(horizontal = LiquidGlassLensSpec.INNER_PADDING_DP.dp)
+                    .clearAndSetSemantics { },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                tabs.forEachIndexed { index, tab ->
-                    val anchorX = LiquidGlassLensSpec.tabCenterX(
-                        index = index,
-                        itemWidthPx = itemWidthPx,
-                        containerWidthPx = contentWidthPx,
-                        rtl = rtl
-                    )
-                    GlassTabSlot(
-                        item = tab,
+                items.forEachIndexed { index, item ->
+                    CrystalTabSlot(
+                        item = item,
                         active = true,
-                        tint = tab.accent ?: colors.activeContent,
-                        glyphWeight = 1.24f,
+                        tint = item.accent ?: activeContent,
+                        glyphWeight = 1.25f,
                         showIcons = showIcons,
                         showLabels = showLabels,
                         iconSize = iconSize,
                         badgeLabel = badgeLabel,
-                        statusRing = colors.statusRing,
-                        badgeContainer = colors.badgeContainer,
-                        badgeContent = colors.badgeContent,
-                        iconScale = { projectionAt(anchorX) },
-                        labelScale = {
-                            LiquidGlassLensSpec.labelMagnification(projectionAt(anchorX))
-                        },
-                        // The counter and the connection light belong to the bar, not to the
-                        // projection: they are drawn once, on the base layer, where the finger
-                        // and the screen reader both expect them.
-                        decorations = false,
+                        badgeContainer = badgeContainer,
+                        badgeContent = badgeContent,
+                        statusRing = Color.White,
+                        scale = LiquidGlassLensSpec.MAGNIFICATION,
+                        // The base badge is clipped out of the aperture, so the projection may
+                        // draw its own decorations without ever doubling the counter for the eye
+                        // (or for a screen reader: this whole row clears its semantics).
+                        decorations = true,
                         interactive = false,
                         selected = index == activeIndex,
                         onSelect = {},
-                        tag = tagPrefix + tab.key,
-                        badgeTag = badgeTagPrefix + tab.key,
+                        tag = tagPrefix + item.key + "-projection",
+                        badgeTag = badgeTagPrefix + item.key + "-projection",
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
@@ -661,110 +517,139 @@ fun LiquidGlassBottomBar(
                 }
             }
 
-            // 5. The glass disc itself, on top of the projection so its rim, meniscus and caustic
-            //    read as an object in front of the row.
-            Canvas(modifier = Modifier.matchParentSize()) {
+            // 5. The lens body, drawn over the junction of both passes. Its scale is the
+            //    velocity deformation, pivoted on its own centre, so the disc stretches along the
+            //    row and squashes against it without moving off the finger.
+            Canvas(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        val width = size.width
+                        if (width > 0f) {
+                            transformOrigin = TransformOrigin(currentLensPx() / width, 0.5f)
+                        }
+                        val deformation = currentDeformation()
+                        scaleX = deformation.scaleX
+                        scaleY = deformation.scaleY
+                    }
+            ) {
                 if (!lensReady) return@Canvas
-                val lensX = innerPaddingPx + currentLensX()
-                val deformation = lensDeformation()
-                val radiusX = (lensRadiusPx * deformation.scaleX).coerceAtLeast(1f)
-                val radiusY = (lensRadiusPx * deformation.scaleY).coerceAtLeast(1f)
-                val centreY = size.height / 2f
-                val topLeft = Offset(lensX - radiusX, centreY - radiusY)
-                val oval = Size(radiusX * 2f, radiusY * 2f)
+                val center = Offset(currentLensPx(), size.height / 2f)
 
-                // Ambient shadow: diffuse, offset down, wider than the puck.
-                drawOval(
+                // The droplet's own contact shadow: independent of the capsule's elevation and
+                // offset farther down, so the puck reads as resting *on* the glass. It is clipped
+                // to the outside of the lens: a shadow that reached under the crystal would tint
+                // the magnified row and bring the milky disc straight back.
+                val shadowOutsideLens = Path().apply {
+                    fillType = PathFillType.EvenOdd
+                    addRect(Rect(0f, 0f, size.width, size.height))
+                    addOval(
+                        Rect(
+                            center.x - lensRadiusPx,
+                            center.y - lensRadiusPx,
+                            center.x + lensRadiusPx,
+                            center.y + lensRadiusPx
+                        )
+                    )
+                }
+                clipPath(shadowOutsideLens) {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color.Black.copy(
+                                    alpha = LiquidGlassLensSpec.DROPLET_SHADOW_ALPHA
+                                ),
+                                Color.Black.copy(
+                                    alpha = LiquidGlassLensSpec.DROPLET_SHADOW_ALPHA * 0.4f
+                                ),
+                                Color.Transparent
+                            ),
+                            center = Offset(center.x, center.y + dropletOffsetPx),
+                            radius = dropletShadowRadiusPx
+                        ),
+                        radius = dropletShadowRadiusPx,
+                        center = Offset(center.x, center.y + dropletOffsetPx)
+                    )
+                }
+
+                // The translucent crystal core. 0.12 white: the projection underneath stays the
+                // dominant layer and remains legible while the lens is in transit.
+                drawCircle(
+                    color = Color.White.copy(alpha = LiquidGlassLensSpec.LENS_CORE_ALPHA),
+                    radius = lensRadiusPx,
+                    center = center
+                )
+
+                // The caustic: light refracted through the curved rim lands along the inner
+                // perimeter, transparent at the axis.
+                drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = LiquidGlassLensSpec.AMBIENT_SHADOW_ALPHA),
+                            Color.Transparent,
+                            Color.White.copy(alpha = LiquidGlassLensSpec.LENS_CAUSTIC_ALPHA)
+                        ),
+                        center = center,
+                        radius = lensRadiusPx
+                    ),
+                    radius = lensRadiusPx,
+                    center = center
+                )
+
+                // The room, reflected once in the upper-left quadrant.
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.22f),
                             Color.Transparent
                         ),
-                        center = Offset(lensX, centreY + radiusY * 0.45f),
-                        radius = maxOf(radiusX, radiusY) * 1.4f
-                    ),
-                    topLeft = Offset(
-                        lensX - radiusX * 1.12f,
-                        topLeft.y + LiquidGlassLensSpec.AMBIENT_SHADOW_OFFSET_Y_DP.dp.toPx()
-                    ),
-                    size = Size(radiusX * 2.24f, radiusY * 2.12f)
-                )
-
-                // The glass body: a radial wash that peaks above the centre, so the top of the
-                // disc catches the room's light.
-                drawOval(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            colors.lensTint,
-                            colors.lensTint.copy(alpha = colors.lensTint.alpha * 0.35f)
+                        center = Offset(
+                            center.x - lensRadiusPx * 0.34f,
+                            center.y - lensRadiusPx * 0.38f
                         ),
-                        center = Offset(lensX, centreY - radiusY * 0.35f),
-                        radius = maxOf(radiusX, radiusY) * 1.25f
+                        radius = hotspotRadiusPx * 1.6f
                     ),
-                    topLeft = topLeft,
-                    size = oval
+                    radius = hotspotRadiusPx,
+                    center = Offset(
+                        center.x - lensRadiusPx * 0.34f,
+                        center.y - lensRadiusPx * 0.38f
+                    )
                 )
 
-                // The specular rim: crisp top-left, semi-transparent middle, soft bottom-right.
-                drawOval(
+                // The dual specular ring: incandescent top-left, translucent flanks, a soft
+                // ambient bounce at the bottom-right.
+                drawCircle(
                     brush = Brush.linearGradient(
                         colors = listOf(
-                            colors.lensRimTop,
-                            colors.lensRimMid,
-                            colors.lensRimBottom
+                            Color.White.copy(alpha = LiquidGlassLensSpec.LENS_RIM_TOP_ALPHA),
+                            Color.White.copy(alpha = LiquidGlassLensSpec.LENS_RIM_MID_ALPHA),
+                            Color.White.copy(alpha = LiquidGlassLensSpec.LENS_RIM_BOTTOM_ALPHA)
                         ),
-                        start = topLeft,
-                        end = Offset(topLeft.x + oval.width, topLeft.y + oval.height)
+                        start = Offset(center.x - lensRadiusPx, center.y - lensRadiusPx),
+                        end = Offset(center.x + lensRadiusPx, center.y + lensRadiusPx)
                     ),
-                    topLeft = topLeft,
-                    size = oval,
-                    style = Stroke(width = LiquidGlassLensSpec.RIM_WIDTH_DP.dp.toPx())
+                    radius = (lensRadiusPx - lensRimPx / 2f).coerceAtLeast(0f),
+                    center = center,
+                    style = Stroke(width = lensRimPx)
                 )
 
-                // The meniscus: a second hairline that gives the glass thickness.
-                val meniscusInset = 2.4.dp.toPx()
-                drawOval(
-                    color = colors.innerGlow,
-                    topLeft = Offset(topLeft.x + meniscusInset, topLeft.y + meniscusInset),
-                    size = Size(
-                        (oval.width - meniscusInset * 2f).coerceAtLeast(1f),
-                        (oval.height - meniscusInset * 2f).coerceAtLeast(1f)
-                    ),
-                    style = Stroke(width = 0.8.dp.toPx())
+                // The meniscus: a second hairline that gives the glass its thickness.
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.32f),
+                    radius = (lensRadiusPx - meniscusInsetPx).coerceAtLeast(0f),
+                    center = center,
+                    style = Stroke(width = meniscusWidthPx)
                 )
 
-                // The caustic: light bent through the drop lands on its lower half.
-                drawOval(
-                    brush = Brush.radialGradient(
-                        colors = listOf(colors.lensCaustic, Color.Transparent),
-                        center = Offset(lensX, centreY + radiusY * 0.45f),
-                        radius = radiusX * 0.7f
-                    ),
-                    topLeft = topLeft,
-                    size = oval
-                )
-
-                // The specular arc across the upper rim: the room, reflected once.
-                val arcInset = 2.dp.toPx()
+                // The specular arc across the upper rim.
+                val arcRadius = (lensRadiusPx - arcInsetPx).coerceAtLeast(0f)
                 drawArc(
-                    color = Color.White.copy(alpha = 0.5f),
+                    color = Color.White.copy(alpha = 0.62f),
                     startAngle = 200f,
                     sweepAngle = 140f,
                     useCenter = false,
-                    topLeft = Offset(topLeft.x + arcInset, topLeft.y + arcInset),
-                    size = Size(
-                        (oval.width - arcInset * 2f).coerceAtLeast(1f),
-                        (oval.height - arcInset * 2f).coerceAtLeast(1f)
-                    ),
-                    style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round)
-                )
-
-                // The chromatic fringe: a lens this small splits light by a hair, not a rainbow.
-                drawOval(
-                    color = colors.lensFringe,
-                    topLeft = Offset(topLeft.x + 0.6.dp.toPx(), topLeft.y),
-                    size = oval,
-                    style = Stroke(width = 0.7.dp.toPx())
+                    topLeft = Offset(center.x - arcRadius, center.y - arcRadius),
+                    size = Size(arcRadius * 2f, arcRadius * 2f),
+                    style = Stroke(width = arcWidthPx, cap = StrokeCap.Round)
                 )
             }
         }
@@ -772,16 +657,16 @@ fun LiquidGlassBottomBar(
 }
 
 /**
- * One tab, drawn by either layer.
+ * One tab, drawn by either pass.
  *
- * The magnification lives in `graphicsLayer` and the tint arrives as a plain argument, so a drag
- * never recomposes a slot — it invalidates the layer that reads [iconScale]. The label keeps a
- * two-state colour and weight: text that changes size under a finger reads as a bug rather than as
- * an optic, which is why only the glyph carries the full projection scale.
+ * The magnification is a `graphicsLayer` on the slot's vector content about its own centre, so the
+ * slot's layout anchor does not move and the composable is never rasterised into a bitmap. The
+ * label keeps the same two-state weight and colour as the glyph: type that changes size under a
+ * finger is a magnification, not a re-layout.
  */
 @Composable
-private fun GlassTabSlot(
-    item: GlassTabItem,
+private fun CrystalTabSlot(
+    item: NavigationTabItem,
     active: Boolean,
     tint: Color,
     glyphWeight: Float,
@@ -789,11 +674,10 @@ private fun GlassTabSlot(
     showLabels: Boolean,
     iconSize: Dp,
     badgeLabel: @Composable (Int) -> String,
-    statusRing: Color,
     badgeContainer: Color,
     badgeContent: Color,
-    iconScale: () -> Float,
-    labelScale: () -> Float,
+    statusRing: Color,
+    scale: Float,
     decorations: Boolean,
     interactive: Boolean,
     selected: Boolean,
@@ -802,46 +686,50 @@ private fun GlassTabSlot(
     badgeTag: String,
     modifier: Modifier = Modifier
 ) {
-    val labelStyle = MaterialTheme.typography.labelSmall.copy(
-        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
+    val labelStyle = TextStyle(
+        fontSize = LiquidGlassLensSpec.LABEL_FONT_SP.sp,
+        lineHeight = (LiquidGlassLensSpec.LABEL_FONT_SP + 2f).sp,
+        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+        letterSpacing = 0.15.sp
     )
+
     Column(
         modifier = modifier
             .testTag(tag)
             .then(
                 if (interactive) {
-                    Modifier.selectable(selected = selected, role = Role.Tab, onClick = onSelect)
+                    Modifier.selectable(
+                        selected = selected,
+                        role = Role.Tab,
+                        onClick = onSelect
+                    )
                 } else {
                     Modifier
                 }
             )
-            .padding(vertical = 4.dp),
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = TransformOrigin.Center
+            },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         if (showIcons) {
-            Box(contentAlignment = Alignment.Center) {
-                Box(
-                    modifier = Modifier
-                        .size(iconSize)
-                        .graphicsLayer {
-                            val scale = iconScale()
-                            scaleX = scale
-                            scaleY = scale
-                            transformOrigin = TransformOrigin(0.5f, 0.45f)
-                        }
-                ) {
-                    val glyph = if (active) item.selectedIcon ?: item.icon else item.icon
-                    if (glyph != null) {
-                        glyph.invoke(tint, glyphWeight, Modifier.matchParentSize())
-                    }
+            Box(
+                modifier = Modifier.size(iconSize),
+                contentAlignment = Alignment.Center
+            ) {
+                val glyph = if (active) item.selectedIcon ?: item.icon else item.icon
+                if (glyph != null) {
+                    glyph.invoke(tint, glyphWeight, Modifier.matchParentSize())
                 }
                 if (decorations && item.statusDot != null) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .offset(x = 3.dp, y = 3.dp)
-                            .size(9.dp)
+                            .offset(x = 2.dp, y = 2.dp)
+                            .size(LiquidGlassLensSpec.STATUS_DOT_SIZE_DP.dp)
                             .clip(CircleShape)
                             .background(item.statusDot)
                             .border(1.2.dp, statusRing, CircleShape)
@@ -852,28 +740,32 @@ private fun GlassTabSlot(
                         modifier = Modifier
                             .testTag(badgeTag)
                             .align(Alignment.TopEnd)
-                            .offset(x = 8.dp, y = (-6).dp)
+                            .offset(x = 6.dp, y = (-5).dp)
                             .defaultMinSize(
                                 minWidth = LiquidGlassLensSpec.BADGE_MIN_SIZE_DP.dp,
                                 minHeight = LiquidGlassLensSpec.BADGE_MIN_SIZE_DP.dp
                             )
                             .clip(CircleShape)
                             .background(badgeContainer)
-                            .border(1.4.dp, statusRing, CircleShape)
-                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                            .border(1.2.dp, statusRing, CircleShape)
+                            .padding(horizontal = 3.dp, vertical = 1.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = badgeLabel(item.badgeCount),
                             color = badgeContent,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 10.sp,
+                            style = TextStyle(
+                                fontSize = 9.sp,
+                                lineHeight = 9.sp,
                                 fontWeight = FontWeight.Bold
                             ),
                             maxLines = 1
                         )
                     }
                 }
+            }
+            if (showLabels) {
+                Spacer(modifier = Modifier.height(LiquidGlassLensSpec.LABEL_GAP_DP.dp))
             }
         }
         if (showLabels) {
@@ -884,15 +776,7 @@ private fun GlassTabSlot(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = if (showIcons) 2.dp else 0.dp)
-                    .graphicsLayer {
-                        val scale = labelScale()
-                        scaleX = scale
-                        scaleY = scale
-                        transformOrigin = TransformOrigin(0.5f, 0.5f)
-                    }
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
