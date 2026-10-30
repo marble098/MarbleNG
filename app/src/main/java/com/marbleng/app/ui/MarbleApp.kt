@@ -1,5 +1,6 @@
 package com.marbleng.app.ui
 
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -49,8 +50,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.unit.toIntSize
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
@@ -254,59 +263,90 @@ private fun MarbleRootShell(
                         .fillMaxHeight(),
                     contentAlignment = Alignment.TopCenter
                 ) {
-                    Box(modifier = Modifier.fillMaxSize().widthIn(max = 840.dp)) {
-        if (detailProfile != null) {
-            ServerDetailPage(
-                repo = repo,
-                profile = detailProfile,
-                onBack = {
-                    inspectingProfileId = ""
-                    inspectingProfileSource = ""
-                },
-                onConnect = onConnect
-            )
-        } else {
-            when (activeTab) {
-                MarbleRootTab.HOME -> HomeScreen(
-                    repo = repo,
-                    onConnect = onConnect,
-                    onOpenServers = { rememberedTab = MarbleRootTab.SERVERS },
-                    onOpenServerDetail = openDetail,
-                    onOpenQrImport = { showQrSheet = true },
-                    onOpenAddSheet = { showAddSheet = true },
-                    onOpenExitIpSheet = { showExitIpSheet = true },
-                    onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
-                    onOpenSettingsPage = openSettingsDest,
-                    onContentScrollChanged = reportScroll
-                )
+                    // MARBLE_LIQUID_DOCK_V245 — the page is recorded into a graphics layer so
+                    // the pill above it can sample, blur and wash the pixels it actually covers.
+                    // On Android 12+ that sample is what makes the glass read as glass; below it
+                    // the dock keeps its wash and no layer is recorded at all.
+                    val blurSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                    val pageLayer = rememberGraphicsLayer()
+                    var pageOrigin by remember { mutableStateOf(Offset.Zero) }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .widthIn(max = 840.dp)
+                            .onGloballyPositioned { pageOrigin = it.positionInWindow() }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .drawWithContent {
+                                    if (blurSupported) {
+                                        pageLayer.record(
+                                            density = this,
+                                            layoutDirection = layoutDirection,
+                                            size = size.toIntSize()
+                                        ) {
+                                            this@drawWithContent.drawContent()
+                                        }
+                                        drawLayer(pageLayer)
+                                    } else {
+                                        this@drawWithContent.drawContent()
+                                    }
+                                }
+                        ) {
+                        if (detailProfile != null) {
+                            ServerDetailPage(
+                                repo = repo,
+                                profile = detailProfile,
+                                onBack = {
+                                    inspectingProfileId = ""
+                                    inspectingProfileSource = ""
+                                },
+                                onConnect = onConnect
+                            )
+                        } else {
+                            when (activeTab) {
+                                MarbleRootTab.HOME -> HomeScreen(
+                                    repo = repo,
+                                    onConnect = onConnect,
+                                    onOpenServers = { rememberedTab = MarbleRootTab.SERVERS },
+                                    onOpenServerDetail = openDetail,
+                                    onOpenQrImport = { showQrSheet = true },
+                                    onOpenAddSheet = { showAddSheet = true },
+                                    onOpenExitIpSheet = { showExitIpSheet = true },
+                                    onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
+                                    onOpenSettingsPage = openSettingsDest,
+                                    onContentScrollChanged = reportScroll
+                                )
 
-                MarbleRootTab.SERVERS -> ServersScreen(
-                    repo = repo,
-                    onConnect = onConnect,
-                    onOpenDetail = openDetail,
-                    onOpenAddSheet = { showAddSheet = true },
-                    onOpenQrImport = { showQrSheet = true },
-                    onContentScrollChanged = reportScroll
-                )
+                                MarbleRootTab.SERVERS -> ServersScreen(
+                                    repo = repo,
+                                    onConnect = onConnect,
+                                    onOpenDetail = openDetail,
+                                    onOpenAddSheet = { showAddSheet = true },
+                                    onOpenQrImport = { showQrSheet = true },
+                                    onContentScrollChanged = reportScroll
+                                )
 
-                MarbleRootTab.CUSTOM_SLOT -> CustomSlotScreen(
-                    repo = repo,
-                    onConnect = onConnect,
-                    onOpenDetail = openDetail,
-                    onCustomizeSlot = { openSettingsDest(SettingsDestination.TAB_BAR) },
-                    onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
-                    onContentScrollChanged = reportScroll
-                )
+                                MarbleRootTab.CUSTOM_SLOT -> CustomSlotScreen(
+                                    repo = repo,
+                                    onConnect = onConnect,
+                                    onOpenDetail = openDetail,
+                                    onCustomizeSlot = { openSettingsDest(SettingsDestination.TAB_BAR) },
+                                    onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
+                                    onContentScrollChanged = reportScroll
+                                )
 
-                MarbleRootTab.SETTINGS -> SettingsScreen(
-                    repo = repo,
-                    activeDestination = activeSettingsPage,
-                    onOpenDestination = { activeSettingsPage = it },
-                    onCloseDestination = { activeSettingsPage = null },
-                    onContentScrollChanged = reportScroll
-                )
-            }
-        }
+                                MarbleRootTab.SETTINGS -> SettingsScreen(
+                                    repo = repo,
+                                    activeDestination = activeSettingsPage,
+                                    onOpenDestination = { activeSettingsPage = it },
+                                    onCloseDestination = { activeSettingsPage = null },
+                                    onContentScrollChanged = reportScroll
+                                )
+                            }
+                        }
+                    }
 
         // Fully qualified: inside the rail Row the RowScope overload would win resolution.
         androidx.compose.animation.AnimatedVisibility(
@@ -351,7 +391,9 @@ private fun MarbleRootShell(
                     repo = repo,
                     tabs = visibleTabs,
                     selected = activeTab,
-                    onSelect = selectTab
+                    onSelect = selectTab,
+                    backdrop = if (blurSupported) pageLayer else null,
+                    backdropOrigin = pageOrigin
                 )
             }
         }
@@ -479,31 +521,36 @@ private fun MarbleNavigationRail(
     }
 }
 
+/**
+ * MARBLE_LIQUID_DOCK_V245 — the bottom chrome is now [MarbleLiquidDock]: one floating frosted
+ * capsule with a glass lens on top of it, replacing the tonal bar and its measured blue line.
+ *
+ * This function is the *adapter*, and it is deliberately thin. Everything the settings already
+ * promise still holds — dock size, floating versus attached, labels on or off, icons on or off, the
+ * fourth tab's own glyph and accent, the connection light — and it is translated into one
+ * [MarbleDockTab] per visible tab. The only new element is the red counter: it carries the things
+ * that are genuinely waiting for a tap, an update or a scan whose result is not applied.
+ */
 @Composable
 private fun MarbleBottomTabBar(
     repo: AppRepository,
     tabs: List<MarbleRootTab>,
     selected: MarbleRootTab,
     onSelect: (MarbleRootTab) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    backdrop: GraphicsLayer? = null,
+    backdropOrigin: Offset = Offset.Zero
 ) {
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
-    val haptics = LocalHapticFeedback.current
     val s = repo.settings
     val size = parseDockSize(s.dockSize)
-    val presentation = parseDockPresentation(s.dockSize)
-    val floating = presentation == DockPresentation.FLOATING
+    val floating = parseDockPresentation(s.dockSize) == DockPresentation.FLOATING
     val showIcons = dockShowsIcons(s.dockShowIcons, s.dockShowLabels)
     val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
     val slot = resolveDockSlot(repo)
     val slotIcon = dockSlotMarbleGlyph(parseDockSlotIcon(s.dockSlotIcon))
     val slotColor = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
-
-    // MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — one measured geometry, shared with the JVM test.
-    val barHeight = DockIndicatorSpec.barHeightDp(size).dp
-    val iconSize = DockIndicatorSpec.iconSizeDp(size).dp
-
     val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
         when (repo.state) {
             "CONNECTED" -> colors.success
@@ -514,164 +561,48 @@ private fun MarbleBottomTabBar(
         null
     }
 
-    // MARBLE_EXPRESSIVE_SHELL_V241 — the dock is a floating tonal object: wide 28 dp corners,
-    // one soft shadow, and no hairline on top of it. The line was the "patch stitched onto the
-    // content" the audit complained about; the shadow and the tone step do the separation now.
-    val barShape = RoundedCornerShape(if (floating) 28.dp else 0.dp)
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(
-                if (floating) {
-                    Modifier.padding(
-                        horizontal = 14.dp,
-                        vertical = MarbleSpec.DOCK_FLOAT_MARGIN_DP.dp
-                    )
-                } else {
-                    Modifier
-                }
-            )
-            .navigationBarsPadding()
-            .then(
-                if (floating) {
-                    Modifier.shadow(14.dp, barShape).clip(barShape)
-                } else {
-                    Modifier
-                }
-            )
-            .background(colors.surfaceContainer)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(barHeight)
-                .padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            tabs.forEach { tab ->
-                val isSelected = tab == selected
-                val activeColor = if (tab == MarbleRootTab.CUSTOM_SLOT) slotColor else colors.primary
-                val tint = if (isSelected) activeColor else colors.onSurfaceVariant
-                val glyph = when (tab) {
-                    MarbleRootTab.HOME -> MarbleGlyph.HOME
-                    MarbleRootTab.SERVERS -> MarbleGlyph.SERVER
-                    MarbleRootTab.CUSTOM_SLOT -> slotIcon
-                    MarbleRootTab.SETTINGS -> MarbleGlyph.TUNERS
-                }
-                val label = when (tab) {
-                    MarbleRootTab.HOME -> strings.tabHome
-                    MarbleRootTab.SERVERS -> strings.tabLibrary
-                    MarbleRootTab.CUSTOM_SLOT -> trx(slot.title)
-                    MarbleRootTab.SETTINGS -> strings.tabSettings
-                }
-
-                val pillShape = RoundedCornerShape(MarbleSpec.DOCK_ACTIVE_PILL_CORNER_DP.dp)
-                val pillColor by animateColorAsState(
-                    targetValue = if (isSelected) colors.secondaryContainer else Color.Transparent,
-                    label = "dockPill"
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(pillShape)
-                        .background(pillColor)
-                        .clickable(
-                            role = Role.Tab,
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                            onSelect(tab)
-                        }
-                        .padding(
-                            vertical = DockIndicatorSpec.TAB_VERTICAL_PADDING_DP.dp,
-                            horizontal = 4.dp
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        if (showIcons) {
-                            Box(contentAlignment = Alignment.Center) {
-                                MarbleGlyphIcon(
-                                    glyph = glyph,
-                                    color = tint,
-                                    modifier = Modifier.size(iconSize),
-                                    weight = if (isSelected) 1.18f else 1f
-                                )
-                                if (tab == MarbleRootTab.CUSTOM_SLOT && statusDotColor != null) {
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .offset(x = 4.dp, y = (-3).dp)
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(statusDotColor)
-                                            .border(1.2.dp, colors.surfaceContainer, CircleShape)
-                                    )
-                                }
-                                // V233: the line is NOT here any more. It used to be an unmeasured
-                                // child of this icon box, pushed 10dp down with offset(), so it
-                                // overlapped the label and was clipped by the active pill. It is
-                                // now a measured sibling directly under the icon.
-                            }
-                            DockActiveIndicator(visible = isSelected, color = activeColor)
-                        }
-                        if (showLabels) {
-                            Text(
-                                text = label,
-                                color = tint,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        if (!showIcons) {
-                            DockActiveIndicator(visible = isSelected, color = activeColor)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * MARBLE_PERSIAN_CONNECT_DOCK_COUNCIL_V233 — the active tab's little line, in the right place.
- *
- * It is a measured [DockIndicatorSpec.SLOT_DP] slot that EVERY tab reserves, so the labels of
- * unselected tabs do not sit one line higher than the selected one. No offset, no alignment to
- * the icon box, no dependence on icon size or text scale: the line is centred in its own slot,
- * directly under the icon (or under the label when icons are hidden).
- */
-@Composable
-private fun DockActiveIndicator(visible: Boolean, color: Color) {
-    val progress by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "dockActiveIndicator"
+    // The red counter is a notification, so it is fed by notifications: a published update nobody
+    // has dismissed, plus the findings of the last scan that are still waiting to be applied.
+    val notices = LiquidDockNotices.count(
+        updateAvailable = repo.availableUpdate != null,
+        unappliedFindings = repo.councilReport
+            ?.takeIf { !it.applied }
+            ?.findings
+            ?.size
+            ?: 0
     )
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(DockIndicatorSpec.SLOT_DP.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        if (progress > 0.01f) {
-            Box(
-                modifier = Modifier
-                    .size(
-                        width = (DockIndicatorSpec.WIDTH_DP * (0.45f + 0.55f * progress)).dp,
-                        height = DockIndicatorSpec.HEIGHT_DP.dp
-                    )
-                    .clip(CircleShape)
-                    .background(color.copy(alpha = 0.9f * progress))
-            )
-        }
+
+    val dockTabs = tabs.map { tab ->
+        MarbleDockTab(
+            key = tab.name,
+            label = when (tab) {
+                MarbleRootTab.HOME -> strings.tabHome
+                MarbleRootTab.SERVERS -> strings.tabLibrary
+                MarbleRootTab.CUSTOM_SLOT -> trx(slot.title)
+                MarbleRootTab.SETTINGS -> strings.tabSettings
+            },
+            glyph = when (tab) {
+                MarbleRootTab.HOME -> MarbleGlyph.HOME
+                MarbleRootTab.SERVERS -> MarbleGlyph.SERVER
+                MarbleRootTab.CUSTOM_SLOT -> slotIcon
+                MarbleRootTab.SETTINGS -> MarbleGlyph.TUNERS
+            },
+            accent = if (tab == MarbleRootTab.CUSTOM_SLOT) slotColor else colors.primary,
+            badgeCount = if (tab == MarbleRootTab.SETTINGS) notices else 0,
+            statusDot = if (tab == MarbleRootTab.CUSTOM_SLOT) statusDotColor else null
+        )
     }
+
+    MarbleLiquidDock(
+        tabs = dockTabs,
+        selectedIndex = tabs.indexOf(selected).coerceAtLeast(0),
+        onSelect = { index -> tabs.getOrNull(index)?.let(onSelect) },
+        modifier = modifier,
+        size = size,
+        showIcons = showIcons,
+        showLabels = showLabels,
+        floating = floating,
+        backdrop = backdrop,
+        backdropOrigin = backdropOrigin
+    )
 }

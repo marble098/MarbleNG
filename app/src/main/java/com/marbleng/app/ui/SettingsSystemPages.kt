@@ -54,7 +54,7 @@ fun SettingsSubscriptionsPage(
     val s = repo.settings
 
     MarbleSubPageScaffold(
-        title = trx("Subscriptions & Auto-Refresh"),
+        title = trx("Subscriptions & refresh"),
         onBack = onBack
     ) {
         item(key = "sub-refresh-card") {
@@ -113,7 +113,7 @@ fun SettingsBackupRestorePage(
     }
 
     MarbleSubPageScaffold(
-        title = trx("Backup & Restore"),
+        title = trx("Backup"),
         onBack = onBack
     ) {
         item(key = "backup-actions") {
@@ -238,7 +238,7 @@ fun SettingsNotificationsPage(
     }
 
     MarbleSubPageScaffold(
-        title = trx("Notifications & Background"),
+        title = trx("Notifications & battery"),
         onBack = onBack
     ) {
         item(key = "permissions-status") {
@@ -662,7 +662,7 @@ fun SettingsDiagnosticsPage(
     var tab by rememberSaveable { mutableStateOf(DiagnosticsTab.BUG_FINDER) }
 
     MarbleSubPageScaffold(
-        title = trx("Diagnostics, Logs & Bug Finder"),
+        title = trx("Fix & diagnose"),
         onBack = onBack
     ) {
         item(key = "diag-tabs") {

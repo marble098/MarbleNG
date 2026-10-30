@@ -523,6 +523,19 @@ files = {
     "settingsAppearance": read(
         "app/src/main/java/com/marbleng/app/ui/SettingsAppearancePages.kt"
     ),
+    # MARBLE_LIQUID_DOCK_V245 — the bottom bar became a floating glass pill: the geometry/physics/
+    # optics model, the composable that draws it, the JVM arithmetic, the inflated pill and the
+    # chapter.
+    "liquidDockModel": read("app/src/main/java/com/marbleng/app/model/LiquidDock.kt"),
+    "liquidDockUi": read("app/src/main/java/com/marbleng/app/ui/MarbleLiquidDock.kt"),
+    "liquidDockTest": read("app/src/test/java/com/marbleng/app/model/LiquidDockV245Test.kt"),
+    "liquidDockUiTest": read("app/src/test/java/com/marbleng/app/ui/MarbleLiquidDockV245Test.kt"),
+    "liquidDockDoc": read("docs/LIQUID_DOCK_V245.md"),
+    # MARBLE_PLAIN_VOICE_V246 — the ghost text behind the ping (the swipe reveal drawn through a
+    # selected row) and the plain-language pass over Settings: the rule, its test and the chapter.
+    "plainVoice": read("app/src/main/java/com/marbleng/app/model/PlainVoice.kt"),
+    "plainVoiceTest": read("app/src/test/java/com/marbleng/app/model/PlainVoiceV246Test.kt"),
+    "plainVoiceDoc": read("docs/PLAIN_VOICE_V246.md"),
 }
 
 workflow_sources = "\n".join(
@@ -3577,15 +3590,18 @@ check(
 )
 
 check(
-    "V233 the active dock line is measured, centred and no longer offset",
+    "V233 the active dock line is measured, centred and no longer offset (retired by V245)",
     "object DockIndicatorSpec" in files["v233DockSpec"]
     and "const val SLOT_DP: Int = 6" in files["v233DockSpec"]
     and "const val WIDTH_DP: Int = 18" in files["v233DockSpec"]
     and "fun allFit(): Boolean" in files["v233DockSpec"]
-    and "fun DockActiveIndicator(visible: Boolean, color: Color)" in files["marbleApp"]
-    and "DockIndicatorSpec.SLOT_DP.dp" in files["marbleApp"]
-    and "DockIndicatorSpec.barHeightDp(size).dp" in files["marbleApp"]
-    and "DockActiveIndicator(visible = isSelected, color = activeColor)" in files["marbleApp"]
+    and "DockIndicatorSpec.barHeightDp(size)" in files["liquidDockModel"]
+    # MARBLE_LIQUID_DOCK_V245 — the bar is a glass pill now and the measured blue line is retired
+    # from the app. The spec and its test stay as the record of "measured instead of offset";
+    # nothing may quietly draw the line again.
+    and "fun DockActiveIndicator(" not in files["marbleApp"]
+    and "DockIndicatorSpec.SLOT_DP.dp" not in files["marbleApp"]
+    and "DockActiveIndicator(visible = isSelected, color = activeColor)" not in files["marbleApp"]
     and "offset(y = 10.dp)" not in files["marbleApp"]
     and "Spacer(Modifier.height(3.dp))" not in files["marbleApp"]
     and "class DockIndicatorSpecV233Test" in files["v233DockTest"],
@@ -4369,6 +4385,234 @@ check(
     and "## ۶. تست‌ها" in files["serversAtlasDoc"]
     and '"Scan flags" to "' in files["persianLexicon"]
     and '"Manage sources" to "' in files["persianLexicon"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_LIQUID_DOCK_V245 — the bottom bar is a floating glass pill with a lens
+# ---------------------------------------------------------------------------
+
+check(
+    "V245 the pill is a stadium, frosted, shadowed and inside the chrome budget",
+    "MARBLE_LIQUID_DOCK_V245" in files["liquidDockModel"]
+    and "MARBLE_LIQUID_DOCK_V245" in files["liquidDockUi"]
+    and "const val CHROME_BUDGET_DP: Int = 112" in files["liquidDockModel"]
+    and "const val GLASS_ALPHA: Float = 0.87f" in files["liquidDockModel"]
+    and "const val BOTTOM_MARGIN_DP: Int = 12" in files["liquidDockModel"]
+    and "fun cornerRadiusDp(size: DockSize): Float = barHeightDp(size) / 2f" in files["liquidDockModel"]
+    and "fun allFit(): Boolean" in files["liquidDockModel"]
+    and "RoundedCornerShape(percent = 50)" in files["liquidDockUi"]
+    and "LiquidDockSpec.OUTER_SHADOW_DP.dp" in files["liquidDockUi"]
+    and "LiquidDockSpec.RIM_WIDTH_DP.dp" in files["liquidDockUi"]
+    # The wash stays inside the requested 0.85–0.90 band and the budget is really checked.
+    and "fun fitsChrome(size: DockSize): Boolean = totalHeightDp(size) <= CHROME_BUDGET_DP"
+    in files["liquidDockModel"],
+)
+
+check(
+    "V245 the page behind the pill is sampled and blurred, not faked",
+    "rememberGraphicsLayer()" in files["marbleApp"]
+    and "drawWithContent {" in files["marbleApp"]
+    and "pageLayer.record(" in files["marbleApp"]
+    and "drawLayer(pageLayer)" in files["marbleApp"]
+    and "Build.VERSION.SDK_INT >= Build.VERSION_CODES.S" in files["marbleApp"]
+    and "blur(LiquidDockSpec.BACKDROP_BLUR_DP.dp)" in files["liquidDockUi"]
+    and "drawLayer(backdrop)" in files["liquidDockUi"]
+    # No hand-rolled RenderEffect: the platform owns the blur behind the glass.
+    and "android.graphics.RenderEffect" not in files["liquidDockUi"]
+    and "RuntimeShader" not in files["liquidDockUi"],
+)
+
+check(
+    "V245 the lens magnifies its own tab and is drawn, not composed",
+    "fun magnification(distanceInSlots: Float): Float" in files["liquidDockModel"]
+    and "const val LENS_MAGNIFICATION: Float = 0.30f" in files["liquidDockModel"]
+    and "const val LENS_FALLOFF_SLOTS: Float = 0.85f" in files["liquidDockModel"]
+    and "exp(-(scaled * scaled))" in files["liquidDockModel"]
+    and "fun highlight(distanceInSlots: Float): Float" in files["liquidDockModel"]
+    and "drawMarbleGlyph(" in files["liquidDockUi"]
+    and "lerp(idleTint, tab.accent, highlight)" in files["liquidDockUi"]
+    and "style = Stroke(width = 1.1.dp.toPx())" in files["liquidDockUi"]
+    and "Brush.radialGradient(" in files["liquidDockUi"]
+    and "const val LENS_PRESS_GROWTH: Float = 0.13f" in files["liquidDockModel"],
+)
+
+check(
+    "V245 the finger owns the lens and every crossed edge is one tick",
+    "awaitEachGesture {" in files["liquidDockUi"]
+    and "drag(down.id) { change ->" in files["liquidDockUi"]
+    and "LiquidDockSpec.boundaryCrossed(previous, next, count)" in files["liquidDockUi"]
+    and "HapticFeedbackType.SegmentTick" in files["liquidDockUi"]
+    and "heldFraction = next" in files["liquidDockUi"]
+    and "settled.snapTo(released)" in files["liquidDockUi"]
+    and "settled.animateTo(" in files["liquidDockUi"]
+    and "dampingRatio = LiquidDockSpec.SNAP_DAMPING_RATIO" in files["liquidDockUi"]
+    and "stiffness = LiquidDockSpec.SNAP_STIFFNESS" in files["liquidDockUi"]
+    # The drag fraction is only ever read in the draw phase, which is the frame-rate promise.
+    and "val lensFraction: () -> Float" in files["liquidDockUi"]
+    and "val fraction = lensFraction()" in files["liquidDockUi"]
+    and "lensFraction(), index, count" in files["liquidDockUi"],
+)
+
+check(
+    "V245 the red counter is capped, honest and drawn on the glass",
+    "fun badgeLabel(count: Int): String" in files["liquidDockModel"]
+    and "const val BADGE_MAX_COUNT: Int = 9" in files["liquidDockModel"]
+    and "object LiquidDockNotices" in files["liquidDockModel"]
+    and "LiquidDockNotices.count(" in files["marbleApp"]
+    and "repo.availableUpdate != null" in files["marbleApp"]
+    and "background(colors.error)" in files["liquidDockUi"]
+    and "faDigits(LiquidDockSpec.badgeLabel(tab.badgeCount))" in files["liquidDockUi"]
+    and "MarbleDockTab(" in files["marbleApp"],
+)
+
+check(
+    "V245 the model, the tests, the chapter and the README all record the pass",
+    "class LiquidDockV245Test" in files["liquidDockTest"]
+    and "fun theLensMagnifiesItsOwnTabAndLetsGoOfItsNeighbours()" in files["liquidDockTest"]
+    and "fun aDragAcrossTheWholeRowVisitsEveryTabExactlyOnce()" in files["liquidDockTest"]
+    and "class MarbleLiquidDockV245Test" in files["liquidDockUiTest"]
+    and "fun aTapPublishesTheTabItLandedOn()" in files["liquidDockUiTest"]
+    and "## ۱. بدنه: یک کپسول شیشه‌ای شناور" in files["liquidDockDoc"]
+    and "## ۲. عدسی و اپتیک" in files["liquidDockDoc"]
+    and "## ۴. جدول اجرا" in files["liquidDockDoc"]
+    and "## ۵. آنچه عمداً انجام نشد" in files["liquidDockDoc"]
+    and "LIQUID_DOCK_V245.md" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_PLAIN_VOICE_V246 — the ghost text behind the ping, and Settings in plain words
+# ---------------------------------------------------------------------------
+
+v246_settings = "\n".join(
+    files[key]
+    for key in (
+        "settingsScreen",
+        "settingsConnection",
+        "settingsRouting",
+        "settingsTesting",
+        "settingsAppearance",
+        "settingsSystem",
+        "councilPage",
+    )
+)
+
+check(
+    "V246 the destructive reveal is drawn only while the row is really being swiped",
+    "object ServersRowSurface" in files["serversDeck"]
+    and "const val REVEAL_FLOOR: Float = 0.02f" in files["serversDeck"]
+    and "const val REVEAL_FULL: Float = 0.18f" in files["serversDeck"]
+    and "fun revealAlpha(progress: Float): Float" in files["serversDeck"]
+    and "ServersRowSurface.revealAlpha(dismissState.progress)" in files["serversScreen"]
+    and "graphicsLayer { alpha = revealAlpha.value }" in files["serversScreen"]
+    # The reveal must never be painted at rest again: the alpha is the only thing that shows it.
+    and "background(colors.surfaceContainerHighest)" in files["serversScreen"]
+    and "MARBLE_PLAIN_VOICE_V246" in files["serversDeck"],
+)
+
+check(
+    "V246 Settings speaks plainly and the jargon is gone from the screens",
+    "MARBLE_PLAIN_VOICE_V246" in files["plainVoice"]
+    and "val JARGON: List<String>" in files["plainVoice"]
+    and "val REWRITES: List<Rewrite>" in files["plainVoice"]
+    and "fun isSimpler(before: String, after: String): Boolean" in files["plainVoice"]
+    and "fun violations(): List<String>" in files["plainVoice"]
+    and all(
+        retired not in v246_settings
+        for retired in (
+            "Tunnel Datapath",
+            "Proxy Core Engine",
+            "Geo direct domestic separation",
+            "Apply Recommended Prescription",
+            "Auto-Apply Decisive Prescriptions",
+            "Commission the council",
+            "Why each seat ruled",
+            "Settings the council would write",
+            "Network Council Scanner",
+            "Identity Guard & Locations",
+            "Diagnostics, Logs & Bug Finder",
+            "Detect DPI filtering",
+            "Per-App Split Tunnel",
+            "Last verdict",
+            "Tap any row to configure",
+        )
+    )
+    and all(
+        plain in v246_settings
+        for plain in (
+            "How you connect",
+            "Tunnel path",
+            "Iranian sites stay direct",
+            "Apply what it suggests",
+            "Run the check",
+            "Network check",
+            "Hide my real IP",
+            "Fix & diagnose",
+            "Which apps use the tunnel",
+            "Only when you ask",
+            "Tap a row to change it",
+        )
+    )
+    and '"How you connect" to "چطور وصل می‌شی"' in files["persianLexicon"]
+    and '"Pick a server for me" to "خودت یه سرور برام انتخاب کن"' in files["persianLexicon"]
+    and '"Objected" to "مخالف بود"' in files["persianLexicon"],
+)
+
+# Some jargon never appears as a literal: it is an enum constant interpolated into a subtitle
+# (`1.1.1.1 · FORCE_IPV4`, `On · LEAST_PING`, `Wi-Fi · DNS UseIPv4`). The literal audit cannot see
+# those, so the pass mapped them in PlainVoice and the screens now interpolate a label.
+v246_dynamic_templates = "\n".join(
+    line
+    for line in v246_settings.splitlines()
+    if ".name}" in line or "dnsQueryStrategy}" in line
+)
+check(
+    "V246 no constant is printed where a word should be",
+    not v246_dynamic_templates
+    and "val ADDRESS_FAMILY_LABELS: Map<String, String>" in files["plainVoice"]
+    and "fun addressFamilyLabel(name: String): String" in files["plainVoice"]
+    and "val DNS_STRATEGY_LABELS: Map<String, String>" in files["plainVoice"]
+    and "fun dnsStrategyLabel(raw: String): String" in files["plainVoice"]
+    and "PlainVoice.addressFamilyLabel(s.addressFamilyMode.name)" in files["settingsScreen"]
+    and "PlainVoice.dnsStrategyLabel(plan.dnsQueryStrategy)" in files["settingsRouting"]
+    and "AutoServerSelector.shortLabel(s.autoServerStrategyEnum)" in files["settingsScreen"]
+    and '"IPv4 only" to "IPv4 only"' not in files["plainVoice"]
+    and "\"FORCE_IPV4\" to \"IPv4 only\"" in files["plainVoice"]
+    and "\"USEIP\" to \"IPv4 or IPv6\"" in files["plainVoice"]
+    and '"IPv4 first" to "اول IPv4"' in files["persianLexicon"]
+    and '"Least ping" to "کم‌ترین پینگ"' in files["persianLexicon"],
+)
+
+# The one-tap modes were the densest paragraph in Settings: a preset "bundling tuning knobs".
+v246_presets = read("app/src/main/java/com/marbleng/app/model/ExpressiveShell.kt") + read(
+    "app/src/main/java/com/marbleng/app/ui/MarbleExpressiveShell.kt"
+)
+check(
+    "V246 the one-tap modes explain themselves in a sentence a person would say",
+    "title = \"Blocked network\"" in v246_presets
+    and "Full power and quicker connects. Made for games, not downloads." in v246_presets
+    and "Built for speed: bigger buffers and smoother video." in v246_presets
+    and "For strict filtering: Iran mode on, small packets and more retries." in v246_presets
+    # The sentences, not the word "knobs": the KDoc above the page still explains the tuning.
+    and "A preset bundles the tuning knobs behind a named decision." not in files["settingsScreen"]
+    and "One tap bundles the tuning knobs" not in v246_presets
+    and "turbo power" not in (v246_presets + files["settingsScreen"]).lower()
+    and "Pick a mode and the app tunes itself." in files["settingsScreen"]
+    and "One tap, and the app tunes itself" in v246_presets
+    and '"One-tap modes" to "حالت‌های تک‌ضربه‌ای"' in files["persianLexicon"]
+    and '"Blocked network" to "شبکه بسته"' in files["persianLexicon"],
+)
+
+check(
+    "V246 the chapter, the README and the tests record the pass",
+    "class PlainVoiceV246Test" in files["plainVoiceTest"]
+    and "fun everyShippedRewriteIsActuallySimpler()" in files["plainVoiceTest"]
+    and "fun theRevealIsInvisibleAtRestAndFullAfterAFifthOfTheSwipe()" in files["plainVoiceTest"]
+    and "class PlainVoiceV246Test" in files["plainVoiceTest"]
+    and "## ۱. متنی که پشت پینگ دیده می‌شد" in files["plainVoiceDoc"]
+    and "## ۲. چرا متن تنظیمات سخت بود" in files["plainVoiceDoc"]
+    and "## ۴. جدول اجرا" in files["plainVoiceDoc"]
+    and "## ۵. آنچه عمداً انجام نشد" in files["plainVoiceDoc"]
+    and "PLAIN_VOICE_V246.md" in files["readme"],
 )
 
 failed = [name for name, passed in checks if not passed]

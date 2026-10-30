@@ -34,6 +34,7 @@ import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.FragmentStrategy
 import com.marbleng.app.model.GeoPrecision
 import com.marbleng.app.model.IranModePolicy
+import com.marbleng.app.model.PlainVoice
 import com.marbleng.app.model.RoutingMode
 import com.marbleng.app.model.RoutingOutbound
 import com.marbleng.app.model.RoutingRule
@@ -70,7 +71,7 @@ fun SettingsRoutingPage(
     }
 
     MarbleSubPageScaffold(
-        title = trx("Routing & Geo Databases"),
+        title = trx("What goes direct"),
         onBack = onBack
     ) {
         item(key = "routing-mode") {
@@ -79,7 +80,7 @@ fun SettingsRoutingPage(
                 MarbleCard {
                     MarbleSwitchRow(
                         title = trx("Enable Custom Routing"),
-                        subtitle = trx("Apply domain, IP and Geo rules to tunnel traffic"),
+                        subtitle = trx("Match domain, IP and country rules"),
                         checked = s.customRoutingEnabled,
                         glyph = MarbleGlyph.ROUTE,
                         iconTint = colors.success,
@@ -88,7 +89,7 @@ fun SettingsRoutingPage(
                     MarbleDivider()
                     MarbleChoiceRow(
                         title = trx("Proxy All"),
-                        subtitle = trx("Send every connection through the proxy server"),
+                        subtitle = trx("Send everything through the server"),
                         selected = s.routingMode == RoutingMode.PROXY_ALL,
                         glyph = MarbleGlyph.GLOBE,
                         iconTint = colors.primary,
@@ -97,7 +98,7 @@ fun SettingsRoutingPage(
                     MarbleDivider()
                     MarbleChoiceRow(
                         title = trx("Bypass Private LAN"),
-                        subtitle = trx("Keep local Wi-Fi and RFC1918 addresses direct"),
+                        subtitle = trx("Keep home network devices direct"),
                         selected = s.routingMode == RoutingMode.BYPASS_PRIVATE,
                         glyph = MarbleGlyph.HOME,
                         iconTint = colors.tertiary,
@@ -106,7 +107,7 @@ fun SettingsRoutingPage(
                     MarbleDivider()
                     MarbleChoiceRow(
                         title = trx("Geo Direct"),
-                        subtitle = trx("Send configured domestic country traffic directly"),
+                        subtitle = trx("Keep Iranian sites direct"),
                         selected = s.routingMode == RoutingMode.GEO_DIRECT,
                         glyph = MarbleGlyph.SHIELD,
                         iconTint = colors.success,
@@ -178,7 +179,7 @@ fun SettingsRoutingPage(
                     MarbleDivider()
                     MarbleSwitchRow(
                         title = trx("Multi-Source Geo Databases"),
-                        subtitle = trx("Combine tags across multiple geo rule repositories"),
+                        subtitle = trx("Combine rules from several sources"),
                         checked = s.geoMultiSourceEnabled,
                         glyph = MarbleGlyph.FOLDER,
                         iconTint = colors.secondary,
@@ -241,7 +242,7 @@ fun SettingsRoutingPage(
                 MarbleCard {
                     MarbleListItem(
                         title = trx("Add Routing Rule"),
-                        subtitle = trx("Create a GeoSite, GeoIP, Domain, IP or Port rule"),
+                        subtitle = trx("Make a rule for a site, IP or port"),
                         glyph = MarbleGlyph.PLUS,
                         iconTint = colors.primary,
                         onClick = {
@@ -263,12 +264,12 @@ fun SettingsRoutingPage(
                             RoutingOutbound.BLOCK -> colors.error
                         }
                         MarbleListItem(
-                            title = rule.remark.ifBlank { "${rule.kind.name}: ${rule.matcher}" },
-                            subtitle = "${rule.kind.name} · ${rule.matcher}",
+                            title = rule.remark.ifBlank { trx(rule.kind.label) + ": " + rule.matcher },
+                            subtitle = trx(rule.kind.label) + " · " + rule.matcher,
                             glyph = MarbleGlyph.ROUTE,
                             iconTint = outTone,
                             trailing = {
-                                MarbleBadge(text = rule.outbound.name, color = outTone)
+                                MarbleBadge(text = trx(rule.outbound.label), color = outTone)
                             },
                             onClick = {
                                 editingIsNew = false
@@ -345,8 +346,8 @@ private fun RoutingRuleEditSheet(
         )
         MarbleDropdownField(
             label = trx("Match Kind"),
-            value = draft.kind.name,
-            options = RoutingRuleKind.entries.map { MarbleMenuOption(it.name) },
+            value = trx(draft.kind.label),
+            options = RoutingRuleKind.entries.map { MarbleMenuOption(it.name, trx(it.label)) },
             onSelect = { name ->
                 val picked = RoutingRuleKind.entries.firstOrNull { it.name == name } ?: return@MarbleDropdownField
                 draft = draft.copy(kind = picked)
@@ -360,9 +361,9 @@ private fun RoutingRuleEditSheet(
         )
         MarbleSegmentedControl(
             options = listOf(
-                RoutingOutbound.PROXY to "PROXY",
-                RoutingOutbound.DIRECT to "DIRECT",
-                RoutingOutbound.BLOCK to "BLOCK"
+                RoutingOutbound.PROXY to trx(RoutingOutbound.PROXY.label),
+                RoutingOutbound.DIRECT to trx(RoutingOutbound.DIRECT.label),
+                RoutingOutbound.BLOCK to trx(RoutingOutbound.BLOCK.label)
             ),
             selected = draft.outbound,
             onSelect = { draft = draft.copy(outbound = it) }
@@ -418,7 +419,7 @@ fun SettingsDnsAndFamilyPage(
     val plan = AddressFamilyPolicy.plan(settings = s, underlayHasIpv6 = underlay.hasIpv6)
 
     MarbleSubPageScaffold(
-        title = trx("DNS & IPv4 / IPv6"),
+        title = trx("DNS and IP version"),
         onBack = onBack
     ) {
         item(key = "family-policy") {
@@ -427,7 +428,7 @@ fun SettingsDnsAndFamilyPage(
                 MarbleCard {
                     MarbleListItem(
                         title = AddressFamilyPolicy.describe(plan),
-                        subtitle = "${underlay.label} · DNS ${plan.dnsQueryStrategy}",
+                        subtitle = "${underlay.label} · " + trx("DNS") + " " + trx(PlainVoice.dnsStrategyLabel(plan.dnsQueryStrategy)),
                         glyph = MarbleGlyph.GLOBE,
                         iconTint = colors.tertiary,
                         showChevron = false
@@ -645,7 +646,7 @@ fun SettingsSplitTunnelPage(
     }
 
     MarbleSubPageScaffold(
-        title = trx("Per-App Split Tunnel"),
+        title = trx("Which apps use the tunnel"),
         onBack = onBack
     ) {
         item(key = "split-mode") {
@@ -748,7 +749,7 @@ fun SettingsCensorshipLabPage(
     }
 
     MarbleSubPageScaffold(
-        title = trx("Iran Mode & Censorship Lab"),
+        title = trx("Iran mode & blocking test"),
         onBack = onBack
     ) {
         item(key = "iran-mode-policy") {
@@ -777,7 +778,7 @@ fun SettingsCensorshipLabPage(
                     MarbleDivider()
                     MarbleSwitchRow(
                         title = trx("DPI Countermeasures"),
-                        subtitle = trx("Enable anti-filtering timeouts, resolver hardening and MTU healing"),
+                        subtitle = trx("Fight filtering with timeouts, safer DNS and MTU repair"),
                         checked = s.iranModeCountermeasures,
                         glyph = MarbleGlyph.SPARK,
                         iconTint = colors.warning,
@@ -812,7 +813,7 @@ fun SettingsCensorshipLabPage(
                     }
                     MarbleDivider()
                     MarbleSwitchRow(
-                        title = trx("Auto-Apply Decisive Prescriptions"),
+                        title = trx("Apply clear results automatically"),
                         subtitle = trx("Apply recommended bypass settings immediately after a scan"),
                         checked = s.censorshipAutoApply,
                         glyph = MarbleGlyph.CHECK,
@@ -829,7 +830,7 @@ fun SettingsCensorshipLabPage(
                 MarbleCard(contentPadding = PaddingValues(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
-                            text = trx("Runs bounded DNS, TCP and TLS handshake probes to identify active filtering on your current network."),
+                            text = trx("Checks your network for blocking and shows what it finds."),
                             color = colors.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -875,7 +876,7 @@ fun SettingsCensorshipLabPage(
                             }
                             diag.observations.forEach { obs ->
                                 Text(
-                                    text = "${if (obs.reachable) "✓" else "✕"} ${obs.target} (${obs.kind.name}) ${if (obs.latencyMs > 0) "${obs.latencyMs}ms" else ""}",
+                                    text = "${if (obs.reachable) "✓" else "✕"} ${obs.target} " + trx(obs.kind.label) + " " + (if (obs.latencyMs > 0) "${obs.latencyMs}ms" else ""),
                                     color = colors.onSurfaceVariant,
                                     style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
                                 )
@@ -889,7 +890,7 @@ fun SettingsCensorshipLabPage(
                                     )
                                 }
                                 MarbleButton(
-                                    label = trx("Apply Recommended Prescription"),
+                                    label = trx("Apply what it suggests"),
                                     glyph = MarbleGlyph.CHECK,
                                     style = MarbleButtonStyle.TINTED,
                                     onClick = { applyPrescription(prescription) },

@@ -54,6 +54,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -90,6 +92,7 @@ import com.marbleng.app.core.ServersFilter
 import com.marbleng.app.core.ServersFilterChip
 import com.marbleng.app.core.ServersLibraryCard
 import com.marbleng.app.core.ServersQuery
+import com.marbleng.app.core.ServersRowSurface
 import com.marbleng.app.core.ServersSelection
 import com.marbleng.app.core.ServersUndo
 import com.marbleng.app.core.activeFilterChips
@@ -1786,6 +1789,14 @@ private fun ServerRowItem(
     val colors = MaterialTheme.colorScheme
     val dismissState = rememberSwipeToDismissBoxState()
 
+    // MARBLE_PLAIN_VOICE_V246 — the "Delete" reveal lives *behind* the row, and the report saw it
+    // through a selected row's translucent fill, right behind the ping column and the ⋯. It is now
+    // drawn only while the row is actually being swiped. Read in the draw phase, so a drag never
+    // recomposes the row.
+    val revealAlpha = remember(dismissState) {
+        derivedStateOf { ServersRowSurface.revealAlpha(dismissState.progress) }
+    }
+
     // The swipe only OPENS the delete: the row slides back if the user changes their mind, and
     // the row leaves with its own profile when the undo window starts.
     LaunchedEffect(pendingDelete, profile.id) {
@@ -1806,6 +1817,7 @@ private fun ServerRowItem(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(colors.surfaceContainerHighest)
+                    .graphicsLayer { alpha = revealAlpha.value }
                     .padding(horizontal = 20.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {

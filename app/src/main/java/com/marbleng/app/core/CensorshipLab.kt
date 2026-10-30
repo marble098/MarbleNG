@@ -33,7 +33,17 @@ import java.util.concurrent.TimeUnit
 object CensorshipLab {
     const val MARKER: String = "MARBLE_CENSORSHIP_LAB_V221"
 
-    enum class ProbeKind { DNS, TCP, TLS, ALT_PORT }
+    /**
+     * MARBLE_PLAIN_VOICE_V246 — `ALT_PORT` was printed into the evidence line as a constant. The
+     * three protocol probes keep their real names (a person asked about filtering knows DNS, TCP
+     * and TLS); the fourth one is just "another port", and now says so.
+     */
+    enum class ProbeKind(val label: String) {
+        DNS("DNS"),
+        TCP("TCP"),
+        TLS("TLS"),
+        ALT_PORT("Other port")
+    }
 
     enum class Technique(val label: String) {
         DNS_TAMPER("DNS interference"),

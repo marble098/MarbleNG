@@ -49,6 +49,38 @@ object ServersDeck {
 }
 
 /**
+ * MARBLE_PLAIN_VOICE_V246 — the swipe reveal is drawn only while the row is really being swiped.
+ *
+ * The reported bug: "when I select a server, a text appears behind the ping and the three dots".
+ * It was not a text layer at all. The row's own fill turns translucent in selection
+ * (`secondaryContainer` at 38 %) and the swipe-to-delete background — the `Delete 🗑` label, which
+ * is right-aligned exactly where the ping column and the overflow live — was drawn underneath it
+ * the whole time, at rest, at full alpha. On an opaque row nobody saw it; on a selected row it read
+ * as a ghost string glued to the ping.
+ *
+ * The fix has two halves and this object is the arithmetic half: the reveal fades in with the
+ * swipe (nothing at rest, fully there after 18 % of travel), so there is no label to show through
+ * anything. The drawing half is one `graphicsLayer { alpha = … }` in `ServerRowItem`, read in the
+ * draw phase so a drag never recomposes the row.
+ */
+object ServersRowSurface {
+    const val MARKER: String = "MARBLE_PLAIN_VOICE_V246"
+
+    /** Below this much travel the reveal is not drawn at all — a jitter is not a swipe. */
+    const val REVEAL_FLOOR: Float = 0.02f
+
+    /** By this much travel the label is fully opaque. */
+    const val REVEAL_FULL: Float = 0.18f
+
+    /** 0 at rest, 1 once the row has travelled [REVEAL_FULL]; clamped in both directions. */
+    fun revealAlpha(progress: Float): Float = when {
+        progress.isNaN() || progress <= REVEAL_FLOOR -> 0f
+        progress >= REVEAL_FULL -> 1f
+        else -> (progress - REVEAL_FLOOR) / (REVEAL_FULL - REVEAL_FLOOR)
+    }
+}
+
+/**
  * A ping reading, not a server verdict. Four levels, because a number the eye can rank at a
  * glance is worth more than a coloured dot that says "fine" three different ways.
  */
