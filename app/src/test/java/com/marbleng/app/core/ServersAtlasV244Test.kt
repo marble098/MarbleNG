@@ -137,9 +137,9 @@ class ServersAtlasV244Test {
         val de = profile("1")
         assertEquals("Germany · TLS · XHTTP", ServersAtlas.rowSubtitle(de, countryName = "Germany"))
         assertEquals(
+            "a blank country must fall back to the protocol, not to an empty prefix",
             "VLESS · TLS · XHTTP",
-            ServersAtlas.rowSubtitle(de, countryName = "  "),
-            "a blank country must fall back to the protocol, not to an empty prefix"
+            ServersAtlas.rowSubtitle(de, countryName = "  ")
         )
         assertEquals(
             "REALITY",
@@ -157,9 +157,9 @@ class ServersAtlasV244Test {
             ServersAtlas.rowSubtitle(de, countryName = "Germany").startsWith("Germany")
         )
         assertEquals(
+            "with no measured country the protocol has to lead",
             "VLESS · TLS · XHTTP",
-            ServersAtlas.rowSubtitle(de, countryName = ""),
-            "with no measured country the protocol has to lead"
+            ServersAtlas.rowSubtitle(de, countryName = "")
         )
     }
 

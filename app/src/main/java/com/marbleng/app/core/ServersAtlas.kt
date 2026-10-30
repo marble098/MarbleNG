@@ -144,8 +144,13 @@ fun libraryCards(
     allTitle: String,
     manualTitle: String
 ): List<ServersLibraryCard> {
-    fun card(id: String, title: String, subscription: Subscription?): ServersLibraryCard {
-        val mine = profiles.filter { it.subscriptionId == id }
+    fun card(
+        id: String,
+        title: String,
+        subscription: Subscription?,
+        members: List<ProxyProfile>
+    ): ServersLibraryCard {
+        val mine = members
         val used = subscription?.let { it.uploadBytes + it.downloadBytes } ?: 0L
         val total = subscription?.totalBytes ?: 0L
         return ServersLibraryCard(
@@ -158,12 +163,17 @@ fun libraryCards(
         )
     }
 
+    // "All sources" is not a bucket of profiles, it is every profile: its count is the library,
+    // and its cluster is the library's own signature.
     val cards = mutableListOf(
-        card(ServersLibraryCard.ALL_SOURCES_ID, allTitle, null)
+        card(ServersLibraryCard.ALL_SOURCES_ID, allTitle, null, profiles)
     )
-    subscriptions.forEach { sub -> cards += card(sub.id, sub.name, sub) }
-    if (profiles.any { it.subscriptionId == ServersLibraryCard.MANUAL_SOURCE_ID }) {
-        cards += card(ServersLibraryCard.MANUAL_SOURCE_ID, manualTitle, null)
+    subscriptions.forEach { sub ->
+        cards += card(sub.id, sub.name, sub, profiles.filter { it.subscriptionId == sub.id })
+    }
+    val manual = profiles.filter { it.subscriptionId == ServersLibraryCard.MANUAL_SOURCE_ID }
+    if (manual.isNotEmpty()) {
+        cards += card(ServersLibraryCard.MANUAL_SOURCE_ID, manualTitle, null, manual)
     }
     return cards
 }
