@@ -2583,7 +2583,29 @@ private val FaFriendlyVoice: Map<String, String> = mapOf(
     "Group by country" to "گروه‌بندی بر اساس کشور",
     "Reverse sort direction" to "برعکس‌کردن ترتیب",
     "Organize servers by latency, score, country or protocol" to
-        "سرورها رو بر اساس تأخیر، امتیاز، کشور یا پروتکل مرتب کن"
+        "سرورها رو بر اساس تأخیر، امتیاز، کشور یا پروتکل مرتب کن",
+
+    // MARBLE_SERVERS_ATLAS_V244 — the page became an atlas: a sources rail you can read at a
+    // glance, a measured flag on every server, one Add pill instead of two, and a sources sheet
+    // that owns the library actions the filter sheet used to carry.
+    "Sources" to "منابع",
+    "Manage sources" to "مدیریت منابع",
+    "Active route" to "مسیر فعال",
+    "Scanning flags" to "اسکن پرچم‌ها",
+    "Scan flags" to "اسکن پرچم‌ها",
+    "Server flags" to "پرچم سرورها",
+    "located" to "با پرچم",
+    "Refresh all" to "همه رو تازه کن",
+    "Latency ceiling" to "سقف تأخیر",
+    "Pick a library, refresh it, or scan its flags" to
+        "یک کتابخانه انتخاب کن، تازه‌اش کن یا پرچم‌هاش رو اسکن کن",
+    "Order the list, narrow it, or regroup it by country" to
+        "فهرست رو مرتب کن، محدودش کن یا بر اساس کشور دوباره گروه‌بندی کن",
+    "Measure the country of every server again" to
+        "کشور همه سرورها رو دوباره اندازه بگیر",
+    "All sources" to "همه منابع",
+    "Wait until ping finishes before changing server" to
+        "صبر کن تا تست پینگ تموم بشه، بعد سرور رو عوض کن"
 )
 
 /** The dictionary the whole product reads: base entries with the warm voice on top. */

@@ -44,7 +44,8 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **Material 3 Expressive motion** — stretching loaders, cascading arrivals, rolling readouts and springy releases on every control.
 - **A living, layered surface** — a slowly breathing brand aurora behind every page, and one cool-shadow depth system above it, so nothing floats on a dead flat field.
 - **A Servers page that shows its hierarchy** — subscription cards with a real usage bar, and their servers nested inside them, smaller in every dimension.
-- **A Servers page that starts with servers** — one search line and one filter sheet instead of four chip rows, a pinned "active route" card, collapsible groups with a single overflow, 68dp rows that say `VLESS · TLS · XHTTP` and a four-level ping, delete by swipe with undo, and an extended FAB that folds away while the list moves.
+- **A Servers page that starts with servers** — one search line and one filter sheet instead of four chip rows, a compact "active route" strip, one overflow per section, 68dp rows with a four-level ping, delete by swipe with undo.
+- **A Servers page that is an atlas** — a sources rail that makes a subscription one tap away (with its plan bar and its measured flag cluster), a flag tile on every server drawn from the app's own vector art and filled by the automatic location sweep, one Add pill instead of two buttons, and a sources sheet that owns refresh, scan and edit.
 - **A twelve-expert network council in Settings** — one scan reads the link, the operator, ping, TCP, UDP, DNS, ports, MTU and both address families, then applies the settings it can defend on both cores — with a dissent line for every seat that lost the argument.
 
 ## The expressive shell: one control, one decision
@@ -64,6 +65,20 @@ one overflow target. Deletion is a gesture with a five-second undo window, and t
 FAB's height so nothing is ever covered. `ServersDeck` holds the arithmetic (row ceiling, the
 150/300ms ping lines, the transport line, the selection roster, the undo window) and
 `ServersDeckV243Test` pins it on the JVM.
+
+**V244 — the Servers page became an atlas.** A twelve-seat design council reviewed V243 element by
+element and scored the page 32/100: the list was honest but anonymous. Twelve identical rows wore a
+`VL` chip instead of the country the app had already measured with five geo providers, choosing a
+subscription took three taps through a filter sheet, "add" existed twice, a live-tunnel card with a
+full-width Disconnect outshouted the servers the page exists to choose between, and every heading
+was a 14dp arrow. The page now opens with the library line (`32 servers · 12 located`), the live
+route as one strip, a search line with a one-tap sort menu, and a **sources rail** — every
+subscription as a card with its node count, its plan bar and its flag cluster. Rows wear a 38×28 flag
+tile (or the protocol monogram before the sweep answers), name the country before the transport,
+keep the reserved 88dp ping column and one 48dp overflow, and live one-per-lazy-item. The sweep
+starts with the page and reports itself. `ServersAtlas` holds the rail model, the flag cluster, the
+plan arithmetic, the row subtitle and the row's width budget; `ServersAtlasV244Test` pins all of it
+on the JVM. `docs/SERVERS_ATLAS_V244.md` is the council's full transcript and the redesign spec.
 
 **V242 crash and server-row pass.** The connect pill no longer lets an expressive spring overshoot
 into negative padding: the inset uses a non-overshooting effects spring plus a finite layout clamp,
@@ -886,6 +901,9 @@ The floating bottom tab bar is completely still: no breathing, no resize, no sel
 The Home title and main connection surface use a fixed layout so changing runtime status text does not move the Connect control. The status title and sentence above the Connect ring are anchored to a reserved block, so a shorter or longer sentence swaps in place instead of pulling the control up and down. Ping and uptime readouts auto-shrink and ellipsize so they never overflow their box in any style.
 
 ### Servers
+
+`docs/SERVERS_ATLAS_V244.md` is the newest chapter of this page: a sources rail instead of a hidden
+chip strip, a measured country flag on every row, one Add pill, and a live route drawn as a strip.
 
 The **Servers** tab manages subscriptions, source buckets, and nodes. It is a card system: one page
 header, one search field with a filter rail under it, one collapsible header per group and one

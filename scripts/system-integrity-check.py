@@ -485,6 +485,11 @@ files = {
     "serversDeckTest": read("app/src/test/java/com/marbleng/app/core/ServersDeckV243Test.kt"),
     "serverRowTest": read("app/src/test/java/com/marbleng/app/ui/ServerRowLayoutV242Test.kt"),
     "serversDeckDoc": read("docs/SERVERS_DECK_V243.md"),
+    # MARBLE_SERVERS_ATLAS_V244 — the atlas: the pure rail/flag/row model, the page that draws it,
+    # the test that pins it and the chapter that records the twelve-seat review.
+    "serversAtlas": read("app/src/main/java/com/marbleng/app/core/ServersAtlas.kt"),
+    "serversAtlasTest": read("app/src/test/java/com/marbleng/app/core/ServersAtlasV244Test.kt"),
+    "serversAtlasDoc": read("docs/SERVERS_ATLAS_V244.md"),
     "serverForms": read("app/src/main/java/com/marbleng/app/ui/ServerFormsAndDetailPages.kt"),
     "customSlot": read("app/src/main/java/com/marbleng/app/ui/CustomSlotScreen.kt"),
     "settingsScreen": read("app/src/main/java/com/marbleng/app/ui/SettingsScreen.kt"),
@@ -4284,6 +4289,86 @@ check(
     and "## ۱. چرا این صفحه پر بود از چیزهایی که سرور نبودند" in files["serversDeckDoc"]
     and "## ۶. جدول اجرا" in files["serversDeckDoc"]
     and "## ۷. آنچه عمداً انجام نشد" in files["serversDeckDoc"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_SERVERS_ATLAS_V244
+# ---------------------------------------------------------------------------
+check(
+    "V244 the atlas model is pure, named and complete",
+    "object ServersAtlas" in files["serversAtlas"]
+    and "fun flagCluster(" in files["serversAtlas"]
+    and "fun usageFraction(" in files["serversAtlas"]
+    and "fun rowSubtitle(" in files["serversAtlas"]
+    and "fun libraryCards(" in files["serversAtlas"]
+    and "data class ServersLibraryCard(" in files["serversAtlas"]
+    and "ROW_FIXED_WIDTH_DP" in files["serversAtlas"]
+    and "LIBRARY_CARD_WIDTH_DP" in files["serversAtlas"]
+    and "MARBLE_SERVERS_ATLAS_V244" in files["serversAtlas"]
+    and "class ServersAtlasV244Test" in files["serversAtlasTest"]
+    and "fun aFlagClusterIsUniqueFrequencyOrderedAndCapped()" in files["serversAtlasTest"]
+    and "fun theRowBudgetLeavesRoomForTheNameOnANarrowPhone()" in files["serversAtlasTest"],
+)
+
+check(
+    "V244 the rail is the one place a library is chosen",
+    "ServersLibraryRail(" in files["serversScreen"]
+    and "LibraryCardTile(" in files["serversScreen"]
+    and "ServersLibrarySheet(" in files["serversScreen"]
+    and "val sourceCards = libraryCards(" in files["serversScreen"]
+    and "repo.selectLibrarySource(" in files["serversScreen"]
+    and "Manage sources" in files["serversScreen"]
+    and "items(items = cards, key = { card -> card.id })" in files["serversScreen"],
+)
+
+check(
+    "V244 every row wears the measured flag and the sweep reports itself",
+    "ServerFlagTile(" in files["serversScreen"]
+    and "drawCountryFlag(code!!)" in files["serversScreen"]
+    and "CountryFlagSupported(code)" in files["serversScreen"]
+    and "CountryFlagCircle(" in files["serversScreen"]
+    and "ServersAtlas.rowSubtitle(" in files["serversScreen"]
+    and "repo.ensureServerLocations()" in files["serversScreen"]
+    and "repo.ensureServerLocations(force = true)" in files["serversScreen"]
+    and "serverLocationSummary()" in files["serversScreen"]
+    and "Scanning flags" in files["serversScreen"]
+    and "Scan flags" in files["serversScreen"],
+)
+
+check(
+    "V244 there is one add affordance and nothing floats over the last row",
+    "AddServerPill(" in files["serversScreen"]
+    and 'text = trx("Add")' in files["serversScreen"]
+    and "shadow(12.dp, CircleShape)" not in files["serversScreen"]
+    and "padding(end = 20.dp, bottom = MarbleTheme.bottomClearance + 12.dp)"
+    not in files["serversScreen"]
+    and "ServersDeck.FAB_CLEARANCE_DP" in files["serversScreen"]
+    and "MarbleTheme.bottomClearance + 12.dp" in files["serversScreen"],
+)
+
+check(
+    "V244 the roster floats at the bottom and the sheet only filters",
+    "align(Alignment.BottomCenter)" in files["serversScreen"]
+    and "slideInVertically(initialOffsetY = { it })" in files["serversScreen"]
+    and 'MarbleSectionHeader(title = trx("This group"))' not in files["serversScreen"]
+    and "Latency ceiling" in files["serversScreen"]
+    and "MarbleHealthPill(" in files["serversScreen"]
+    and "fun ActiveServerCard(" in files["serversScreen"]
+    and "fun ServerGroupHeader(" in files["serversScreen"],
+)
+
+check(
+    "V244 the council chapter, the code and the README all record the pass",
+    "MARBLE_SERVERS_ATLAS_V244" in files["serversScreen"]
+    and "SERVERS_ATLAS_V244.md" in files["readme"]
+    and "## ۱. ترکیب شورا" in files["serversAtlasDoc"]
+    and "## ۲. نقد عنصر به عنصر، از کوچک‌ترین به بزرگ‌ترین" in files["serversAtlasDoc"]
+    and "## ۳. بازطراحی: اطلسِ سرورها" in files["serversAtlasDoc"]
+    and "## ۴. جدول اجرا" in files["serversAtlasDoc"]
+    and "## ۵. آنچه عمداً انجام نشد" in files["serversAtlasDoc"]
+    and "## ۶. تست‌ها" in files["serversAtlasDoc"]
+    and '"Scan flags" to "' in files["persianLexicon"]
+    and '"Manage sources" to "' in files["persianLexicon"],
 )
 
 failed = [name for name, passed in checks if not passed]
