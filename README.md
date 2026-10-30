@@ -47,12 +47,58 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A Servers page that starts with servers** — one search line and one filter sheet instead of four chip rows, a compact "active route" strip, one overflow per section, 68dp rows with a four-level ping, delete by swipe with undo.
 - **A Servers page that is an atlas** — a sources rail that makes a subscription one tap away (with its plan bar and its measured flag cluster), a flag tile on every server drawn from the app's own vector art and filled by the automatic location sweep, one Add pill instead of two buttons, and a sources sheet that owns refresh, scan and edit.
 - **A twelve-expert network council in Settings** — one scan reads the link, the operator, ping, TCP, UDP, DNS, ports, MTU and both address families, then applies the settings it can defend on both cores — with a dissent line for every seat that lost the argument.
+- **A liquid-glass navigation pill** — a floating frosted capsule with a drawn glass lens on top of the row: the glyph under the lens is magnified by a Gaussian profile and tinted electric blue, a finger drags the lens across the tabs with one haptic tick per edge, and letting go springs it to the nearest tab.
+- **Settings that speak plainly** — 71 titles and sentences rewritten from mechanism to meaning (`Tunnel Datapath` → `Tunnel path`, `Geo direct domestic separation` → `Iranian sites stay direct`, `Network Council Scanner` → `Network check`), constants no longer printed where words belong (`1.1.1.1 · FORCE_IPV4` → `1.1.1.1 · IPv4 only`), with a test that forbids the jargon and a Persian voice for every one of them.
 
 ## The expressive shell: one control, one decision
 
-`docs/SERVERS_DECK_V243.md` is the newest chapter.
+`docs/PLAIN_VOICE_V246.md` is the newest chapter.
+`docs/LIQUID_DOCK_V245.md` is the chapter before it.
+`docs/SERVERS_DECK_V243.md` is the one before that.
 `docs/CRASH_AND_SERVER_ROWS_V242.md` is the chapter before it.
 `docs/EXPRESSIVE_SHELL_V241.md` records the expressive shell before that.
+
+**V246 — the ghost text behind the ping, and a Settings page that stopped talking like a
+datasheet.** Two reports. The first said a text appears behind the ping and the three dots when a
+server is selected; it was not a text layer — the swipe-to-delete background (`Delete 🗑`, aligned
+exactly on the ping column and the overflow) was drawn *behind* the row at full alpha all along, and
+a selected row's fill is translucent (`secondaryContainer` at 38 %), so it showed through. The row
+now fades that reveal in with the swipe itself: nothing at rest, fully there after 18 % of travel,
+read in the draw phase so a drag never recomposes the row (`ServersRowSurface`). The second said
+Settings is hard to understand, and it was right for a structural reason: every feature was named
+after the mechanism that implements it, and some of the "words" were Kotlin constants interpolated
+into a subtitle, which no dictionary could ever have caught. 71 titles and sentences were
+rewritten (`Tunnel Datapath` → `Tunnel path`, `Geo direct domestic separation` → `Iranian sites stay
+direct`, `Apply Recommended Prescription` → `Apply what it suggests`, `Commission the council` →
+`Run the check`, `Identity Guard & Locations` → `Hide my real IP`, `Diagnostics, Logs & Bug Finder` →
+`Fix & diagnose`), with 61 new Persian entries — including the 24 strings that until today stayed
+English on a Persian screen — and behind one of the tests sat a third bug: the Persian digit
+shaper iterated the `StringBuilder` it was writing into, so every number on a Persian screen
+came out blank. The constants became words (`FORCE_IPV4` → `IPv4 only`,
+`LEAST_PING` → `Least ping`, `GEOSITE:` → `Site:`, `ALT_PORT` → `Other port`). `PlainVoice` holds the
+rule (a fourteen-word jargon blacklist, a "different sentence" rule and a 25 % length budget) and
+every shipped rewrite as data; `PlainVoiceV246Test` proves all 71 are really plainer.
+
+**V245 — the bottom bar became a floating glass pill.** The old dock was a tonal `Column` with a
+measured 18×3dp blue line under the active tab (V233's fix for a drifting overlay). The line is
+retired; the object on screen is now a stadium of frosted glass that floats 12dp above the gesture
+bar, samples and blurs the page behind it through a recorded `GraphicsLayer` (`Modifier.blur`, i.e.
+the platform `RenderEffect` on Android 12+ and a documented no-op below), carries one wide ambient
+shadow and a 0.9dp frosted rim — and a glass **lens** that sits on top of the row. The lens is drawn,
+not composed: a contact shadow, a radial body, a rim light, an inner meniscus, a caustic pool and a
+hairline chromatic fringe. The glyph under it is magnified by a Gaussian profile (+30 % at the
+centre, +7.5 % one slot away, +0.1 % two slots away) and tinted toward its accent by the same
+falloff, so colour and size travel with the glass instead of switching at a boundary. One
+`awaitEachGesture` loop owns the interaction: the fraction is written directly on touch-down and on
+every drag frame (no animation, so the lens never chases the finger), one `SegmentTick` fires on every
+crossed tab edge, the lens grows 13 % while the finger is down, and on release the fraction is handed
+to an `Animatable` that springs to the nearest tab centre at `dampingRatio 0.72 / stiffness 620`.
+Press, drag and selection are three separate pieces of state, and the drag fraction is only read
+inside `graphicsLayer` and `Canvas` blocks — a scrub invalidates drawing, not composition.
+`LiquidDockSpec` holds the geometry, the physics, the optics profile and the badge arithmetic;
+`LiquidDockV245Test` pins all of it on the JVM and `MarbleLiquidDockV245Test` inflates the real pill.
+The red counter is fed by what is genuinely waiting for a tap: a published update, or a scan whose
+findings are not applied.
 
 **V243 — the Servers page starts with servers.** The report counted four filter rows (search,
 sort, groups, protocols) before the first server, one address printed four times, a clipped red

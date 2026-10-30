@@ -988,7 +988,7 @@ fun SmartPresetSheet(
 
     MarbleBottomSheet(
         title = trx("Smart presets"),
-        subtitle = trx("One tap bundles the tuning knobs — routing, DNS and servers stay untouched."),
+        subtitle = trx("One tap, and the app tunes itself — your routing, DNS and servers stay as they are."),
         onDismiss = onDismiss
     ) {
         SmartPreset.ordered.forEach { preset ->

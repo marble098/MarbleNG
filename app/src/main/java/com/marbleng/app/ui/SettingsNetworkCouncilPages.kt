@@ -49,13 +49,13 @@ fun SettingsNetworkCouncilPage(
     val running = repo.councilRunning
 
     MarbleSubPageScaffold(
-        title = trx("Network Council Scanner"),
+        title = trx("Network check"),
         onBack = onBack
     ) {
         item(key = "council-hero") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(
-                    title = trx("Commission the council"),
+                    title = trx("Run the check"),
                     badge = if (plan != null) plan.metrics.grade else "",
                     badgeColor = plan?.let { gradeColor(it.metrics.score) }
                 )
@@ -77,7 +77,7 @@ fun SettingsNetworkCouncilPage(
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 Text(
-                                    text = trx("Twelve specialists · one plan"),
+                                    text = trx("Twelve checks, one plan"),
                                     color = colors.onSurface,
                                     style = MaterialTheme.typography.titleMedium.copy(
                                         fontWeight = FontWeight.SemiBold
@@ -181,7 +181,7 @@ fun SettingsNetworkCouncilPage(
         item(key = "council-seats") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(
-                    title = trx("The twelve seats"),
+                    title = trx("The twelve checks"),
                     badge = if (plan == null) "" else "${plan.findings.size}",
                     badgeColor = colors.secondary
                 )
@@ -214,7 +214,7 @@ fun SettingsNetworkCouncilPage(
             item(key = "council-changes") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     MarbleSectionHeader(
-                        title = trx("Settings the council would write"),
+                        title = trx("What it would change"),
                         badge = "${plan.changes.size}",
                         badgeColor = colors.success
                     )
@@ -274,7 +274,7 @@ fun SettingsNetworkCouncilPage(
                                     }
                                     if (change.dissent.isNotBlank()) {
                                         Text(
-                                            text = trx("Dissent") + " · " + trx(change.dissent),
+                                            text = trx("Objected") + " · " + trx(change.dissent),
                                             color = colors.onSurfaceVariant,
                                             style = MaterialTheme.typography.labelSmall
                                         )
@@ -284,7 +284,7 @@ fun SettingsNetworkCouncilPage(
                         }
                         if (!running) {
                             MarbleButton(
-                                label = trx("Apply the council's settings"),
+                                label = trx("Apply these settings"),
                                 glyph = MarbleGlyph.SPARK,
                                 onClick = { repo.applyNetworkCouncilPlan() },
                                 modifier = Modifier.fillMaxWidth()
@@ -298,7 +298,7 @@ fun SettingsNetworkCouncilPage(
         if (evidence != null && plan != null) {
             item(key = "council-measurements") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MarbleSectionHeader(title = trx("What was measured"))
+                    MarbleSectionHeader(title = trx("What we measured"))
                     MarbleCard {
                         CouncilMetricRow(
                             label = "Transport",
@@ -429,7 +429,7 @@ fun SettingsNetworkCouncilPage(
         if (plan != null) {
             item(key = "council-rationale") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MarbleSectionHeader(title = trx("Why each seat ruled"))
+                    MarbleSectionHeader(title = trx("Why each one voted"))
                     MarbleCard {
                         plan.findings.forEachIndexed { index, finding ->
                             if (index > 0) MarbleDivider()
@@ -478,13 +478,13 @@ fun SettingsNetworkCouncilPage(
         if (report != null && !report.applied) {
             item(key = "council-last-report") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MarbleSectionHeader(title = trx("Last saved verdict"))
+                    MarbleSectionHeader(title = trx("Last saved result"))
                     MarbleCard {
                         CouncilMetricRow(
                             label = report.operatorName.ifBlank {
                                 report.networkType.ifBlank { report.transport.label }
                             },
-                            value = "${report.score} ${report.grade} · ${report.changes.size} " + trx("settings")
+                            value = "${report.score} ${report.grade} · ${report.changes.size} " + trx("changes")
                         )
                     }
                 }
@@ -506,7 +506,7 @@ fun SettingsNetworkCouncilPage(
                     )
                     MarbleDivider()
                     MarbleSwitchRow(
-                        title = trx("Forget the last verdict"),
+                        title = trx("Clear the last result"),
                         subtitle = repo.councilReport?.let { saved ->
                             listOf(saved.summary, repo.councilScanAgeLabel())
                                 .filter { it.isNotBlank() }
@@ -578,7 +578,7 @@ private fun linkLine(
         val where = report.operatorName.ifBlank {
             report.networkType.ifBlank { trx(report.transport.label) }
         }
-        return trx("Last verdict") + " · " + where + " · " + "${report.score} ${report.grade}"
+        return trx("Last result") + " · " + where + " · " + "${report.score} ${report.grade}"
     }
     return trx("Wi-Fi, mobile data and the operator behind them")
 }

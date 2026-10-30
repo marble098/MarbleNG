@@ -62,7 +62,11 @@ fun faDigits(text: String): String {
 }
 
 fun String.toFaDigits(): String = buildString(length) {
-    forEach { c ->
+    // MARBLE_PLAIN_VOICE_V246 — this used to be a bare `forEach`, which reads the *StringBuilder*
+    // (the innermost CharSequence in scope, empty at that point) instead of the string being
+    // translated. Every Persian number in the product was therefore blank: no ping, no counter, no
+    // badge. The receiver is named now, and `PlainVoiceV246Test` pins the output.
+    this@toFaDigits.forEach { c ->
         when (c) {
             in '0'..'9' -> append('۰' + (c - '0'))
             '.' -> append('٫')

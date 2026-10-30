@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.BuildConfig
+import com.marbleng.app.core.AutoServerSelector
 import com.marbleng.app.core.CoreEngineInfo
 import com.marbleng.app.core.TunnelCoreInfo
 import com.marbleng.app.core.coreEngine
@@ -34,6 +35,7 @@ import com.marbleng.app.core.tunnelCore
 import com.marbleng.app.model.AppLanguage
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.JitterSmartMode
+import com.marbleng.app.model.PlainVoice
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.RoutingMode
 import com.marbleng.app.model.SmartPreset
@@ -134,32 +136,32 @@ fun SettingsScreen(
     val connectionGroup = listOf(
         SettingsRowSpec(
             destination = SettingsDestination.CONNECTION_MODE,
-            title = trx("Connection Mode & Ports"),
+            title = trx("How you connect"),
             subtitle = if (s.connectionMode == ConnectionMode.FULL_TUN) {
-                trx("Full TUN device VPN")
+                trx("Whole-phone VPN")
             } else {
-                "${trx("Local SOCKS5 proxy")} :${s.localProxyPort}"
+                "${trx("Local proxy")} :${s.localProxyPort}"
             },
             glyph = MarbleGlyph.TUNNEL,
             iconTint = colors.primary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.CORE_ENGINE,
-            title = trx("Proxy Core Engine"),
+            title = trx("Proxy engine"),
             subtitle = CoreEngineInfo.displayName(s.coreEngine()),
             glyph = MarbleGlyph.SERVER,
             iconTint = colors.secondary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.TUNNEL_DATAPATH,
-            title = trx("Tunnel Datapath"),
+            title = trx("Tunnel path"),
             subtitle = TunnelCoreInfo.displayName(s.tunnelCore()),
             glyph = MarbleGlyph.LAYERS,
             iconTint = colors.tertiary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.POWER_PROFILE,
-            title = trx("Power & Speed Profile"),
+            title = trx("Speed and battery"),
             subtitle = trx(parsePowerProfile(s.powerProfile).label),
             glyph = MarbleGlyph.SPARK,
             iconTint = colors.warning
@@ -169,38 +171,38 @@ fun SettingsScreen(
     val routingGroup = listOf(
         SettingsRowSpec(
             destination = SettingsDestination.ROUTING,
-            title = trx("Routing & Geo Databases"),
+            title = trx("What goes direct"),
             subtitle = when (s.routingMode) {
                 RoutingMode.PROXY_ALL -> trx("Proxy all traffic")
                 RoutingMode.BYPASS_PRIVATE -> trx("Bypass private LAN")
-                RoutingMode.GEO_DIRECT -> trx("Geo direct domestic separation")
-                RoutingMode.CUSTOM -> trx("Custom routing rules")
+                RoutingMode.GEO_DIRECT -> trx("Iranian sites stay direct")
+                RoutingMode.CUSTOM -> trx("Your own rules")
             },
             glyph = MarbleGlyph.ROUTE,
             iconTint = colors.success
         ),
         SettingsRowSpec(
             destination = SettingsDestination.DNS_FAMILY,
-            title = trx("DNS & IPv4 / IPv6"),
-            subtitle = "${s.dnsPrimaryIp} · ${s.addressFamilyMode.name}",
+            title = trx("DNS and IP version"),
+            subtitle = "${s.dnsPrimaryIp} · " + trx(PlainVoice.addressFamilyLabel(s.addressFamilyMode.name)),
             glyph = MarbleGlyph.GLOBE,
             iconTint = colors.tertiary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.SPLIT_TUNNEL,
-            title = trx("Per-App Split Tunnel"),
+            title = trx("Which apps use the tunnel"),
             subtitle = when (s.splitTunnelMode) {
                 SplitTunnelMode.ALL_APPS -> trx("All apps use VPN")
-                SplitTunnelMode.ONLY_SELECTED -> trx("Only selected apps use VPN")
-                SplitTunnelMode.BYPASS_SELECTED -> trx("Selected apps bypass VPN")
+                SplitTunnelMode.ONLY_SELECTED -> trx("Only the apps you pick")
+                SplitTunnelMode.BYPASS_SELECTED -> trx("The apps you pick stay direct")
             },
             glyph = MarbleGlyph.FOLDER,
             iconTint = colors.secondary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.CENSORSHIP_LAB,
-            title = trx("Iran Mode & Censorship Lab"),
-            subtitle = trx("Detect DPI filtering, TLS resets and apply prescriptions"),
+            title = trx("Iran mode & blocking test"),
+            subtitle = trx("Find what blocks you and fix it"),
             glyph = MarbleGlyph.SHIELD,
             iconTint = colors.error
         )
@@ -209,47 +211,47 @@ fun SettingsScreen(
     val testingGroup = listOf(
         SettingsRowSpec(
             destination = SettingsDestination.PING_TESTING,
-            title = trx("Ping & Delay Testing"),
+            title = trx("How ping is measured"),
             subtitle = when (s.probeMethod) {
-                ProbeMethod.REAL_DELAY -> trx("Real HTTPS tunnel delay")
-                ProbeMethod.TCP_PING -> trx("TCP handshake ping")
-                ProbeMethod.URL_TEST -> trx("Native core URL test")
+                ProbeMethod.REAL_DELAY -> trx("Real tunnel delay")
+                ProbeMethod.TCP_PING -> trx("Quick TCP ping")
+                ProbeMethod.URL_TEST -> trx("Built-in core test")
             },
             glyph = MarbleGlyph.GAUGE,
             iconTint = colors.success
         ),
         SettingsRowSpec(
             destination = SettingsDestination.NETWORK_COUNCIL,
-            title = trx("Network Council Scanner"),
+            title = trx("Network check"),
             subtitle = repo.councilReport?.let {
-                "${trx("Last verdict")} · ${it.score} ${it.grade} · ${it.changes.size} " + trx("settings")
-            } ?: trx("12 experts measure this link, then apply the best settings"),
+                "${trx("Last result")} · ${it.score} ${it.grade} · ${it.changes.size} " + trx("changes")
+            } ?: trx("Twelve quick checks that tune the app for this network"),
             glyph = MarbleGlyph.RADAR,
             iconTint = colors.tertiary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.SMART_PRESETS,
-            title = trx("Smart Presets"),
-            subtitle = trx("Gaming, Streaming and Extreme Bypass in one tap"),
+            title = trx("One-tap modes"),
+            subtitle = trx("Gaming, streaming or hard bypass in one tap"),
             glyph = MarbleGlyph.SPARK,
             iconTint = colors.warning
         ),
         SettingsRowSpec(
             destination = SettingsDestination.AUTO_SELECTOR,
-            title = trx("Automatic Server Selector"),
+            title = trx("Pick a server for me"),
             subtitle = if (s.autoServerSelectorEnabled) {
-                "${trx("On")} · ${s.autoServerStrategyEnum.name}"
+                "${trx("On")} · " + trx(AutoServerSelector.shortLabel(s.autoServerStrategyEnum))
             } else {
-                trx("Off · manual server selection")
+                trx("Off · you pick the server")
             },
             glyph = MarbleGlyph.RADAR,
             iconTint = colors.primary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.SMART_JITTER,
-            title = trx("Smart Jitter Reducer"),
+            title = trx("Smooth out the jitter"),
             subtitle = if (s.jitterSmartModeEnum == JitterSmartMode.OFF) {
-                trx("Off · the network policy stays untouched")
+                trx("Off · nothing is changed")
             } else {
                 "${trx("On")} · ${trx(s.jitterSmartModeEnum.label)}"
             },
@@ -258,8 +260,8 @@ fun SettingsScreen(
         ),
         SettingsRowSpec(
             destination = SettingsDestination.IDENTITY_LOCATION,
-            title = trx("Identity Guard & Locations"),
-            subtitle = trx("Exit IP protection and automatic country detection"),
+            title = trx("Hide my real IP"),
+            subtitle = trx("Protect your IP and find server countries"),
             glyph = MarbleGlyph.GLOBE,
             iconTint = colors.secondary
         )
@@ -268,7 +270,7 @@ fun SettingsScreen(
     val appearanceGroup = listOf(
         SettingsRowSpec(
             destination = SettingsDestination.APPEARANCE,
-            title = trx("Appearance & Accent"),
+            title = trx("Look and colour"),
             subtitle = "${trx(s.theme.replaceFirstChar { it.uppercase() })} · ${trx(parseFlatAccent(s.accentTheme).label)}",
             glyph = MarbleGlyph.PALETTE,
             iconTint = colors.secondary
@@ -286,9 +288,9 @@ fun SettingsScreen(
         ),
         SettingsRowSpec(
             destination = SettingsDestination.TAB_BAR,
-            title = trx("Tab Bar & Fourth Tab"),
+            title = trx("Bottom bar & fourth tab"),
             subtitle = if (s.dockSlotEnabled) {
-                trx("Four tabs enabled")
+                trx("Four tabs")
             } else {
                 trx("Three tabs")
             },
@@ -298,7 +300,7 @@ fun SettingsScreen(
         SettingsRowSpec(
             destination = SettingsDestination.HOME_LAYOUT,
             title = strings.homeStyleTitle,
-            subtitle = trx("Connect button style, telemetry cards and shortcuts"),
+            subtitle = trx("Connect style, cards and shortcuts"),
             glyph = MarbleGlyph.HOME,
             iconTint = colors.warning
         )
@@ -307,33 +309,33 @@ fun SettingsScreen(
     val systemGroup = listOf(
         SettingsRowSpec(
             destination = SettingsDestination.SUBSCRIPTIONS_DATA,
-            title = trx("Subscriptions & Auto-Refresh"),
+            title = trx("Subscriptions & refresh"),
             subtitle = if (s.subscriptionAutoRefresh) {
                 "${trx("Every")} ${s.subscriptionRefreshHours}h"
             } else {
-                trx("Manual refresh only")
+                trx("Only when you ask")
             },
             glyph = MarbleGlyph.REFRESH,
             iconTint = colors.primary
         ),
         SettingsRowSpec(
             destination = SettingsDestination.BACKUP_RESTORE,
-            title = trx("Backup & Restore"),
-            subtitle = trx("Export or import all servers, subscriptions and settings"),
+            title = trx("Backup"),
+            subtitle = trx("Save or restore everything in one file"),
             glyph = MarbleGlyph.VAULT,
             iconTint = colors.success
         ),
         SettingsRowSpec(
             destination = SettingsDestination.NOTIFICATIONS_BG,
-            title = trx("Notifications & Background"),
-            subtitle = trx("Live notification stats and unrestricted battery access"),
+            title = trx("Notifications & battery"),
+            subtitle = trx("Live stats in the shade, and battery access"),
             glyph = MarbleGlyph.BELL,
             iconTint = colors.error
         ),
         SettingsRowSpec(
             destination = SettingsDestination.DIAGNOSTICS,
-            title = trx("Diagnostics, Logs & Bug Finder"),
-            subtitle = trx("Privacy audit, system doctor, core logs and health checks"),
+            title = trx("Fix & diagnose"),
+            subtitle = trx("Checks that find and fix problems"),
             glyph = MarbleGlyph.TUNERS,
             iconTint = colors.warning
         ),
@@ -438,7 +440,7 @@ fun SettingsScreen(
                     maxLines = 1
                 )
                 Text(
-                    text = trx("Tap any row to configure • Use search to jump"),
+                    text = trx("Tap a row to change it • Search to find one"),
                     color = colors.onSurfaceVariant,
                     style = MaterialTheme.typography.labelSmall,
                     textAlign = TextAlign.Center
@@ -464,12 +466,12 @@ internal fun SettingsSmartPresetsPage(
     val active = matchSmartPreset(repo.settings)
 
     MarbleSubPageScaffold(
-        title = trx("Smart Presets"),
+        title = trx("One-tap modes"),
         onBack = onBack
     ) {
         item(key = "presets-intro") {
             MarbleSectionFooter(
-                trx("A preset bundles the tuning knobs behind a named decision. Your servers, routing, DNS and split tunnel are never changed.")
+                trx("Pick a mode and the app tunes itself. Your servers, routing, DNS and tunnel stay as they are.")
             )
         }
         items(SmartPreset.ordered) { preset ->

@@ -33,7 +33,7 @@ fun SettingsConnectionModePage(
     val s = repo.settings
 
     MarbleSubPageScaffold(
-        title = trx("Connection Mode & Ports"),
+        title = trx("How you connect"),
         onBack = onBack
     ) {
         item(key = "conn-mode") {
@@ -110,7 +110,7 @@ fun SettingsCoreEnginePage(
     val isXray = engine == CoreEngine.XRAY
 
     MarbleSubPageScaffold(
-        title = trx("Proxy Core Engine"),
+        title = trx("Proxy engine"),
         onBack = onBack
     ) {
         item(key = "core-selector") {
@@ -374,7 +374,7 @@ fun SettingsTunnelDatapathPage(
     val current = s.tunnelCore()
 
     MarbleSubPageScaffold(
-        title = trx("Tunnel Datapath"),
+        title = trx("Tunnel path"),
         onBack = onBack
     ) {
         item(key = "tunnel-choice") {
@@ -503,7 +503,7 @@ fun SettingsPowerProfilePage(
     val profile = parsePowerProfile(s.powerProfile)
 
     MarbleSubPageScaffold(
-        title = trx("Power & Speed Profile"),
+        title = trx("Speed and battery"),
         onBack = onBack
     ) {
         item(key = "power-profiles") {

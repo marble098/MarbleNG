@@ -307,17 +307,17 @@ enum class SmartPreset(
     GAMING(
         id = "gaming",
         title = "Gaming",
-        body = "Turbo power, aggressive jitter reduction and raced connects — built for latency, not bulk."
+        body = "Full power and quicker connects. Made for games, not downloads."
     ),
     STREAMING(
         id = "streaming",
         title = "Streaming",
-        body = "Throughput first: multiplexing on, adaptive buffers, calmer jitter probing."
+        body = "Built for speed: bigger buffers and smoother video."
     ),
     EXTREME_BYPASS(
         id = "extreme_bypass",
-        title = "Extreme Bypass",
-        body = "For a hostile network: Iran Mode always on, record fragmentation, a conservative MTU and a wider connect race."
+        title = "Blocked network",
+        body = "For strict filtering: Iran mode on, small packets and more retries."
     );
 
     /**

@@ -191,8 +191,26 @@ enum class BenchMode { RELIABLE, BALANCED, FAST, TURBO, CUSTOM }
 enum class ConnectionMode { FULL_TUN, LOCAL_PROXY }
 enum class RoutingMode { PROXY_ALL, BYPASS_PRIVATE, GEO_DIRECT, CUSTOM }
 
-enum class RoutingRuleKind { GEOSITE, GEOIP, DOMAIN, IP, PORT }
-enum class RoutingOutbound { PROXY, DIRECT, BLOCK }
+/**
+ * MARBLE_PLAIN_VOICE_V246 — a rule kind is a word on a chip, not a constant in a log.
+ *
+ * The routing page printed [name] into the row title and the match picker, so a person read
+ * "GEOSITE: category-ads-all" and was asked to decode the storage format of the enum. [label] is
+ * what the screen shows; [name] stays exactly as it was, because it is what gets persisted.
+ */
+enum class RoutingRuleKind(val label: String) {
+    GEOSITE("Site"),
+    GEOIP("Country IP"),
+    DOMAIN("Domain"),
+    IP("IP"),
+    PORT("Port")
+}
+/** MARBLE_PLAIN_V246 — the tri-state of a rule, printed as a badge instead of as a constant. */
+enum class RoutingOutbound(val label: String) {
+    PROXY("Tunnel"),
+    DIRECT("Direct"),
+    BLOCK("Blocked")
+}
 
 data class RoutingRule(
     val id: String,

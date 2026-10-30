@@ -66,7 +66,7 @@ fun SettingsAppearancePage(
     val activeAccent = parseFlatAccent(s.accentTheme)
 
     MarbleSubPageScaffold(
-        title = trx("Appearance & Accent"),
+        title = trx("Look and colour"),
         onBack = onBack
     ) {
         item(key = "theme-mode") {
@@ -329,7 +329,7 @@ fun SettingsTabBarPage(
     val showIcons = dockShowsIcons(s.dockShowIcons, s.dockShowLabels)
 
     MarbleSubPageScaffold(
-        title = trx("Tab Bar & Fourth Tab"),
+        title = trx("Bottom bar & fourth tab"),
         onBack = onBack
     ) {
         item(key = "tabbar-chrome") {

@@ -43,7 +43,7 @@ fun SettingsPingTestingPage(
     val homeAction = parseHomePingAction(s.homePingGaugeAction)
 
     MarbleSubPageScaffold(
-        title = trx("Ping & Delay Testing"),
+        title = trx("How ping is measured"),
         onBack = onBack
     ) {
         item(key = "probe-methods") {
@@ -186,7 +186,7 @@ fun SettingsPingTestingPage(
 
         item(key = "home-ping-action") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Home Screen Ping Action"))
+                MarbleSectionHeader(title = trx("Home ping button"))
                 MarbleCard {
                     listOf(
                         HomePingAction.ROUTE to trx("Test Active / Selected Server"),
@@ -228,12 +228,12 @@ fun SettingsAutoSelectorPage(
     val preview = repo.previewAutoServerChoice()
 
     MarbleSubPageScaffold(
-        title = trx("Automatic Server Selector"),
+        title = trx("Pick a server for me"),
         onBack = onBack
     ) {
         item(key = "auto-toggle-strategy") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Selector & Strategy"))
+                MarbleSectionHeader(title = trx("How it picks"))
                 MarbleCard {
                     MarbleSwitchRow(
                         title = trx("Enable Automatic Server Selector"),
@@ -409,7 +409,7 @@ fun SettingsIdentityLocationPage(
     val (knownCount, totalCount) = repo.serverLocationSummary()
 
     MarbleSubPageScaffold(
-        title = trx("Identity Guard & Locations"),
+        title = trx("Hide my real IP"),
         onBack = onBack
     ) {
         item(key = "identity-guard") {

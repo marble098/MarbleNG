@@ -2605,7 +2605,106 @@ private val FaFriendlyVoice: Map<String, String> = mapOf(
         "کشور همه سرورها رو دوباره اندازه بگیر",
     "All sources" to "همه منابع",
     "Wait until ping finishes before changing server" to
-        "صبر کن تا تست پینگ تموم بشه، بعد سرور رو عوض کن"
+        "صبر کن تا تست پینگ تموم بشه، بعد سرور رو عوض کن",
+
+    // MARBLE_PLAIN_VOICE_V246 — Settings stopped talking like a datasheet. Every rewritten
+    // title keeps its exact meaning and loses only the jargon: no more "Datapath",
+    // "Prescriptions", "Council verdict" or "DPI filtering" in the place a person goes to
+    // change a setting. Same voice as V233: second person, short verbs, a friend explaining.
+    "How you connect" to "چطور وصل می‌شی",
+    "Whole-phone VPN" to "کل گوشی از تونل رد می‌شه",
+    "Proxy engine" to "موتور پروکسی",
+    "Tunnel path" to "مسیر تونل",
+    "Speed and battery" to "سرعت و باتری",
+    "What goes direct" to "چی مستقیم بره",
+    "Iranian sites stay direct" to "سایت‌های ایرانی مستقیم باز می‌شن",
+    "Your own rules" to "قاعده‌های خودت",
+    "DNS and IP version" to "DNS و نسخه IP",
+    "Which apps use the tunnel" to "کدوم برنامه‌ها از تونل استفاده کنن",
+    "Only the apps you pick" to "فقط برنامه‌هایی که انتخاب می‌کنی",
+    "The apps you pick stay direct" to "برنامه‌هایی که انتخاب می‌کنی مستقیم می‌رن",
+    "Iran mode & blocking test" to "حالت ایران و تست فیلترینگ",
+    "Find what blocks you and fix it" to "پیدا می‌کنیم چی جلوت رو گرفته و درستش می‌کنیم",
+    "How ping is measured" to "پینگ چطور اندازه گرفته می‌شه",
+    "Real tunnel delay" to "تأخیر واقعی از داخل تونل",
+    "Quick TCP ping" to "پینگ سریع TCP",
+    "Built-in core test" to "تست با هسته خود برنامه",
+    "Network check" to "بررسی شبکه",
+    "Twelve quick checks that tune the app for this network" to "دوازده بررسی سریع که تنظیم‌ها رو با این شبکه هماهنگ می‌کنه",
+    "Gaming, streaming or hard bypass in one tap" to "بازی، استریم یا عبور سخت، با یک ضربه",
+    "Pick a server for me" to "خودت یه سرور برام انتخاب کن",
+    "Off · you pick the server" to "خاموش · خودت سرور رو انتخاب می‌کنی",
+    "Smooth out the jitter" to "نوسان شبکه رو صاف کن",
+    "Off · nothing is changed" to "خاموش · هیچ‌چیز تغییر نمی‌کنه",
+    "Hide my real IP" to "آی‌پی واقعی‌ام رو بپوشون",
+    "Protect your IP and find server countries" to "از آی‌پی‌ات محافظت می‌کنیم و کشور سرورها رو پیدا می‌کنیم",
+    "Look and colour" to "ظاهر و رنگ",
+    "Bottom bar & fourth tab" to "نوار پایین و تب چهارم",
+    "Four tabs" to "چهار تب",
+    "Home ping button" to "دکمه پینگ در خانه",
+    "Connect style, cards and shortcuts" to "شکل دکمه اتصال، کارت‌ها و میان‌برها",
+    "Subscriptions & refresh" to "ساب‌ها و تازه‌سازی",
+    "Only when you ask" to "فقط وقتی خودت بخوای",
+    "Save or restore everything in one file" to "همه‌چیز رو در یک فایل ذخیره یا برگردون",
+    "Notifications & battery" to "اعلان‌ها و باتری",
+    "Live stats in the shade, and battery access" to "آمار زنده در نوتیفیکیشن و دسترسی به باتری",
+    "Fix & diagnose" to "درستش کن و عیب‌یابی",
+    "Checks that find and fix problems" to "بررسی‌هایی که مشکل‌ها رو پیدا و رفع می‌کنن",
+    "Tap a row to change it • Search to find one" to "روی هر ردیف بزن تا عوضش کنی • با جست‌وجو پیداش کن",
+    "Run the check" to "بررسی رو شروع کن",
+    "Twelve checks, one plan" to "دوازده بررسی، یک نقشه",
+    "Why each one voted" to "هر کدوم چرا این رأی رو دادن",
+    "Objected" to "مخالف بود",
+    "Last result" to "نتیجه آخر",
+    "Last saved result" to "آخرین نتیجه ذخیره‌شده",
+    "Clear the last result" to "نتیجه آخر رو پاک کن",
+    "What it would change" to "چه چیزهایی رو عوض می‌کنه",
+    "Apply these settings" to "این تنظیم‌ها رو اعمال کن",
+    "What we measured" to "چی رو اندازه گرفتیم",
+    "The twelve checks" to "دوازده بررسی",
+    "Apply what it suggests" to "چیزی که پیشنهاد می‌ده رو اعمال کن",
+    "Apply clear results automatically" to "نتیجه‌های قطعی رو خودکار اعمال کن",
+    "Fight filtering with timeouts, safer DNS and MTU repair" to "با تنظیم تایم‌اوت، DNS امن‌تر و ترمیم MTU با فیلترینگ بجنگ",
+    "Checks your network for blocking and shows what it finds." to "شبکه‌ات رو برای فیلترینگ بررسی می‌کنه و نتیجه رو نشون می‌ده.",
+    "Send everything through the server" to "همه‌چیز رو از سرور رد کن",
+    "Keep Iranian sites direct" to "سایت‌های ایرانی مستقیم باز بشن",
+    "Keep home network devices direct" to "دستگاه‌های شبکه خانه مستقیم برن",
+    "Match domain, IP and country rules" to "قاعده‌های دامنه، IP و کشور رو اعمال کن",
+    "Combine rules from several sources" to "قاعده‌ها رو از چند منبع کنار هم بگذار",
+    "Make a rule for a site, IP or port" to "برای یک سایت، IP یا پورت قاعده بساز",
+    // The words that never reached the literal audit: enum constants printed straight into a
+    // subtitle (`1.1.1.1 · FORCE_IPV4`, `On · LEAST_PING`, `Wi-Fi · DNS UseIPv4`) and the one-tap
+    // modes, whose copy was the densest paragraph on the page.
+    "One-tap modes" to "حالت‌های تک‌ضربه‌ای",
+    "How it picks" to "چطور انتخاب می‌کنه",
+    "changes" to "تغییر",
+    "Blocked network" to "شبکه بسته",
+    "IPv4 first" to "اول IPv4",
+    "IPv6 first" to "اول IPv6",
+    "IPv4 or IPv6" to "IPv4 یا IPv6",
+    "Least ping" to "کم‌ترین پینگ",
+    "Least load" to "کم‌ترین بار",
+    "Round robin" to "یکی‌یکی به نوبت",
+    "Random" to "تصادفی",
+    "One tap, and the app tunes itself — your routing, DNS and servers stay as they are." to
+        "یک ضربه، و برنامه خودش تنظیم می‌شه — مسیریابی، DNS و سرورها همون‌جور که هست می‌مونن.",
+    "Pick a mode and the app tunes itself. Your servers, routing, DNS and tunnel stay as they are." to
+        "یک حالت انتخاب کن تا خودش تنظیم بشه؛ سرورها، مسیریابی، DNS و تونل همون‌جور که هست می‌مونن.",
+    "Full power and quicker connects. Made for games, not downloads." to
+        "توان کامل و اتصال سریع‌تر. برای بازی ساخته شده، نه دانلود.",
+    "Built for speed: bigger buffers and smoother video." to
+        "برای سرعت ساخته شده: بافر بزرگ‌تر و ویدیوی روان‌تر.",
+    "For strict filtering: Iran mode on, small packets and more retries." to
+        "برای فیلترینگ سخت: حالت ایران روشن، بسته‌های کوچک و تلاش‌های بیشتر.",
+    // Rule kinds and probe kinds: the constants that used to be printed as `GEOSITE:` and
+    // `ALT_PORT` inside a sentence. DNS, TCP and TLS keep their real names — they are what the
+    // person is trying to find out about, not how the app is built.
+    "Site" to "سایت",
+    "Country IP" to "آی‌پی کشور",
+    "Other port" to "پورت دیگه",
+    "Direct" to "مستقیم",
+    "Domain" to "دامنه",
+    "Port" to "پورت",
 )
 
 /** The dictionary the whole product reads: base entries with the warm voice on top. */
