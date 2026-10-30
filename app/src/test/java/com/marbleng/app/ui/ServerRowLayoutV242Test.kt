@@ -9,8 +9,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
+import com.marbleng.app.core.ServersDeck
 import com.marbleng.app.model.BenchmarkResult
 import com.marbleng.app.model.ProbeState
 import com.marbleng.app.model.ProxyProfile
@@ -24,7 +27,13 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** V242: the server row keeps its columns when the name, address, language or probe changes. */
+/**
+ * V242: the server row keeps its columns when the name, address, language or probe changes.
+ *
+ * V243 kept the three promises this test was written for — a 48dp action target, an 88dp reserved
+ * ping column, and an RTL row whose columns do not cross — while the row itself became the compact
+ * deck: the address left the face of the row and the delete left the card.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w360dp-h740dp", application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -80,16 +89,16 @@ class ServerRowLayoutV242Test {
             .getUnclippedBoundsInRoot()
         val more = compose.onNodeWithTag("server-row-more-row-1", useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
-        val host = compose.onNodeWithTag("server-row-host-row-1", useUnmergedTree = true)
+        val transport = compose.onNodeWithTag("server-row-transport-row-1", useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
         val ping = compose.onNodeWithTag("server-row-ping-row-1", useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
 
         assertTrue("action target is too small: $more", (more.right - more.left) >= 48.dp)
         assertEquals(88.dp, ping.right - ping.left)
-        // RTL: the action sits to the left of the title; ping sits to the left of the address.
+        // RTL: the action sits to the left of the title; ping sits to the left of the details.
         assertTrue("more overlaps title: more=$more title=$title", more.right <= title.left)
-        assertTrue("ping overlaps host: ping=$ping host=$host", ping.right <= host.left)
+        assertTrue("ping overlaps transport: ping=$ping transport=$transport", ping.right <= transport.left)
     }
 
     @Test
@@ -141,5 +150,32 @@ class ServerRowLayoutV242Test {
             .getUnclippedBoundsInRoot()
         assertEquals(idle.left, measured.left)
         assertEquals(idle.right, measured.right)
+    }
+
+    @Test
+    fun theCompactRowKeepsTheAddressOutAndTheDeleteOffTheFace() {
+        setRow()
+
+        // V243: the address lives in the details page, and delete is a gesture, not a label.
+        assertTrue(
+            "a Delete label is back on the row",
+            compose.onAllNodesWithText("Delete").fetchSemanticsNodes().isEmpty()
+        )
+        assertTrue(
+            "the address is repeated on the row",
+            compose.onAllNodesWithText(profile.host, substring = true).fetchSemanticsNodes().isEmpty()
+        )
+        assertTrue(
+            "the transport line is missing",
+            compose.onAllNodesWithTag("server-row-transport-row-1", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        )
+
+        val row = compose.onNodeWithTag("server-row-row-1").getUnclippedBoundsInRoot()
+        val height = row.bottom - row.top
+        assertTrue(
+            "row is not compact: $height",
+            height >= ServersDeck.ROW_MIN_HEIGHT_DP.dp && height <= ServersDeck.ROW_MAX_HEIGHT_DP.dp
+        )
     }
 }

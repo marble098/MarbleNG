@@ -44,12 +44,26 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **Material 3 Expressive motion** — stretching loaders, cascading arrivals, rolling readouts and springy releases on every control.
 - **A living, layered surface** — a slowly breathing brand aurora behind every page, and one cool-shadow depth system above it, so nothing floats on a dead flat field.
 - **A Servers page that shows its hierarchy** — subscription cards with a real usage bar, and their servers nested inside them, smaller in every dimension.
+- **A Servers page that starts with servers** — one search line and one filter sheet instead of four chip rows, a pinned "active route" card, collapsible groups with a single overflow, 68dp rows that say `VLESS · TLS · XHTTP` and a four-level ping, delete by swipe with undo, and an extended FAB that folds away while the list moves.
 - **A twelve-expert network council in Settings** — one scan reads the link, the operator, ping, TCP, UDP, DNS, ports, MTU and both address families, then applies the settings it can defend on both cores — with a dissent line for every seat that lost the argument.
 
 ## The expressive shell: one control, one decision
 
-`docs/CRASH_AND_SERVER_ROWS_V242.md` is the newest chapter.
-`docs/EXPRESSIVE_SHELL_V241.md` records the expressive shell before it.
+`docs/SERVERS_DECK_V243.md` is the newest chapter.
+`docs/CRASH_AND_SERVER_ROWS_V242.md` is the chapter before it.
+`docs/EXPRESSIVE_SHELL_V241.md` records the expressive shell before that.
+
+**V243 — the Servers page starts with servers.** The report counted four filter rows (search,
+sort, groups, protocols) before the first server, one address printed four times, a clipped red
+`Delete` label glued to the ping, a FAB covering the last card, and three tiny green words where the
+group's actions belonged. The page is now: a title line with two actions, a single search line whose
+filter action opens a sheet, the chip row only when a filter really narrows something, a pinned
+active-route card while a tunnel is up, collapsible group headers with one 48dp overflow, and 68dp
+rows — protocol chip, name, `TLS · XHTTP`, a reserved 88dp ping column with four semantic bars, and
+one overflow target. Deletion is a gesture with a five-second undo window, and the list reserves the
+FAB's height so nothing is ever covered. `ServersDeck` holds the arithmetic (row ceiling, the
+150/300ms ping lines, the transport line, the selection roster, the undo window) and
+`ServersDeckV243Test` pins it on the JVM.
 
 **V242 crash and server-row pass.** The connect pill no longer lets an expressive spring overshoot
 into negative padding: the inset uses a non-overshooting effects spring plus a finite layout clamp,
