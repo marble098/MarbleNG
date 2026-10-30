@@ -161,14 +161,22 @@ class LiquidGlassLensV248Test {
         assertEquals(1f, rest.scaleX, 1e-6f)
         assertEquals(1f, rest.scaleY, 1e-6f)
 
-        // 1 + 1500/3000 = 1.50; 1 − 1500/6000 = 0.75.
+        // Below the caps the effect is proportional: 1 + 300/3000 = 1.10 and
+        // 1 − 300/6000 = 0.95.
+        val slow = LiquidGlassLensSpec.deformation(300f)
+        assertEquals(1.10f, slow.scaleX, 1e-6f)
+        assertEquals(0.95f, slow.scaleY, 1e-6f)
+
+        // The caps are reached at 3000 * 0.25 = 750 px/s (stretch) and 6000 * 0.12 = 720 px/s
+        // (squash), so anything faster is already the maximum deformation. This is exactly what
+        // the brief's `coerceAtMost` means, and it is why 1500 and 3000 produce the same puck.
         val half = LiquidGlassLensSpec.deformation(1500f)
-        assertEquals(1.5f, half.scaleX, 1e-6f)
-        assertEquals(0.75f, half.scaleY, 1e-6f)
+        assertEquals(1.25f, half.scaleX, 1e-6f)
+        assertEquals(0.88f, half.scaleY, 1e-6f)
 
         val thrown = LiquidGlassLensSpec.deformation(3000f)
         assertEquals(1.25f, thrown.scaleX, 1e-6f)
-        assertEquals(0.875f, thrown.scaleY, 1e-6f)
+        assertEquals(0.88f, thrown.scaleY, 1e-6f)
 
         // Direction is irrelevant; only speed is.
         val mirrored = LiquidGlassLensSpec.deformation(-3000f)
