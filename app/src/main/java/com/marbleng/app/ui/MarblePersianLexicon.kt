@@ -2544,7 +2544,46 @@ private val FaFriendlyVoice: Map<String, String> = mapOf(
     "Applied MTU override" to "MTU دستیِ اعمالشده",
     "No MTU override applied — the adaptive policy decides" to
         "هیچ MTU دستی اعمال نشده — سیاست تطبیقی تصمیم میگیره",
-    "Set to 0 to return to the adaptive policy" to "برای برگشتن به سیاست تطبیقی صفرش کن"
+    "Set to 0 to return to the adaptive policy" to "برای برگشتن به سیاست تطبیقی صفرش کن",
+
+    // MARBLE_SERVERS_DECK_V243 — the Servers page became a list of servers: one search line, a
+    // filter sheet, a pinned active route, collapsible groups and compact rows with an undo.
+    "Active server" to "سرور فعال",
+    "Test every server" to "همه سرورها رو تست کن",
+    "Sort & Filter" to "مرتب‌سازی و فیلتر",
+    "Filters" to "فیلترها",
+    "This group" to "همین گروه",
+    "Refresh this group" to "این گروه رو تازه کن",
+    "Fetch the subscription again" to "اشتراک رو دوباره بگیر",
+    "Test every server in this group" to "همه سرورهای این گروه رو تست کن",
+    "Edit subscription" to "ویرایش اشتراک",
+    "Group actions" to "کارهای گروه",
+    "Collapsed" to "جمع‌شده",
+    "Select all" to "انتخاب همه",
+    "selected" to "انتخاب‌شده",
+    "Selected servers" to "سرورهای انتخاب‌شده",
+    "Ping selected" to "پینگ انتخاب‌شده‌ها",
+    "Delete selected servers?" to "سرورهای انتخاب‌شده حذف بشن؟",
+    "Checked" to "علامت‌خورده",
+    "Undo" to "برگردون",
+    "removed" to "حذف شد",
+    "Add" to "افزودن",
+    "Reset Filters" to "پاک‌کردن فیلترها",
+    "Only reachable servers" to "فقط سرورهای در دسترس",
+    "Reachable only" to "فقط در دسترس",
+    "Reversed" to "برعکس",
+    "Subscription order" to "ترتیب اشتراک",
+    "Lowest ping" to "کمترین پینگ",
+    "Best score" to "بهترین امتیاز",
+    "Name (A–Z)" to "نام (الف–ی)",
+    "Country" to "کشور",
+    "Protocol" to "پروتکل",
+    "TCP" to "TCP",
+    "Group" to "گروه",
+    "Group by country" to "گروه‌بندی بر اساس کشور",
+    "Reverse sort direction" to "برعکس‌کردن ترتیب",
+    "Organize servers by latency, score, country or protocol" to
+        "سرورها رو بر اساس تأخیر، امتیاز، کشور یا پروتکل مرتب کن"
 )
 
 /** The dictionary the whole product reads: base entries with the warm voice on top. */

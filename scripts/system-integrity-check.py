@@ -481,6 +481,10 @@ files = {
     "uiFormatters": read("app/src/main/java/com/marbleng/app/ui/UiFormatters.kt"),
     "homeScreen": read("app/src/main/java/com/marbleng/app/ui/HomeScreen.kt"),
     "serversScreen": read("app/src/main/java/com/marbleng/app/ui/ServersScreen.kt"),
+    "serversDeck": read("app/src/main/java/com/marbleng/app/core/ServersDeck.kt"),
+    "serversDeckTest": read("app/src/test/java/com/marbleng/app/core/ServersDeckV243Test.kt"),
+    "serverRowTest": read("app/src/test/java/com/marbleng/app/ui/ServerRowLayoutV242Test.kt"),
+    "serversDeckDoc": read("docs/SERVERS_DECK_V243.md"),
     "serverForms": read("app/src/main/java/com/marbleng/app/ui/ServerFormsAndDetailPages.kt"),
     "customSlot": read("app/src/main/java/com/marbleng/app/ui/CustomSlotScreen.kt"),
     "settingsScreen": read("app/src/main/java/com/marbleng/app/ui/SettingsScreen.kt"),
@@ -4201,6 +4205,85 @@ check(
     "Upload R8 mapping" in files["buildWorkflow"]
     and "app/build/outputs/mapping/release/mapping.txt" in files["buildWorkflow"]
     and "CRASH_AND_SERVER_ROWS_V242.md" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_SERVERS_DECK_V243
+# ---------------------------------------------------------------------------
+check(
+    "V243 the Servers page is a list of servers, not four rows of chrome",
+    "object ServersDeck" in files["serversDeck"]
+    and "fun showsGroupHeaders(" in files["serversDeck"]
+    and "fun showsFilterStrip(" in files["serversDeck"]
+    and "enum class PingReadout(" in files["serversDeck"]
+    and "fun pingReadout(" in files["serversDeck"]
+    and "fun pingBars(" in files["serversDeck"]
+    and "fun transportLine(" in files["serversDeck"]
+    and "object ServersSelection" in files["serversDeck"]
+    and "object ServersUndo" in files["serversDeck"]
+    and "fun activeFilterChips(" in files["serversDeck"]
+    and "ServersDeck.showsGroupHeaders(" in files["serversScreen"]
+    and "ServersDeck.showsFilterStrip(" in files["serversScreen"]
+    and "ServersDeck.FAB_CLEARANCE_DP" in files["serversScreen"]
+    and "trailingCount = " not in files["serversScreen"],
+)
+
+check(
+    "V243 one search line, a filter sheet and a pinned active route",
+    "fun ServersFilterSheet(" in files["serversScreen"]
+    and "fun ActiveServerCard(" in files["serversScreen"]
+    and "fun ServerPingCell(" in files["serversScreen"]
+    and "fun PingBars(" in files["serversScreen"]
+    and "fun PingSkeleton(" in files["serversScreen"]
+    and "MarbleIconButton(" in files["serversScreen"]
+    and "MarbleHealthPill(" in files["serversScreen"]
+    and "repo.stopVpn()" in files["serversScreen"]
+    and "text = trx(\"Add\")" in files["serversScreen"],
+)
+
+check(
+    "V243 groups collapse behind one overflow action",
+    "fun ServerGroupHeader(" in files["serversScreen"]
+    and "DropdownMenu(" in files["serversScreen"]
+    and "DropdownMenuItem(" in files["serversScreen"]
+    and "openGroupMenu" in files["serversScreen"]
+    and "collapsedGroups" in files["serversScreen"],
+)
+
+check(
+    "V243 delete is a gesture with an undo, never a label on the card",
+    "fun scheduleRemoval(" in files["serversScreen"]
+    and "ServersUndo.schedule(" in files["serversScreen"]
+    and "actionLabel = undoLabel" in files["serversScreen"]
+    and "SnackbarResult.ActionPerformed" in files["serversScreen"]
+    and "ServersUndo.hiddenIds(" in files["serversScreen"]
+    and "combinedClickable(" in files["serversScreen"]
+    and "SelectionBar(" in files["serversScreen"]
+    and "ServersSelection.toggle(" in files["serversScreen"]
+    and "class ServersDeckV243Test" in files["serversDeckTest"]
+    and "fun aPingIsRankedInFourLevelsWithTheAgreedLines()" in files["serversDeckTest"]
+    and "fun aDeletedRowLeavesThePageButNotTheLibraryUntilTheWindowEnds()" in files["serversDeckTest"]
+    and "fun theCompactRowKeepsTheAddressOutAndTheDeleteOffTheFace()" in files["serverRowTest"],
+)
+
+check(
+    "V243 the Persian voice covers the new deck copy",
+    "\"Undo\" to \"" in files["persianLexicon"]
+    and "\"Active server\" to \"" in files["persianLexicon"]
+    and "\"Select all\" to \"" in files["persianLexicon"]
+    and "\"Ping selected\" to \"" in files["persianLexicon"]
+    and "\"This group\" to \"" in files["persianLexicon"]
+    and "MARBLE_SERVERS_DECK_V243" in files["persianLexicon"],
+)
+
+check(
+    "V243 the chapter, the README and the test all record the pass",
+    "MARBLE_SERVERS_DECK_V243" in files["serversScreen"]
+    and "MARBLE_SERVERS_DECK_V243" in files["serversDeck"]
+    and "SERVERS_DECK_V243.md" in files["readme"]
+    and "## ۱. چرا این صفحه پر بود از چیزهایی که سرور نبودند" in files["serversDeckDoc"]
+    and "## ۶. جدول اجرا" in files["serversDeckDoc"]
+    and "## ۷. آنچه عمداً انجام نشد" in files["serversDeckDoc"],
 )
 
 failed = [name for name, passed in checks if not passed]
