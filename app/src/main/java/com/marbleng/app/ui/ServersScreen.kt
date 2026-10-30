@@ -118,7 +118,7 @@ import com.marbleng.app.ui.theme.warning
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-private data class ServerGroupBucket(
+internal data class ServerGroupBucket(
     val id: String,
     val title: String,
     val subscription: Subscription?,
@@ -1183,7 +1183,7 @@ private fun SelectionBar(
  * precision gesture.
  */
 @Composable
-private fun ServerGroupHeader(
+internal fun ServerGroupHeader(
     bucket: ServerGroupBucket,
     collapsed: Boolean,
     busy: Boolean,
@@ -1199,107 +1199,135 @@ private fun ServerGroupHeader(
     val strings = Tr.now
     val sub = bucket.subscription
     val freshness = sub?.updatedAt?.takeIf { it > 0L }?.let { trx(relativeTimeLabel(it)) }
+    val stateLabel = if (collapsed) trx("Collapsed") else trx("Expanded")
 
+    // MARBLE_EXPRESSIVE_BENTO_V250 — the overflow lives in a reserved trailing column.
+    // Title, count and freshness share one flexible leading block, so a long subscription
+    // name or a fresh timestamp can never push the three dots out of line with the rows.
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onToggleCollapse)
-            .padding(start = 4.dp, end = 0.dp, top = 10.dp, bottom = 2.dp),
+            .testTag("server-group-header-${bucket.id}")
+            .heightIn(min = 64.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(colors.surfaceContainerLow)
+            .clickable(role = Role.Button, onClick = onToggleCollapse)
+            .semantics { this.stateDescription = stateLabel }
+            .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        MarbleGlyphIcon(
-            glyph = if (collapsed) MarbleGlyph.CHEVRON else MarbleGlyph.CHEVRON_DOWN,
-            color = colors.onSurfaceVariant,
-            modifier = Modifier.size(16.dp)
-        )
-        if (bucket.countryCode.isNotBlank()) {
-            CountryFlagCircle(
-                code = bucket.countryCode,
-                size = ServersAtlas.SECTION_FLAG_SIZE_DP.dp
-            )
-        }
-        Text(
-            text = bucket.title,
-            color = colors.onSurface,
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false)
-        )
-        MarbleBadge(
-            text = faDigits("${bucket.profiles.size}"),
-            color = if (sub != null) colors.secondary else colors.tertiary
-        )
-        if (freshness != null) {
-            Text(
-                text = freshness,
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MarbleGlyphIcon(
+                glyph = if (collapsed) MarbleGlyph.CHEVRON else MarbleGlyph.CHEVRON_DOWN,
                 color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1
+                modifier = Modifier.size(18.dp)
             )
-        }
-        Spacer(Modifier.weight(1f))
-        Box {
-            MarbleIconButton(
-                glyph = MarbleGlyph.MORE,
-                tint = colors.onSurfaceVariant,
-                contentDescription = "${trx("Group actions")}: ${bucket.title}",
-                onClick = { onMenuOpenChange(true) }
-            )
-            DropdownMenu(
-                expanded = menuOpen,
-                onDismissRequest = { onMenuOpenChange(false) },
-                containerColor = colors.surfaceContainerHigh
-            ) {
-                if (sub != null && sub.url.isNotBlank()) {
-                    DropdownMenuItem(
-                        text = { Text(trx("Refresh"), style = MaterialTheme.typography.bodyMedium) },
-                        enabled = !busy,
-                        leadingIcon = {
-                            MarbleGlyphIcon(
-                                glyph = MarbleGlyph.REFRESH,
-                                color = colors.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = {
-                            onMenuOpenChange(false)
-                            onRefresh()
-                        }
-                    )
-                }
-                DropdownMenuItem(
-                    text = { Text(strings.connectionPing, style = MaterialTheme.typography.bodyMedium) },
-                    enabled = !probeActive && bucket.profiles.isNotEmpty(),
-                    leadingIcon = {
-                        MarbleGlyphIcon(
-                            glyph = MarbleGlyph.GAUGE,
-                            color = colors.success,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    },
-                    onClick = {
-                        onMenuOpenChange(false)
-                        onPing()
-                    }
+            if (bucket.countryCode.isNotBlank()) {
+                CountryFlagCircle(
+                    code = bucket.countryCode,
+                    size = ServersAtlas.SECTION_FLAG_SIZE_DP.dp
                 )
-                if (onEdit != null) {
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = bucket.title,
+                    color = colors.onSurface,
+                    style = MaterialTheme.typography.titleSmallEmphasized,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    MarbleBadge(
+                        text = faDigits("${bucket.profiles.size}"),
+                        color = if (sub != null) colors.secondary else colors.tertiary
+                    )
+                    if (freshness != null) {
+                        Text(
+                            text = freshness,
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
+                }
+            }
+        }
+        MarbleActionColumn(tag = "server-group-action-${bucket.id}") {
+            Box {
+                MarbleIconButton(
+                    glyph = MarbleGlyph.MORE,
+                    tint = colors.onSurfaceVariant,
+                    contentDescription = "${trx("Group actions")}: ${bucket.title}",
+                    onClick = { onMenuOpenChange(true) },
+                    modifier = Modifier.testTag("server-group-more-${bucket.id}")
+                )
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { onMenuOpenChange(false) },
+                    containerColor = colors.surfaceContainerHigh
+                ) {
+                    if (sub != null && sub.url.isNotBlank()) {
+                        DropdownMenuItem(
+                            text = { Text(trx("Refresh"), style = MaterialTheme.typography.bodyMedium) },
+                            enabled = !busy,
+                            leadingIcon = {
+                                MarbleGlyphIcon(
+                                    glyph = MarbleGlyph.REFRESH,
+                                    color = colors.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = {
+                                onMenuOpenChange(false)
+                                onRefresh()
+                            }
+                        )
+                    }
                     DropdownMenuItem(
-                        text = { Text(trx("Edit"), style = MaterialTheme.typography.bodyMedium) },
+                        text = { Text(strings.connectionPing, style = MaterialTheme.typography.bodyMedium) },
+                        enabled = !probeActive && bucket.profiles.isNotEmpty(),
                         leadingIcon = {
                             MarbleGlyphIcon(
-                                glyph = MarbleGlyph.PENCIL,
-                                color = colors.onSurfaceVariant,
+                                glyph = MarbleGlyph.GAUGE,
+                                color = colors.success,
                                 modifier = Modifier.size(18.dp)
                             )
                         },
                         onClick = {
                             onMenuOpenChange(false)
-                            onEdit()
+                            onPing()
                         }
                     )
+                    if (onEdit != null) {
+                        DropdownMenuItem(
+                            text = { Text(trx("Edit"), style = MaterialTheme.typography.bodyMedium) },
+                            leadingIcon = {
+                                MarbleGlyphIcon(
+                                    glyph = MarbleGlyph.PENCIL,
+                                    color = colors.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = {
+                                onMenuOpenChange(false)
+                                onEdit()
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -1684,45 +1712,13 @@ private fun ServersLibrarySheet(
             style = MaterialTheme.typography.bodySmall
         )
 
-        MarbleCard {
-            cards.forEachIndexed { index, card ->
-                if (index > 0) MarbleDivider()
-                MarbleListItem(
-                    title = card.title,
-                    subtitle = libraryCardSubtitle(card),
-                    leading = {
-                        FlagCluster(
-                            codes = card.flags,
-                            size = ServersAtlas.LIBRARY_FLAG_SIZE_DP.dp,
-                            overlap = ServersAtlas.LIBRARY_FLAG_OVERLAP_DP.dp,
-                            ring = colors.surfaceContainer
-                        )
-                    },
-                    showChevron = false,
-                    onClick = { onSelect(card.id) },
-                    trailing = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            if (card.id == selectedId) {
-                                MarbleGlyphIcon(
-                                    glyph = MarbleGlyph.CHECK,
-                                    color = colors.primary,
-                                    modifier = Modifier.size(18.dp),
-                                    weight = 1.2f
-                                )
-                            }
-                            card.subscription?.let { sub ->
-                                MarbleIconButton(
-                                    glyph = MarbleGlyph.PENCIL,
-                                    tint = colors.onSurfaceVariant,
-                                    contentDescription = trx("Edit subscription"),
-                                    onClick = { onManageSubscription(sub) }
-                                )
-                            }
-                        }
-                    }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            cards.forEach { card ->
+                SourceLibraryCard(
+                    card = card,
+                    selected = card.id == selectedId,
+                    onSelect = { onSelect(card.id) },
+                    onManage = onManageSubscription
                 )
             }
         }
@@ -1734,6 +1730,128 @@ private fun ServersLibrarySheet(
             onClick = onAdd,
             modifier = Modifier.fillMaxWidth()
         )
+    }
+}
+
+/**
+ * MARBLE_EXPRESSIVE_BENTO_V250 — one subscription card in the sources sheet.
+ *
+ * The selected check is a badge on the leading flag cluster, and the trailing action column
+ * is reserved even for "All sources" and the manual bucket. Long names, quota text and the
+ * selected state therefore cannot shift the three-dot menu from one card to the next.
+ */
+@Composable
+internal fun SourceLibraryCard(
+    card: ServersLibraryCard,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onManage: (Subscription) -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
+    var menuOpen by remember { mutableStateOf(false) }
+    val container = if (selected) colors.primaryContainer else colors.surfaceContainerLow
+    val titleColor = if (selected) colors.onPrimaryContainer else colors.onSurface
+    val metaColor = if (selected) colors.onPrimaryContainer.copy(alpha = 0.78f) else colors.onSurfaceVariant
+    val subtitle = libraryCardSubtitle(card)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("server-source-${card.id}")
+            .heightIn(min = 76.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(container)
+            .clickable(role = Role.RadioButton) {
+                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                onSelect()
+            }
+            .semantics { this.selected = selected }
+            .padding(start = 14.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier.size(width = 56.dp, height = 36.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            FlagCluster(
+                codes = card.flags,
+                size = ServersAtlas.LIBRARY_FLAG_SIZE_DP.dp,
+                overlap = ServersAtlas.LIBRARY_FLAG_OVERLAP_DP.dp,
+                ring = container
+            )
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(colors.primary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    MarbleGlyphIcon(
+                        glyph = MarbleGlyph.CHECK,
+                        color = colors.onPrimary,
+                        modifier = Modifier.size(12.dp),
+                        weight = 1.25f
+                    )
+                }
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = card.title,
+                color = titleColor,
+                style = MaterialTheme.typography.titleSmallEmphasized,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = subtitle,
+                color = metaColor,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        MarbleActionColumn(tag = "server-source-action-${card.id}") {
+            val sub = card.subscription
+            if (sub != null) {
+                Box {
+                    MarbleIconButton(
+                        glyph = MarbleGlyph.MORE,
+                        tint = colors.onSurfaceVariant,
+                        contentDescription = "${trx("Manage subscription")}: ${card.title}",
+                        onClick = { menuOpen = true },
+                        modifier = Modifier.testTag("server-source-more-${card.id}")
+                    )
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        containerColor = colors.surfaceContainerHigh
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(trx("Edit subscription"), style = MaterialTheme.typography.bodyMedium) },
+                            leadingIcon = {
+                                MarbleGlyphIcon(
+                                    glyph = MarbleGlyph.PENCIL,
+                                    color = colors.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            onClick = {
+                                menuOpen = false
+                                onManage(sub)
+                            }
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

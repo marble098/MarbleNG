@@ -58,8 +58,9 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-`docs/PERSIAN_JOIN_SHADE_STUDIO_AND_MAP_MOTION_V249.md` is the newest chapter.
-`docs/LIQUID_GLASS_LENS_V248.md` is the chapter before it.
+`docs/EXPRESSIVE_BENTO_V250.md` is the newest chapter.
+`docs/PERSIAN_JOIN_SHADE_STUDIO_AND_MAP_MOTION_V249.md` is the chapter before it.
+`docs/LIQUID_GLASS_LENS_V248.md` is the one before that.
 `docs/LIQUID_GLASS_LENS_V247.md` is the one before that.
 `docs/PLAIN_VOICE_V246.md` is the one before that.
 `docs/LIQUID_DOCK_V245.md` is the one before that.

@@ -1,8 +1,11 @@
 package com.marbleng.app.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -31,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -59,7 +63,10 @@ import com.marbleng.app.model.parseHomePingAction
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
 import com.marbleng.app.ui.theme.MarbleCardShape
+import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
+import com.marbleng.app.ui.theme.onSuccessContainer
 import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.successContainer
 import com.marbleng.app.ui.theme.warning
 
 @Composable
@@ -277,6 +284,7 @@ fun HomeScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                                 HomeQuickTile(
                                     title = strings.addFromClipboard,
+                                    subtitle = trx("Paste a link"),
                                     glyph = MarbleGlyph.COPY,
                                     tint = colors.primary,
                                     onClick = pasteFromClipboard,
@@ -284,6 +292,7 @@ fun HomeScreen(
                                 )
                                 HomeQuickTile(
                                     title = trx("Scan QR"),
+                                    subtitle = trx("Scan to import"),
                                     glyph = MarbleGlyph.QR,
                                     tint = colors.secondary,
                                     onClick = onOpenQrImport,
@@ -293,6 +302,7 @@ fun HomeScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                                 HomeQuickTile(
                                     title = trx("Smart Rank"),
+                                    subtitle = trx("Find the fastest route"),
                                     glyph = MarbleGlyph.SPARK,
                                     tint = colors.warning,
                                     enabled = !repo.busy && !repo.probeActive,
@@ -301,6 +311,7 @@ fun HomeScreen(
                                 )
                                 HomeQuickTile(
                                     title = trx("Censorship Lab"),
+                                    subtitle = trx("Test the network"),
                                     glyph = MarbleGlyph.SHIELD,
                                     tint = colors.success,
                                     onClick = { onOpenSettingsPage(SettingsDestination.CENSORSHIP_LAB) },
@@ -353,12 +364,8 @@ private fun HomeHero(
     val strings = Tr.now
     val working = connecting || disconnecting
 
-    // MARBLE_LIVE_TICKER_V249 — the line under the pill is two readings with two tempos. The words
-    // say what the tunnel is doing and change when the state changes; the clock says how long it has
-    // been doing it and changes every second. They used to be one string, and the pill animated the
-    // whole string, so "Protected · Uptime" re-flew sixty times a minute around the one digit that
-    // had moved. The label stays with the words (it names the clock, so it belongs to the sentence)
-    // and only the reading goes to the ticker.
+    // MARBLE_LIVE_TICKER_V249 — the clock keeps its own tempo; the state label changes only
+    // when the tunnel changes state.
     val subline = when {
         connected -> "${trx(stateLabel)} · ${strings.uptime}"
         working -> trx(stateLabel)
@@ -367,42 +374,106 @@ private fun HomeHero(
     }
     val ticker = if (connected) faDigits(uptime) else ""
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        MarbleConnectPill(
-            connected = connected,
-            connecting = connecting,
-            disconnecting = disconnecting,
-            title = if (connected) strings.disconnect else strings.connect,
-            subtitle = subline,
-            onToggle = onToggle,
-            ticker = ticker
-        )
+    // MARBLE_EXPRESSIVE_BENTO_V250 — Home's connection stage: one tonal canvas, one primary
+    // action, and the mode/status controls beside it. The stage colour follows the tunnel.
+    val stageColor by animateColorAsState(
+        targetValue = when {
+            connected -> colors.successContainer
+            working -> colors.tertiaryContainer
+            else -> colors.primaryContainer
+        },
+        animationSpec = marbleDefaultEffectsSpec(),
+        label = "homeConnectionStage"
+    )
+    val onStage = when {
+        connected -> colors.onSuccessContainer
+        working -> colors.onTertiaryContainer
+        else -> colors.onPrimaryContainer
+    }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(32.dp))
+            .background(stageColor)
+    ) {
+        MarblePetalMark(
+            color = onStage.copy(alpha = 0.06f),
+            size = 180.dp,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .graphicsLayer {
+                    translationX = 44.dp.toPx()
+                    translationY = (-44).dp.toPx()
+                }
+        )
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            MarbleModeMenuChip(
-                selected = modeChip,
-                onSelect = onSelectMode,
-                enabled = !disconnecting
-            )
-            Spacer(Modifier.weight(1f))
-            HomeStatusChip(
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = trx("Connection"),
+                        color = onStage.copy(alpha = 0.76f),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    AnimatedContent(
+                        targetState = stateLabel,
+                        label = "homeConnectionState"
+                    ) { label ->
+                        Text(
+                            text = trx(label),
+                            color = onStage,
+                            style = MaterialTheme.typography.headlineSmallEmphasized,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                HomeStatusChip(
+                    connected = connected,
+                    working = working,
+                    label = if (connected) strings.statusProtected else if (working) strings.securingRoute else strings.readyToConnect,
+                    onClick = onOpenLogs
+                )
+            }
+
+            MarbleConnectPill(
                 connected = connected,
-                working = working,
-                label = if (connected) strings.statusProtected else if (working) strings.securingRoute else strings.readyToConnect,
-                onClick = onOpenLogs
+                connecting = connecting,
+                disconnecting = disconnecting,
+                title = if (connected) strings.disconnect else strings.connect,
+                subtitle = subline,
+                onToggle = onToggle,
+                ticker = ticker
             )
-            MarbleIconButton(
-                glyph = MarbleGlyph.ROUTE,
-                onClick = onOpenServers,
-                tint = colors.onSurfaceVariant
-            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                MarbleModeMenuChip(
+                    selected = modeChip,
+                    onSelect = onSelectMode,
+                    enabled = !disconnecting
+                )
+                Spacer(Modifier.weight(1f))
+                MarbleIconButton(
+                    glyph = MarbleGlyph.ROUTE,
+                    onClick = onOpenServers,
+                    tint = onStage,
+                    contentDescription = trx("Choose server")
+                )
+            }
         }
     }
 }
@@ -455,37 +526,20 @@ private fun HomeQuickTile(
     glyph: MarbleGlyph,
     tint: Color,
     modifier: Modifier = Modifier,
+    subtitle: String = "",
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val colors = MaterialTheme.colorScheme
-    // MARBLE_EXPRESSIVE_SHELL_V241 — no hairline around a quick tile either: the tonal step
-    // from the page surface is the whole edge.
-    Column(
-        modifier = modifier
-            .clip(MarbleCardShape)
-            .background(colors.surfaceContainerLow)
-            .alpha(if (enabled) 1f else 0.5f)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        MarbleRowIcon(
-            glyph = glyph,
-            tint = tint,
-            size = 34.dp,
-            glyphSize = 18.dp
-        )
-        Text(
-            text = title,
-            color = colors.onSurface,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
-        )
-    }
+    MarbleExpressiveTile(
+        title = title,
+        subtitle = subtitle,
+        glyph = glyph,
+        tint = tint,
+        enabled = enabled,
+        onClick = onClick,
+        modifier = modifier,
+        tag = "home-quick-$title"
+    )
 }
 
 @Composable
@@ -649,6 +703,7 @@ private fun HomeTelemetryCard(
                 label = strings.download,
                 glyph = MarbleGlyph.DOWNLOAD,
                 tint = colors.primary,
+                prominent = true,
                 modifier = Modifier.weight(1f)
             )
             HomeStatTile(
@@ -656,6 +711,7 @@ private fun HomeTelemetryCard(
                 label = strings.upload,
                 glyph = MarbleGlyph.UPLOAD,
                 tint = colors.tertiary,
+                prominent = true,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -706,38 +762,70 @@ private fun HomeStatTile(
     label: String,
     glyph: MarbleGlyph,
     tint: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    prominent: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(colors.surfaceContainer)
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp)
-    ) {
-        MarbleRowIcon(
-            glyph = glyph,
-            tint = tint,
-            size = 28.dp,
-            glyphSize = 16.dp
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(1.dp), modifier = Modifier.weight(1f)) {
+    if (prominent) {
+        Column(
+            modifier = modifier
+                .clip(RoundedCornerShape(24.dp))
+                .background(tint.copy(alpha = 0.12f))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                MarbleGlyphIcon(glyph = glyph, color = tint, modifier = Modifier.size(18.dp))
+                Text(
+                    text = label,
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Text(
                 text = value,
                 color = colors.onSurface,
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.headlineSmallEmphasized,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
-                text = label,
-                color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+        }
+    } else {
+        Row(
+            modifier = modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(colors.surfaceContainer)
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            MarbleRowIcon(
+                glyph = glyph,
+                tint = tint,
+                size = 28.dp,
+                glyphSize = 16.dp
             )
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp), modifier = Modifier.weight(1f)) {
+                Text(
+                    text = value,
+                    color = colors.onSurface,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = label,
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
