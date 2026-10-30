@@ -1,6 +1,7 @@
 package com.marbleng.app.model
 
 import com.marbleng.app.core.ServersRowSurface
+import com.marbleng.app.ui.toFaDigits
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -87,6 +88,18 @@ class PlainVoiceV246Test {
             )
         )
         assertEquals(listOf("DPI"), PlainVoice.hits("DPI filters"))
+    }
+
+    @Test
+    fun persianNumbersAreNotBlank() {
+        // The shaper used to iterate the StringBuilder it was writing into, so it returned "" for
+        // every input and every Persian number in the product disappeared.
+        assertEquals("۲", "2".toFaDigits())
+        assertEquals("۱۲", "12".toFaDigits())
+        assertEquals("۱۲٫۵", "12.5".toFaDigits())
+        assertEquals("", "".toFaDigits())
+        assertEquals("Ping ۳۴ ms", "Ping 34 ms".toFaDigits())
+        assertEquals("۲", "۲".toFaDigits())
     }
 
     @Test

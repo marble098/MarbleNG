@@ -13,6 +13,7 @@
 > **نتیجه:** اولی یک لایهٔ متن نبود، بلکه برچسب حذف بود که از پشتِ ردیفِ نیمه‌شفاف دیده می‌شد؛ حالا
 > فقط وقتی ردیف واقعاً کشیده می‌شود رسم می‌شود. دومی ۷۱ عنوان و جمله بود که همه با یک قاعدهٔ
 > قابل‌تست بازنویسی شدند: بدون واژهٔ تخصصی، بدون ثابتِ خام، بدون جملهٔ بلندتر، با معنی دقیقاً همان.
+> و در راهِ همین دومی یک باگ سوم پیدا شد: در حالت فارسی **همهٔ عددها خالی چاپ می‌شدند**.
 
 ---
 
@@ -116,6 +117,27 @@ ServersRowSurface.revealAlpha(progress):
 (`Accent Color`, `Text Size`, `Geo Direct`, `All Apps`, `Route-Only Sniffing`, …) — یعنی نیمی از
 «غیرقابل‌فهم بودن» این بود که صفحهٔ فارسی وسطش انگلیسی بود.
 
+## ۳.۱ باگی که سرِ راه پیدا شد: عددهای فارسی خالی بودند
+
+وقتی تستِ فارسیِ پیل را می‌نوشتیم، نشانگرِ «۲» روی شیشه پیدا نمی‌شد. علت در هیچ ترجمه‌ای نبود:
+
+```kotlin
+fun String.toFaDigits(): String = buildString(length) {
+    forEach { c -> … }        // ← this is the StringBuilder, and it is empty right now
+}
+```
+
+داخل `buildString` نزدیک‌ترین `CharSequence` به `forEach` همان `StringBuilder` است، نه رشته‌ای که
+داریم ترجمه می‌کنیم؛ پس حلقه روی یک رشتهٔ خالی می‌گشت و تابع **همیشه `""`** برمی‌گرداند. یعنی در
+حالت فارسی پینگ، شمارنده‌ها، حجم‌ها و نشانِ اعلان‌ها خالی بودند — نه غلط، نه انگلیسی: خالی.
+
+```kotlin
+this@toFaDigits.forEach { c -> … }   // ← the receiver, named
+```
+
+`PlainVoiceV246Test.persianNumbersAreNotBlank` این را قفل می‌کند (`"12.5"` → `"۱۲٫۵"`)، و
+`MarbleLiquidDockV245Test` نشان می‌دهد نشانِ قرمز در چیدمان راست‌به‌چپ هم سرِ جایش هست.
+
 ## ۴. جدول اجرا
 
 | خواسته | فایل | وضعیت |
@@ -127,6 +149,7 @@ ServersRowSurface.revealAlpha(progress):
 | ثابت‌ها دیگر وسط جمله چاپ نشوند | `PlainVoice` + `RoutingRuleKind.label` + `ProbeKind.label` | ✅ |
 | حالت‌های تک‌ضربه‌ای یک جملهٔ آدم‌یزادی داشته باشند | `model/ExpressiveShell.kt` + `ui/MarbleExpressiveShell.kt` | ✅ |
 | فارسیِ ساده برای همهٔ عنوان‌های جدید | `MarblePersianLexicon.kt` (+۷۶ مدخل) | ✅ |
+| عددهای فارسی دیگر خالی نباشند | `ui/UiFormatters.kt` (`this@toFaDigits`) | ✅ |
 | پوشش رشته‌هایی که انگلیسی می‌ماندند | همان بلوک | ✅ |
 | قاعدهٔ قابل‌تست به‌جای سلیقه | `model/PlainVoice.kt` | ✅ |
 | تست JVM | `PlainVoiceV246Test` | ✅ |

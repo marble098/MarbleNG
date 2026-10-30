@@ -4602,6 +4602,19 @@ check(
     and '"Blocked network" to "شبکه بسته"' in files["persianLexicon"],
 )
 
+# The third V246 bug was not a word at all: the Persian digit shaper iterated the StringBuilder it
+# was writing into, so every number in a Persian screen came out blank (no ping, no counter, no
+# badge). A blank is not a translation, and it is the kind of thing only a test can hold.
+v246_formatters = read("app/src/main/java/com/marbleng/app/ui/UiFormatters.kt")
+check(
+    "V246 Persian numbers are shaped from the string, not from the builder",
+    "fun String.toFaDigits(): String = buildString(length) {" in v246_formatters
+    and "this@toFaDigits.forEach { c ->" in v246_formatters
+    and "MARBLE_PLAIN_VOICE_V246" in v246_formatters
+    and "fun persianNumbersAreNotBlank()" in files["plainVoiceTest"]
+    and "com.marbleng.app.ui.toFaDigits" in files["plainVoiceTest"],
+)
+
 check(
     "V246 the chapter, the README and the tests record the pass",
     "class PlainVoiceV246Test" in files["plainVoiceTest"]
