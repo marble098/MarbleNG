@@ -8,6 +8,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -51,6 +53,31 @@ class LiquidGlassBottomBarV248Test {
         NavigationTabItem(key = "settings", title = "Settings", accent = accent),
         NavigationTabItem(key = "profile", title = "Profile", accent = accent)
     )
+
+    @Test
+    fun iconOnlyTabsKeepTheirNamesAndSelectionAcrossLiveThemeChanges() {
+        var theme by mutableStateOf("light")
+        compose.setContent {
+            MarbleExpressiveTheme(themeId = theme, dynamicColor = false) {
+                Box(Modifier.width(360.dp)) {
+                    LiquidGlassBottomBar(
+                        items = items(), selectedIndex = 1, onTabSelected = {}, showLabels = false
+                    )
+                }
+            }
+        }
+        listOf("light", "dark", "amoled", "light").forEach { next ->
+            compose.runOnIdle { theme = next }
+            compose.waitForIdle()
+            items().forEach { item ->
+                compose.onNodeWithTag("glass-tab-${item.key}")
+                    .assertContentDescriptionEquals(item.title)
+                    .assertIsDisplayed()
+            }
+            compose.onNodeWithTag("glass-tab-servers").assertIsSelected()
+            compose.onAllNodesWithTag("glass-tab-servers").assertCountEquals(1)
+        }
+    }
 
     @Test
     fun theProjectionNeverBecomesASecondSetOfControls() {

@@ -1360,9 +1360,9 @@ private fun serverSortChoices(): List<Pair<NodeSortMode, String>> = listOf(
  * MARBLE_SERVERS_ATLAS_V244 — the sources rail.
  *
  * The rail answers "which library am I in?" as a picture: name, measured flag cluster and node
- * count per card, one tap to switch, and the selected card carries the accent tone. The header
- * of the rail also reports the flag sweep, so "auto-scanned" is a visible fact rather than a
- * setting the reader has to trust.
+ * count per card. In aggregate view only the management entry remains: section headers already
+ * identify the sources. Choosing a library restores the switching rail without duplicating scan
+ * counters from the management sheet.
  */
 @Composable
 private fun ServersLibraryRail(

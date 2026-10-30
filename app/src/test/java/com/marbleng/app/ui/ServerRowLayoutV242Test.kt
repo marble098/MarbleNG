@@ -7,6 +7,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -79,6 +82,29 @@ class ServerRowLayoutV242Test {
             }
         }
         compose.waitForIdle()
+    }
+
+    @Test
+    fun activeRouteHasAnExplicitStateAndMetadataInsteadOfAnUnlabelledTick() {
+        compose.setContent {
+            ProvideMarbleLanguage("en") {
+                MarbleExpressiveTheme(themeId = "amoled", dynamicColor = false) {
+                    Box(Modifier.width(320.dp)) {
+                        ServerRowContent(
+                            profile = profile, countryCode = "DE", active = true,
+                            selected = false, result = null, probeState = ProbeState.IDLE,
+                            onClick = {}, onMore = {}
+                        )
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("server-row-row-1").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Active")
+        )
+        val metadata = compose.onNodeWithTag("server-row-transport-row-1", useUnmergedTree = true)
+            .fetchSemanticsNode().config[SemanticsProperties.Text].joinToString { it.text }
+        assertTrue(metadata.startsWith("Active · "))
     }
 
     @Test
