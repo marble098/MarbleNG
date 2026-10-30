@@ -44,6 +44,7 @@ import com.marbleng.app.core.SocksHttpClient
 import com.marbleng.app.core.ConnectionNotificationState
 import com.marbleng.app.core.ConnectionStatus
 import com.marbleng.app.core.NotificationCopy
+import com.marbleng.app.core.NotificationRoutePicker
 import com.marbleng.app.core.NotificationCycleKind
 import com.marbleng.app.core.SmartNotificationKind
 import com.marbleng.app.core.SmartNotifier
@@ -106,6 +107,14 @@ class MarbleVpnService : VpnService() {
         const val ACTION_SELECT_ROUTE = "com.marbleng.SELECT_ROUTE"
         const val EXTRA_SELECT_PROFILE = "selectProfile"
         const val EXTRA_SELECT_SOURCE = "selectSource"
+
+        /**
+         * MARBLE_SHADE_STUDIO_V249 — the studio's own control rows: turn the page, change the
+         * floor. Neither rebuilds a tunnel, so neither shares the cycle throttle; both re-publish
+         * the same item with new rows, which is what makes the shade browsable.
+         */
+        const val ACTION_SHADE_CONTROL = "com.marbleng.SHADE_CONTROL"
+        const val EXTRA_SHADE_CONTROL = "shadeControl"
         const val EXTRA_PROFILE = "profile"
         const val EXTRA_PROFILE_SOURCE = "profileSource"
         const val EXTRA_MODE = "mode"
@@ -525,6 +534,21 @@ class MarbleVpnService : VpnService() {
                         }
                     }
                 }
+                ACTION_SHADE_CONTROL -> {
+                    // MARBLE_SHADE_STUDIO_V249 — a page turn or a floor change from the shade. The
+                    // verb travels in the extra and in the data URI, so a re-delivered intent still
+                    // knows which control row built it.
+                    val verb = intent.getStringExtra(EXTRA_SHADE_CONTROL)
+                        ?: intent.data?.lastPathSegment ?: ""
+                    if (verb.isBlank()) {
+                        diag.event("VPN", "shade-control-ignored", "reason" to "no-verb")
+                    } else {
+                        controlWorker.execute {
+                            runCatching { shadeControl(verb) }
+                                .onFailure { diag.error("VPN", "async-shade-control-failed", it) }
+                        }
+                    }
+                }
                 ACTION_START -> {
                     val id = intent.getStringExtra(EXTRA_PROFILE)
                     val sourceId = intent.getStringExtra(EXTRA_PROFILE_SOURCE)
@@ -642,6 +666,8 @@ class MarbleVpnService : VpnService() {
         )
         // The service is the one that rebuilds the tunnel; announcing CONNECTING here keeps the app
         // UI and the shade in the same state while the new core comes up.
+        // MARBLE_SHADE_STUDIO_V249 — a new route means a new "servers of this subscription" floor.
+        repo.resetShadeRouteControl()
         repo.setRuntimeState("CONNECTING", target.name)
         startConnection(target.id, target.subscriptionId, activeMode)
     }
@@ -695,8 +721,52 @@ class MarbleVpnService : VpnService() {
             "name" to target.name.take(80),
             "source" to target.subscriptionName.take(60)
         )
+        // MARBLE_SHADE_STUDIO_V249 — the route moved, so the studio goes back to the servers of the
+        // subscription that is now live, on page one. Leaving it on the page the user was browsing
+        // would show a row set that no longer contains the route they just chose.
+        repo.resetShadeRouteControl()
         repo.setRuntimeState("CONNECTING", target.name)
         startConnection(target.id, target.subscriptionId, activeMode)
+    }
+
+    /**
+     * MARBLE_SHADE_STUDIO_V249 — the studio's own control rows, applied.
+     *
+     * A page turn and a floor change are the two shade taps that do *not* rebuild a tunnel, and
+     * that is why this path has no throttle: the rule that keeps [cycleRoute] to one switch at a
+     * time exists because a rebuild is expensive, and turning a page costs one re-publish. Sharing
+     * the throttle would make browsing feel broken — the second tap of "next page" swallowed by the
+     * first — so the only guard here is the one that stops a stale notification from resurrecting a
+     * service that has already stopped.
+     */
+    private fun shadeControl(verb: String) {
+        val repo = (application as MarbleApplication).repo
+        if (!running.get() && activeSession.isBlank()) {
+            diag.event("VPN", "shade-control-ignored", "verb" to verb, "reason" to "no-session")
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+            runCatching { stopSelf() }
+            return
+        }
+        when (verb) {
+            NotificationRoutePicker.CONTROL_LEVEL -> repo.flipShadeRouteLevel()
+            NotificationRoutePicker.CONTROL_NEXT -> repo.stepShadeRoutePage(1)
+            NotificationRoutePicker.CONTROL_PREVIOUS -> repo.stepShadeRoutePage(-1)
+            else -> {
+                diag.event("VPN", "shade-control-unknown", "verb" to verb)
+                return
+            }
+        }
+        diag.event(
+            "VPN",
+            "shade-control",
+            "verb" to verb,
+            "session" to activeSession,
+            "level" to repo.shadeRouteLevel.id,
+            "page" to repo.shadeRoutePage
+        )
+        // The level and the page are part of the state's signature, so this re-publish is not
+        // swallowed by the gate that keeps an unchanged shade off SystemUI.
+        publishStatus(lastPublishedStatus)
     }
 
     @Volatile private var lastStartCommandAtMs = 0L
@@ -4311,7 +4381,23 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             // (or the selection, before the tunnel is up) marks its own row.
             routes = repo.notificationPickerRoutes(),
             routeId = activeProfileId.ifBlank { repo.selectedProfileId },
-            routeSourceId = activeProfileSourceId.ifBlank { repo.selectedProfileSourceId }
+            routeSourceId = activeProfileSourceId.ifBlank { repo.selectedProfileSourceId },
+            // MARBLE_SHADE_STUDIO_V249 — the route control as the user configured it, plus where
+            // the studio is standing right now. The ping labels are read only when the column is
+            // on: they come from the remembered sweep, and building a map nobody draws is work the
+            // telemetry loop would repeat every second.
+            showRoutePicker = current.shadeControl.picker,
+            showCycleVerbs = current.shadeControl.cycle,
+            pickerStyle = current.shadeControl.style,
+            pickerLevel = repo.shadeRouteLevel.id,
+            pickerPage = repo.shadeRoutePage,
+            pickerRows = current.shadeControl.rows,
+            showRoutePing = current.shadeControl.showPing,
+            routePingLabels = if (current.shadeControl.showPing) {
+                repo.notificationShadePingLabels()
+            } else {
+                emptyMap()
+            }
         )
     }
 

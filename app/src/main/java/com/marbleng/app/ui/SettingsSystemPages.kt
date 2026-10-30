@@ -42,6 +42,9 @@ import com.marbleng.app.core.NotificationChannelKey
 import com.marbleng.app.core.NotificationCopy
 import com.marbleng.app.core.NotificationLanguage
 import com.marbleng.app.core.NotificationRouteCycle
+import com.marbleng.app.core.NotificationRoutePicker
+import com.marbleng.app.core.ShadeLevel
+import com.marbleng.app.model.ShadeControlDefaults
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
 
@@ -319,6 +322,124 @@ fun SettingsNotificationsPage(
                     text = trx(
                         "State first, route second, measurement last. The session clock is Android's own chronometer, so it keeps counting without reposting."
                     )
+                )
+            }
+        }
+
+        item(key = "shade-route-control") {
+            // MARBLE_SHADE_STUDIO_V249 — the shade's route control, in the user's hands.
+            //
+            // The preview above shows what the item looks like; this card is what decides it. Every
+            // row is a switch or a named choice, and nothing here is buried behind a long-press or a
+            // diagnostic: the notification is the surface a user touches most often in a day, so the
+            // settings that shape it belong on the page that describes it.
+            val pickerOn = s.shadeControl.picker
+            val studio = ShadeControlDefaults.styleId(s.shadeControl.style) ==
+                ShadeControlDefaults.STYLE_STUDIO
+            val rowChoices = ShadeControlDefaults.ROW_CHOICES
+            val rowChoice = rowChoices.firstOrNull {
+                it == ShadeControlDefaults.rowChoice(s.shadeControl.rows)
+            } ?: ShadeControlDefaults.ROWS
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleSectionHeader(
+                    title = trx("Route control in the notification"),
+                    badge = if (pickerOn || s.shadeControl.cycle) trx("ON") else trx("OFF"),
+                    badgeColor = if (pickerOn || s.shadeControl.cycle) {
+                        colors.success
+                    } else {
+                        colors.onSurfaceVariant
+                    }
+                )
+                MarbleCard {
+                    MarbleSwitchRow(
+                        title = trx("Pick a server from the notification"),
+                        subtitle = trx("Lists routes by name inside the ongoing item, so a change never needs the app"),
+                        checked = pickerOn,
+                        glyph = MarbleGlyph.SERVER,
+                        iconTint = colors.primary,
+                        onCheckedChange = { repo.updateSettings(s.copy(shadeControl = s.shadeControl.copy(picker = it))) }
+                    )
+                    MarbleDivider()
+                    MarbleSwitchRow(
+                        title = trx("Next server and next subscription buttons"),
+                        subtitle = trx("Two actions that move the live route in one tap, without a list"),
+                        checked = s.shadeControl.cycle,
+                        glyph = MarbleGlyph.REFRESH,
+                        iconTint = colors.secondary,
+                        onCheckedChange = { repo.updateSettings(s.copy(shadeControl = s.shadeControl.copy(cycle = it))) }
+                    )
+                    if (pickerOn) {
+                        MarbleDivider()
+                        MarbleChoiceRow(
+                            title = trx("Full control"),
+                            subtitle = trx("Servers and subscriptions on two floors, paged, with the measured ping beside each"),
+                            selected = studio,
+                            glyph = MarbleGlyph.LAYERS,
+                            iconTint = colors.tertiary,
+                            onClick = {
+                                repo.updateSettings(
+                                    s.copy(shadeControl = s.shadeControl.copy(style = ShadeControlDefaults.STYLE_STUDIO))
+                                )
+                            }
+                        )
+                        MarbleDivider()
+                        MarbleChoiceRow(
+                            title = trx("Simple list"),
+                            subtitle = trx("The live subscription's servers, then one row per other subscription"),
+                            selected = !studio,
+                            glyph = MarbleGlyph.MENU,
+                            iconTint = colors.onSurfaceVariant,
+                            onClick = {
+                                repo.updateSettings(
+                                    s.copy(shadeControl = s.shadeControl.copy(style = ShadeControlDefaults.STYLE_LIST))
+                                )
+                            }
+                        )
+                        if (studio) {
+                            MarbleDivider()
+                            MarbleSwitchRow(
+                                title = trx("Measured ping beside each server"),
+                                subtitle = trx("Reuses what the app already measured; nothing is pinged for the notification"),
+                                checked = s.shadeControl.showPing,
+                                glyph = MarbleGlyph.GAUGE,
+                                iconTint = colors.primary,
+                                onCheckedChange = {
+                                    repo.updateSettings(s.copy(shadeControl = s.shadeControl.copy(showPing = it)))
+                                }
+                            )
+                            MarbleDivider()
+                            Column(
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    text = trx("Rows listed at once"),
+                                    color = colors.onSurface,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    text = trx("A notification has a fixed height, so a longer library is paged instead of squeezed"),
+                                    color = colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                MarbleSegmentedControl(
+                                    options = rowChoices.map { count -> count to faDigits("$count") },
+                                    selected = rowChoice,
+                                    onSelect = { count ->
+                                        repo.updateSettings(s.copy(shadeControl = s.shadeControl.copy(rows = count)))
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                MarbleSectionFooter(
+                    text = if (!pickerOn && !s.shadeControl.cycle) {
+                        trx("The notification will only show the state, the route and the disconnect action")
+                    } else {
+                        trx("Everything here happens inside the notification — the tunnel answers the tap and redraws itself")
+                    }
                 )
             }
         }
@@ -625,21 +746,108 @@ private fun NotificationPreviewCard(repo: AppRepository) {
             }
             // MARBLE_NOTIFICATION_SWITCH_V234 — the shade switches the route itself now, so the
             // preview names both verbs and says they act in place.
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleBadge(
-                    text = "↔ ${trx(NotificationCopy.actionNextServer(NotificationLanguage.EN))}",
-                    color = colors.primary
-                )
-                MarbleBadge(
-                    text = "⇄ ${trx(NotificationCopy.actionNextSubscription(NotificationLanguage.EN))}",
-                    color = colors.secondary
+            if (s.shadeControl.cycle) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MarbleBadge(
+                        text = "↔ ${trx(NotificationCopy.actionNextServer(NotificationLanguage.EN))}",
+                        color = colors.primary
+                    )
+                    MarbleBadge(
+                        text = "⇄ ${trx(NotificationCopy.actionNextSubscription(NotificationLanguage.EN))}",
+                        color = colors.secondary
+                    )
+                }
+            }
+            // MARBLE_SHADE_STUDIO_V249 — the route control, drawn by the same builder the shade
+            // uses, so this page cannot describe an item the notification will not look like.
+            //
+            // Two rules the preview keeps that a hand-written mock would break: the chrome words
+            // come from [NotificationCopy.shadeChrome] in the app's own language (the shade resolves
+            // its language the same way), and the route names are drawn *raw* — a server is called
+            // what the user called it, and the fallback translator would transliterate `Frankfurt`
+            // into Persian letters that the real notification never shows.
+            if (s.shadeControl.picker) {
+                val shadeLanguage = if (Tr.now.language == MarbleLanguage.FA) {
+                    NotificationLanguage.FA
+                } else {
+                    NotificationLanguage.EN
+                }
+                val previewRoutes = repo.notificationPickerRoutes()
+                val previewRows = if (
+                    ShadeControlDefaults.styleId(s.shadeControl.style) ==
+                    ShadeControlDefaults.STYLE_STUDIO
+                ) {
+                    NotificationRoutePicker.studio(
+                        NotificationRoutePicker.StudioInput(
+                            routes = previewRoutes,
+                            currentId = repo.selectedProfileId,
+                            currentSourceId = repo.selectedProfileSourceId,
+                            level = ShadeLevel.SERVERS,
+                            page = 0,
+                            rowBudget = s.shadeControl.rows,
+                            showPing = s.shadeControl.showPing,
+                            pingLabels = repo.notificationShadePingLabels(),
+                            chrome = NotificationCopy.shadeChrome(shadeLanguage)
+                        )
+                    ).rows
+                } else {
+                    NotificationRoutePicker.build(
+                        NotificationRoutePicker.Input(
+                            routes = previewRoutes,
+                            currentId = repo.selectedProfileId,
+                            currentSourceId = repo.selectedProfileSourceId
+                        )
+                    )
+                }
+                MarbleFadeDivider()
+                if (previewRows.isEmpty()) {
+                    Text(
+                        text = trx("Add a server and its name will be listed here, tappable from the notification"),
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                } else {
+                    previewRows.forEach { row ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = row.label,
+                                modifier = Modifier.weight(1f),
+                                color = when {
+                                    row.active -> colors.primary
+                                    row.kind == NotificationRoutePicker.RowKind.SECTION ||
+                                        row.kind == NotificationRoutePicker.RowKind.CONTROL ||
+                                        row.kind == NotificationRoutePicker.RowKind.OPEN_APP ->
+                                        colors.onSurfaceVariant
+                                    else -> colors.onSurface
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (row.meta.isNotEmpty()) {
+                                Text(
+                                    text = faDigits(row.meta),
+                                    color = colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            if (row.active) {
+                                MarbleBadge(text = trx("LIVE"), color = colors.success)
+                            }
+                        }
+                    }
+                }
+            }
+            if (s.shadeControl.cycle || s.shadeControl.picker) {
+                Text(
+                    text = trx("Every one of these works from the shade — no need to open the app"),
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall
                 )
             }
-            Text(
-                text = trx("Both switches work from the shade — no need to open the app"),
-                color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall
-            )
         }
     }
 }

@@ -108,11 +108,29 @@ internal object TunnelNotificationView {
                 NotificationCopy.TEXT_MAX
             )
             child.setTextViewText(R.id.picker_label, label)
+            // MARBLE_SHADE_STUDIO_V249 — the row's trailing evidence. It is painted only when the
+            // row carries one: a control or a heading with no page has nothing to say there, and a
+            // permanently visible `— ms` column would be noise the user cannot turn off.
+            val meta = NotificationCopy.ellipsize(row.meta.trim(), NotificationCopy.SUB_TEXT_MAX)
+            if (meta.isEmpty()) {
+                child.setViewVisibility(R.id.picker_meta, View.GONE)
+            } else {
+                child.setViewVisibility(R.id.picker_meta, View.VISIBLE)
+                child.setTextViewText(R.id.picker_meta, meta)
+                child.setTextColor(R.id.picker_meta, sectionColor)
+            }
             val pending = pickerIntent(row)
             when (row.kind) {
                 NotificationRoutePicker.RowKind.SECTION -> {
                     child.setTextColor(R.id.picker_label, sectionColor)
                     child.setViewVisibility(R.id.picker_dot, View.GONE)
+                }
+                // The floor control and the page controls are chrome, not routes: no dot, the
+                // accent colour so they read as tappable, and the whole row is the target.
+                NotificationRoutePicker.RowKind.CONTROL -> {
+                    child.setTextColor(R.id.picker_label, activeColor)
+                    child.setViewVisibility(R.id.picker_dot, View.GONE)
+                    pending?.let { child.setOnClickPendingIntent(R.id.picker_row, it) }
                 }
                 NotificationRoutePicker.RowKind.OPEN_APP -> {
                     child.setTextColor(R.id.picker_label, sectionColor)

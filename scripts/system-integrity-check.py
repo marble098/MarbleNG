@@ -3555,7 +3555,7 @@ check(
     and "fun faIsolate" in files["persianLexicon"]
     and '"Connect" to "بزن وصل شو"' in files["persianLexicon"]
     and "connect = \"بزن وصل شو\"" in files["strings"]
-    and "readyToConnect = \"آمادهای؟ بزن بریم\"" in files["strings"],
+    and "readyToConnect = \"آماده‌ای؟ بزن بریم\"" in files["strings"],
 )
 
 check(
@@ -4162,7 +4162,12 @@ check(
 
 check(
     "V241 the dock floats with no hairline and leaves while the page moves",
-    "slideOutVertically(targetOffsetY = { height -> height })" in files["marbleApp"]
+    # MARBLE_MAP_MOTION_V249 — the dock still leaves vertically by exactly its own height while the
+    # page scrolls, which is what this pin is about; what changed is the tempo. It now travels on the
+    # app's own curve (the same one the tab map and the ticker use) instead of the framework default,
+    # so the pin names the spec as well and a future edit cannot quietly drop one of the two halves.
+    "slideOutVertically(targetOffsetY = { height -> height }, animationSpec = motion.panSpec(MARBLE_CHROME_FLIGHT_MS))"
+    in files["marbleApp"]
     and "visible = !contentScrolling" in files["marbleApp"]
     and "onContentScrollChanged = reportScroll" in files["marbleApp"]
     and "HorizontalDivider(thickness = 0.75.dp" not in files["marbleApp"]
@@ -4761,6 +4766,327 @@ check(
     and "## ۴. جدول اجرا" in files["plainVoiceDoc"]
     and "## ۵. آنچه عمداً انجام نشد" in files["plainVoiceDoc"]
     and "PLAIN_VOICE_V246.md" in files["readme"],
+)
+
+# -------------------------------------------------------------------------------------------------
+# MARBLE_V249 — seven asks from one report: two words, one studio in the shade, one rolling clock,
+# motion that behaves like a map, and a Home the user arranges.
+#
+# The through-line of all seven is the same one this script already enforces elsewhere: a rule that
+# decides what the user sees lives in `model` or `core`, is pure, and is pinned by a host-JVM test —
+# so the four new rule files here are asserted *as rules*, not as pixels.
+# -------------------------------------------------------------------------------------------------
+
+v249_orthography = read("app/src/main/java/com/marbleng/app/model/PersianOrthography.kt")
+v249_orthography_test = read(
+    "app/src/test/java/com/marbleng/app/model/PersianOrthographyV249Test.kt"
+)
+v249_normalizer = read("tools/persian-normalize.py")
+
+check(
+    "V249 Persian spelling is one rule, and every translated string passes through it",
+    "object PersianOrthography" in v249_orthography
+    and "MARBLE_PERSIAN_JOIN_V249" in v249_orthography
+    # The separator is a half-space: glued is wrong, and a full space breaks the plural onto the
+    # next line at the end of one.
+    and "const val HALF_SPACE: Char = '\\u200C'" in v249_orthography
+    and "fun normalize(" in v249_orthography
+    and "internal fun faTranslate(text: String): String = "
+    "PersianOrthography.normalize(faTranslateRaw(text))" in files["persianLexicon"]
+    # The shade is Persian too, and it does not go through the dictionary.
+    and "PersianOrthography.normalize(translateRaw(text))" in files["notificationCopy"]
+    # The build-time twin sweeps the literals themselves, and skips only the two files that carry
+    # the wrong spelling on purpose.
+    and 'TARGETS = ("app/src/**/*.kt", "app/src/**/*.xml")' in v249_normalizer
+    and "model/PersianOrthography.kt" in v249_normalizer
+    and "model/PersianOrthographyV249Test.kt" in v249_normalizer,
+)
+
+check(
+    "V249 the orthography rule owns its exceptions and nothing glued survived the sweep",
+    all(word in v249_orthography for word in ("همیشه", "تنهایی", "نهایی", "گیتهاب", "شما"))
+    and "NEVER" in v249_orthography
+    # The dictionary itself is the largest Persian surface in the app: not one glued plural in it.
+    and "نسخهها" not in files["persianLexicon"]
+    and "برنامههای" not in files["persianLexicon"]
+    and "class PersianOrthographyV249Test" in v249_orthography_test
+    and "fun normalizeIsIdempotentAndAllocatesNothingWhenTheCopyIsAlreadyRight()"
+    in v249_orthography_test
+    and "fun wordsThatOnlyLookLikePluralsAreNeverSplit()" in v249_orthography_test
+    and "fun everyPersianValueTheDictionaryShipsIsAlreadyNormalized()" in v249_orthography_test
+    and "fun theRuntimeTranslationPathObeysTheSameRule()" in v249_orthography_test
+    and "fun theNotificationShadeObeysTheSameRule()" in v249_orthography_test,
+)
+
+check(
+    "V249 a selected server row no longer says the word delete",
+    "fun revealComposed(progress: Float): Boolean =" in files["serversDeck"]
+    and "MARBLE_CLEAN_ROW_V249" in files["serversDeck"]
+    and "ServersRowSurface.revealComposed(dismissState.progress)" in files["serversScreen"]
+    # Absent, not merely transparent: a layer at alpha zero is still a layer, and a selected row is
+    # translucent, so anything drawn in it shows through.
+    and "if (revealComposed.value) {" in files["serversScreen"]
+    and 'text = trx("Delete")' not in files["serversScreen"]
+    # The word is still spoken, and the row is no longer a window onto what sits behind it.
+    and "semantics { contentDescription = revealDescription }" in files["serversScreen"]
+    and ".background(colors.surface)" in files["serversScreen"]
+    # V246's reveal geometry is untouched: this removed a word, not a gesture.
+    and "fun revealAlpha(progress: Float): Float" in files["serversDeck"]
+    and "graphicsLayer { alpha = revealAlpha.value }" in files["serversScreen"],
+)
+
+v249_shade_test = read("app/src/test/java/com/marbleng/app/core/ShadeRouteStudioV249Test.kt")
+
+check(
+    "V249 the shade route control has two floors, a page and a measured ping column",
+    "fun studio(input: StudioInput): StudioView" in files["routePicker"]
+    and "enum class ShadeLevel" in files["routePicker"]
+    and "MARBLE_SHADE_STUDIO_V249" in files["routePicker"]
+    and "const val CONTROL_LEVEL" in files["routePicker"]
+    and "fun pageCount(" in files["routePicker"]
+    # A library that shrank between two taps resolves to the last page that exists.
+    and "fun clampPage(" in files["routePicker"]
+    and "const val DEFAULT_STUDIO_ROWS: Int = ShadeControlDefaults.ROWS" in files["routePicker"]
+    # The V238 list is still shipped and still selectable; the studio was added beside it.
+    and "fun build(input: Input): List<PickerRow>" in files["routePicker"]
+    and "ShadePickerStyle.STUDIO -> NotificationRoutePicker.studio(" in files["notifier"]
+    and "ShadePickerStyle.LIST -> NotificationRoutePicker.build(" in files["notifier"]
+    # The ping column exists in *both* row layouts: the LTR and RTL id sets must stay equal.
+    and "@+id/picker_meta" in files["pickerRowLayout"]
+    and "@+id/picker_meta" in files["pickerRowLayoutRtl"]
+    and "R.id.picker_meta" in files["shadeView"]
+    and "class ShadeRouteStudioV249Test" in v249_shade_test
+    and "fun `a library deeper than the budget is paged, never truncated`()" in v249_shade_test
+    and "fun `a page that no longer exists resolves to the last real one`()" in v249_shade_test,
+)
+
+check(
+    "V249 every shade control row reaches the service with its own verb and its own data URI",
+    'const val ACTION_SHADE_CONTROL = "com.marbleng.SHADE_CONTROL"' in files["vpn"]
+    and "EXTRA_SHADE_CONTROL" in files["vpn"]
+    and "NotificationRoutePicker.CONTROL_LEVEL -> repo.flipShadeRouteLevel()" in files["vpn"]
+    and "NotificationRoutePicker.CONTROL_NEXT -> repo.stepShadeRoutePage(1)" in files["vpn"]
+    and "NotificationRoutePicker.CONTROL_PREVIOUS -> repo.stepShadeRoutePage(-1)" in files["vpn"]
+    and "fun flipShadeRouteLevel()" in files["repo"]
+    and "fun stepShadeRoutePage(delta: Int)" in files["repo"]
+    and "fun shadeRouteItemCount(level: ShadeLevel)" in files["repo"]
+    and "fun notificationShadePingLabels()" in files["repo"]
+    and "marbleng://shade/" in files["notifier"]
+    # Republishing the same state is what makes a tap inside the shade visible without the app.
+    and "publishStatus(lastPublishedStatus)" in files["vpn"],
+)
+
+check(
+    "V249 the shade's row budget has one spelling in the store, the page and the page counter",
+    "object ShadeControlDefaults" in files["models"]
+    and "val ROW_CHOICES: List<Int> = listOf(2, 4, 6, 8)" in files["models"]
+    and "fun rowChoice(raw: Int): Int =" in files["models"]
+    and "fun styleId(raw: String?): String =" in files["models"]
+    and "val shadeControl: ShadeRouteControl = ShadeRouteControl()" in files["models"]
+    and "val style: String = ShadeControlDefaults.STYLE_STUDIO" in files["models"]
+    and "val showPing: Boolean = true" in files["models"]
+    and "val rows: Int = ShadeControlDefaults.ROWS" in files["models"]
+    # Both directions are normalized, and in one place: a hand-edited backup cannot desync the three
+    # readers, because the store never normalizes anything itself.
+    and "ShadeRouteControl.of(" in files["store"]
+    and "style = ShadeControlDefaults.styleId(style)" in files["models"]
+    and "rows = ShadeControlDefaults.rowChoice(rows)" in files["models"]
+    and "s.shadeControl.picker" in files["store"]
+    # The persisted keys did not move: grouping is a shape in memory, not a migration.
+    and "\"notificationShadePicker\"" in files["store"]
+    and "\"notificationShadeRows\"" in files["store"]
+    and "ShadeControlDefaults.rowChoice(input.rowBudget)" in files["routePicker"]
+    and 'item(key = "shade-route-control")' in files["settingsSystem"],
+)
+
+v249_ticker = read("app/src/main/java/com/marbleng/app/model/UptimeTicker.kt")
+v249_ticker_ui = read("app/src/main/java/com/marbleng/app/ui/MarbleTicker.kt")
+v249_ticker_test = read("app/src/test/java/com/marbleng/app/model/UptimeTickerV249Test.kt")
+
+check(
+    "V249 the uptime clock rolls its digits and never its Persian words",
+    "object UptimeTicker" in v249_ticker
+    and "MARBLE_LIVE_TICKER_V249" in v249_ticker
+    and "const val ROLL_TRAVEL_FRACTION: Float = 0.85f" in v249_ticker
+    and "fun rolling(" in v249_ticker
+    and "fun reshaped(" in v249_ticker
+    # Persian digits are `isDigit()` and still not `toIntOrNull()`-able: both alphabets are read.
+    and "fun digitValue(" in v249_ticker
+    and "fun MarbleRollingClock(" in v249_ticker_ui
+    # A clock is read left to right in Persian too, and tabular figures stop it from shimmering.
+    and "LocalLayoutDirection provides LayoutDirection.Ltr" in v249_ticker_ui
+    and "tnum" in v249_ticker_ui
+    # Eight animating characters are one sentence to a screen reader, not eight announcements.
+    and "clearAndSetSemantics" in v249_ticker_ui
+    and 'ticker: String = ""' in files["shellUi"]
+    and "MarbleRollingClock(" in files["shellUi"]
+    and "val ticker = if (connected) faDigits(uptime) else \"\"" in files["homeScreen"]
+    and "ticker = ticker" in files["homeScreen"]
+    and "class UptimeTickerV249Test" in v249_ticker_test
+    and "fun `only the digit that changed rolls`()" in v249_ticker_test
+    and "fun `the separators never roll because their value never changes`()" in v249_ticker_test
+    and "fun `a Persian reading is read as digits, not as unparseable text`()" in v249_ticker_test,
+)
+
+v249_map_motion = read("app/src/main/java/com/marbleng/app/model/MapMotion.kt")
+v249_motion = read("app/src/main/java/com/marbleng/app/ui/theme/MarbleMotion.kt")
+v249_map_test = read("app/src/test/java/com/marbleng/app/model/MapMotionV249Test.kt")
+
+check(
+    "V249 a tab change pans like a map and a detail page zooms",
+    "object MapMotion" in v249_map_motion
+    and "MARBLE_MAP_MOTION_V249" in v249_map_motion
+    and "fun direction(" in v249_map_motion
+    and "fun mirrored(" in v249_map_motion
+    and "fun arrivingOffsetFraction(" in v249_map_motion
+    # The sign is what makes it a pan: same-signed offsets are two pages trading places, which is a
+    # slideshow. The departing page leaves the way the arriving one arrives.
+    and "-direction.coerceIn(-1, 1) * DEPARTING_DRIFT_FRACTION" in v249_map_motion
+    and "const val MAX_DURATION_MS: Int = 520" in v249_map_motion
+    and "const val MIN_DURATION_MS: Int = 260" in v249_map_motion
+    and 'label = "marbleTabMap"' in files["marbleApp"]
+    and 'label = "marbleDetailZoom"' in files["marbleApp"]
+    # The exit branch of an AnimatedContent must not read the source of truth that is already null.
+    and "lastDetailProfile" in files["marbleApp"]
+    and "detailProfile ?:" in files["marbleApp"]
+    # Settings has one depth transition between its menu and its pages, not one per page.
+    and 'label = "marbleSettingsDepth"' in files["settingsScreen"]
+    and "private fun SettingsMenuPage(" in files["settingsScreen"]
+    and "class MapMotionV249Test" in v249_map_test
+    and "fun `the arriving page and the departing page travel in opposite directions`()"
+    in v249_map_test
+    and "fun `a right to left interface mirrors the pan`()" in v249_map_test
+    and "fun `opening a detail page is a zoom, not a pan`()" in v249_map_test,
+)
+
+check(
+    "V249 one motion style serves the whole app, and the system setting still wins",
+    "class MarbleMotionStyle" in v249_motion
+    and "fun ProvideMarbleMotion(" in v249_motion
+    and "fun marbleMotion()" in v249_motion
+    and "const val MARBLE_CALM_MOTION_SCALE: Float = 0.6f" in v249_motion
+    and "const val MARBLE_CHROME_FLIGHT_MS: Int = 320" in v249_motion
+    # An AnimatedContent.transitionSpec is not a composable scope, so the specs are built by plain
+    # generic extensions on a style that was captured in the body.
+    and "fun <T> MarbleMotionStyle.panSpec(baseDurationMs: Int): FiniteAnimationSpec<T>" in v249_motion
+    and "fun <T> MarbleMotionStyle.settleSpec(baseDurationMs: Int): FiniteAnimationSpec<T>"
+    in v249_motion
+    and "fun rememberReducedMotion()" in v249_motion
+    and "ProvideMarbleMotion(" in files["marbleApp"]
+    and "systemReducedMotion = rememberReducedMotion()" in files["marbleApp"]
+    and "val appCalmMotion: Boolean = false" in files["models"]
+    and 'item(key = "app-motion")' in files["settingsAppearance"]
+    and "checked = s.appCalmMotion" in files["settingsAppearance"],
+)
+
+v249_home_studio = read("app/src/main/java/com/marbleng/app/model/HomeStudio.kt")
+v249_home_test = read("app/src/test/java/com/marbleng/app/model/HomeStudioV249Test.kt")
+
+check(
+    "V249 Home is a layout the user owns and the legacy switches are a floor under it",
+    "enum class HomeSection" in v249_home_studio
+    and "MARBLE_HOME_STUDIO_V249" in v249_home_studio
+    and "fun order(raw: String): List<HomeSection>" in v249_home_studio
+    and "fun visible(" in v249_home_studio
+    and "fun isHidden(" in v249_home_studio
+    and "fun move(orderRaw: String, section: HomeSection, steps: Int): String?" in v249_home_studio
+    # A move past the end is refused, not wrapped: wrap-around is not a move the user asked for.
+    and "fun canMove(" in v249_home_studio
+    and "fun isBare(" in v249_home_studio
+    and "val homeLayout: HomeLayout = HomeLayout()" in files["models"]
+    and "val sectionOrder: String = HomeStudio.DEFAULT_ORDER" in files["models"]
+    and "val hiddenSections: String = HomeStudio.DEFAULT_HIDDEN" in files["models"]
+    # Both records are read on the way in and written on the way out, canonically, in one place.
+    and "HomeLayout.of(" in files["store"]
+    and "sectionOrder = HomeStudio.canonicalOrder(" in files["models"]
+    and "hiddenSections = HomeStudio.canonicalHidden(" in files["models"]
+    and "s.homeLayout.sectionOrder" in files["store"]
+    and "legacyStatsVisible = settings.modularShowStats" in files["homeScreen"]
+    and "homeSections.forEach { section ->" in files["homeScreen"]
+    and 'item(key = "home-sections-studio")' in files["settingsAppearance"]
+    and "HomeStudio.canMove(" in files["settingsAppearance"]
+    and "class HomeStudioV249Test" in v249_home_test
+    and "fun `the two legacy switches are a floor, not a record the studio replaces`()"
+    in v249_home_test
+    and "fun `an empty Home is allowed and the model says so`()" in v249_home_test,
+)
+
+check(
+    "V249 four themes and nine accents, on a page narrow enough to have to wrap them",
+    # `amoled` was already understood by the resolver and unreachable from the UI: the fourth theme
+    # needed a door, not a new preference.
+    "\"dark\", \"amoled\", \"oled\", \"night\" -> true" in files["marbleTheme"]
+    and "fun marbleTrueBlackSurfaces(scheme: ColorScheme): ColorScheme" in files["marbleColor"]
+    and "fun isTrueBlack(themeId: String): Boolean" in files["marbleColor"]
+    and "trueBlack = isTrueBlack(themeId)" in files["marbleTheme"]
+    and "\"amoled\"," in files["settingsAppearance"]
+    and 'trx("True Black")' in files["settingsAppearance"]
+    # Nine 48dp swatches do not fit one 360dp row, so they wrap in fives — with a plain Row, not an
+    # experimental FlowRow on a page people use every day.
+    and "ACCENT_SWATCHES_PER_ROW: Int = 5" in files["settingsAppearance"]
+    and "FlatAccent.entries.chunked(ACCENT_SWATCHES_PER_ROW)" in files["settingsAppearance"]
+    and "SKY(\"sky\", \"Sky\")" in files["models"]
+    and "PLUM(\"plum\", \"Plum\")" in files["models"]
+    and "MOSS(\"moss\", \"Moss\")" in files["models"]
+    # Expressive is the floor this sits on, not something the pass replaced.
+    and "MotionScheme.expressive()" in files["marbleTheme"],
+)
+
+def v249_settings_arguments(source):
+    """`(parameters, arguments)` for the bridge Kotlin generates around `AppSettings`.
+
+    A data class gets a synthetic `copy$default` carrying one argument per parameter, one bitmask
+    word per 32 of them, the receiver and a marker. The JVM refuses to *load* a class whose method
+    takes more than 255 arguments — and it refuses at runtime, as a `ClassFormatError`, not at
+    compile time. V249 added five loose notification settings to a class that was already at 241
+    parameters and every test that touched settings failed at once (162 of them), with a compiler
+    that had nothing to say. This is the invariant that should have existed before that.
+    """
+    start = source.index("data class AppSettings(")
+    cursor = source.index("(", start)
+    depth = 0
+    while True:
+        if source[cursor] == "(":
+            depth += 1
+        elif source[cursor] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        cursor += 1
+    parameters = len(re.findall(r"^\s*(?:val|var)\s+\w+\s*:", source[start:cursor], re.M))
+    return parameters, parameters + -(-parameters // 32) + 2
+
+
+v249_parameters, v249_arguments = v249_settings_arguments(files["models"])
+
+check(
+    "V249 the settings class stays inside the JVM's 255-argument ceiling",
+    # The floor keeps the counter honest: a rename would otherwise "pass" by matching nothing.
+    v249_parameters >= 235
+    and v249_arguments <= 255
+    # Two grouped values, not seven loose fields, and the grouping is documented where it is used.
+    and "data class ShadeRouteControl(" in files["models"]
+    and "data class HomeLayout(" in files["models"]
+    and "255" in files["models"]
+    and "ClassFormatError" in files["models"],
+)
+
+v249_doc = read("docs/PERSIAN_JOIN_SHADE_STUDIO_AND_MAP_MOTION_V249.md")
+
+check(
+    "V249 the chapter, the README and the five tests record the pass",
+    "## ۱. دو کلمهٔ اشتباه" in v249_doc
+    and "## ۵. جدول اجرا" in v249_doc
+    and "## ۶. آنچه عمداً انجام نشد" in v249_doc
+    and "## ۷. تست" in v249_doc
+    and "PERSIAN_JOIN_SHADE_STUDIO_AND_MAP_MOTION_V249.md" in files["readme"]
+    and "is the newest chapter" in files["readme"]
+    # Every new rule file has a host-JVM test that needs no device.
+    and "class PersianOrthographyV249Test" in v249_orthography_test
+    and "class UptimeTickerV249Test" in v249_ticker_test
+    and "class MapMotionV249Test" in v249_map_test
+    and "class HomeStudioV249Test" in v249_home_test
+    and "class ShadeRouteStudioV249Test" in v249_shade_test,
 )
 
 failed = [name for name, passed in checks if not passed]

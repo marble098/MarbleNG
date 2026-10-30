@@ -1,5 +1,6 @@
 package com.marbleng.app.core
 
+import com.marbleng.app.model.PersianOrthography
 import java.util.Locale
 import kotlin.math.abs
 
@@ -310,6 +311,39 @@ object NotificationCopy {
         translate(cycleEmptyEnglish(kind), language)
 
     // ------------------------------------------------------------------------------------------
+    // MARBLE_SHADE_STUDIO_V249 — the words of the shade's route control
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * The studio's chrome, in the shade's own language.
+     *
+     * The picker decides *which* rows exist and in what order; it must not decide how any of them
+     * is spelled, or the notification ends up with two dictionaries — the one here and one hiding
+     * in a row builder. Digits stay Latin on purpose: every other number the shade prints (ping,
+     * rates, the chronometer) is Latin, and one Persian-digit island in a line of Latin digits
+     * reads as a different font, not as a different language.
+     */
+    fun shadeChrome(language: NotificationLanguage): NotificationRoutePicker.Chrome =
+        NotificationRoutePicker.Chrome(
+            serversHeading = t(language, "Servers", "سرورها"),
+            sourcesHeading = t(language, "Subscriptions", "اشتراک‌ها"),
+            previous = t(language, "Previous page", "صفحه قبل"),
+            next = t(language, "Next page", "صفحه بعد"),
+            openApp = t(language, "Open MarbleNG", "باز کردن ماربل"),
+            serverCount = { count -> serverCountLabel(count, language) },
+            pageLabel = { page, pages -> "$page/$pages" }
+        )
+
+    /** `4 servers` on a subscription row — the reason to open that floor, in one number. */
+    fun serverCountLabel(count: Int, language: NotificationLanguage): String = when {
+        count <= 0 -> ""
+        language != NotificationLanguage.FA && count == 1 -> "1 server"
+        language != NotificationLanguage.FA -> "$count servers"
+        // Persian does not pluralize after a number: one form is correct for every count.
+        else -> "$count سرور"
+    }
+
+    // ------------------------------------------------------------------------------------------
     // channels
     // ------------------------------------------------------------------------------------------
 
@@ -365,6 +399,13 @@ object NotificationCopy {
      */
     fun translate(text: String, language: NotificationLanguage): String {
         if (language != NotificationLanguage.FA) return text
+        // MARBLE_PERSIAN_JOIN_V249 — the shade obeys the same one orthography rule the screens do:
+        // a Persian plural or verb that arrives glued leaves half-spaced. The dictionary here is
+        // already normalized, so the pass only ever touches copy assembled at runtime.
+        return PersianOrthography.normalize(translateRaw(text))
+    }
+
+    private fun translateRaw(text: String): String {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return text
 

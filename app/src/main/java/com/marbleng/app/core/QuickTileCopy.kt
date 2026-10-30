@@ -25,8 +25,8 @@ object QuickTileCopy {
 
     fun label(state: String, language: NotificationLanguage): String = when (state) {
         "CONNECTED" -> t(language, "MarbleNG • On", "ماربل • روشنه")
-        "CONNECTING" -> t(language, "MarbleNG • Connecting", "ماربل • داره وصل میشه")
-        "DISCONNECTING" -> t(language, "MarbleNG • Disconnecting", "ماربل • داره قطع میشه")
+        "CONNECTING" -> t(language, "MarbleNG • Connecting", "ماربل • داره وصل می‌شه")
+        "DISCONNECTING" -> t(language, "MarbleNG • Disconnecting", "ماربل • داره قطع می‌شه")
         "BLOCKED" -> t(language, "MarbleNG • Reset", "ماربل • یه ریست بزن")
         else -> t(language, "MarbleNG", "ماربل")
     }
@@ -34,9 +34,9 @@ object QuickTileCopy {
     fun transientLabel(transient: QuickTileTransient?, language: NotificationLanguage): String =
         when (transient) {
             QuickTileTransient.CONNECTING ->
-                t(language, "Connecting…", "دارم وصلت میکنم…")
+                t(language, "Connecting…", "دارم وصلت می‌کنم…")
             QuickTileTransient.DISCONNECTING ->
-                t(language, "Disconnecting…", "دارم قطعت میکنم…")
+                t(language, "Disconnecting…", "دارم قطعت می‌کنم…")
             null -> ""
         }
 

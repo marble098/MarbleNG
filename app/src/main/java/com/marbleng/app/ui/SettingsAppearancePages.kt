@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -37,6 +38,8 @@ import com.marbleng.app.model.DockSlotAccent
 import com.marbleng.app.model.DockSlotIcon
 import com.marbleng.app.model.DockSlotKind
 import com.marbleng.app.model.FlatAccent
+import com.marbleng.app.model.HomeSection
+import com.marbleng.app.model.HomeStudio
 import com.marbleng.app.model.TextScale
 import com.marbleng.app.model.dockShowsIcons
 import com.marbleng.app.model.dockShowsLabels
@@ -54,6 +57,12 @@ import com.marbleng.app.ui.theme.marbleAccentPrimary
 import com.marbleng.app.ui.theme.resolveMarbleDarkMode
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
+
+/**
+ * MARBLE_HOME_STUDIO_V249 — swatches per line. Five 48dp circles plus their spacing fit a narrow
+ * phone; the ninth accent wraps to a second line instead of being clipped off the edge.
+ */
+private const val ACCENT_SWATCHES_PER_ROW: Int = 5
 
 @Composable
 fun SettingsAppearancePage(
@@ -73,9 +82,17 @@ fun SettingsAppearancePage(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(title = Tr.now.themeTitle)
                 MarbleCard {
+                    // MARBLE_HOME_STUDIO_V249 — four themes, not three. `amoled` was already a
+                    // theme id the resolver understood and nothing in the app could select, so the
+                    // darkest thing this product could draw was a value with no door to it.
                     listOf(
                         Triple("light", trx("Light"), trx("Bright surfaces with dark text")),
                         Triple("dark", trx("Dark"), trx("True-dark surfaces, kind to OLED screens")),
+                        Triple(
+                            "amoled",
+                            trx("True Black"),
+                            trx("The page itself is black, so an OLED screen turns those pixels off")
+                        ),
                         Triple("system", trx("Follow System"), trx("Switch automatically with device appearance"))
                     ).forEachIndexed { idx, (id, title, sub) ->
                         if (idx > 0) MarbleDivider()
@@ -87,6 +104,7 @@ fun SettingsAppearancePage(
                             iconTint = when (id) {
                                 "light" -> colors.primary
                                 "dark" -> colors.secondary
+                                "amoled" -> colors.onSurfaceVariant
                                 else -> colors.tertiary
                             },
                             onClick = { repo.updateSettings(s.copy(theme = id)) }
@@ -139,43 +157,59 @@ fun SettingsAppearancePage(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 MarbleSectionHeader(title = trx("Accent Color"))
                 MarbleCard(contentPadding = PaddingValues(18.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FlatAccent.entries.forEach { candidate ->
-                            val swatch = marbleAccentPrimary(candidate, resolveMarbleDarkMode(s.theme, isSystemInDarkTheme()))
-                            val chosen = activeAccent == candidate
-                            val swatchDescription = trx(candidate.label)
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(swatch)
-                                    .then(
-                                        if (chosen) {
-                                            Modifier.border(2.5.dp, colors.onSurface, CircleShape)
-                                        } else {
-                                            Modifier.border(1.dp, colors.outlineVariant, CircleShape)
-                                        }
-                                    )
-                                    .semantics {
-                                        contentDescription = swatchDescription
-                                    }
-                                    .clickable(role = Role.Button) {
-                                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                                        repo.updateSettings(s.copy(appBehavior = s.appBehavior.copy(accentTheme = candidate.id)))
-                                    },
-                                contentAlignment = Alignment.Center
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        // MARBLE_HOME_STUDIO_V249 — nine swatches, five to a line. One row of nine
+                        // 48dp circles is 432dp on a 360dp screen: the last accents would have been
+                        // clipped, and a colour the user cannot see is not a choice.
+                        FlatAccent.entries.chunked(ACCENT_SWATCHES_PER_ROW).forEach { swatchRow ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (chosen) {
-                                    MarbleGlyphIcon(
-                                        glyph = MarbleGlyph.CHECK,
-                                        color = Color.White,
-                                        modifier = Modifier.size(18.dp),
-                                        weight = 1.25f
+                                swatchRow.forEach { candidate ->
+                                    val swatch = marbleAccentPrimary(
+                                        candidate,
+                                        resolveMarbleDarkMode(s.theme, isSystemInDarkTheme())
                                     )
+                                    val chosen = activeAccent == candidate
+                                    val swatchDescription = trx(candidate.label)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .background(swatch)
+                                            .then(
+                                                if (chosen) {
+                                                    Modifier.border(2.5.dp, colors.onSurface, CircleShape)
+                                                } else {
+                                                    Modifier.border(1.dp, colors.outlineVariant, CircleShape)
+                                                }
+                                            )
+                                            .semantics {
+                                                contentDescription = swatchDescription
+                                            }
+                                            .clickable(role = Role.Button) {
+                                                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                                repo.updateSettings(
+                                                    s.copy(
+                                                        appBehavior = s.appBehavior.copy(
+                                                            accentTheme = candidate.id
+                                                        )
+                                                    )
+                                                )
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (chosen) {
+                                            MarbleGlyphIcon(
+                                                glyph = MarbleGlyph.CHECK,
+                                                color = Color.White,
+                                                modifier = Modifier.size(18.dp),
+                                                weight = 1.25f
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -183,7 +217,6 @@ fun SettingsAppearancePage(
                 }
             }
         }
-
         item(key = "dynamic-color") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(title = trx("Wallpaper Colors"))
@@ -199,6 +232,32 @@ fun SettingsAppearancePage(
                         }
                     )
                 }
+            }
+        }
+
+        item(key = "app-motion") {
+            // MARBLE_MAP_MOTION_V249 — one switch over the whole app's motion.
+            //
+            // It scales every duration and every travel distance the app owns (the tab map's pan, the
+            // uptime ticker's roll, the dock's flight, a drill-in to a setting) rather than switching
+            // animations off: a reader who finds the movement distracting usually still wants to see
+            // where a page came from. Android's own "remove animations" scale keeps working on top of
+            // it, and that one wins — when the phone says still, the app renders the resting frame.
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleSectionHeader(title = trx("Motion"))
+                MarbleCard {
+                    MarbleSwitchRow(
+                        title = trx("Calm motion"),
+                        subtitle = trx("Shorter, smaller transitions everywhere — the same choreography at six tenths the distance"),
+                        checked = s.appCalmMotion,
+                        glyph = MarbleGlyph.SPARK,
+                        iconTint = colors.secondary,
+                        onCheckedChange = { repo.updateSettings(s.copy(appCalmMotion = it)) }
+                    )
+                }
+                MarbleSectionFooter(
+                    text = trx("If Android's own animation setting is off, the app stays still whatever this says")
+                )
             }
         }
 
@@ -533,19 +592,159 @@ fun SettingsHomeLayoutPage(
             }
         }
 
+        // MARBLE_HOME_STUDIO_V249 — every section Home draws, with a switch and two move buttons.
+        //
+        // Three switches became six sections plus an order, because "hide the speed card" was never
+        // really the ask: the ask was that Home is a layout the user owns. Two things this list has
+        // to be honest about, and both are why it looks the way it does:
+        //
+        //   * A section that is off still shows its row. A switch that removes itself cannot be
+        //     turned back on, so the row stays and dims instead.
+        //   * Turning everything off is allowed, and the page says so out loud. An empty Home is a
+        //     choice somebody might actually make (a pill and nothing else), and a product that
+        //     quietly refuses it is a product that knows better than its user.
+        item(key = "home-sections-studio") {
+            val order = HomeStudio.order(s.homeLayout.sectionOrder)
+            val hiddenCount = HomeStudio.hiddenCount(
+                hiddenRaw = s.homeLayout.hiddenSections,
+                legacyStatsVisible = s.modularShowStats,
+                legacyShortcutsVisible = s.modularShowShortcuts
+            )
+            val bare = HomeStudio.isBare(
+                orderRaw = s.homeLayout.sectionOrder,
+                hiddenRaw = s.homeLayout.hiddenSections,
+                legacyStatsVisible = s.modularShowStats,
+                legacyShortcutsVisible = s.modularShowShortcuts
+            )
+
+            fun sectionGlyph(section: HomeSection): MarbleGlyph = when (section) {
+                HomeSection.HEADER -> MarbleGlyph.HOME
+                HomeSection.CONNECT -> MarbleGlyph.POWER
+                HomeSection.PRESETS -> MarbleGlyph.SPARK
+                HomeSection.ROUTE -> MarbleGlyph.ROUTE
+                HomeSection.STATS -> MarbleGlyph.GAUGE
+                HomeSection.SHORTCUTS -> MarbleGlyph.MENU
+            }
+
+            // One write per change, and the two legacy switches are written with it: the studio's
+            // record and the record an older build reads must never disagree about the same section.
+            fun setSectionVisible(section: HomeSection, visible: Boolean) {
+                val hidden = HomeStudio.hiddenIds(s.homeLayout.hiddenSections).toMutableSet()
+                if (visible) hidden -= section.id else hidden += section.id
+                repo.updateSettings(
+                    s.copy(
+                        homeLayout = s.homeLayout.copy(hiddenSections = HomeStudio.serializeHidden(hidden)),
+                        modularShowStats = if (section == HomeSection.STATS) {
+                            visible
+                        } else {
+                            s.modularShowStats
+                        },
+                        modularShowShortcuts = if (section == HomeSection.SHORTCUTS) {
+                            visible
+                        } else {
+                            s.modularShowShortcuts
+                        }
+                    )
+                )
+            }
+
+            fun moveSection(section: HomeSection, steps: Int) {
+                val moved = HomeStudio.move(s.homeLayout.sectionOrder, section, steps) ?: return
+                repo.updateSettings(s.copy(homeLayout = s.homeLayout.copy(sectionOrder = moved)))
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleSectionHeader(
+                    title = trx("Home sections"),
+                    badge = faDigits("${order.size - hiddenCount}/${order.size}"),
+                    badgeColor = if (hiddenCount == 0) colors.success else colors.warning
+                )
+                MarbleCard {
+                    order.forEachIndexed { index, section ->
+                        if (index > 0) MarbleDivider()
+                        val hidden = HomeStudio.isHidden(
+                            section = section,
+                            hiddenRaw = s.homeLayout.hiddenSections,
+                            legacyStatsVisible = s.modularShowStats,
+                            legacyShortcutsVisible = s.modularShowShortcuts
+                        )
+                        val upLabel = trx("Move up")
+                        val downLabel = trx("Move down")
+                        MarbleListItem(
+                            title = trx(section.title),
+                            subtitle = trx(section.hint),
+                            glyph = sectionGlyph(section),
+                            iconTint = if (hidden) colors.onSurfaceVariant else colors.primary,
+                            titleColor = if (hidden) colors.onSurfaceVariant else colors.onSurface,
+                            showChevron = false,
+                            onClick = { setSectionVisible(section, hidden) },
+                            trailing = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    MarbleIconButton(
+                                        glyph = MarbleGlyph.CHEVRON_DOWN,
+                                        onClick = { moveSection(section, -1) },
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .rotate(180f),
+                                        tint = colors.onSurfaceVariant,
+                                        enabled = HomeStudio.canMove(s.homeLayout.sectionOrder, section, -1),
+                                        contentDescription = upLabel
+                                    )
+                                    MarbleIconButton(
+                                        glyph = MarbleGlyph.CHEVRON_DOWN,
+                                        onClick = { moveSection(section, 1) },
+                                        modifier = Modifier.size(32.dp),
+                                        tint = colors.onSurfaceVariant,
+                                        enabled = HomeStudio.canMove(s.homeLayout.sectionOrder, section, 1),
+                                        contentDescription = downLabel
+                                    )
+                                    MarbleSwitch(
+                                        checked = !hidden,
+                                        onCheckedChange = { setSectionVisible(section, it) }
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
+                if (bare) {
+                    MarbleSectionFooter(
+                        text = trx("Home is empty right now. Turn one section back on, or keep it as a single pill.")
+                    )
+                } else {
+                    MarbleSectionFooter(
+                        text = trx("The order here is the order Home draws them in, top to bottom")
+                    )
+                }
+                MarbleButton(
+                    label = trx("Reset Home layout"),
+                    style = MarbleButtonStyle.SECONDARY,
+                    onClick = {
+                        repo.updateSettings(
+                            s.copy(
+                                homeLayout = s.homeLayout.copy(
+                                    sectionOrder = HomeStudio.resetOrder(),
+                                    hiddenSections = HomeStudio.resetHidden()
+                                ),
+                                modularShowStats = true,
+                                modularShowShortcuts = true
+                            )
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
         item(key = "home-cards-visibility") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Visible Home Cards"))
+                MarbleSectionHeader(title = trx("Inside the sections"))
                 MarbleCard {
-                    MarbleSwitchRow(
-                        title = trx("Network Speed & Session Data"),
-                        subtitle = trx("Show live throughput and session/total usage card"),
-                        checked = s.modularShowStats,
-                        glyph = MarbleGlyph.GAUGE,
-                        iconTint = colors.primary,
-                        onCheckedChange = { repo.updateSettings(s.copy(modularShowStats = it)) }
-                    )
-                    MarbleDivider()
+                    // The SOCKS5 row is a line *inside* the speed section, not a section of its own,
+                    // so it keeps its own switch here instead of a row in the list above.
                     MarbleSwitchRow(
                         title = trx("Local SOCKS5 Row"),
                         subtitle = trx("Always display the loopback SOCKS5 address on Home"),
@@ -553,15 +752,6 @@ fun SettingsHomeLayoutPage(
                         glyph = MarbleGlyph.LINK,
                         iconTint = colors.secondary,
                         onCheckedChange = { repo.updateSettings(s.copy(modularShowSocks = it)) }
-                    )
-                    MarbleDivider()
-                    MarbleSwitchRow(
-                        title = trx("Quick Actions Card"),
-                        subtitle = trx("Show clipboard import, QR scanner, Smart Rank and Censorship Lab"),
-                        checked = s.modularShowShortcuts,
-                        glyph = MarbleGlyph.SPARK,
-                        iconTint = colors.warning,
-                        onCheckedChange = { repo.updateSettings(s.copy(modularShowShortcuts = it)) }
                     )
                 }
             }

@@ -137,7 +137,16 @@ fun MarbleConnectPill(
     title: String,
     subtitle: String,
     onToggle: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * MARBLE_LIVE_TICKER_V249 — the clock, as its own reading instead of the tail of [subtitle].
+     *
+     * It is a separate parameter because it changes once a second while the rest of the line changes
+     * when the state changes, and one `AnimatedContent` around the whole sentence meant the words
+     * re-flew sixty times a minute. Empty means "no clock on this pill", which is what an
+     * unconnected tunnel shows: a session that has not started has no duration to count.
+     */
+    ticker: String = ""
 ) {
     val colors = MaterialTheme.colorScheme
     val haptics = LocalHapticFeedback.current
@@ -194,9 +203,11 @@ fun MarbleConnectPill(
 
     val shape = RoundedCornerShape(corner)
     // MARBLE_M3_EXPRESSIVE_V242 — the pill is alive: animateContentSize with a medium-bouncy
-    // spring, a pulsating halo in idle, and a glowing emerald container when connected. The
-    // subtitle (uptime/ping/protocol) flips with AnimatedContent so the ticker feels like a
-    // live instrument, not a static label.
+    // spring, a pulsating halo in idle, and a glowing emerald container when connected.
+    // MARBLE_LIVE_TICKER_V249 — the second line is now two things with two tempos: the words
+    // (state, route, protocol) flip with AnimatedContent when the state changes, and the clock is
+    // drawn by MarbleRollingClock, which moves only the digit that moved. An instrument is what
+    // this line is, and an instrument does not re-draw its whole face every second.
     val haloTransition = rememberInfiniteTransition(label = "connectHalo")
     val haloScale by haloTransition.animateFloat(
         initialValue = 1f,
@@ -287,22 +298,35 @@ fun MarbleConnectPill(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                AnimatedContent(
-                    targetState = subtitle,
-                    transitionSpec = {
-                        (slideInVertically { height -> height / 3 } + fadeIn(
-                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-                        )) togetherWith slideOutVertically { height -> -height / 3 } + fadeOut()
-                    },
-                    label = "pillSubtitle"
-                ) { s ->
-                    Text(
-                        text = s,
-                        color = onTone.copy(alpha = 0.82f),
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AnimatedContent(
+                        targetState = subtitle,
+                        modifier = Modifier.weight(1f, fill = false),
+                        transitionSpec = {
+                            (slideInVertically { height -> height / 3 } + fadeIn(
+                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                            )) togetherWith slideOutVertically { height -> -height / 3 } + fadeOut()
+                        },
+                        label = "pillSubtitle"
+                    ) { s ->
+                        Text(
+                            text = s,
+                            color = onTone.copy(alpha = 0.82f),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (ticker.isNotEmpty()) {
+                        MarbleRollingClock(
+                            clock = ticker,
+                            color = onTone.copy(alpha = 0.9f),
+                            modifier = Modifier.padding(start = 6.dp),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                    }
                 }
             }
             if (connected) {

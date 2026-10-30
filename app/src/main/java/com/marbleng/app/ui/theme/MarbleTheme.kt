@@ -110,14 +110,20 @@ fun marbleColorScheme(
     accent: FlatAccent,
     dark: Boolean,
     dynamicColor: Boolean,
-    context: Context
-): ColorScheme = when {
-    dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-        if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-    }
+    context: Context,
+    trueBlack: Boolean = false
+): ColorScheme {
+    val scheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
 
-    dark -> marbleFallbackDarkScheme(accent)
-    else -> marbleFallbackLightScheme(accent)
+        dark -> marbleFallbackDarkScheme(accent)
+        else -> marbleFallbackLightScheme(accent)
+    }
+    // MARBLE_HOME_STUDIO_V249 — true black is a pass over a dark scheme, never over a light one:
+    // black text on a black page is not a theme, it is an outage.
+    return if (trueBlack && dark) marbleTrueBlackSurfaces(scheme) else scheme
 }
 
 val LocalMarbleFlat = staticCompositionLocalOf { false }
@@ -159,7 +165,16 @@ fun MarbleExpressiveTheme(
     val dark = resolveMarbleDarkMode(themeId, systemDark)
     val accent = parseFlatAccent(accentId)
     val context = LocalContext.current
-    val scheme = marbleColorScheme(accent, dark, dynamicColor, context)
+    val scheme = marbleColorScheme(
+        accent = accent,
+        dark = dark,
+        dynamicColor = dynamicColor,
+        context = context,
+        // MARBLE_HOME_STUDIO_V249 — `amoled` was already a theme id this app accepted and could not
+        // draw. Reading it here means no new parameter, no new call site and no way for the theme
+        // and the resolver to disagree about what "the darkest option" is.
+        trueBlack = isTrueBlack(themeId)
+    )
     val persian = Tr.now.language == MarbleLanguage.FA
     val typography = buildMarbleTypography(resolveMarbleFontFamily(fontId, persian))
 

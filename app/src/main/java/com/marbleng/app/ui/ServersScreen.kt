@@ -1797,6 +1797,17 @@ private fun ServerRowItem(
         derivedStateOf { ServersRowSurface.revealAlpha(dismissState.progress) }
     }
 
+    // MARBLE_CLEAN_ROW_V249 — and it is not merely invisible at rest, it is *absent*. A selected
+    // row is translucent, which makes it a window onto whatever is behind it, and a layer at alpha
+    // zero is still a layer. This boolean flips twice per drag (going in, coming back), which is
+    // the whole recomposition budget the gate costs.
+    val revealComposed = remember(dismissState) {
+        derivedStateOf { ServersRowSurface.revealComposed(dismissState.progress) }
+    }
+
+    // Read in the composition: a semantics lambda is not a composable context.
+    val revealDescription = trx("Delete")
+
     // The swipe only OPENS the delete: the row slides back if the user changes their mind, and
     // the row leaves with its own profile when the undo window starts.
     LaunchedEffect(pendingDelete, profile.id) {
@@ -1811,30 +1822,24 @@ private fun ServerRowItem(
         // the same radius instead of showing square corners through it.
         modifier = Modifier.clip(RoundedCornerShape(20.dp)),
         backgroundContent = {
-            // V241/V243: the destructive reveal is a neutral tonal step with error ink, and the
-            // label gets its own padding so it can never be clipped to "Delet" again.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(colors.surfaceContainerHighest)
-                    .graphicsLayer { alpha = revealAlpha.value }
-                    .padding(horizontal = 20.dp),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // V241/V243: the destructive reveal is a neutral tonal step with error ink.
+            // MARBLE_CLEAN_ROW_V249: it is a glyph, not a sentence. The word that used to sit here
+            // was the thing the report kept seeing through a selected row, and a trash can on a
+            // destructive wash never needed a caption. Its name is still spoken, by semantics.
+            if (revealComposed.value) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(colors.surfaceContainerHighest)
+                        .graphicsLayer { alpha = revealAlpha.value }
+                        .semantics { contentDescription = revealDescription }
+                        .padding(horizontal = 20.dp),
+                    contentAlignment = Alignment.CenterEnd
                 ) {
-                    Text(
-                        text = trx("Delete"),
-                        color = colors.error,
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                        maxLines = 1
-                    )
                     MarbleGlyphIcon(
                         glyph = MarbleGlyph.TRASH,
                         color = colors.error,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
@@ -1937,6 +1942,11 @@ internal fun ServerRowContent(
             .testTag("server-row-${profile.id}")
             .heightIn(min = ServersDeck.ROW_MIN_HEIGHT_DP.dp, max = ServersDeck.ROW_MAX_HEIGHT_DP.dp)
             .clip(RoundedCornerShape(20.dp))
+            // MARBLE_CLEAN_ROW_V249 — the selection and activity tints stay translucent so the page
+            // can breathe behind them, but they are laid over an opaque base of the page's own
+            // surface first. A row is never a window again: whatever the swipe reveal, an undo
+            // animation or a future layer puts behind it, the row shows its own two colours.
+            .background(colors.surface)
             .background(container)
             .combinedClickable(
                 role = Role.Button,

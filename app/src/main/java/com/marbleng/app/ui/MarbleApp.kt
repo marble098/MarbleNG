@@ -72,11 +72,27 @@ import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSlotAccent
 import com.marbleng.app.model.parseDockSlotIcon
 import kotlinx.coroutines.delay
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import com.marbleng.app.model.MapMotion
 import com.marbleng.app.ui.theme.LocalBottomClearance
+import com.marbleng.app.ui.theme.MARBLE_CHROME_FLIGHT_MS
 import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.ProvideMarbleMotion
+import com.marbleng.app.ui.theme.marbleMotion
+import com.marbleng.app.ui.theme.panSpec
+import com.marbleng.app.ui.theme.rememberReducedMotion
+import com.marbleng.app.ui.theme.settleSpec
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
 import com.marbleng.app.ui.theme.MarbleExpressiveTheme
+import kotlin.math.roundToInt
 
 enum class MarbleRootTab {
     HOME,
@@ -101,12 +117,22 @@ fun MarbleApp(
                 flatSurfaces = repo.settings.flatInterface,
                 dynamicColor = repo.settings.dynamicColor
             ) {
-                MarbleRootShell(
-                    repo = repo,
-                    onConnect = onConnect,
-                    onImportFile = onImportFile,
-                    onContentScrollChanged = onContentScrollChanged
-                )
+                // MARBLE_MAP_MOTION_V249 — one motion style, ambient, under the theme that owns the
+                // colour. It sits here rather than being threaded as a parameter because every
+                // surface reads it and none of them owns it: the shell pans between tabs, the pill's
+                // clock rolls one digit, the dock flies out of the way, and all three have to agree
+                // about how long a movement takes or the app reads as several apps.
+                ProvideMarbleMotion(
+                    calmMotion = repo.settings.appCalmMotion,
+                    systemReducedMotion = rememberReducedMotion()
+                ) {
+                    MarbleRootShell(
+                        repo = repo,
+                        onConnect = onConnect,
+                        onImportFile = onImportFile,
+                        onContentScrollChanged = onContentScrollChanged
+                    )
+                }
             }
         }
     }
@@ -147,6 +173,19 @@ private fun MarbleRootShell(
     } else {
         null
     }
+
+    // MARBLE_MAP_MOTION_V249 — the last page the zoom was showing. Closing the detail clears
+    // `inspectingProfileId` immediately, and the zoom-out then has to draw the page it is leaving
+    // for another 380 ms; without this it would draw nothing at all.
+    val lastDetailProfile = remember { mutableStateOf<ProxyProfile?>(null) }
+    if (detailProfile != null) {
+        lastDetailProfile.value = detailProfile
+    }
+
+    // The pan's direction is read once per composition and captured, because `transitionSpec` is not
+    // a composable scope and may not reach for either of these.
+    val motion = marbleMotion()
+    val readingRightToLeft = LocalLayoutDirection.current == LayoutDirection.Rtl
 
     val canNavigateBack = detailProfile != null ||
         (activeTab == MarbleRootTab.SETTINGS && activeSettingsPage != null) ||
@@ -264,56 +303,150 @@ private fun MarbleRootShell(
                             .fillMaxSize()
                             .widthIn(max = 840.dp)
                     ) {
-                        if (detailProfile != null) {
-                            ServerDetailPage(
-                                repo = repo,
-                                profile = detailProfile,
-                                onBack = {
-                                    inspectingProfileId = ""
-                                    inspectingProfileSource = ""
-                                },
-                                onConnect = onConnect
-                            )
-                        } else {
-                            when (activeTab) {
-                                MarbleRootTab.HOME -> HomeScreen(
+                        // MARBLE_MAP_MOTION_V249 — the four tabs are places on one map, and the
+                        // detail page is a zoom into one of them.
+                        //
+                        // Two nested `AnimatedContent`s, one per kind of travel, because they are not
+                        // the same movement. A tab change *pans*: the page you leave departs in the
+                        // direction you are going and the page you arrive on comes from there, both
+                        // drifting part of the width and both scaling a little, so for the length of
+                        // the flight the two are on screen together and the direction of travel is
+                        // legible — which is what «مثل یک نقشه» asks for. Opening a server *zooms*:
+                        // the detail arrives from slightly small while the map recedes behind it, so
+                        // "into" is drawn instead of described.
+                        //
+                        // The detail target is a Boolean and the profile it draws is remembered,
+                        // because during the zoom-out `detailProfile` is already null: an exit
+                        // animation with nothing to draw is a blank frame where a page used to be.
+                        AnimatedContent(
+                            targetState = detailProfile != null,
+                            transitionSpec = {
+                                val duration = MapMotion.durationMs(1)
+                                val arriveScale = if (targetState) {
+                                    MapMotion.DETAIL_ENTER_SCALE
+                                } else {
+                                    MapMotion.DETAIL_EXIT_SCALE
+                                }
+                                val leaveScale = if (targetState) {
+                                    MapMotion.DETAIL_EXIT_SCALE
+                                } else {
+                                    MapMotion.DETAIL_ENTER_SCALE
+                                }
+                                (
+                                    fadeIn(motion.settleSpec(duration)) + scaleIn(
+                                        animationSpec = motion.panSpec(duration),
+                                        initialScale = arriveScale
+                                    )
+                                    ) togetherWith (
+                                    fadeOut(motion.settleSpec(duration)) + scaleOut(
+                                        animationSpec = motion.panSpec(duration),
+                                        targetScale = leaveScale
+                                    )
+                                    )
+                            },
+                            label = "marbleDetailZoom"
+                        ) { showingDetail ->
+                            val detail = detailProfile ?: lastDetailProfile.value
+                            if (showingDetail && detail != null) {
+                                ServerDetailPage(
                                     repo = repo,
-                                    onConnect = onConnect,
-                                    onOpenServers = { rememberedTab = MarbleRootTab.SERVERS },
-                                    onOpenServerDetail = openDetail,
-                                    onOpenQrImport = { showQrSheet = true },
-                                    onOpenAddSheet = { showAddSheet = true },
-                                    onOpenExitIpSheet = { showExitIpSheet = true },
-                                    onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
-                                    onOpenSettingsPage = openSettingsDest,
-                                    onContentScrollChanged = reportScroll
+                                    profile = detail,
+                                    onBack = {
+                                        inspectingProfileId = ""
+                                        inspectingProfileSource = ""
+                                    },
+                                    onConnect = onConnect
                                 )
+                            } else {
+                                AnimatedContent(
+                                    targetState = activeTab,
+                                    transitionSpec = {
+                                        // The direction comes from where the two tabs *are*, never
+                                        // from which tabs they are, so reordering the dock cannot
+                                        // reverse the motion. It is mirrored in a right-to-left
+                                        // interface: in Persian the fourth tab is on the left, and a
+                                        // pan that ignores the layout direction reads as travelling
+                                        // backwards.
+                                        val from = visibleTabs.indexOf(initialState)
+                                        val to = visibleTabs.indexOf(targetState)
+                                        val direction = MapMotion.mirrored(
+                                            MapMotion.direction(from, to),
+                                            rightToLeft = readingRightToLeft
+                                        )
+                                        val duration = MapMotion.durationMs(
+                                            MapMotion.distance(from, to)
+                                        )
+                                        if (!MapMotion.travels(direction)) {
+                                            // The same tab tapped again: nothing moved, so nothing
+                                            // animates. A redundant tap must not play a motion that
+                                            // says "something changed".
+                                            fadeIn(motion.settleSpec(duration)) togetherWith
+                                                fadeOut(motion.settleSpec(duration))
+                                        } else {
+                                            (
+                                                slideInHorizontally(
+                                                    motion.panSpec(duration)
+                                                ) { width ->
+                                                    (width * MapMotion.arrivingOffsetFraction(direction)).roundToInt()
+                                                } + fadeIn(motion.settleSpec(duration)) + scaleIn(
+                                                    animationSpec = motion.panSpec(duration),
+                                                    initialScale = MapMotion.ARRIVING_SCALE
+                                                )
+                                                ) togetherWith (
+                                                slideOutHorizontally(
+                                                    motion.panSpec(duration)
+                                                ) { width ->
+                                                    (width * MapMotion.departingOffsetFraction(direction)).roundToInt()
+                                                } + fadeOut(motion.settleSpec(duration)) + scaleOut(
+                                                    animationSpec = motion.panSpec(duration),
+                                                    targetScale = MapMotion.DEPARTING_SCALE
+                                                )
+                                                )
+                                        }
+                                    },
+                                    label = "marbleTabMap"
+                                ) { tab ->
+                                    when (tab) {
+                                        MarbleRootTab.HOME -> HomeScreen(
+                                            repo = repo,
+                                            onConnect = onConnect,
+                                            onOpenServers = { rememberedTab = MarbleRootTab.SERVERS },
+                                            onOpenServerDetail = openDetail,
+                                            onOpenQrImport = { showQrSheet = true },
+                                            onOpenAddSheet = { showAddSheet = true },
+                                            onOpenExitIpSheet = { showExitIpSheet = true },
+                                            onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
+                                            onOpenSettingsPage = openSettingsDest,
+                                            onContentScrollChanged = reportScroll
+                                        )
 
-                                MarbleRootTab.SERVERS -> ServersScreen(
-                                    repo = repo,
-                                    onConnect = onConnect,
-                                    onOpenDetail = openDetail,
-                                    onOpenAddSheet = { showAddSheet = true },
-                                    onOpenQrImport = { showQrSheet = true },
-                                    onContentScrollChanged = reportScroll
-                                )
+                                        MarbleRootTab.SERVERS -> ServersScreen(
+                                            repo = repo,
+                                            onConnect = onConnect,
+                                            onOpenDetail = openDetail,
+                                            onOpenAddSheet = { showAddSheet = true },
+                                            onOpenQrImport = { showQrSheet = true },
+                                            onContentScrollChanged = reportScroll
+                                        )
 
-                                MarbleRootTab.CUSTOM_SLOT -> CustomSlotScreen(
-                                    repo = repo,
-                                    onConnect = onConnect,
-                                    onOpenDetail = openDetail,
-                                    onCustomizeSlot = { openSettingsDest(SettingsDestination.TAB_BAR) },
-                                    onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
-                                    onContentScrollChanged = reportScroll
-                                )
+                                        MarbleRootTab.CUSTOM_SLOT -> CustomSlotScreen(
+                                            repo = repo,
+                                            onConnect = onConnect,
+                                            onOpenDetail = openDetail,
+                                            onCustomizeSlot = { openSettingsDest(SettingsDestination.TAB_BAR) },
+                                            onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
+                                            onContentScrollChanged = reportScroll
+                                        )
 
-                                MarbleRootTab.SETTINGS -> SettingsScreen(
-                                    repo = repo,
-                                    activeDestination = activeSettingsPage,
-                                    onOpenDestination = { activeSettingsPage = it },
-                                    onCloseDestination = { activeSettingsPage = null },
-                                    onContentScrollChanged = reportScroll
-                                )
+                                        MarbleRootTab.SETTINGS -> SettingsScreen(
+                                            repo = repo,
+                                            activeDestination = activeSettingsPage,
+                                            onOpenDestination = { activeSettingsPage = it },
+                                            onCloseDestination = { activeSettingsPage = null },
+                                            onContentScrollChanged = reportScroll
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -321,8 +454,8 @@ private fun MarbleRootShell(
         // Fully qualified: inside the rail Row the RowScope overload would win resolution.
         androidx.compose.animation.AnimatedVisibility(
             visible = repo.message.isNotBlank(),
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)),
+            exit = fadeOut(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
@@ -353,8 +486,15 @@ private fun MarbleRootShell(
             // Fully qualified: inside the rail Row the RowScope overload would win resolution.
             androidx.compose.animation.AnimatedVisibility(
                 visible = !contentScrolling,
-                enter = slideInVertically(initialOffsetY = { height -> height }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { height -> height }) + fadeOut(),
+                // MARBLE_MAP_MOTION_V249 — the dock flies on the app's own curve and tempo instead
+                // of the framework default, so it leaves at the same speed the pages travel. The
+                // argument order is deliberate: `targetOffsetY` stays first.
+                enter = slideInVertically(
+                    initialOffsetY = { height -> height },
+                    animationSpec = motion.panSpec(MARBLE_CHROME_FLIGHT_MS)
+                ) + fadeIn(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)),
+                exit = slideOutVertically(targetOffsetY = { height -> height }, animationSpec = motion.panSpec(MARBLE_CHROME_FLIGHT_MS)) +
+                    fadeOut(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)),
                 modifier = Modifier.align(Alignment.BottomCenter)
             ) {
                 MarbleBottomTabBar(

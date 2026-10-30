@@ -78,6 +78,20 @@ object ServersRowSurface {
         progress >= REVEAL_FULL -> 1f
         else -> (progress - REVEAL_FLOOR) / (REVEAL_FULL - REVEAL_FLOOR)
     }
+
+    /**
+     * MARBLE_CLEAN_ROW_V249 — the alpha was the second half of V246's fix and it was still not
+     * enough for one reader: an invisible layer is a layer, and a row that turns translucent when
+     * it is selected is a window onto whatever sits behind it. The reveal is therefore not composed
+     * at all until the finger has really moved the row, and the word "Delete" is gone from it —
+     * a trash glyph on a destructive wash says the same thing without ever being able to read as a
+     * label inside the row above it.
+     *
+     * `true` from [REVEAL_FLOOR] upwards: the boolean flips twice per drag, which is the whole
+     * recomposition budget the gate costs.
+     */
+    fun revealComposed(progress: Float): Boolean =
+        !progress.isNaN() && progress > REVEAL_FLOOR
 }
 
 /**

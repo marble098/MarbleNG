@@ -74,7 +74,28 @@ data class ConnectionNotificationState(
     val routes: List<CycleRoute> = emptyList(),
     /** The live route's id and source id — the picker marks its row from these. */
     val routeId: String = "",
-    val routeSourceId: String = ""
+    val routeSourceId: String = "",
+
+    /**
+     * MARBLE_SHADE_STUDIO_V249 — the shade's route control, as the user configured it.
+     *
+     * A notification that cannot be turned off is not a feature, it is a habit the product formed
+     * on the user's behalf, so every part of the route control is a switch: the rows themselves,
+     * the two cycling verbs, the measured ping column and the shape of the list. Defaults are what
+     * V238 shipped plus the studio, so an upgrade changes nothing until someone asks for less.
+     *
+     * The floor ([pickerLevel]) and the page ([pickerPage]) are *not* settings: they are where the
+     * user is browsing right now, held by the repository for the length of the session.
+     */
+    val showRoutePicker: Boolean = true,
+    val showCycleVerbs: Boolean = true,
+    val pickerStyle: String = ShadePickerStyle.DEFAULT.id,
+    val pickerLevel: String = ShadeLevel.SERVERS.id,
+    val pickerPage: Int = 0,
+    val pickerRows: Int = NotificationRoutePicker.DEFAULT_STUDIO_ROWS,
+    val showRoutePing: Boolean = true,
+    /** Measured latency per route id, already formatted: an unmeasured route is simply absent. */
+    val routePingLabels: Map<String, String> = emptyMap()
 ) {
     fun signature(language: NotificationLanguage): String = buildString {
         append(status.name).append('|')
@@ -87,6 +108,19 @@ data class ConnectionNotificationState(
         append('|').append(iranModeLabel).append('|').append(detail)
         append('|').append(language.id)
         append('|').append(routes.map { it.id }.joinToString(",").hashCode())
+        // MARBLE_SHADE_STUDIO_V249 — the control is part of what the shade shows, so a flipped
+        // switch, a turned page or a newly measured ping has to re-post the item. Without these the
+        // gate would swallow exactly the taps the studio exists to answer.
+        append('|').append(showRoutePicker).append('|').append(showCycleVerbs)
+        append('|').append(pickerStyle).append('|').append(pickerLevel)
+        append('|').append(pickerPage).append('|').append(pickerRows)
+        append('|').append(showRoutePing)
+        append('|').append(
+            routePingLabels.entries
+                .sortedBy { it.key }
+                .joinToString(",") { "${it.key}=${it.value}" }
+                .hashCode()
+        )
     }
 
     val ongoing: Boolean
@@ -242,14 +276,7 @@ class SmartNotifier(
             ping = NotificationCopy.latency(state.pingMs),
             down = "↓ ${NotificationCopy.rate(state.downBps)}",
             up = "↑ ${NotificationCopy.rate(state.upBps)}",
-            picker = NotificationRoutePicker.build(
-                NotificationRoutePicker.Input(
-                    routes = state.routes,
-                    currentId = state.routeId,
-                    currentSourceId = state.routeSourceId,
-                    cap = NotificationRoutePicker.DEFAULT_CAP
-                )
-            ),
+            picker = shadeRouteRows(state, language),
             pickerIntent = { row -> pickerIntent(row) }
         )
         val builder = NotificationCompat.Builder(context, CHANNEL_CONNECTION)
@@ -309,16 +336,22 @@ class SmartNotifier(
             // `PendingIntent.getService` reaches the running foreground service directly, and the
             // service re-publishes the same item with the new route, so the shade stays the place
             // the decision is made *and* the place it is applied.
-            builder.addAction(
-                R.drawable.ic_notification_switch,
-                NotificationCopy.actionNextServer(language),
-                cycleIntent(NotificationCycleKind.SERVER)
-            )
-            builder.addAction(
-                R.drawable.ic_notification_source,
-                NotificationCopy.actionNextSubscription(language),
-                cycleIntent(NotificationCycleKind.SUBSCRIPTION)
-            )
+            // MARBLE_SHADE_STUDIO_V249 — the two verbs are a switch too. A user who reads the
+            // studio's rows and taps a name does not want two more buttons below it, and a user who
+            // wants the one-tap walk does not want nine rows: the shade now offers either, both or
+            // neither, and the disconnect verb stays because it is the tunnel's own off switch.
+            if (state.showCycleVerbs) {
+                builder.addAction(
+                    R.drawable.ic_notification_switch,
+                    NotificationCopy.actionNextServer(language),
+                    cycleIntent(NotificationCycleKind.SERVER)
+                )
+                builder.addAction(
+                    R.drawable.ic_notification_source,
+                    NotificationCopy.actionNextSubscription(language),
+                    cycleIntent(NotificationCycleKind.SUBSCRIPTION)
+                )
+            }
             if (state.status == ConnectionStatus.BLOCKED) {
                 builder.addAction(
                     R.drawable.ic_notification_reconnect,
@@ -682,6 +715,69 @@ class SmartNotifier(
     }
 
     /**
+     * MARBLE_SHADE_STUDIO_V249 — which rows the shade's route control draws.
+     *
+     * The decision is the user's, not the notifier's: with [ConnectionNotificationState.showRoutePicker]
+     * off there are no rows at all and the item is the state plus the verbs. With it on, the style
+     * picks the shape — the studio (two floors, paging, a measured ping per row) or the V238 list
+     * (the live subscription's servers, then one jump row per other source) for a reader who wants
+     * the shorter item. Both shapes are the same row type and the same action ids, so the rest of
+     * this file does not know which one it is looking at.
+     */
+    private fun shadeRouteRows(
+        state: ConnectionNotificationState,
+        language: NotificationLanguage
+    ): List<NotificationRoutePicker.PickerRow> {
+        if (!state.showRoutePicker || state.routes.isEmpty()) return emptyList()
+        return when (ShadePickerStyle.fromId(state.pickerStyle)) {
+            ShadePickerStyle.LIST -> NotificationRoutePicker.build(
+                NotificationRoutePicker.Input(
+                    routes = state.routes,
+                    currentId = state.routeId,
+                    currentSourceId = state.routeSourceId,
+                    cap = NotificationRoutePicker.DEFAULT_CAP
+                )
+            )
+            ShadePickerStyle.STUDIO -> NotificationRoutePicker.studio(
+                NotificationRoutePicker.StudioInput(
+                    routes = state.routes,
+                    currentId = state.routeId,
+                    currentSourceId = state.routeSourceId,
+                    level = ShadeLevel.fromId(state.pickerLevel),
+                    page = state.pickerPage,
+                    rowBudget = state.pickerRows,
+                    showPing = state.showRoutePing,
+                    pingLabels = state.routePingLabels,
+                    chrome = NotificationCopy.shadeChrome(language)
+                )
+            ).rows
+        }
+    }
+
+    /**
+     * MARBLE_SHADE_STUDIO_V249 — a control row's tap: turn the page, or change the floor.
+     *
+     * Like the V234 verbs this is a `getService` intent, so the running tunnel answers it and
+     * re-publishes the item: the user stays in the shade for the whole decision. The verb travels
+     * in the data URI *and* the extras, and each verb gets its own request code, so `next` can
+     * never be delivered as `previous` because SystemUI reused a `PendingIntent`.
+     */
+    private fun shadeControlIntent(row: NotificationRoutePicker.PickerRow): PendingIntent? {
+        val verb = NotificationRoutePicker.controlVerb(row.actionId)
+        if (verb.isBlank()) return null
+        val intent = Intent(context, MarbleVpnService::class.java)
+            .setAction(MarbleVpnService.ACTION_SHADE_CONTROL)
+            .setData(Uri.parse("marbleng://shade/$verb"))
+            .putExtra(MarbleVpnService.EXTRA_SHADE_CONTROL, verb)
+        return PendingIntent.getService(
+            context,
+            REQUEST_SHADE_BASE + (verb.hashCode() and 0x0FFFFFFF),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    /**
      * MARBLE_NOTIFICATION_PICKER_V238 — one picker row's tap: "make *this* route live".
      *
      * The row's identity travels in the data URI *and* the extras, so a re-delivered or
@@ -692,6 +788,7 @@ class SmartNotifier(
     private fun pickerIntent(row: NotificationRoutePicker.PickerRow): PendingIntent? = when {
         row.actionId.startsWith(NotificationRoutePicker.OPEN_APP_PREFIX) ->
             openAppIntent(NotificationRoute.DASHBOARD, resolveLanguage())
+        row.actionId.startsWith(NotificationRoutePicker.CONTROL_PREFIX) -> shadeControlIntent(row)
         row.actionId.startsWith(NotificationRoutePicker.SELECT_PREFIX) -> {
             val profileId = NotificationRoutePicker.selectProfileId(row.actionId)
             if (profileId.isBlank()) {
@@ -789,6 +886,13 @@ class SmartNotifier(
         private const val REQUEST_MANAGE = 7305
         private const val REQUEST_CYCLE_BASE = 7312
         private const val REQUEST_PICKER_BASE = 7350
+
+        /**
+         * MARBLE_SHADE_STUDIO_V249 — the studio's own control rows. Their base sits above the
+         * picker's range so a page verb and a route tap can never collide on one request code,
+         * which is what would make `next page` deliver a route selection.
+         */
+        private const val REQUEST_SHADE_BASE = 7450
 
         fun formatRate(bytesPerSecond: Long): String = NotificationCopy.rate(bytesPerSecond)
 
