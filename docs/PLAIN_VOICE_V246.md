@@ -87,9 +87,9 @@ ServersRowSurface.revealAlpha(progress):
 
 چهار شرط، هر چهارتا ماشینی و قابل تست، نه سلیقه‌ای:
 
-1. **هیچ واژهٔ تخصصی زنده نماند.** `PlainVoice.JARGON` سیزده واژه را ممنوع می‌کند:
+1. **هیچ واژهٔ تخصصی زنده نماند.** `PlainVoice.JARGON` چهارده واژه را ممنوع می‌کند:
    `Datapath`, `Prescription(s)`, `Verdict`, `Seat(s)`, `Telemetry`, `Orchestrat`, `Hardening`,
-   `RFC1918`, `GeoSite`, `GeoIP`, `DPI`.
+   `RFC1918`, `GeoSite`, `GeoIP`, `Geo direct`, `DPI`.
 2. **بازنویسی باید چیز دیگری بگوید.** جملهٔ عیناً یکسان، بازنویسی نیست.
 3. **هیچ ثابتی در جای کلمه چاپ نشود.** `FORCE_IPV4`, `LEAST_PING`, `GEOSITE`, `ALT_PORT` و
    `UseIPv4` همه از این قاعده حذف شدند؛ `PlainVoice` جدول‌های `ADDRESS_FAMILY_LABELS` و

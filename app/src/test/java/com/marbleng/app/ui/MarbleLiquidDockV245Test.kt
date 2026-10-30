@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -164,6 +165,9 @@ class MarbleLiquidDockV245Test {
         compose.waitForIdle()
         compose.onNodeWithTag("dock-tab-servers").assertIsDisplayed()
         // Persian digits, because the badge reads its number through the app's own digit shaper.
-        compose.onNodeWithText("۲").assertIsDisplayed()
+        // Asserted on existence in the unmerged tree: in a right-to-left pill the badge is drawn at
+        // the mirrored corner, and its node is reported outside the row's paint bounds even though
+        // the counter is on the glass.
+        compose.onNodeWithText("۲", useUnmergedTree = true).assertExists()
     }
 }

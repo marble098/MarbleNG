@@ -46,6 +46,9 @@ object PlainVoice {
         "RFC1918",
         "GeoSite",
         "GeoIP",
+        // The phrase, not the word: "Geo direct domestic separation" named the routing table
+        // instead of the outcome, and no single word in it could be flagged on its own.
+        "Geo direct",
         "DPI"
     )
 

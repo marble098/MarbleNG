@@ -74,7 +74,7 @@ direct`, `Apply Recommended Prescription` → `Apply what it suggests`, `Commiss
 `Fix & diagnose`), with 61 new Persian entries — including the 24 strings that until today stayed
 English on a Persian screen, and the constants became words (`FORCE_IPV4` → `IPv4 only`,
 `LEAST_PING` → `Least ping`, `GEOSITE:` → `Site:`, `ALT_PORT` → `Other port`). `PlainVoice` holds the
-rule (a thirteen-word jargon blacklist, a "different sentence" rule and a 25 % length budget) and
+rule (a fourteen-word jargon blacklist, a "different sentence" rule and a 25 % length budget) and
 every shipped rewrite as data; `PlainVoiceV246Test` proves all 71 are really plainer.
 
 **V245 — the bottom bar became a floating glass pill.** The old dock was a tonal `Column` with a
