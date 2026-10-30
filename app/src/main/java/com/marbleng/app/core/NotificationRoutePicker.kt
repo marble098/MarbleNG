@@ -300,8 +300,8 @@ object NotificationRoutePicker {
         // A subscription with one server has nothing to choose between, so the floor widens to the
         // whole library instead of showing a single row that cannot move anything.
         val scoped = liveServers.size > 1
-        items = if (scoped) liveServers else routes
-        scopeName = if (scoped) {
+        val items: List<CycleRoute> = if (scoped) liveServers else routes
+        val scopeName: String = if (scoped) {
             NotificationRouteCycle.sourceName(routes, currentSource)
         } else {
             input.chrome.serversHeading
