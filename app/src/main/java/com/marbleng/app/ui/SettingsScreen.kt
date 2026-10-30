@@ -2,14 +2,32 @@ package com.marbleng.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -87,14 +105,6 @@ enum class SettingsDestination {
     DIAGNOSTICS,
     ABOUT
 }
-
-private data class SettingsRowSpec(
-    val destination: SettingsDestination,
-    val title: String,
-    val subtitle: String,
-    val glyph: MarbleGlyph,
-    val iconTint: Color
-)
 
 @Composable
 fun SettingsScreen(
@@ -194,6 +204,9 @@ private fun SettingsMenuPage(
     val s = repo.settings
     val listState = rememberLazyListState()
     var search by rememberSaveable { mutableStateOf("") }
+    var categoryRaw by rememberSaveable { mutableStateOf(SettingsHubCategory.ALL.id) }
+    val category = SettingsHubCategory.fromId(categoryRaw)
+    val searching = search.isNotBlank()
 
     LaunchedEffect(listState.isScrollInProgress) {
         onContentScrollChanged(listState.isScrollInProgress)
@@ -414,105 +427,196 @@ private fun SettingsMenuPage(
         )
     )
 
-    val sections = listOf(
-        strings.categoryConnection to connectionGroup,
-        strings.categoryNetwork to routingGroup,
-        strings.categoryTests to testingGroup,
-        strings.categoryAppearance to appearanceGroup,
-        strings.categorySystem to systemGroup
-    ).mapNotNull { (header, items) ->
-        val filtered = if (search.isBlank()) {
-            items
-        } else {
-            val q = search.trim()
-            items.filter {
-                it.title.contains(q, ignoreCase = true) ||
-                    it.subtitle.contains(q, ignoreCase = true)
+    val categorizedSections = listOf(
+        SettingsHubCategory.CONNECTION to (strings.categoryConnection to connectionGroup),
+        SettingsHubCategory.NETWORK to (strings.categoryNetwork to routingGroup),
+        SettingsHubCategory.TESTS to (strings.categoryTests to testingGroup),
+        SettingsHubCategory.APPEARANCE to (strings.categoryAppearance to appearanceGroup),
+        SettingsHubCategory.SYSTEM to (strings.categorySystem to systemGroup)
+    )
+    val sections = categorizedSections.mapNotNull { (sectionCategory, pair) ->
+        val (header, items) = pair
+        val filtered = when {
+            searching -> {
+                val q = search.trim()
+                items.filter {
+                    it.title.contains(q, ignoreCase = true) ||
+                        it.subtitle.contains(q, ignoreCase = true)
+                }
             }
+            category == SettingsHubCategory.ALL || category == sectionCategory -> items
+            else -> emptyList()
         }
-        if (filtered.isEmpty()) null else header to filtered
+        if (filtered.isEmpty()) null else Triple(sectionCategory, header, filtered)
     }
 
-    LazyColumn(
-        state = listState,
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.surface)
-            .statusBarsPadding(),
-        contentPadding = PaddingValues(
-            start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-            end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-            top = 8.dp,
-            bottom = MarbleTheme.bottomClearance
-        ),
-        verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
+            .statusBarsPadding()
     ) {
-        item(key = "settings-header") {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                MarbleLargeHeader(
-                    title = strings.settingsTitle,
-                    collapseFraction = collapseFractionOf(
-                        firstVisibleItemIndex = listState.firstVisibleItemIndex,
-                        firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+        val columns = SettingsHubLayout.columns(maxWidth.value.toInt())
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
+                end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
+                top = 8.dp,
+                bottom = MarbleTheme.bottomClearance
+            ),
+            verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
+        ) {
+            item(key = "settings-header") {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    MarbleLargeHeader(
+                        title = strings.settingsTitle,
+                        subtitle = trx("Your network, your way"),
+                        collapseFraction = collapseFractionOf(
+                            firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                            firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+                        )
                     )
-                )
-                MarbleSearchField(
-                    value = search,
-                    onValueChange = { search = it },
-                    placeholder = trx("Search settings"),
-                    trailingCount = if (search.isBlank()) faDigits("${connectionGroup.size + routingGroup.size + testingGroup.size + appearanceGroup.size + systemGroup.size}") else ""
-                )
-                if (search.isNotBlank() && sections.isEmpty()) {
-                    MarbleEmptyState(
-                        title = trx("No matches"),
-                        body = trx("Try a shorter keyword — e.g. DNS, Theme, or Ping"),
-                        glyph = MarbleGlyph.SEARCH,
-                        tint = colors.onSurfaceVariant
+                    MarbleSearchField(
+                        value = search,
+                        onValueChange = { search = it },
+                        placeholder = trx("Search settings"),
+                        trailingCount = if (searching) "" else faDigits("${connectionGroup.size + routingGroup.size + testingGroup.size + appearanceGroup.size + systemGroup.size}")
                     )
+                    if (searching && sections.isEmpty()) {
+                        MarbleEmptyState(
+                            title = trx("No matches"),
+                            body = trx("Try a shorter keyword — e.g. DNS, Theme, or Ping"),
+                            glyph = MarbleGlyph.SEARCH,
+                            tint = colors.onSurfaceVariant
+                        )
+                    }
                 }
             }
-        }
 
-        sections.forEachIndexed { sectionIndex, (header, rows) ->
-            item(key = "settings-sec-$sectionIndex") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MarbleSectionHeader(title = header, badge = faDigits("${rows.size}"), badgeColor = colors.primary)
-                    MarbleCard {
-                        rows.forEachIndexed { rowIndex, spec ->
-                            if (rowIndex > 0) MarbleDivider()
-                            MarbleListItem(
-                                title = spec.title,
-                                subtitle = spec.subtitle,
-                                glyph = spec.glyph,
-                                iconTint = spec.iconTint,
-                                onClick = { onOpenDestination(spec.destination) }
+            if (!searching) {
+                item(key = "settings-categories") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SettingsHubCategory.entries.forEach { entry ->
+                            SettingsCategoryChip(
+                                category = entry,
+                                selected = entry == category,
+                                onClick = { categoryRaw = entry.id }
                             )
                         }
                     }
                 }
             }
-        }
-        // Council: footer legibility
-        item(key = "settings-footer") {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "v${BuildConfig.VERSION_NAME} · Xray ${BuildConfig.XRAY_CORE_TAG} · MarbleNG",
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1
-                )
-                Text(
-                    text = trx("Tap a row to change it • Search to find one"),
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
-                    textAlign = TextAlign.Center
-                )
+
+            sections.forEach { (sectionCategory, header, rows) ->
+                item(key = "settings-sec-${sectionCategory.id}") {
+                    MarbleSectionHeader(
+                        title = header,
+                        badge = faDigits("${rows.size}"),
+                        badgeColor = colors.primary
+                    )
+                }
+                val featured = SettingsHubLayout.featuredDestinations(rows, searching)
+                val tileRows = SettingsHubLayout.rows(rows, columns, featured)
+                items(
+                    count = tileRows.size,
+                    key = { index -> "settings-row-${sectionCategory.id}-$index" }
+                ) { index ->
+                    val row = tileRows[index]
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        row.forEach { spec ->
+                            if (spec == null) {
+                                Spacer(Modifier.weight(1f))
+                            } else {
+                                MarbleExpressiveTile(
+                                    title = spec.title,
+                                    subtitle = spec.subtitle,
+                                    glyph = spec.glyph,
+                                    tint = spec.iconTint,
+                                    featured = spec.destination in featured,
+                                    onClick = { onOpenDestination(spec.destination) },
+                                    modifier = Modifier.weight(1f),
+                                    tag = "settings-tile-${spec.destination}"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item(key = "settings-footer") {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "v${BuildConfig.VERSION_NAME} · Xray ${BuildConfig.XRAY_CORE_TAG} · MarbleNG",
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = trx("Tap a row to change it • Search to find one"),
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsCategoryChip(
+    category: SettingsHubCategory,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
+    val container = if (selected) colors.primaryContainer else colors.surfaceContainerLow
+    val ink = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant
+    Row(
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clip(CircleShape)
+            .background(container)
+            .clickable(role = Role.Button) {
+                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                onClick()
+            }
+            .testTag("settings-category-${category.id}")
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (selected) {
+            MarbleGlyphIcon(
+                glyph = MarbleGlyph.CHECK,
+                color = ink,
+                modifier = Modifier.size(16.dp),
+                weight = 1.2f
+            )
+        }
+        Text(
+            text = trx(category.titleKey),
+            color = ink,
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 1
+        )
     }
 }
 

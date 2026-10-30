@@ -5098,6 +5098,58 @@ check(
     and 'onManage = { librarySheetOpen = true }' in files["serversScreen"],
 )
 
+# ---------------------------------------------------------------------------
+# MARBLE_EXPRESSIVE_BENTO_V250
+# ---------------------------------------------------------------------------
+v250_surfaces = read("app/src/main/java/com/marbleng/app/ui/MarbleExpressiveSurfaces.kt")
+v250_settings_layout = read("app/src/main/java/com/marbleng/app/ui/SettingsHubLayout.kt")
+v250_alignment_test = read("app/src/test/java/com/marbleng/app/ui/ServerActionAlignmentV250Test.kt")
+v250_layout_test = read("app/src/test/java/com/marbleng/app/ui/SettingsHubLayoutV250Test.kt")
+v250_doc = read("docs/EXPRESSIVE_BENTO_V250.md")
+
+check(
+    "V250 source and group cards reserve one trailing action column",
+    "internal fun MarbleActionColumn(" in v250_surfaces
+    and "MarbleSpec.HEADER_ACTION_SIZE_DP.dp" in v250_surfaces
+    and 'server-group-action-' in files["serversScreen"]
+    and 'server-source-action-' in files["serversScreen"]
+    and "internal fun SourceLibraryCard(" in files["serversScreen"]
+    and "class ServerActionAlignmentV250Test" in v250_alignment_test
+    and "fun sourceCardsReserveTheActionColumnEvenWhenTheyHaveNoMenu()" in v250_alignment_test,
+)
+
+check(
+    "V250 Settings is an adaptive bento that keeps every destination reachable",
+    "internal object SettingsHubLayout" in v250_settings_layout
+    and "fun rows(" in v250_settings_layout
+    and "SettingsHubLayout.rows(" in files["settingsScreen"]
+    and "MarbleExpressiveTile(" in files["settingsScreen"]
+    and "SettingsCategoryChip(" in files["settingsScreen"]
+    and "class SettingsHubLayoutV250Test" in v250_layout_test
+    and "fun everyDestinationSurvivesTheBentoExactlyOnce()" in v250_layout_test,
+)
+
+check(
+    "V250 Home keeps one connect control inside an expressive stage",
+    'label = "homeConnectionStage"' in files["homeScreen"]
+    and "MarbleConnectPill(" in files["homeScreen"]
+    and "MarbleExpressiveTile(" in files["homeScreen"]
+    and "MarblePetalMark(" in files["homeScreen"]
+    and "val ticker = if (connected) faDigits(uptime) else \"\"" in files["homeScreen"],
+)
+
+check(
+    "V250 the new copy is Persian and the chapter records the reference without copying it",
+    '"Your network, your way" to "' in files["persianLexicon"]
+    and '"Choose server" to "' in files["persianLexicon"]
+    and '"Find the fastest route" to "' in files["persianLexicon"]
+    and "## ۱. مسئلهٔ سه‌نقطه‌ها" in v250_doc
+    and "## ۵. تست" in v250_doc
+    and "## ۶. آنچه عمداً انجام نشد" in v250_doc
+    and "EXPRESSIVE_BENTO_V250.md" in files["readme"]
+    and "کد Lumen وارد مخزن نشد" in v250_doc,
+)
+
 failed = [name for name, passed in checks if not passed]
 
 print("=== MarbleNG SYSTEM INTEGRITY ===")

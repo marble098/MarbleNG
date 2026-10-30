@@ -52,6 +52,15 @@ private fun faTranslateRaw(text: String): String {
 
 private val FaLexicon: Map<String, String> = mapOf(
 
+    // MARBLE_EXPRESSIVE_BENTO_V250 — the bento hub, connection stage and aligned source cards.
+    "Your network, your way" to "شبکه‌ات، به سلیقه خودت",
+    "Choose server" to "سرور رو انتخاب کن",
+    "Expanded" to "باز شده",
+    "Paste a link" to "لینک رو جای‌گذاری کن",
+    "Scan to import" to "برای وارد کردن اسکن کن",
+    "Find the fastest route" to "سریع‌ترین مسیر رو پیدا کن",
+    "Test the network" to "شبکه رو تست کن",
+
     // MARBLE_EXPRESSIVE_SHELL_V241 — the one connect pill, the mode chip, the live traffic
     // graph, the health capsules, the quick-log overlay and the three smart presets. Same
     // voice as V233: second person, short verbs, proper nouns stay themselves.
