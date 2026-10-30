@@ -1,6 +1,5 @@
 package com.marbleng.app.ui
 
-import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -50,16 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.layer.GraphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.unit.toIntSize
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
@@ -264,37 +255,15 @@ private fun MarbleRootShell(
                         .fillMaxHeight(),
                     contentAlignment = Alignment.TopCenter
                 ) {
-                    // MARBLE_LIQUID_DOCK_V245 — the page is recorded into a graphics layer so
-                    // the pill above it can sample, blur and wash the pixels it actually covers.
-                    // On Android 12+ that sample is what makes the glass read as glass; below it
-                    // the dock keeps its wash and no layer is recorded at all.
-                    val blurSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                    val pageLayer = rememberGraphicsLayer()
-                    var pageOrigin by remember { mutableStateOf(Offset.Zero) }
+                    // MARBLE_CRYSTAL_LENS_V248 — V245's recorded page layer and blurred backdrop
+                    // are retired. The capsule is frosted white by its own material, not by a
+                    // rasterised copy of the page: sampling and blurring the row underneath was
+                    // the source of both the milky glass and the soft typography this pass fixes.
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .widthIn(max = 840.dp)
-                            .onGloballyPositioned { pageOrigin = it.positionInWindow() }
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .drawWithContent {
-                                    if (blurSupported) {
-                                        pageLayer.record(
-                                            density = this,
-                                            layoutDirection = layoutDirection,
-                                            size = size.toIntSize()
-                                        ) {
-                                            this@drawWithContent.drawContent()
-                                        }
-                                        drawLayer(pageLayer)
-                                    } else {
-                                        this@drawWithContent.drawContent()
-                                    }
-                                }
-                        ) {
                         if (detailProfile != null) {
                             ServerDetailPage(
                                 repo = repo,
@@ -392,13 +361,10 @@ private fun MarbleRootShell(
                     repo = repo,
                     tabs = visibleTabs,
                     selected = activeTab,
-                    onSelect = selectTab,
-                    backdrop = if (blurSupported) pageLayer else null,
-                    backdropOrigin = pageOrigin
+                    onSelect = selectTab
                 )
             }
         }
-                    }
                 }
             }
         }
@@ -523,8 +489,9 @@ private fun MarbleNavigationRail(
 }
 
 /**
- * MARBLE_LIQUID_DOCK_V245 — the bottom chrome is now [MarbleLiquidDock]: one floating frosted
- * capsule with a glass lens on top of it, replacing the tonal bar and its measured blue line.
+ * MARBLE_LIQUID_DOCK_V245 / MARBLE_CRYSTAL_LENS_V248 — the bottom chrome is now
+ * [MarbleLiquidDock]: one floating frosted capsule with a crystal lens travelling across it,
+ * replacing the tonal bar and its measured blue line.
  *
  * This function is the *adapter*, and it is deliberately thin. Everything the settings already
  * promise still holds — dock size, floating versus attached, labels on or off, icons on or off, the
@@ -538,9 +505,7 @@ private fun MarbleBottomTabBar(
     tabs: List<MarbleRootTab>,
     selected: MarbleRootTab,
     onSelect: (MarbleRootTab) -> Unit,
-    modifier: Modifier = Modifier,
-    backdrop: GraphicsLayer? = null,
-    backdropOrigin: Offset = Offset.Zero
+    modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
@@ -602,8 +567,6 @@ private fun MarbleBottomTabBar(
         size = size,
         showIcons = showIcons,
         showLabels = showLabels,
-        floating = floating,
-        backdrop = backdrop,
-        backdropOrigin = backdropOrigin
+        floating = floating
     )
 }

@@ -4,12 +4,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.LiquidDockSpec
+import com.marbleng.app.model.LiquidGlassLensSpec
 
 /**
  * MARBLE_LIQUID_DOCK_V245 — one tab of the MarbleNG navigation pill, as the screens know it.
@@ -30,21 +29,24 @@ internal data class MarbleDockTab(
 )
 
 /**
- * MARBLE_LIQUID_DOCK_V245 / MARBLE_LIQUID_GLASS_LENS_V247 — the adapter between the app's tab model
- * and the liquid-glass bar.
+ * MARBLE_LIQUID_DOCK_V245 / MARBLE_CRYSTAL_LENS_V248 — the adapter between the app's tab model and
+ * the crystal-lens bar.
  *
- * V245 drew the magnified glyph itself: a Gaussian falloff read in `graphicsLayer`, one icon
- * growing under a drawn ellipse. V247 replaced that optic with a real projection —
- * [LiquidGlassBottomBar] renders the row twice and reveals the magnified copy through the lens
- * aperture — so this file is now only the translation layer, and it is deliberately thin:
+ * V245 drew the magnified glyph itself; V247 moved the optic to a two-pass projection; V248 rebuilt
+ * that projection so the passive row is clipped out of the aperture instead of showing through it.
+ * This file is only the translation layer, and it is deliberately thin:
  *
  * - the settings the app already promises still hold (dock size, floating versus attached, labels
  *   on or off, icons on or off, the fourth tab's own glyph and accent, the connection light);
- * - the glyph is handed over as a composable slot, which is what lets both optical layers draw the
- *   same vector art at scale 1.0 and at projection scale;
+ * - the glyph is handed over as a composable slot, which is what lets both optical passes draw the
+ *   same vector art at scale 1.0 and at 1.30×;
  * - the counter keeps the Persian digit shaper, so a Persian screen prints ۲ and not 2;
  * - the test tags of V245 are preserved, so the regression suite that inflates this bar keeps
  *   checking the same four tabs and the same badge.
+ *
+ * The dock-size preference selects one of the two capsule heights the crystal-lens brief sanctions:
+ * Compact and Standard are the 68dp capsule, Large is the 72dp one. The 52dp lens and its 8–10dp of
+ * breathing room are therefore identical at every setting.
  */
 @Composable
 internal fun MarbleLiquidDock(
@@ -55,14 +57,12 @@ internal fun MarbleLiquidDock(
     size: DockSize = DockSize.MEDIUM,
     showIcons: Boolean = true,
     showLabels: Boolean = true,
-    floating: Boolean = true,
-    backdrop: GraphicsLayer? = null,
-    backdropOrigin: Offset = Offset.Zero
+    floating: Boolean = true
 ) {
     if (tabs.isEmpty()) return
 
-    val glassTabs = tabs.map { tab ->
-        GlassTabItem(
+    val items = tabs.map { tab ->
+        NavigationTabItem(
             key = tab.key,
             title = tab.label,
             badgeCount = tab.badgeCount,
@@ -77,18 +77,16 @@ internal fun MarbleLiquidDock(
     }
 
     LiquidGlassBottomBar(
-        tabs = glassTabs,
+        items = items,
         selectedIndex = selectedIndex,
         onTabSelected = onSelect,
         modifier = modifier,
-        barHeight = LiquidDockSpec.barHeightDp(size).dp,
-        floating = floating,
+        barHeight = LiquidGlassLensSpec.barHeightDp(size).dp,
+        horizontalMargin = if (floating) LiquidGlassLensSpec.HORIZONTAL_MARGIN_DP.dp else 0.dp,
+        bottomMargin = if (floating) LiquidGlassLensSpec.BOTTOM_MARGIN_DP.dp else 0.dp,
         showIcons = showIcons,
         showLabels = showLabels,
-        iconSize = LiquidDockSpec.iconSizeDp(size).dp,
         badgeLabel = { count -> faDigits(LiquidDockSpec.badgeLabel(count)) },
-        backdrop = backdrop,
-        backdropOrigin = backdropOrigin,
         tagPrefix = "dock-tab-",
         badgeTagPrefix = "dock-badge-"
     )

@@ -536,9 +536,9 @@ files = {
     # the chapter are separate required files.
     "liquidGlassBar": read("app/src/main/java/com/marbleng/app/ui/LiquidGlassBottomBar.kt"),
     "liquidGlassLens": read("app/src/main/java/com/marbleng/app/model/LiquidGlassLens.kt"),
-    "liquidGlassLensTest": read("app/src/test/java/com/marbleng/app/model/LiquidGlassLensV247Test.kt"),
-    "liquidGlassBarTest": read("app/src/test/java/com/marbleng/app/ui/LiquidGlassBottomBarV247Test.kt"),
-    "liquidGlassDoc": read("docs/LIQUID_GLASS_LENS_V247.md"),
+    "liquidGlassLensTest": read("app/src/test/java/com/marbleng/app/model/LiquidGlassLensV248Test.kt"),
+    "liquidGlassBarTest": read("app/src/test/java/com/marbleng/app/ui/LiquidGlassBottomBarV248Test.kt"),
+    "liquidGlassDoc": read("docs/LIQUID_GLASS_LENS_V248.md"),
     # MARBLE_PLAIN_VOICE_V246 — the ghost text behind the ping (the swipe reveal drawn through a
     # selected row) and the plain-language pass over Settings: the rule, its test and the chapter.
     "plainVoice": read("app/src/main/java/com/marbleng/app/model/PlainVoice.kt"),
@@ -4396,14 +4396,15 @@ check(
 )
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # MARBLE_LIQUID_DOCK_V245 — the bottom bar is a floating glass pill with a lens
-# MARBLE_LIQUID_GLASS_LENS_V247 — the pill now *projects* the row through a clipped aperture
-# instead of redrawing one icon bigger, so the physical claims of V245 are asserted across both
-# files: the capsule belongs to the bar, the optic belongs to the projector, and neither half may
-# drift away from the other.
+# MARBLE_CRYSTAL_LENS_V248 — the pill is now a two-pass crystal lens. The passive row is clipped
+# *out* of the aperture and the magnified projection is clipped *into* it, so no base pixel
+# survives under the glass and no blurred layer sits over the typography. The V245 material
+# arithmetic and the V245 badge feed survive; the V247 renderer does not.
 # ---------------------------------------------------------------------------
 
-liquidGlassSurface = files["liquidDockUi"] + files["liquidGlassBar"]
+liquidGlassSurface = files["liquidDockUi"] + files["liquidGlassBar"] + files["marbleApp"]
 
 check(
     "V245 the pill is a stadium, frosted, shadowed and inside the chrome budget",
@@ -4414,56 +4415,59 @@ check(
     and "const val BOTTOM_MARGIN_DP: Int = 12" in files["liquidDockModel"]
     and "fun cornerRadiusDp(size: DockSize): Float = barHeightDp(size) / 2f" in files["liquidDockModel"]
     and "fun allFit(): Boolean" in files["liquidDockModel"]
-    and "RoundedCornerShape(percent = 50)" in liquidGlassSurface
-    and "LiquidGlassLensSpec.OUTER_SHADOW_DP.dp" in files["liquidGlassBar"]
-    and "LiquidGlassLensSpec.RIM_WIDTH_DP.dp" in files["liquidGlassBar"]
+    and "CircleShape" in files["liquidGlassBar"]
+    and "LiquidGlassLensSpec.CAPSULE_SHADOW_DP.dp" in files["liquidGlassBar"]
+    and "LiquidGlassLensSpec.CAPSULE_RIM_WIDTH_DP.dp" in files["liquidGlassBar"]
     # The wash stays inside the requested 0.85–0.90 band and the budget is really checked.
     and "fun fitsChrome(size: DockSize): Boolean = totalHeightDp(size) <= CHROME_BUDGET_DP"
     in files["liquidDockModel"],
 )
 
 check(
-    "V245 the page behind the pill is sampled and blurred, not faked",
-    "rememberGraphicsLayer()" in files["marbleApp"]
-    and "drawWithContent {" in files["marbleApp"]
-    and "pageLayer.record(" in files["marbleApp"]
-    and "drawLayer(pageLayer)" in files["marbleApp"]
-    and "Build.VERSION.SDK_INT >= Build.VERSION_CODES.S" in files["marbleApp"]
-    and "blur(LiquidGlassLensSpec.BACKDROP_BLUR_DP.dp)" in files["liquidGlassBar"]
-    and "drawLayer(backdrop)" in files["liquidGlassBar"]
-    # No hand-rolled RenderEffect: the platform owns the blur behind the glass.
+    "V248 the bar is crisp vector glass: nothing is blurred, rasterised or sampled from the page",
+    # V245 sampled the page into a GraphicsLayer and blurred it with Modifier.blur. That layer was
+    # exactly the milky wash this revision was rejected for, so the whole path must stay absent.
+    "Modifier.blur" not in liquidGlassSurface
+    and "blur(" not in files["liquidGlassBar"]
+    and "drawLayer(" not in liquidGlassSurface
+    and "rememberGraphicsLayer()" not in files["marbleApp"]
     and "android.graphics.RenderEffect" not in liquidGlassSurface
-    and "RuntimeShader" not in liquidGlassSurface,
+    and "RuntimeShader" not in liquidGlassSurface
+    and "filterQuality" not in liquidGlassSurface
+    and "ImageBitmap" not in liquidGlassSurface
+    # The material is drawn, not sampled: a white wash, a vertical rim gradient, the crystal core.
+    and "Brush.verticalGradient(" in files["liquidGlassBar"]
+    and "Color.White.copy(alpha = LiquidGlassLensSpec.LENS_CORE_ALPHA)" in files["liquidGlassBar"],
 )
 
 check(
-    "V245 the lens magnifies its own tab and is drawn, not composed",
+    "V245 the lens is drawn, not composed",
     "fun magnification(distanceInSlots: Float): Float" in files["liquidDockModel"]
     and "const val LENS_MAGNIFICATION: Float = 0.30f" in files["liquidDockModel"]
     and "const val LENS_FALLOFF_SLOTS: Float = 0.85f" in files["liquidDockModel"]
     and "exp(-(scaled * scaled))" in files["liquidDockModel"]
     and "fun highlight(distanceInSlots: Float): Float" in files["liquidDockModel"]
     and "drawMarbleGlyph(" in files["liquidDockUi"]
-    and "tab.accent ?: colors.activeContent" in files["liquidGlassBar"]
-    and "style = Stroke(width = LiquidGlassLensSpec.RIM_WIDTH_DP.dp.toPx())" in files["liquidGlassBar"]
+    and "tint = item.accent ?: activeContent" in files["liquidGlassBar"]
+    and "style = Stroke(width = lensRimPx)" in files["liquidGlassBar"]
     and "Brush.radialGradient(" in files["liquidGlassBar"]
     and "const val LENS_PRESS_GROWTH: Float = 0.13f" in files["liquidDockModel"],
 )
 
 check(
-    "V245 the finger owns the lens and every crossed edge is one tick",
+    "V245 the finger owns the lens and release is one spring",
     "detectHorizontalDragGestures(" in files["liquidGlassBar"]
     and "onHorizontalDrag = { change, dragAmount ->" in files["liquidGlassBar"]
-    and "if (tabAt(current) != tabAt(next)) {" in files["liquidGlassBar"]
-    and "HapticFeedbackType.SegmentTick" in files["liquidGlassBar"]
-    and "heldOffsetX = next" in files["liquidGlassBar"]
-    and "lensOffsetX.snapTo(released)" in files["liquidGlassBar"]
-    and "lensOffsetX.animateTo(" in files["liquidGlassBar"]
+    and "tracker.calculateVelocity().x" in files["liquidGlassBar"]
+    and "HapticFeedbackType.TextHandleMove" in files["liquidGlassBar"]
+    and "heldLensPx = clamped(current + dragAmount)" in files["liquidGlassBar"]
+    and "lensX.snapTo(clamped(released))" in files["liquidGlassBar"]
+    and "lensX.animateTo(" in files["liquidGlassBar"]
     and "dampingRatio = LiquidGlassLensSpec.SNAP_DAMPING_RATIO" in files["liquidGlassBar"]
-    and "stiffness = LiquidGlassLensSpec.SNAP_STIFFNESS" in files["liquidGlassBar"]
+    and "stiffness = Spring.StiffnessMediumLow" in files["liquidGlassBar"]
     # The drag pixel is only ever read in the draw phase, which is the frame-rate promise.
-    and "val currentLensX: () -> Float" in files["liquidGlassBar"]
-    and "val lensX = currentLensX()" in files["liquidGlassBar"],
+    and "val currentLensPx: () -> Float" in files["liquidGlassBar"]
+    and "val cx = currentLensPx()" in files["liquidGlassBar"],
 )
 
 check(
@@ -4493,107 +4497,124 @@ check(
 )
 
 # ---------------------------------------------------------------------------
-# MARBLE_LIQUID_GLASS_LENS_V247 — a projection through an aperture, not a bigger icon
+# MARBLE_CRYSTAL_LENS_V248 — a crystal lens over a dual-pass projection
 # ---------------------------------------------------------------------------
 
 check(
-    "V247 the row is projected twice and only the aperture reveals the second copy",
-    "MARBLE_LIQUID_GLASS_LENS_V247" in files["liquidGlassLens"]
-    and "MARBLE_LIQUID_GLASS_LENS_V247" in files["liquidGlassBar"]
-    # Base layer: muted, regular weight, scale 1.0.
-    and "tint = colors.inactiveContent" in files["liquidGlassBar"]
-    and "glyphWeight = 1f" in files["liquidGlassBar"]
-    and "iconScale = { 1f }" in files["liquidGlassBar"]
-    # Overlay layer: the same Row, the same weights, vibrant and bold.
-    and ".clearAndSetSemantics { }" in files["liquidGlassBar"]
-    and "tint = tab.accent ?: colors.activeContent" in files["liquidGlassBar"]
-    and "glyphWeight = 1.24f" in files["liquidGlassBar"]
-    # The aperture: a geometric path moved on every frame and used as a clip, not as a shape.
-    and "clipPath(aperture) {" in files["liquidGlassBar"]
+    "V248 the passive row and the projection are geometrically exclusive",
+    "MARBLE_CRYSTAL_LENS_V248" in files["liquidGlassLens"]
+    and "MARBLE_CRYSTAL_LENS_V248" in files["liquidGlassBar"]
+    # Base pass: even-odd capsule minus the lens oval.
+    and "fillType = PathFillType.EvenOdd" in files["liquidGlassBar"]
+    and "addRect(Rect(0f, 0f, size.width, size.height))" in files["liquidGlassBar"]
+    and "clipPath(outsideLens)" in files["liquidGlassBar"]
+    # Projection pass: the lens oval, and only the lens oval.
+    and "clipPath(aperture)" in files["liquidGlassBar"]
     and "this@drawWithContent.drawContent()" in files["liquidGlassBar"]
     and "addOval(" in files["liquidGlassBar"]
-    and "fun magnificationAt(distancePx: Float, radiusPx: Float): Float" in files["liquidGlassLens"]
-    and "const val LENS_MAGNIFICATION: Float = 0.36f" in files["liquidGlassLens"]
-    and "const val MIN_MAGNIFICATION: Float = 1.30f" in files["liquidGlassLens"]
-    and "const val MAX_MAGNIFICATION: Float = 1.38f" in files["liquidGlassLens"]
-    # The counter and the connection light are drawn once, on the base layer: an optical duplicate
-    # of a notification is two notifications to a screen reader and a test.
-    and "decorations = true" in files["liquidGlassBar"]
-    and "decorations = false" in files["liquidGlassBar"]
-    # Text is read, not measured: the label gets a third of the geometric projection.
-    and "fun labelMagnification(projection: Float): Float" in files["liquidGlassLens"]
-    and "const val LABEL_MAGNIFICATION_RATIO: Float = 0.35f" in files["liquidGlassLens"]
-    and "LiquidGlassLensSpec.labelMagnification(projectionAt(anchorX))" in files["liquidGlassBar"]
-    and "fun theLabelFollowsTheGlassAtAThirdOfTheGain()" in files["liquidGlassLensTest"],
+    and ".clearAndSetSemantics { }" in files["liquidGlassBar"]
+    # The projection is a 1.30x vector scale about each slot's own centre.
+    and "scale = LiquidGlassLensSpec.MAGNIFICATION" in files["liquidGlassBar"]
+    and "scaleX = scale" in files["liquidGlassBar"]
+    and "scaleY = scale" in files["liquidGlassBar"]
+    and "TransformOrigin.Center" in files["liquidGlassBar"]
+    and "const val MAGNIFICATION: Float = 1.3f" in files["liquidGlassLens"]
+    and "const val MIN_MAGNIFICATION: Float = 1.28f" in files["liquidGlassLens"]
+    and "const val MAX_MAGNIFICATION: Float = 1.32f" in files["liquidGlassLens"],
 )
 
 check(
-    "V247 the aperture cannot leave the capsule",
-    "fun clampLensCenterX(" in files["liquidGlassLens"]
+    "V248 the container is 68/72dp around a 52dp lens and 22dp glyphs",
+    "const val BAR_HEIGHT_DP: Float = 68f" in files["liquidGlassLens"]
+    and "const val BAR_HEIGHT_TALL_DP: Float = 72f" in files["liquidGlassLens"]
+    and "const val LENS_DIAMETER_DP: Float = 52f" in files["liquidGlassLens"]
+    and "const val LENS_RADIUS_DP: Float = LENS_DIAMETER_DP / 2f" in files["liquidGlassLens"]
+    and "const val ICON_SIZE_DP: Float = 22f" in files["liquidGlassLens"]
+    and "const val LABEL_FONT_SP: Float = 11f" in files["liquidGlassLens"]
+    and "fun breathingRoomDp(" in files["liquidGlassLens"]
+    and "fun barHeightDp(size: DockSize): Int" in files["liquidGlassLens"]
+    and "LiquidGlassLensSpec.barHeightDp(size).dp" in files["liquidDockUi"]
+    and "fun everySanctionedHeightAndLabelCombinationKeepsTheRowOnScreen()"
+    in files["liquidGlassBarTest"],
+)
+
+check(
+    "V248 the lens centre obeys the brief's clamp in every path",
+    "fun minLensCenterX(paddingStartPx: Float, lensWidthPx: Float): Float" in files["liquidGlassLens"]
+    and "paddingStartPx + lensWidthPx / 2f" in files["liquidGlassLens"]
+    and "fun maxLensCenterX(" in files["liquidGlassLens"]
+    and "containerWidthPx - paddingEndPx - lensWidthPx / 2f" in files["liquidGlassLens"]
     and "return x.coerceIn(minX, maxX)" in files["liquidGlassLens"]
-    and "fun minLensCenterX(itemWidthPx: Float): Float = itemWidthPx / 2f"
-    in files["liquidGlassLens"]
-    and "fun maxLensCenterX(containerWidthPx: Float, itemWidthPx: Float): Float"
-    in files["liquidGlassLens"]
+    and "fun clampLensCenterX(" in files["liquidGlassLens"]
     and "fun indexAt(" in files["liquidGlassLens"]
-    and "val start = clamped(offset.x - innerPaddingPx)" in files["liquidGlassBar"]
-    and "val next = clamped(current + dragAmount)" in files["liquidGlassBar"]
-    and "fun everySizeAndLabelCombinationKeepsTheRowOnScreen()" in files["liquidGlassBarTest"],
+    and "val start = clamped(offset.x)" in files["liquidGlassBar"]
+    and "heldLensPx = clamped(current + dragAmount)" in files["liquidGlassBar"]
+    and "fun aClampedCentreStillReachesEveryTabAnchor()" in files["liquidGlassLensTest"],
 )
 
 check(
-    "V247 the puck is liquid: velocity squish, press growth, one spring",
-    "const val VELOCITY_STRETCH_PER_PX: Float = 0.0003f" in files["liquidGlassLens"]
+    "V248 velocity deformation and the release spring are the brief's numbers",
+    "const val VELOCITY_STRETCH_WINDOW_PX: Float = 3000f" in files["liquidGlassLens"]
     and "const val MAX_STRETCH: Float = 0.25f" in files["liquidGlassLens"]
-    and "const val VELOCITY_SQUASH_PER_PX: Float = 0.00015f" in files["liquidGlassLens"]
+    and "const val VELOCITY_SQUASH_WINDOW_PX: Float = 6000f" in files["liquidGlassLens"]
     and "const val MAX_SQUASH: Float = 0.12f" in files["liquidGlassLens"]
-    and "const val PRESS_GROWTH: Float = 0.08f" in files["liquidGlassLens"]
+    and "fun deformation(velocityPxPerSecond: Float): LensDeformation" in files["liquidGlassLens"]
+    and "const val SNAP_DAMPING_RATIO: Float = 0.65f" in files["liquidGlassLens"]
+    and "const val SNAP_STIFFNESS: Float = 400f" in files["liquidGlassLens"]
     and "VelocityTracker()" in files["liquidGlassBar"]
-    and "tracker.calculateVelocity().x" in files["liquidGlassBar"]
-    # Press is its own detector: a touch that has not moved yet still grows the puck.
-    and "detectTapGestures(" in files["liquidGlassBar"]
-    and "val pressed = pressHeld || dragHeld" in files["liquidGlassBar"]
-    and "slopCarried = true" in files["liquidGlassBar"]
     and "LiquidGlassLensSpec.deformation(velocityX)" in files["liquidGlassBar"]
-    and "LiquidGlassLensSpec.pressScale(pressProgress.value)" in files["liquidGlassBar"]
-    and "dampingRatio = LiquidGlassLensSpec.PRESS_DAMPING_RATIO" in files["liquidGlassBar"]
-    and "fun theDragStretchesAlongTheRowAndSquashesAgainstIt()" in files["liquidGlassLensTest"]
-    and "fun thePressGrowsThePuckByEightPercentAndClamps()" in files["liquidGlassLensTest"],
+    and "scaleX = deformation.scaleX" in files["liquidGlassBar"]
+    and "scaleY = deformation.scaleY" in files["liquidGlassBar"]
+    and "dampingRatio = LiquidGlassLensSpec.SNAP_DAMPING_RATIO" in files["liquidGlassBar"]
+    and "stiffness = Spring.StiffnessMediumLow" in files["liquidGlassBar"]
+    and "HapticFeedbackType.TextHandleMove" in files["liquidGlassBar"]
+    and "fun theDragStretchesAlongTheRowAndSquashesAgainstIt()" in files["liquidGlassLensTest"],
 )
 
 check(
-    "V247 the glass is drawn, not blurred into a guess, and the model is tested",
-    "drawOval(" in files["liquidGlassBar"]
+    "V248 the crystal material is translucent, rimmed, caustic and shadowed",
+    "const val CAPSULE_ALPHA: Float = 0.88f" in files["liquidGlassLens"]
+    and "const val CAPSULE_SHADOW_DP: Int = 20" in files["liquidGlassLens"]
+    and "const val CAPSULE_SHADOW_OFFSET_Y_DP: Float = 6f" in files["liquidGlassLens"]
+    and "const val CAPSULE_SHADOW_ALPHA: Float = 0.07f" in files["liquidGlassLens"]
+    and "const val CAPSULE_RIM_WIDTH_DP: Float = 1f" in files["liquidGlassLens"]
+    and "const val LENS_CORE_ALPHA: Float = 0.12f" in files["liquidGlassLens"]
+    and "const val LENS_RIM_WIDTH_DP: Float = 1.5f" in files["liquidGlassLens"]
+    and "const val LENS_CAUSTIC_ALPHA: Float = 0.25f" in files["liquidGlassLens"]
+    and "const val DROPLET_SHADOW_DP: Int = 8" in files["liquidGlassLens"]
+    and "const val DROPLET_SHADOW_OFFSET_Y_DP: Float = 3f" in files["liquidGlassLens"]
+    and "const val DROPLET_SHADOW_ALPHA: Float = 0.14f" in files["liquidGlassLens"]
+    # The material is drawn: a gradient rim, a radial caustic, a real elevation shadow.
     and "Brush.linearGradient(" in files["liquidGlassBar"]
-    and "drawArc(" in files["liquidGlassBar"]
-    and "StrokeCap.Round" in files["liquidGlassBar"]
-    and "const val LENS_GLASS_ALPHA: Float = 0.18f" in files["liquidGlassLens"]
-    and "const val AMBIENT_SHADOW_ALPHA: Float = 0.2f" in files["liquidGlassLens"]
-    and "const val OUTER_SHADOW_DP: Int = 24" in files["liquidGlassLens"]
-    and "const val BACKDROP_BLUR_DP: Int = 20" in files["liquidGlassLens"]
-    and "class LiquidGlassLensV247Test" in files["liquidGlassLensTest"]
-    and "fun theMagnificationIsInsideTheRequestedBandUnderTheGlass()"
-    in files["liquidGlassLensTest"]
-    and "fun theMagnificationFallsToUnityAtTheRimAndNeverShrinksTheRow()"
-    in files["liquidGlassLensTest"]
-    and "class LiquidGlassBottomBarV247Test" in files["liquidGlassBarTest"]
-    and "fun theProjectionNeverBecomesASecondSetOfControls()" in files["liquidGlassBarTest"],
+    and "Brush.radialGradient(" in files["liquidGlassBar"]
+    and ".shadow(" in files["liquidGlassBar"]
+    and "transformOrigin = TransformOrigin(currentLensPx() / width, 0.5f)"
+    in files["liquidGlassBar"]
+    and "fun theGlassValuesAreTheOnesTheBriefNamed()" in files["liquidGlassLensTest"],
 )
 
 check(
-    "V247 the MarbleNG dock is the adapter and the chapter is recorded",
-    "LiquidGlassBottomBar(" in files["liquidDockUi"]
-    and "GlassTabItem(" in files["liquidDockUi"]
+    "V248 the public contract, the adapter, the tests and the chapter are recorded",
+    "items: List<NavigationTabItem>" in files["liquidGlassBar"]
+    and "selectedIndex: Int" in files["liquidGlassBar"]
+    and "onTabSelected: (Int) -> Unit" in files["liquidGlassBar"]
+    and "modifier: Modifier = Modifier" in files["liquidGlassBar"]
+    and "data class NavigationTabItem(" in files["liquidGlassBar"]
+    and "LiquidGlassBottomBar(" in files["liquidDockUi"]
+    and "NavigationTabItem(" in files["liquidDockUi"]
     and "Canvas(modifier = iconModifier)" in files["liquidDockUi"]
     and "tagPrefix = \"dock-tab-\"" in files["liquidDockUi"]
     and "badgeTagPrefix = \"dock-badge-\"" in files["liquidDockUi"]
-    and "## ۱. دو لایهٔ نوری" in files["liquidGlassDoc"]
-    and "## ۲. فیزیک مایع" in files["liquidGlassDoc"]
-    and "## ۴. آنچه عمداً انجام نشد" in files["liquidGlassDoc"]
-    and "LIQUID_GLASS_LENS_V247.md" in files["readme"],
+    and "class LiquidGlassLensV248Test" in files["liquidGlassLensTest"]
+    and "class LiquidGlassBottomBarV248Test" in files["liquidGlassBarTest"]
+    and "fun theProjectionNeverBecomesASecondSetOfControls()" in files["liquidGlassBarTest"]
+    and "## ۱. هندسه و تناسب" in files["liquidGlassDoc"]
+    and "## ۲. خط لولهٔ دو-پاس" in files["liquidGlassDoc"]
+    and "## ۴. سینماتیک و فیزیک" in files["liquidGlassDoc"]
+    and "## ۵. چرا نسخهٔ V247 رد شد" in files["liquidGlassDoc"]
+    and "LIQUID_GLASS_LENS_V248.md" in files["readme"],
 )
 
-# ---------------------------------------------------------------------------
 # MARBLE_PLAIN_VOICE_V246 — the ghost text behind the ping, and Settings in plain words
 # ---------------------------------------------------------------------------
 

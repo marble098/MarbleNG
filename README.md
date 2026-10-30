@@ -47,18 +47,47 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A Servers page that starts with servers** — one search line and one filter sheet instead of four chip rows, a compact "active route" strip, one overflow per section, 68dp rows with a four-level ping, delete by swipe with undo.
 - **A Servers page that is an atlas** — a sources rail that makes a subscription one tap away (with its plan bar and its measured flag cluster), a flag tile on every server drawn from the app's own vector art and filled by the automatic location sweep, one Add pill instead of two buttons, and a sources sheet that owns refresh, scan and edit.
 - **A twelve-expert network council in Settings** — one scan reads the link, the operator, ping, TCP, UDP, DNS, ports, MTU and both address families, then applies the settings it can defend on both cores — with a dissent line for every seat that lost the argument.
-- **A liquid-glass navigation pill** — a floating frosted capsule with a drawn glass lens on top of the row: the glyph under the lens is magnified by a Gaussian profile and tinted electric blue, a finger drags the lens across the tabs with one haptic tick per edge, and letting go springs it to the nearest tab.
-- **A lens that projects the row instead of enlarging one icon** — the navigation pill renders the tabs twice: a muted base row, and an identical, vibrant, magnified copy revealed only through the glass aperture (`clipPath`), so the row under the disc is one continuous magnified image. The puck stretches with drag velocity, grows 8 % under the finger, snaps to the nearest tab on release, and can never leave the capsule.
+- **A crystal liquid-lens navigation bar** — a 68dp frosted stadium with a 52dp glass lens: 22dp glyphs and 11sp labels at rest, a 1.30× bold projection inside the lens, a translucent 0.12 white core, a dual specular rim, a caustic inner glow and a droplet shadow, all drawn — never blurred.
+- **A dual pass that cannot ghost** — the passive row is clipped *out* of the lens oval (even-odd) and the magnified projection is clipped *into* it, so the glass never shows two glyphs at two scales. The lens is dragged with a `VelocityTracker`, stretches `1 + min(|v|/3000, 0.25)`, squashes `1 − min(|v|/6000, 0.12)`, snaps to the nearest anchor at `dampingRatio 0.65`, and its centre obeys `paddingStart + lensWidth/2 … width − paddingEnd − lensWidth/2` in every path.
 - **Settings that speak plainly** — 71 titles and sentences rewritten from mechanism to meaning (`Tunnel Datapath` → `Tunnel path`, `Geo direct domestic separation` → `Iranian sites stay direct`, `Network Council Scanner` → `Network check`), constants no longer printed where words belong (`1.1.1.1 · FORCE_IPV4` → `1.1.1.1 · IPv4 only`), with a test that forbids the jargon and a Persian voice for every one of them.
 
 ## The expressive shell: one control, one decision
 
-`docs/LIQUID_GLASS_LENS_V247.md` is the newest chapter.
-`docs/PLAIN_VOICE_V246.md` is the chapter before it.
+`docs/LIQUID_GLASS_LENS_V248.md` is the newest chapter.
+`docs/LIQUID_GLASS_LENS_V247.md` is the chapter before it.
+`docs/PLAIN_VOICE_V246.md` is the one before that.
 `docs/LIQUID_DOCK_V245.md` is the one before that.
 `docs/SERVERS_DECK_V243.md` is the one before that.
 `docs/CRASH_AND_SERVER_ROWS_V242.md` is the chapter before it.
 `docs/EXPRESSIVE_SHELL_V241.md` records the expressive shell before that.
+
+**V248 — the crystal lens, rebuilt from scratch.** The V247 bar was rejected for three material
+faults that a screenshot made obvious. First, it kept the muted base row visible *underneath* the
+magnified copy, so the eye received two glyphs at two scales and read the result as a milky smear.
+Second, it sampled the page into a `GraphicsLayer` and blurred it (`Modifier.blur(20.dp)`) directly
+under the row, which softened every edge the glass covered — the "rasterised typography". Third, a
+60dp capsule held a 23dp glyph, an 11sp label and 4dp of padding: vertical cramping. V248 discards
+that renderer. The capsule is now 68dp (72dp at the Large setting) around a 52dp lens, which leaves
+exactly 8–10dp of air above and below; the base row is clipped **out** of the lens oval with an
+even-odd path and the projection is clipped **into** it, so the two passes are geometrically
+exclusive and a magnifier replaces the image instead of stacking on it. The projection is a 1.30×
+`graphicsLayer` scale about each slot's own centre (`TransformOrigin.Center`), applied to vector
+glyphs and real text — no bitmap, no filter, no `RenderEffect` anywhere in the bar. The glass is
+drawn: `White @ 0.88` capsule, a 20dp/6dp/0.07 elevation shadow in its own offset layer, a 1dp
+vertical rim gradient, a `0.12` translucent crystal core, a 1.5dp dual specular ring (0.95 / 0.20 /
+0.50), a radial caustic, an upper-left hotspot, a meniscus arc and an 8dp/3dp/0.14 droplet shadow.
+The gesture is `detectHorizontalDragGestures` over a `VelocityTracker`: touch-down seats the lens in
+the same frame, every move writes `clamped(current + dragAmount)`, velocity deforms the disc to
+`1 + min(|v|/3000, 0.25)` by `1 − min(|v|/6000, 0.12)`, release publishes the nearest tab, fires one
+`HapticFeedbackType.TextHandleMove` and springs to the anchor at `dampingRatio 0.65 /
+Spring.StiffnessMediumLow`. The clamp is the brief's `paddingStart + lensWidth/2` …
+`width − paddingEnd − lensWidth/2` in every path, and every tab anchor is still reachable. All
+animated state (`lensX`, `heldLensPx`, `velocityX`) is read only in `graphicsLayer`, `Canvas` and
+`drawWithContent` lambdas, so a drag invalidates drawing rather than composition. `LiquidGlassLensSpec`
+holds the geometry, optics and physics; `LiquidGlassLensV248Test` pins every number and
+`LiquidGlassBottomBarV248Test` inflates the real bar. `MarbleLiquidDock` remains a thin adapter with
+V245's tabs, accents, connection light, Persian counter and test tags, and `MarbleApp` no longer
+records or blurs the page behind the pill at all.
 
 **V247 — the bottom bar stopped drawing a bigger icon and started projecting the row.** V245 put
 a drawn lens on top of the pill and magnified the glyph underneath it with a Gaussian falloff. That
@@ -80,10 +109,11 @@ in every path — pointer-down, every drag frame, and rotation — so the puck c
 overlay clears its semantics, so the bar is still four tabs and not eight. The AGSL shader the brief
 offered as an optional extra is deliberately absent — a shader that fails to compile draws nothing,
 and losing the navigation row is not an acceptable risk — but its distortion formula is not lost:
-it is the profile the projection is sampled from, on the JVM. `LiquidGlassLensSpec` holds the
-geometry, optics and physics, `LiquidGlassLensV247Test` pins every number, and
-`LiquidGlassBottomBarV247Test` inflates the real bar. `MarbleLiquidDock` is now a thin adapter that
-keeps V245's tabs, accents, connection light, Persian counter and test tags.
+it is the profile the projection is sampled from, on the JVM. `LiquidGlassLensSpec` held the
+geometry, optics and physics, `LiquidGlassLensV247Test` pinned every number, and
+`LiquidGlassBottomBarV247Test` inflated the real bar; V248 retired that renderer and replaced both
+tests. `MarbleLiquidDock` is a thin adapter that keeps V245's tabs, accents, connection light,
+Persian counter and test tags.
 
 **V246 — the ghost text behind the ping, and a Settings page that stopped talking like a
 datasheet.** Two reports. The first said a text appears behind the ping and the three dots when a
