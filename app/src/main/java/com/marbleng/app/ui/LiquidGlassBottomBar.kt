@@ -26,6 +26,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -177,15 +182,22 @@ fun LiquidGlassBottomBar(
     showIcons: Boolean = true,
     showLabels: Boolean = true,
     iconSize: Dp = LiquidGlassLensSpec.ICON_SIZE_DP.dp,
-    inactiveContent: Color = Color(LiquidGlassLensSpec.INACTIVE_CONTENT_ARGB),
-    activeContent: Color = Color(LiquidGlassLensSpec.ACTIVE_CONTENT_ARGB),
-    containerColor: Color = Color.White.copy(alpha = LiquidGlassLensSpec.CAPSULE_ALPHA),
-    badgeContainer: Color = Color(0xFFBA1A1A),
-    badgeContent: Color = Color.White,
+    inactiveContent: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    activeContent: Color = MaterialTheme.colorScheme.primary,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    badgeContainer: Color = MaterialTheme.colorScheme.error,
+    badgeContent: Color = MaterialTheme.colorScheme.onError,
     badgeLabel: @Composable (Int) -> String = { count -> LiquidGlassLensSpec.badgeText(count) },
     tagPrefix: String = "glass-tab-",
     badgeTagPrefix: String = "glass-badge-"
 ) {
+    val colors = MaterialTheme.colorScheme
+    val darkGlass = colors.background.luminance() < 0.1f
+    val blackGlass = colors.background == Color.Black
+    val glassLight = if (darkGlass) colors.primary else Color.White
+    val coreAlpha = if (blackGlass) 0.06f else if (darkGlass) 0.10f else 0.12f
+    val reflectionAlpha = if (darkGlass) 0.12f else 0.22f
+    val rimAlpha = if (darkGlass) 0.48f else 0.85f
     val count = items.size
     if (count == 0) return
     val activeIndex = selectedIndex.coerceIn(0, count - 1)
@@ -390,13 +402,14 @@ fun LiquidGlassBottomBar(
                 .fillMaxWidth()
                 .height(barHeight)
                 .clip(CircleShape)
-                .background(color = containerColor)
+                .background(color = if (blackGlass) Color.Black else containerColor)
+                .selectableGroup()
                 .border(
                     width = LiquidGlassLensSpec.CAPSULE_RIM_WIDTH_DP.dp,
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = LiquidGlassLensSpec.CAPSULE_RIM_TOP_ALPHA),
-                            Color.White.copy(alpha = LiquidGlassLensSpec.CAPSULE_RIM_BOTTOM_ALPHA)
+                            glassLight.copy(alpha = if (darkGlass) 0.32f else LiquidGlassLensSpec.CAPSULE_RIM_TOP_ALPHA),
+                            colors.outlineVariant.copy(alpha = 0.6f)
                         )
                     ),
                     shape = CircleShape
@@ -445,7 +458,7 @@ fun LiquidGlassBottomBar(
                         badgeLabel = badgeLabel,
                         badgeContainer = badgeContainer,
                         badgeContent = badgeContent,
-                        statusRing = Color.White,
+                        statusRing = containerColor,
                         scale = 1f,
                         decorations = true,
                         interactive = true,
@@ -499,7 +512,7 @@ fun LiquidGlassBottomBar(
                         badgeLabel = badgeLabel,
                         badgeContainer = badgeContainer,
                         badgeContent = badgeContent,
-                        statusRing = Color.White,
+                        statusRing = containerColor,
                         scale = LiquidGlassLensSpec.MAGNIFICATION,
                         // The base badge is clipped out of the aperture, so the projection may
                         // draw its own decorations without ever doubling the counter for the eye
@@ -575,7 +588,7 @@ fun LiquidGlassBottomBar(
                 // The translucent crystal core. 0.12 white: the projection underneath stays the
                 // dominant layer and remains legible while the lens is in transit.
                 drawCircle(
-                    color = Color.White.copy(alpha = LiquidGlassLensSpec.LENS_CORE_ALPHA),
+                    color = glassLight.copy(alpha = coreAlpha),
                     radius = lensRadiusPx,
                     center = center
                 )
@@ -586,7 +599,7 @@ fun LiquidGlassBottomBar(
                     brush = Brush.radialGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color.White.copy(alpha = LiquidGlassLensSpec.LENS_CAUSTIC_ALPHA)
+                            glassLight.copy(alpha = if (darkGlass) 0.14f else LiquidGlassLensSpec.LENS_CAUSTIC_ALPHA)
                         ),
                         center = center,
                         radius = lensRadiusPx
@@ -599,7 +612,7 @@ fun LiquidGlassBottomBar(
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0.22f),
+                            glassLight.copy(alpha = reflectionAlpha),
                             Color.Transparent
                         ),
                         center = Offset(
@@ -620,9 +633,9 @@ fun LiquidGlassBottomBar(
                 drawCircle(
                     brush = Brush.linearGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = LiquidGlassLensSpec.LENS_RIM_TOP_ALPHA),
-                            Color.White.copy(alpha = LiquidGlassLensSpec.LENS_RIM_MID_ALPHA),
-                            Color.White.copy(alpha = LiquidGlassLensSpec.LENS_RIM_BOTTOM_ALPHA)
+                            glassLight.copy(alpha = rimAlpha),
+                            glassLight.copy(alpha = 0.18f),
+                            glassLight.copy(alpha = 0.38f)
                         ),
                         start = Offset(center.x - lensRadiusPx, center.y - lensRadiusPx),
                         end = Offset(center.x + lensRadiusPx, center.y + lensRadiusPx)
@@ -634,7 +647,7 @@ fun LiquidGlassBottomBar(
 
                 // The meniscus: a second hairline that gives the glass its thickness.
                 drawCircle(
-                    color = Color.White.copy(alpha = 0.32f),
+                    color = glassLight.copy(alpha = if (darkGlass) 0.16f else 0.32f),
                     radius = (lensRadiusPx - meniscusInsetPx).coerceAtLeast(0f),
                     center = center,
                     style = Stroke(width = meniscusWidthPx)
@@ -643,7 +656,7 @@ fun LiquidGlassBottomBar(
                 // The specular arc across the upper rim.
                 val arcRadius = (lensRadiusPx - arcInsetPx).coerceAtLeast(0f)
                 drawArc(
-                    color = Color.White.copy(alpha = 0.62f),
+                    color = glassLight.copy(alpha = if (darkGlass) 0.38f else 0.62f),
                     startAngle = 200f,
                     sweepAngle = 140f,
                     useCenter = false,
@@ -698,7 +711,7 @@ private fun CrystalTabSlot(
             .testTag(tag)
             .then(
                 if (interactive) {
-                    Modifier.selectable(
+                    Modifier.semantics { contentDescription = item.title }.selectable(
                         selected = selected,
                         role = Role.Tab,
                         onClick = onSelect

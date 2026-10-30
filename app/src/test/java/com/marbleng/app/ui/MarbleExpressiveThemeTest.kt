@@ -53,6 +53,14 @@ class MarbleExpressiveThemeTest {
     }
 
     @Test
+    fun allTrueBlackAliasesAlsoResolveDarkWithoutSystemHelp() {
+        listOf("amoled", "oled", "trueblack", "true-black", "black").forEach {
+            assertTrue(resolveMarbleDarkMode(it, systemDark = false))
+            assertTrue(com.marbleng.app.ui.theme.isTrueBlack(it))
+        }
+    }
+
+    @Test
     fun fallbackSchemesSeparateLightFromDark() {
         val light = marbleFallbackLightScheme(FlatAccent.OCEAN)
         val dark = marbleFallbackDarkScheme(FlatAccent.OCEAN)
