@@ -274,9 +274,12 @@ fun ServersScreen(
     val activeRoute = repo.profile(repo.activeProfileId)
     val routeLive = repo.state == "CONNECTED" || repo.state == "CONNECTING" || repo.state == "DISCONNECTING"
 
+    // Resolved in the composition: the connect lambda is not a composable context.
+    val pingBusyLabel = trx("Wait until ping finishes before changing server")
+
     val selectOrConnect: (ProxyProfile) -> Unit = { profile ->
         if (repo.probeActive || repo.probeCancelling) {
-            repo.setRuntimeMessage(trx("Wait until ping finishes before changing server"))
+            repo.setRuntimeMessage(pingBusyLabel)
         } else if (repo.state == "CONNECTED" || repo.state == "CONNECTING") {
             onConnect(profile)
         } else {

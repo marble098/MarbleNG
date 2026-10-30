@@ -35,6 +35,9 @@ object ServersAtlas {
     /** How much of a stacked flag circle sits on top of the previous one. */
     const val LIBRARY_FLAG_OVERLAP_DP: Int = 7
 
+    /** The gap between two cards of the sources rail. */
+    const val LIBRARY_RAIL_GAP_DP: Int = 8
+
     /** The flag at the head of a section header. */
     const val SECTION_FLAG_SIZE_DP: Int = 22
 
