@@ -36,6 +36,11 @@ fun SettingsConnectionModePage(
         glyph = MarbleGlyph.TUNNEL,
         tint = colors.primary,
         title = trx("How you connect"),
+        subtitle = if (s.connectionMode == ConnectionMode.FULL_TUN) {
+            trx("Whole-phone VPN")
+        } else {
+            trx("Local proxy") + " · 127.0.0.1:${s.localProxyPort}"
+        },
         onBack = onBack
     ) {
         item(key = "conn-mode") {
@@ -65,7 +70,7 @@ fun SettingsConnectionModePage(
 
         item(key = "conn-ports") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Local Ports & Behavior"))
+                MarbleSectionHeader(title = trx("Local ports and repair"))
                 MarbleCard {
                     MarbleNumberStepperRow(
                         title = trx("Local SOCKS5 Port"),
@@ -385,7 +390,7 @@ fun SettingsTunnelDatapathPage(
     ) {
         item(key = "tunnel-choice") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Packet Datapath"))
+                MarbleSectionHeader(title = trx("Which tunnel driver carries the traffic"))
                 MarbleCard {
                     TunnelCore.entries.forEachIndexed { idx, candidate ->
                         if (idx > 0) MarbleDivider()
@@ -416,7 +421,7 @@ fun SettingsTunnelDatapathPage(
         if (current == TunnelCore.TUN2SOCKS) {
             item(key = "tun2socks-options") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MarbleSectionHeader(title = "tun2socks")
+                    MarbleSectionHeader(title = "tun2socks · " + trx("buffer and timeout"))
                     MarbleCard {
                         MarbleNumberStepperRow(
                             title = trx("MTU Cap"),
@@ -516,7 +521,7 @@ fun SettingsPowerProfilePage(
     ) {
         item(key = "power-profiles") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Performance Profile"))
+                MarbleSectionHeader(title = trx("How much power the app may spend"))
                 MarbleCard {
                     val descriptions = mapOf(
                         PowerProfile.EFFICIENT to trx("Lower background wakeups and smaller socket pools to save battery"),
@@ -546,7 +551,7 @@ fun SettingsPowerProfilePage(
 
         item(key = "power-warmup") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Connection Acceleration"))
+                MarbleSectionHeader(title = trx("Faster first connection"))
                 MarbleCard {
                     MarbleSwitchRow(
                         title = trx("Pre-Warm Active Route on Launch"),

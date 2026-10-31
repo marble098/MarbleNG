@@ -2003,6 +2003,14 @@ fun resetTelemetry() {
                 autoFailoverArmed.set(false)
                 finishUsageSession()
             }
+            if (s == "CONNECTED") {
+                // MARBLE_ROUTING_REBUILD_V254 — the Settings switch "Look up the exit address after
+                // connecting" had no reader anywhere: the cached lookup below existed, but nothing
+                // ever called it, so the switch was a dead control and the Home IP card never got
+                // its country/ISP line. It is now the one thing that starts the lookup, and the
+                // switch is finally the thing that turns it off.
+                if (settings.serverIntelEnabled) refreshServerIntel(force = true)
+            }
             if (s != "CONNECTED") {
                 activeProfileId = ""
                 activeProfileSourceId = ""
@@ -5238,6 +5246,49 @@ private fun postToMain(block: () -> Unit) {
 
     fun routingAssetStatus(): RoutingAssetStatus = xray.routingAssetStatus()
 
+    /**
+     * MARBLE_ROUTING_REBUILD_V254 — the mode and the rule-list switch are written together.
+     *
+     * The page used to expose `routingMode` (four choices) and `customRoutingEnabled` (a separate
+     * switch) as two independent controls. Three of their four combinations were states a person
+     * could reach but no rule in the app could explain: "Custom rules only" with the list switched
+     * off, or a live rule list behind "Proxy all". Every mode change now goes through
+     * [RoutingOverview.decide], which keeps the two flags describing the same decision.
+     */
+    fun setRoutingMode(mode: RoutingMode) {
+        val next = RoutingOverview.decide(settings, mode)
+        if (next == settings) return
+        updateSettings(next)
+        message = "Routing: ${RoutingOverview.summary(mode)}"
+    }
+
+    /**
+     * MARBLE_ROUTING_REBUILD_V254 — one switch for "do my own rules run at all".
+     *
+     * Turning it on moves the mode to [RoutingMode.CUSTOM]; turning it off leaves the rule list
+     * exactly as written and returns to the geo policy, so nothing a person typed is thrown away.
+     */
+    fun setCustomRoutingEnabled(enabled: Boolean) {
+        val next = if (enabled) {
+            RoutingOverview.decide(settings, RoutingMode.CUSTOM)
+        } else {
+            settings.copy(
+                customRoutingEnabled = false,
+                routingMode = if (settings.routingMode == RoutingMode.CUSTOM) {
+                    RoutingMode.GEO_DIRECT
+                } else {
+                    settings.routingMode
+                }
+            )
+        }
+        updateSettings(next)
+        message = if (enabled) {
+            "Your own rules run now • ${RoutingEngine.effectiveRules(next).size} rules"
+        } else {
+            "Your own rules are paused • they stay saved"
+        }
+    }
+
     fun applyGeoAssetSource(sourceId: String) {
         val source = RoutingDefaults.sourceById(sourceId)
 
@@ -5289,29 +5340,55 @@ private fun postToMain(block: () -> Unit) {
     fun geoSourceStates(): List<com.marbleng.app.core.GeoAssetRegistry.SourceState> =
         runCatching { xray.geoSourceStates(settings) }.getOrDefault(emptyList())
 
-    fun geoSourceSummary(): String =
-        com.marbleng.app.core.GeoAssetRegistry.summary(geoSourceStates())
-
     fun setGeoPrecision(precision: com.marbleng.app.model.GeoPrecision) {
         updateSettings(settings.copy(geoPrecision = precision.id))
     }
-
-    fun geoPrecisionSummary(): String =
-        com.marbleng.app.core.IranPrecisionPack.summary(
-            com.marbleng.app.model.parseGeoPrecision(settings.geoPrecision)
-        )
 
     fun setRoutingRules(rules: List<com.marbleng.app.model.RoutingRule>) {
         updateSettings(settings.copy(routingRulesJson = RoutingEngine.serializeRules(rules)))
     }
 
+    /**
+     * MARBLE_ROUTING_REBUILD_V254 — a preset installs rules *and* turns the rule list on.
+     *
+     * Applying "Recommended" while `customRoutingEnabled` was off wrote three rules that never ran,
+     * and the page still showed them as the policy. The preset now decides the mode through the
+     * same seam every other write uses, so the chips, the switch and the core agree.
+     */
     fun applyRoutingPreset(preset: RoutingPresets.Preset) {
-        setRoutingRules(RoutingPresets.materialize(preset))
+        val next = RoutingOverview.decide(settings, RoutingMode.CUSTOM)
+            .copy(routingRulesJson = RoutingEngine.serializeRules(RoutingPresets.materialize(preset)))
+        updateSettings(next)
         message = when {
             state != "DISCONNECTED" ->
-                "${preset.title} preset saved • reconnect to apply it to the active tunnel"
-            else -> "${preset.title} preset applied • ${preset.rules.size} rules"
+                "${preset.title} saved • reconnect to apply it to the active tunnel"
+            else -> "${preset.title} applied • ${preset.rules.size} rules"
         }
+    }
+
+    /** MARBLE_ROUTING_REBUILD_V254 — one row of the rebuilt list: pause it without losing it. */
+    fun setRoutingRuleEnabled(ruleId: String, enabled: Boolean) {
+        val rules = RoutingEngine.effectiveRules(settings).map { rule ->
+            if (rule.id == ruleId) rule.copy(enabled = enabled) else rule
+        }
+        setRoutingRules(rules)
+    }
+
+    /** MARBLE_ROUTING_REBUILD_V254 — order is policy, so a rule can be moved one step either way. */
+    fun moveRoutingRule(ruleId: String, steps: Int) {
+        val rules = RoutingEngine.effectiveRules(settings)
+        val from = rules.indexOfFirst { it.id == ruleId }
+        if (from < 0) return
+        setRoutingRules(RoutingEngine.move(rules, from, from + steps))
+    }
+
+    /** MARBLE_ROUTING_REBUILD_V254 — a copy is inserted right below its original. */
+    fun duplicateRoutingRule(ruleId: String) {
+        val rules = RoutingEngine.effectiveRules(settings)
+        val index = rules.indexOfFirst { it.id == ruleId }
+        if (index < 0) return
+        val copy = RoutingEngine.duplicate(rules[index])
+        setRoutingRules(rules.toMutableList().apply { add(index + 1, copy) })
     }
 
     fun simulateRoute(host: String): RoutingEngine.RouteSimulation? {
@@ -5322,8 +5399,7 @@ private fun postToMain(block: () -> Unit) {
 
     fun applyIranRoutingPreset(prepareAssets: Boolean = true) {
         updateSettings(
-            settings.copy(
-                routingMode = RoutingMode.GEO_DIRECT,
+            RoutingOverview.decide(settings, RoutingMode.GEO_DIRECT).copy(
                 geoAssetSourceId = RoutingDefaults.SOURCE_CHOCOLATE4U,
                 geoIpUrl = RoutingDefaults.GEOIP_URL,
                 geoSiteUrl = RoutingDefaults.GEOSITE_URL,
@@ -5358,12 +5434,23 @@ private fun postToMain(block: () -> Unit) {
         task(if (force) "Updating routing assets" else "Preparing routing assets") {
             val status = xray.prepareRoutingAssets(settings, force)
             postToMain { geoGateNote = geoGateReason() }
+            // MARBLE_ROUTING_REBUILD_V254 — the summary names the two files the person can see on
+            // the page (address list, site list) instead of the storage marker "geoip / geosite"
+            // and a suggestion to paste a URL into a box that no page offered any more.
             val parts = mutableListOf<String>()
-            parts += if (status.geoIpReady) "geoip ${formatBytes(status.geoIpBytes)}" else "geoip missing (add a geoip.dat URL above)"
-            parts += if (status.geoSiteReady) "geosite ${formatBytes(status.geoSiteBytes)}" else "geosite missing (add a geosite.dat URL above)"
-
-            val summary = geoSourceSummary()
-            message = "Routing assets • $summary • ${parts.joinToString(" • ")}"
+            parts += if (status.geoIpReady) {
+                "address list ${formatBytes(status.geoIpBytes)}"
+            } else {
+                "address list missing"
+            }
+            parts += if (status.geoSiteReady) {
+                "site list ${formatBytes(status.geoSiteBytes)}"
+            } else {
+                "site list missing"
+            }
+            val perSource = xray.lastGeoAssetError
+            val failure = if (perSource.isBlank()) "" else " • $perSource"
+            message = "Country lists • ${parts.joinToString(" • ")}$failure"
         }
     }
 
