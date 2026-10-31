@@ -704,7 +704,7 @@ class AppStore(context: Context) {
 
         darkOutlineStyle = parseDarkOutlineStyle(prefs.getString("darkOutlineStyle", DarkOutlineStyle.SUBTLE.id) ?: DarkOutlineStyle.SUBTLE.id).id,
 
-        dockShowLabels = prefs.getBoolean("dockShowLabels", true),
+        dockShowLabels = prefs.getBoolean("dockShowLabels", false),
         dockShowIcons = prefs.getBoolean("dockShowIcons", true),
         dockSize = encodeDockPreference(
             parseDockSize(prefs.getString("dockSize", DockSize.MEDIUM.id) ?: DockSize.MEDIUM.id),

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -682,7 +683,10 @@ private fun SettingsMenuPage(
                                 contentOverride = spec.contentOverride,
                                 featured = spec.destination in featured,
                                 onClick = { onOpenDestination(spec.destination) },
-                                modifier = Modifier.weight(1f),
+                                // Each tile fills its intrinsic row height, so sibling cards line
+                                // up edge-to-edge like one measured component rather than separate
+                                // boxes whose bottoms drift with subtitle and pill wrapping.
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
                                 tag = "settings-tile-${spec.destination}"
                             )
                         }

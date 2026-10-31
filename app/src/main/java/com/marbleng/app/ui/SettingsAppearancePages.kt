@@ -420,31 +420,32 @@ fun SettingsTabBarPage(
                     }
                 )
                 MarbleCard {
+                    // Lead with the default visual mode (icons); captions are an optional extra.
                     MarbleSwitchRow(
-                        title = trx("Show Tab Labels"),
-                        checked = showLabels,
-                        glyph = MarbleGlyph.FONT,
+                        title = trx("Show Tab Icons"),
+                        checked = showIcons,
+                        glyph = MarbleGlyph.DOCK,
                         iconTint = colors.primary,
                         onCheckedChange = { enabled ->
                             repo.updateSettings(
                                 s.copy(
-                                    dockShowLabels = enabled,
-                                    dockShowIcons = if (!enabled) true else s.dockShowIcons
+                                    dockShowIcons = enabled,
+                                    dockShowLabels = if (!enabled) true else s.dockShowLabels
                                 )
                             )
                         }
                     )
                     MarbleDivider()
                     MarbleSwitchRow(
-                        title = trx("Show Tab Icons"),
-                        checked = showIcons,
-                        glyph = MarbleGlyph.DOCK,
+                        title = trx("Show Tab Labels"),
+                        checked = showLabels,
+                        glyph = MarbleGlyph.FONT,
                         iconTint = colors.secondary,
                         onCheckedChange = { enabled ->
                             repo.updateSettings(
                                 s.copy(
-                                    dockShowIcons = enabled,
-                                    dockShowLabels = if (!enabled) true else s.dockShowLabels
+                                    dockShowLabels = enabled,
+                                    dockShowIcons = if (!enabled) true else s.dockShowIcons
                                 )
                             )
                         }

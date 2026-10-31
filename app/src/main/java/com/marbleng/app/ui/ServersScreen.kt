@@ -369,7 +369,9 @@ fun ServersScreen(
                     // ServersDeck.FAB_CLEARANCE_DP for a button that was never over it.
                     bottom = MarbleTheme.bottomClearance + 12.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                // One 8dp rhythm for the page: enough separation to distinguish tonal surfaces,
+                // still compact enough that the server list remains the page's main content.
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
 
                 item(key = "servers-header") {

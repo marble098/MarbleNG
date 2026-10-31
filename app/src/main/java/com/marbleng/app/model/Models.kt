@@ -1539,7 +1539,9 @@ data class AppSettings(
 
     val darkOutlineStyle: String = DarkOutlineStyle.SUBTLE.id,
 
-    val dockShowLabels: Boolean = true,
+    // MARBLE_DOCK_ICON_FIRST_V255 — the compact bottom navigation defaults to the visual-first
+    // Android pattern: icons on, captions off. The preferences page still lets users enable labels.
+    val dockShowLabels: Boolean = false,
     val dockShowIcons: Boolean = true,
     val dockSize: String = DockSize.MEDIUM.id,
 
