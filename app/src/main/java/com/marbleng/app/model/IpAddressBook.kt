@@ -127,10 +127,18 @@ data class IpStackReport(
     val hasIpv4: Boolean get() = ipv4Addresses.any { it.scope != IpScope.UNSPECIFIED }
     val hasIpv6: Boolean get() = ipv6Addresses.any { it.scope != IpScope.UNSPECIFIED }
 
-    /** The address the device would use first: a public v4, else a public v6, else anything. */
+    /**
+     * The address a person means when they ask "what is my IP": the one on this network, IPv4 first.
+     *
+     * A dual-stack phone holds `192.168.1.12` and `2606:…` at once, and the v4 is the one a router's
+     * admin page, a LAN game or a support call will recognise. The order is therefore public v4,
+     * any v4, public v6, then whatever is left — never just "the first entry", which depended on the
+     * kernel's ordering.
+     */
     val primaryDeviceAddress: IpAddressEntry?
-        get() = underlayAddresses.firstOrNull { it.isPublic }
+        get() = underlayAddresses.firstOrNull { it.kind == IpKind.IPV4 && it.isPublic }
             ?: underlayAddresses.firstOrNull { it.kind == IpKind.IPV4 }
+            ?: underlayAddresses.firstOrNull { it.isPublic }
             ?: underlayAddresses.firstOrNull()
 
     /** The internet-facing IPv4, when one was actually observed (never a local one). */
@@ -250,7 +258,9 @@ object IpAddressBook {
         return when {
             allZero -> IpScope.UNSPECIFIED
             allZero.not() && groups.dropLast(1).all { it == 0 } && groups.last() == 1 -> IpScope.LOOPBACK
-            first and 0xFE00 == 0xFE80 -> IpScope.LINK_LOCAL
+            // fe80::/10 is a ten-bit prefix: masking with 0xFE00 (nine bits) let 0xFE80 read as
+            // 0xFE00 and every link-local address fall through to "public".
+            first and 0xFFC0 == 0xFE80 -> IpScope.LINK_LOCAL
             first and 0xFE00 == 0xFC00 -> IpScope.UNIQUE_LOCAL
             first and 0xFF00 == 0xFF00 -> IpScope.MULTICAST
             first == 0x0064 && groups.getOrNull(1) == 0xFF9B -> IpScope.NAT64

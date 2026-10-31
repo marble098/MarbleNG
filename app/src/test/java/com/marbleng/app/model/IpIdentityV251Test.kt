@@ -124,6 +124,7 @@ class IpIdentityV251Test {
         assertEquals(2, report.underlayAddresses.size)
         assertEquals(1, report.tunnelAddresses.size)
         assertEquals("10.8.0.2", report.tunnelAddresses.single().address)
+        // Both families are held at once; the v4 is the one a person means by "my IP".
         assertEquals("192.168.1.12", report.primaryDeviceAddress?.address)
         assertTrue(report.addressLine.startsWith("2 IPv4"))
         assertTrue(report.addressLine.contains("in the tunnel"))
