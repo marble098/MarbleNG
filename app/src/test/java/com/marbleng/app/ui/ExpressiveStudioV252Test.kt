@@ -117,7 +117,7 @@ class ExpressiveStudioV252Test {
 
         compose.setContent {
             MarbleExpressiveTheme(dynamicColor = false) {
-                ProvideMarbleMotion(calm = false, systemReducedMotion = false) {
+                ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
                     val state = SettingsUmbrellaNavState(
                         group = SettingsUmbrellaGroup.APPEARANCE_UI,
                         active = active,
@@ -154,7 +154,7 @@ class ExpressiveStudioV252Test {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             MarbleExpressiveTheme(dynamicColor = false) {
-                ProvideMarbleMotion(calm = false, systemReducedMotion = false) {
+                ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
                     Column {
                         MarbleConnectPill(
                             connected = connected,
@@ -166,7 +166,7 @@ class ExpressiveStudioV252Test {
                             onToggle = {}
                         )
                         MarbleModeMenuChip(
-                            selected = ConnectModeChip.FULL_TUN,
+                            selected = ConnectModeChip.FULL,
                             onSelect = {}
                         )
                         MarbleTrafficSparkline(
