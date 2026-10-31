@@ -1,29 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MARBLE_AURORA_SURFACE_V219 — the themed-icon silhouette: the same prism, one colour. -->
+<!-- MARBLE_MINIMAL_MARK_V255 — restrained themed-icon silhouette. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <group
-        android:pivotX="54"
-        android:pivotY="54"
-        android:rotation="-22">
-
-        <path
-            android:fillColor="#00000000"
-            android:pathData="M21,54 a33,12 0 1,0 66,0 a33,12 0 1,0 -66,0"
-            android:strokeColor="#FFFFFFFF"
-            android:strokeAlpha="0.6"
-            android:strokeWidth="3.4" />
-
-        <path
-            android:fillColor="#00000000"
-            android:pathData="M31,79 L39,32 L54,52 L69,32 L77,79"
-            android:strokeColor="#FFFFFFFF"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:strokeWidth="7" />
-    </group>
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M29,77 L38,36 Q39,32 42,36 L54,54 L66,36 Q69,32 70,36 L79,77"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="8" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M78,26 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" />
 </vector>

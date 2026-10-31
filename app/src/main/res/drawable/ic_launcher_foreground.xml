@@ -1,53 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MARBLE_AURORA_SURFACE_V219 — the prism: an orbit, a folded M and one translucent facet.
-
-     Everything sits inside the 66 dp adaptive-icon safe zone, so no launcher mask can crop the
-     mark. The M is a single round-capped stroke; the facet is a real gradient, not a tint. -->
+<!-- MARBLE_MINIMAL_MARK_V255 — one legible, rounded M; designed inside the adaptive-icon safe zone.
+     As a vector, this stays crisp at launcher, search, shortcut and notification-scale renders. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <group
-        android:pivotX="54"
-        android:pivotY="54"
-        android:rotation="-22">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M29,77 L38,36 Q39,32 42,36 L54,54 L66,36 Q69,32 70,36 L79,77"
+        android:strokeColor="#FFF8FCFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="8" />
 
-        <path
-            android:fillColor="#00000000"
-            android:pathData="M21,54 a33,12 0 1,0 66,0 a33,12 0 1,0 -66,0"
-            android:strokeColor="#A8E2FF"
-            android:strokeAlpha="0.55"
-            android:strokeWidth="3.2" />
-
-        <path
-            android:pathData="M54,27 L74,77 L54,66 Z">
-            <aapt:attr name="android:fillColor">
-                <gradient
-                    android:startX="54"
-                    android:startY="27"
-                    android:endX="74"
-                    android:endY="77"
-                    android:type="linear">
-                    <item android:offset="0" android:color="#80FFFFFF" />
-                    <item android:offset="1" android:color="#00FFFFFF" />
-                </gradient>
-            </aapt:attr>
-        </path>
-
-        <path
-            android:fillColor="#00000000"
-            android:pathData="M31,79 L39,32 L54,52 L69,32 L77,79"
-            android:strokeColor="#FFFFFFFF"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:strokeWidth="7" />
-
-        <path
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M36.5,39 a3.2,2.6 0 1,0 6.4,0 a3.2,2.6 0 1,0 -6.4,0"
-            android:fillAlpha="0.72" />
-    </group>
+    <!-- A single cool glint makes the mark identifiable without competing with the M. -->
+    <path
+        android:fillColor="#FF77D6FF"
+        android:pathData="M78,26 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" />
 </vector>
