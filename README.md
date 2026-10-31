@@ -61,7 +61,11 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-`docs/EXPRESSIVE_HOME_AND_SETTINGS_V252.md` is the newest chapter.
+`docs/IP_PASSPORT_SETTINGS_POSITION_V253.md` is the newest chapter: the IP tab as a passport page
+(flag, the facts a leak-check site shows, one privacy verdict), Settings that remember the section
+and scroll you left, a re-ordered seven-hub taxonomy, the Servers page's RTL and reset fixes, and
+the quiet default — text ships at its smallest rung.
+`docs/EXPRESSIVE_HOME_AND_SETTINGS_V252.md` is the chapter before it.
 `docs/IP_IDENTITY_AND_EXPRESSIVE_MOTION_V251.md` is the chapter before it.
 `docs/EXPRESSIVE_BENTO_V250.md` is the chapter before it.
 `docs/PERSIAN_JOIN_SHADE_STUDIO_AND_MAP_MOTION_V249.md` is the one before that.

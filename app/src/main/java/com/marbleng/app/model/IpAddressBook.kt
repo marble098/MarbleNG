@@ -91,7 +91,10 @@ data class IpEgress(
     val city: String = "",
     val asn: String = "",
     val organization: String = "",
-    val detail: String = ""
+    val detail: String = "",
+    /** MARBLE_IP_PASSPORT_V253 — the browserleaks.com/ip set: region and time zone ride along. */
+    val region: String = "",
+    val timezone: String = ""
 ) {
     val discovered: Boolean get() = address.isNotBlank()
 }
@@ -425,11 +428,12 @@ object IpAddressBook {
         else -> observation.address
     }
 
-    /** `Berlin, DE · AS15169 Google` — assembled only from what was actually answered. */
+    /** `Berlin, Germany · AS15169 Google` — assembled only from what was actually answered. */
     fun egressDetail(observation: IpEgress?): String {
         if (observation == null) return ""
-        val place = listOf(observation.city, observation.country)
+        val place = listOf(observation.city, observation.region, observation.country)
             .filter { it.isNotBlank() }
+            .distinct()
             .joinToString(", ")
         val network = listOf(observation.asn, observation.organization)
             .filter { it.isNotBlank() }

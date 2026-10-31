@@ -324,11 +324,6 @@ fun SettingsNotificationsPage(
                     badgeColor = if (notifGranted) colors.success else colors.error
                 )
                 NotificationPreviewCard(repo = repo)
-                MarbleSectionFooter(
-                    text = trx(
-                        "State first, route second, measurement last. The session clock is Android's own chronometer, so it keeps counting without reposting."
-                    )
-                )
             }
         }
 
@@ -496,11 +491,6 @@ fun SettingsNotificationsPage(
                         )
                     }
                 }
-                MarbleSectionFooter(
-                    text = trx(
-                        "Android stores these four channels on the device. Muting one here is the same as muting it in system settings."
-                    )
-                )
             }
         }
 

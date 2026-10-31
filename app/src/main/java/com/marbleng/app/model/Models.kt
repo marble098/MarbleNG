@@ -399,10 +399,12 @@ fun parseHomeStyle(raw: String): HomeStyle = when (raw.trim().lowercase()) {
 
 object TextScale {
     // MARBLE_UI_CUSTOM_SIZE_V220 — the ladder is finer and wider than V215's four rungs: presets
-    // every 10 % from 80 % to 140 %, plus a 5 % slider in Settings for anything between. The
-    // default stays 100 % and every value is still clamped, so old installs keep working.
-    const val DEFAULT_PERCENT = 100
+    // every 10 % from 80 % to 140 %, plus a 5 % slider in Settings for anything between.
+    // MARBLE_CALM_DEFAULT_TEXT_V253 — the default is now the smallest rung: a new install opens on
+    // a quiet, compact interface and the user grows the text only if they want to. Every value is
+    // still clamped, so installs that already stored a size keep working untouched.
     const val MIN_PERCENT = 80
+    const val DEFAULT_PERCENT = MIN_PERCENT
     const val MAX_PERCENT = 140
     const val SLIDER_STEP_PERCENT = 5
     val STEPS: List<Int> = listOf(80, 90, 100, 110, 120, 130, 140)
