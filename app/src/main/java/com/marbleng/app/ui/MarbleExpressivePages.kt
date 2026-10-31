@@ -77,8 +77,8 @@ import com.marbleng.app.ui.theme.settleSpec
  * 3. **the rhythm** — [MarbleSpec.SECTION_SPACING_DP] between sections, the page's own bottom
  *    clearance, and no hairlines.
  *
- * `content` receives a [LazyListScope] exactly like [MarbleSubPageScaffold], so a page opts in by
- * changing its call, not its structure.
+ * `content` receives a [LazyListScope] exactly like the scaffold this replaced, so a page opts in
+ * by changing its call, not its structure.
  */
 @Composable
 internal fun MarbleExpressivePageScaffold(

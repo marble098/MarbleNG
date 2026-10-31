@@ -135,20 +135,18 @@ class IpIdentityV251Test {
             family = IpKind.IPV4,
             address = "10.8.0.2",
             viaTunnel = true,
-            discovered = true,
             global = false
         )
         val public = IpEgress(
             family = IpKind.IPV4,
-            address = "203.0.113.9",
+            address = "93.184.216.34",
             viaTunnel = true,
-            discovered = true,
             global = true
         )
         val report = IpStackReport(egress = listOf(local, public), tunnelActive = true)
-        assertEquals("203.0.113.9", report.publicV4?.address)
+        assertEquals("93.184.216.34", report.publicV4?.address)
         assertTrue(report.exitIsGlobal)
-        assertEquals("203.0.113.9", report.exit?.address)
+        assertEquals("93.184.216.34", report.exit?.address)
 
         val onlyLocal = IpStackReport(egress = listOf(local), tunnelActive = true)
         assertEquals(null, onlyLocal.publicV4)
@@ -157,13 +155,13 @@ class IpIdentityV251Test {
 
     @Test
     fun theLeakSentenceComparesTheTwoObservationsAndSaysWhenItCannot() {
-        val throughTunnel = IpEgress(IpKind.IPV4, "198.51.100.4", viaTunnel = true, discovered = true, global = true)
-        val direct = IpEgress(IpKind.IPV4, "203.0.113.9", viaTunnel = false, discovered = true, global = true)
+        val throughTunnel = IpEgress(IpKind.IPV4, "8.8.4.4", viaTunnel = true, global = true)
+        val direct = IpEgress(IpKind.IPV4, "93.184.216.34", viaTunnel = false, global = true)
         val hidden = IpStackReport(egress = listOf(throughTunnel, direct), tunnelActive = true)
         assertTrue(IpAddressBook.leakLine(hidden).contains("the real address is hidden"))
 
         val same = IpStackReport(
-            egress = listOf(throughTunnel.copy(address = "203.0.113.9"), direct),
+            egress = listOf(throughTunnel.copy(address = "93.184.216.34"), direct),
             tunnelActive = true
         )
         assertTrue(IpAddressBook.leakLine(same).contains("not being replaced"))
