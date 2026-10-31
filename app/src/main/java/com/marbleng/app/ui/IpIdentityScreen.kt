@@ -71,6 +71,7 @@ import com.marbleng.app.model.parseDockSlotKind
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
 import com.marbleng.app.ui.theme.marbleMotion
+import com.marbleng.app.ui.theme.panSpec
 import com.marbleng.app.ui.theme.settleSpec
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
@@ -121,7 +122,6 @@ fun IpIdentityScreen(
     val copyAllLabel = trx("Copy every address")
     // Resolved here, not inside the copy callbacks: those lambdas are not composable scopes.
     val copiedNotice = strings.ipCopied
-    val readingLabel = trx("Reading…")
 
     LazyColumn(
         state = listState,
@@ -374,6 +374,7 @@ private fun IpExitHero(
     val exit = report.exit
     // Resolved in the composition: the button labels live inside clickable scopes below.
     val refreshLabel = trx("Refresh")
+    val readingLabel = trx("Reading…")
     val copyLabel = trx("Copy")
     val tone = when {
         connecting -> colors.warning

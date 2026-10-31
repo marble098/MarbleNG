@@ -81,7 +81,7 @@ import com.marbleng.app.ui.theme.settleSpec
  * changing its call, not its structure.
  */
 @Composable
-fun MarbleExpressivePageScaffold(
+internal fun MarbleExpressivePageScaffold(
     title: String,
     onBack: () -> Unit,
     glyph: MarbleGlyph,

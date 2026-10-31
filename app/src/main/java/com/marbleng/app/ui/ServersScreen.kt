@@ -439,7 +439,7 @@ fun ServersScreen(
                         MarbleButton(
                             label = if (repo.probeActive) trx("Stop") else trx("Fastest"),
                             glyph = if (repo.probeActive) MarbleGlyph.STOP else MarbleGlyph.SPARK,
-                            style = MarbleButtonStyle.TONAL,
+                            style = MarbleButtonStyle.TINTED,
                             compact = true,
                             enabled = !repo.busy,
                             onClick = {
