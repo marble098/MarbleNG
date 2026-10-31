@@ -158,6 +158,10 @@ private fun MarbleRootShell(
 
     var rememberedTab by rememberSaveable { mutableStateOf(MarbleRootTab.HOME) }
     var activeSettingsPage by rememberSaveable { mutableStateOf<SettingsDestination?>(null) }
+    // MARBLE_SETTINGS_POSITION_V253 — the Settings hub's section, search and scroll live here, so
+    // a title opened from the hub (or a detour to another tab) returns the reader to the exact
+    // place they left, never to the top of "All".
+    val settingsHubState = rememberSettingsHubState()
     var inspectingProfileId by rememberSaveable { mutableStateOf("") }
     var inspectingProfileSource by rememberSaveable { mutableStateOf("") }
     var showAddSheet by remember { mutableStateOf(false) }
@@ -452,6 +456,7 @@ private fun MarbleRootShell(
                                         MarbleRootTab.SETTINGS -> SettingsScreen(
                                             repo = repo,
                                             activeDestination = activeSettingsPage,
+                                            hubState = settingsHubState,
                                             onOpenDestination = { activeSettingsPage = it },
                                             onCloseDestination = { activeSettingsPage = null },
                                             onContentScrollChanged = reportScroll

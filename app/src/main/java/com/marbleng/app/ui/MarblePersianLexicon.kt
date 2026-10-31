@@ -52,6 +52,23 @@ private fun faTranslateRaw(text: String): String {
 
 private val FaLexicon: Map<String, String> = mapOf(
 
+    // MARBLE_IP_PASSPORT_V253 / MARBLE_SETTINGS_POSITION_V253 — the passport-style IP
+    // page and the re-ordered Settings hubs.
+    "Where the internet sees you" to "اینجا اینترنت شما رو کجا می‌بینه",
+    "Public IPv4" to "IPv4 عمومی",
+    "Public IPv6" to "IPv6 عمومی",
+    "Region" to "منطقه",
+    "Provider" to "ارائه‌دهنده اینترنت",
+    "ASN" to "شماره ASN",
+    "Time zone" to "منطقه زمانی",
+    "This device" to "این دستگاه",
+    "Your real IP is hidden" to "آی‌پی واقعی شما مخفیه",
+    "Your real IP is visible" to "آی‌پی واقعی شما دیده می‌شه",
+    "Wi-Fi" to "وای‌فای",
+    "Mobile data" to "اینترنت سیم‌کارت",
+    "Network check, shade controls, battery, doctor & versions" to "بررسی شبکه، کنترل اعلان‌ها، باتری، عیب‌یابی و نسخه‌ها",
+    "App & system" to "برنامه و سیستم",
+
     // MARBLE_IP_IDENTITY_V251 — the Servers search line's second button asks for a route instead of
     // repeating the filter sheet's sort list.
     "Fastest" to "سریع‌ترین",

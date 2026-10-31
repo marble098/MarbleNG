@@ -30,7 +30,7 @@ internal enum class SettingsHubCategory(val id: String, val titleKey: String) {
     NETWORK("network", "Network & testing"),
     TESTS("tests", "Tests"),
     APPEARANCE("appearance", "Appearance"),
-    SYSTEM("system", "Appearance & system");
+    SYSTEM("system", "App & system");
 
     companion object {
         val visible = listOf(ALL, CONNECTION, NETWORK, SYSTEM)
@@ -52,20 +52,9 @@ internal enum class SettingsUmbrellaGroup(
     val category: SettingsHubCategory,
     val destinations: List<SettingsDestination>
 ) {
-    APPEARANCE_UI(
-        id = "appearance_ui",
-        titleKey = "Appearance & interface",
-        summaryKey = "Themes, accents, Persian typography, Home & dock",
-        glyph = MarbleGlyph.PALETTE,
-        motif = MarbleExpressiveMotif.FLOWER,
-        category = SettingsHubCategory.SYSTEM,
-        destinations = listOf(
-            SettingsDestination.APPEARANCE,
-            SettingsDestination.LANGUAGE_FONT,
-            SettingsDestination.HOME_LAYOUT,
-            SettingsDestination.TAB_BAR
-        )
-    ),
+    // MARBLE_SETTINGS_POSITION_V253 — the seven hubs read in the order a person sets a VPN up:
+    // how it connects, what it skips, how it is measured, where its DNS goes, how it looks, where
+    // its data lives, and what maintains it. The first hub owns the featured tile.
     CONNECTION_CORE(
         id = "connection_core",
         titleKey = "Connection & core",
@@ -104,8 +93,7 @@ internal enum class SettingsUmbrellaGroup(
             SettingsDestination.PING_TESTING,
             SettingsDestination.SMART_PRESETS,
             SettingsDestination.AUTO_SELECTOR,
-            SettingsDestination.SMART_JITTER,
-            SettingsDestination.NETWORK_COUNCIL
+            SettingsDestination.SMART_JITTER
         )
     ),
     DNS_PRIVACY(
@@ -118,6 +106,20 @@ internal enum class SettingsUmbrellaGroup(
         destinations = listOf(
             SettingsDestination.DNS_FAMILY,
             SettingsDestination.IDENTITY_LOCATION
+        )
+    ),
+    APPEARANCE_UI(
+        id = "appearance_ui",
+        titleKey = "Appearance & interface",
+        summaryKey = "Themes, accents, Persian typography, Home & dock",
+        glyph = MarbleGlyph.PALETTE,
+        motif = MarbleExpressiveMotif.FLOWER,
+        category = SettingsHubCategory.SYSTEM,
+        destinations = listOf(
+            SettingsDestination.APPEARANCE,
+            SettingsDestination.LANGUAGE_FONT,
+            SettingsDestination.HOME_LAYOUT,
+            SettingsDestination.TAB_BAR
         )
     ),
     SUBSCRIPTIONS_BACKUP(
@@ -135,11 +137,12 @@ internal enum class SettingsUmbrellaGroup(
     SYSTEM_DIAGNOSTICS(
         id = "system_diagnostics",
         titleKey = "System & diagnostics",
-        summaryKey = "Shade controls, battery, self-heal doctor & versions",
+        summaryKey = "Network check, shade controls, battery, doctor & versions",
         glyph = MarbleGlyph.TUNERS,
         motif = MarbleExpressiveMotif.BURST,
         category = SettingsHubCategory.SYSTEM,
         destinations = listOf(
+            SettingsDestination.NETWORK_COUNCIL,
             SettingsDestination.NOTIFICATIONS_BG,
             SettingsDestination.DIAGNOSTICS,
             SettingsDestination.ABOUT

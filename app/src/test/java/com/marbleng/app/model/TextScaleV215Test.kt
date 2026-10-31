@@ -6,8 +6,9 @@ import org.junit.Test
 
 class TextScaleV215Test {
     @Test
-    fun theDefaultIsTheSystemSizeAndIsOnTheLadder() {
-        assertEquals(100, TextScale.DEFAULT_PERCENT)
+    fun theDefaultIsTheSmallestStepAndIsOnTheLadder() {
+        // MARBLE_CALM_DEFAULT_TEXT_V253 — a fresh install starts at the quietest, smallest text.
+        assertEquals(TextScale.MIN_PERCENT, TextScale.DEFAULT_PERCENT)
         assertTrue(TextScale.DEFAULT_PERCENT in TextScale.STEPS)
     }
 

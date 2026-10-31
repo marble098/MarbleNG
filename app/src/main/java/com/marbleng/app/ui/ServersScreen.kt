@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -81,6 +82,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.PendingServerRemoval
@@ -339,8 +341,15 @@ fun ServersScreen(
         PullToRefreshBox(
             isRefreshing = repo.busy,
             onRefresh = {
-                if (repo.subscriptions.isNotEmpty() && !repo.busy) {
-                    repo.refreshAll()
+                if (!repo.busy) {
+                    if (repo.subscriptions.isNotEmpty()) {
+                        repo.refreshAll()
+                    } else {
+                        // MARBLE_SERVERS_ATLAS_V253 — a manual-only library has nothing to
+                        // refetch; the one honest thing a refresh can do is measure the flags
+                        // again, so the gesture always answers.
+                        repo.ensureServerLocations(force = true)
+                    }
                 }
             },
             modifier = Modifier
@@ -612,7 +621,8 @@ fun ServersScreen(
                                             settings.copy(
                                                 serversProtocolFilter = "",
                                                 serversOnlyReachable = false,
-                                                serversMaxPingMs = 0
+                                                serversMaxPingMs = 0,
+                                                nodeSortReverse = false
                                             )
                                         )
                                     },
@@ -1522,12 +1532,17 @@ private fun FlagCluster(
             .height(size)
             .width(size + overlap * (codes.size - 1).toFloat())
     ) {
+        // MARBLE_SERVERS_ATLAS_V253 — the cluster fans out from the reading edge: in RTL the
+        // flags used to stack left-to-right and spill past their own card.
+        val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
         codes.forEachIndexed { index, code ->
             CountryFlagCircle(
                 code = code,
                 size = size,
                 ring = ring,
-                modifier = Modifier.offset(x = overlap * index.toFloat())
+                modifier = Modifier.offset(
+                    x = overlap * index.toFloat() * if (isRtl) -1f else 1f
+                )
             )
         }
     }
@@ -1891,7 +1906,7 @@ private fun ServerRowItem(
                 countryCode = countryCode,
                 countryName = countryName,
                 active = active,
-            selected = selected,
+                selected = selected,
                 result = result,
                 probeState = probeState,
                 onClick = onClick,
@@ -2370,7 +2385,8 @@ private fun ServerQuickActionsSheet(
 
     MarbleBottomSheet(
         title = cleanServerName(profile.name),
-        subtitle = "${protocolShortLabel(profile)} · ${profile.host}:${profile.port}",
+        subtitle = "${protocolShortLabel(profile)} · " +
+            "\u2068${profile.host}\u2069:${profile.port}",
         onDismiss = onDismiss,
         scrollable = true
     ) {

@@ -4730,6 +4730,9 @@ check(
             "Per-App Split Tunnel",
             "Last verdict",
             "Tap any row to configure",
+            # MARBLE_SETTINGS_POSITION_V253 — the hub's filler hint is retired with the pass that
+            # removed filler copy from Settings: the tiles speak for themselves now.
+            "Tap a row to change it",
         )
     )
     and all(
@@ -4745,7 +4748,6 @@ check(
             "Fix & diagnose",
             "Which apps use the tunnel",
             "Only when you ask",
-            "Tap a row to change it",
         )
     )
     and '"How you connect" to "چطور وصل می‌شی"' in files["persianLexicon"]
@@ -5303,7 +5305,10 @@ check(
     and "## ۴. جدول اجرا" in v252_doc
     and "## ۵. آنچه عمداً انجام نشد" in v252_doc
     and "## ۶. تست" in v252_doc
-    and "EXPRESSIVE_HOME_AND_SETTINGS_V252.md` is the newest chapter" in files["readme"]
+    # MARBLE_IP_PASSPORT_V253 — the README's "newest chapter" crown moves with each pass; what
+    # must never move is the link to this one.
+    and "EXPRESSIVE_HOME_AND_SETTINGS_V252.md" in files["readme"]
+    and "IP_PASSPORT_SETTINGS_POSITION_V253.md" in files["readme"]
     and "class ExpressiveStudioV252Test" in v252_test
     and "fun sevenBroaderUmbrellasPartitionAllTwentyThreeDestinationsExactlyOnce()" in v252_test
     and "fun expressiveScaffoldTopicBarSwitchesSiblingDestinationsInline()" in v252_test

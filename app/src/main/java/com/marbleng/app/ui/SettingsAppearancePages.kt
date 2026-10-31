@@ -253,9 +253,6 @@ fun SettingsAppearancePage(
                         onCheckedChange = { repo.updateSettings(s.copy(appCalmMotion = it)) }
                     )
                 }
-                MarbleSectionFooter(
-                    text = trx("If Android's own animation setting is off, the app stays still whatever this says")
-                )
             }
         }
 
@@ -674,10 +671,6 @@ fun SettingsHomeLayoutPage(
                 if (bare) {
                     MarbleSectionFooter(
                         text = trx("Home is empty right now. Turn one section back on, or keep it as a single pill.")
-                    )
-                } else {
-                    MarbleSectionFooter(
-                        text = trx("The order here is the order Home draws them in, top to bottom")
                     )
                 }
                 MarbleButton(

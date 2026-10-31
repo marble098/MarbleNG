@@ -1409,7 +1409,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 countryCode = known.countryCode,
                 city = known.city,
                 asn = known.asn,
-                organization = known.organization
+                organization = known.organization,
+                region = known.region,
+                timezone = known.timezone
             ) }
             val enriched = runCatching { lookupIpMetadata(observation) }.getOrDefault(observation)
             cache[observation.address] = enriched
@@ -1419,7 +1421,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     private fun lookupIpMetadata(observation: IpEgress): IpEgress {
         val encoded = java.net.URLEncoder.encode(observation.address, Charsets.UTF_8.name())
-        val fields = "success,country,country_code,region,city,connection"
+        // MARBLE_IP_PASSPORT_V253 — region and time zone join the set the IP page shows beside the
+        // flag; they were already in the answer and were being thrown away.
+        val fields = "success,country,country_code,region,city,connection,timezone"
         val connection = (URL("https://ipwho.is/$encoded?fields=$fields").openConnection() as HttpURLConnection)
             .apply {
                 requestMethod = "GET"
@@ -1443,7 +1447,9 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                 asn = asnNumber.takeIf { it > 0L }?.let { "AS$it" }.orEmpty(),
                 organization = network?.optString("org").orEmpty().ifBlank {
                     network?.optString("isp").orEmpty()
-                }
+                },
+                region = json.optString("region"),
+                timezone = json.optJSONObject("timezone")?.optString("id").orEmpty()
             )
         } catch (t: Throwable) {
             observation

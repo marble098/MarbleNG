@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -38,8 +39,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -112,10 +115,48 @@ enum class SettingsDestination {
     ABOUT
 }
 
+/**
+ * MARBLE_SETTINGS_POSITION_V253 — the hub's place in the world, kept alive *above* the hub.
+ *
+ * The complaint was concrete: a reader filters to a section, opens one title, comes back — and the
+ * app has dropped them at the top of "All" again. The hub used to own its search, its category and
+ * its scroll inside its own composable, and any navigation into a detail (or a tab detour) threw
+ * all three away. The state now lives in the root shell: leaving the hub for a title, a sibling
+ * topic or another tab and returning lands the reader on the exact tile they left.
+ */
+class SettingsHubState internal constructor(
+    private val searchState: MutableState<String>,
+    private val categoryState: MutableState<String>,
+    val listState: LazyListState
+) {
+    var search: String
+        get() = searchState.value
+        set(value) {
+            searchState.value = value
+        }
+
+    var categoryRaw: String
+        get() = categoryState.value
+        set(value) {
+            categoryState.value = value
+        }
+}
+
+@Composable
+fun rememberSettingsHubState(): SettingsHubState {
+    val searchState = rememberSaveable { mutableStateOf("") }
+    val categoryState = rememberSaveable { mutableStateOf(SettingsHubCategory.ALL.id) }
+    val listState = rememberLazyListState()
+    return remember(searchState, categoryState, listState) {
+        SettingsHubState(searchState, categoryState, listState)
+    }
+}
+
 @Composable
 fun SettingsScreen(
     repo: AppRepository,
     activeDestination: SettingsDestination?,
+    hubState: SettingsHubState,
     onOpenDestination: (SettingsDestination) -> Unit,
     onCloseDestination: () -> Unit,
     onContentScrollChanged: (Boolean) -> Unit
@@ -180,6 +221,7 @@ fun SettingsScreen(
         if (destination == null) {
             SettingsMenuPage(
                 repo = repo,
+                hubState = hubState,
                 onOpenDestination = onOpenDestination,
                 onContentScrollChanged = onContentScrollChanged
             )
@@ -231,6 +273,7 @@ fun SettingsScreen(
 @Composable
 private fun SettingsMenuPage(
     repo: AppRepository,
+    hubState: SettingsHubState,
     onOpenDestination: (SettingsDestination) -> Unit,
     onContentScrollChanged: (Boolean) -> Unit
 ) {
@@ -238,9 +281,12 @@ private fun SettingsMenuPage(
     val tones = marbleExpressiveTones()
     val strings = Tr.now
     val s = repo.settings
-    val listState = rememberLazyListState()
-    var search by rememberSaveable { mutableStateOf("") }
-    var categoryRaw by rememberSaveable { mutableStateOf(SettingsHubCategory.ALL.id) }
+    // MARBLE_SETTINGS_POSITION_V253 — the hub's search, section and scroll live in [hubState],
+    // above the animated depth switch, so entering a title and coming back restores this exact
+    // place instead of the top of "All".
+    val listState = hubState.listState
+    val search = hubState.search
+    val categoryRaw = hubState.categoryRaw
     val category = SettingsHubCategory.fromId(categoryRaw)
     val searching = search.isNotBlank()
 
@@ -571,7 +617,7 @@ private fun SettingsMenuPage(
                     }
                     MarbleSearchField(
                         value = search,
-                        onValueChange = { search = it },
+                        onValueChange = { hubState.search = it },
                         placeholder = trx("Search settings"),
                         trailingCount = if (searching) {
                             faDigits("${activeRows.size}")
@@ -602,7 +648,7 @@ private fun SettingsMenuPage(
                             SettingsCategoryChip(
                                 category = entry,
                                 selected = entry == category,
-                                onClick = { categoryRaw = entry.id }
+                                onClick = { hubState.categoryRaw = entry.id }
                             )
                         }
                     }
@@ -657,12 +703,6 @@ private fun SettingsMenuPage(
                         color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1
-                    )
-                    Text(
-                        text = trx("Tap a row to change it"),
-                        color = colors.onSurfaceVariant.copy(alpha = 0.8f),
-                        style = MaterialTheme.typography.labelSmall,
-                        textAlign = TextAlign.Center
                     )
                 }
             }

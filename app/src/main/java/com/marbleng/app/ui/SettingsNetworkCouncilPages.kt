@@ -202,13 +202,6 @@ fun SettingsNetworkCouncilPage(
                         )
                     }
                 }
-                if (plan != null) {
-                    MarbleSectionFooter(
-                        text = trx(
-                            "A seat that measured nothing speaks at lower confidence, and the operator table can only advise a completed handshake probe — never overrule it."
-                        )
-                    )
-                }
             }
         }
 
@@ -520,11 +513,6 @@ fun SettingsNetworkCouncilPage(
                         onCheckedChange = { if (it) repo.clearNetworkCouncilReport() }
                     )
                 }
-                MarbleSectionFooter(
-                    text = trx(
-                        "The scan downloads nothing: throughput is the link's own estimate, and every probe is individually timed out. Routing, split tunnelling, identity and certificate verification are never touched by the council."
-                    )
-                )
             }
         }
     }
