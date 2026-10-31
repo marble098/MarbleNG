@@ -6,11 +6,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -196,7 +198,7 @@ fun SettingsRoutingPage(
                                         ": " + trx(missing.first())
                                 } else {
                                     trx("The country rules stay paused until both files are downloaded") +
-                                        ": " + missing.joinToString(" + ") { trx(it) }
+                                        ": " + missing.map { trx(it) }.joinToString(" + ")
                                 },
                                 color = colors.onSurface,
                                 style = MaterialTheme.typography.bodyMedium
@@ -640,6 +642,8 @@ private fun modeGlyph(mode: RoutingMode): MarbleGlyph = when (mode) {
 }
 
 /** Tone per mode; one place, so the four rows read as one family. */
+@Composable
+@ReadOnlyComposable
 private fun RoutingMode.tone(colors: ColorScheme): Color = when (this) {
     RoutingMode.PROXY_ALL -> colors.primary
     RoutingMode.BYPASS_PRIVATE -> colors.tertiary
@@ -647,6 +651,8 @@ private fun RoutingMode.tone(colors: ColorScheme): Color = when (this) {
     RoutingMode.CUSTOM -> colors.secondary
 }
 
+@Composable
+@ReadOnlyComposable
 private fun RoutingOutbound.tone(colors: ColorScheme): Color = when (this) {
     RoutingOutbound.PROXY -> colors.primary
     RoutingOutbound.DIRECT -> colors.success
@@ -674,18 +680,14 @@ private fun precisionHint(level: GeoPrecision): String = when (level) {
 }
 
 /**
- * One line about a source: which of the two files it can publish, and how full the set is. The
- * file names are the product's own vocabulary (they are what the core is handed), so they are not
- * translated; the words around them are.
- */
-@Composable
-/**
  * MARBLE_ROUTING_REBUILD_V254 — what one source actually brings, and nothing else.
  *
  * This row used to print `On · geoip.dat + geosite.dat · 3 / 6` on every line: the on/off that the
  * switch already says, and a slot counter that is storage accounting, not a decision. What is left
  * is the only fact that changes what the row means — which of the two files this source can supply.
  */
+@Composable
+@ReadOnlyComposable
 private fun sourceDetail(spec: GeoAssetRegistry.SourceSpec): String {
     val files = buildList {
         if (spec.provides(GeoAssetRegistry.Kind.GEOIP)) add("geoip.dat")
