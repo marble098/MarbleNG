@@ -57,10 +57,12 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A rolling uptime clock** — `Protected Uptime 00:10:01` keeps its Persian words still and rolls only the digits that changed, one cell at a time, tabular, left-to-right, with a breathing colon, and cross-fades when the reading changes shape.
 - **Motion that behaves like a map** — a tab change pans the page from the side the tab is on (mirrored for RTL) while the departing page leaves the other way, a detail page zooms instead of sliding, and Settings gained one depth transition between its menu and its pages. A calm-motion setting scales every duration and distance to 0.6, and Android's own *remove animations* still snaps everything.
 - **A Home you arrange, and four themes** — six Home sections each with a switch and two move buttons (an empty Home is allowed, and the page says so), plus a fourth theme, True Black, and nine accent colours laid out in rows of five.
+- **Material 3 Expressive Home and seven-hub Settings** — twenty-three scattered Settings tiles are consolidated into seven cohesive broader Bento hubs (`Appearance & interface`, `Connection & core`, `Routing & bypass`, `Ping & smart auto`, `DNS & privacy`, `Subscriptions & backup`, `System & diagnostics`) with an inline morphing sub-topic switcher (`SettingsUmbrellaTopicBar`) and full-depth search, while Home replaces every non-Expressive border, circle halo and spreadsheet grid line with official `MaterialShapes` polygons, `Morph` transitions, asymmetric Bento telemetry and Google's Expressive `LoadingIndicator`.
 
 ## The expressive shell: one control, one decision
 
-`docs/IP_IDENTITY_AND_EXPRESSIVE_MOTION_V251.md` is the newest chapter.
+`docs/EXPRESSIVE_HOME_AND_SETTINGS_V252.md` is the newest chapter.
+`docs/IP_IDENTITY_AND_EXPRESSIVE_MOTION_V251.md` is the chapter before it.
 `docs/EXPRESSIVE_BENTO_V250.md` is the chapter before it.
 `docs/PERSIAN_JOIN_SHADE_STUDIO_AND_MAP_MOTION_V249.md` is the one before that.
 `docs/LIQUID_GLASS_LENS_V248.md` is the one before that.

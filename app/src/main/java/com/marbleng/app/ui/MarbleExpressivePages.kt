@@ -5,15 +5,18 @@
 
 package com.marbleng.app.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,57 +33,62 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
 import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.settleSpec
 
 /**
- * MARBLE_EXPRESSIVE_PAGES_V251 — the inner page of every Settings destination.
+ * MARBLE_EXPRESSIVE_STUDIO_V252 — shared inner-page scaffold and inline umbrella switcher.
  *
- * V249 gave the hub a bento and the drill-in a zoom, and then dropped the reader on a page built
- * from the same plain cards the hub had just stopped using: a medium top bar, a list, and no
- * identity of its own. This scaffold is that page's missing first impression, and it is shared by
- * every destination so a settings page can never look like it belongs to a different app:
- *
- * 1. **a hero** — the destination's own glyph in a Material shape, its title, and one sentence that
- *    says what the page changes. It collapses *into* the top bar as the list scrolls, on the app's
- *    own pan curve, and its halo recedes with the same fraction, so the page has depth instead of
- *    a static header;
- * 2. **the bar** — the same tonal bar the rest of the app uses, with the mirrored back affordance;
- * 3. **the rhythm** — [MarbleSpec.SECTION_SPACING_DP] between sections, the page's own bottom
- *    clearance, and no hairlines.
- *
- * `content` receives a [LazyListScope] exactly like the scaffold this replaced, so a page opts in
- * by changing its call, not its structure.
+ * Every Settings sub-page sits inside one of the seven broader categories ([SettingsUmbrellaGroup]).
+ * [LocalSettingsUmbrellaNav] threads that parent category into [MarbleExpressivePageScaffold] so the
+ * hero names the broader umbrella, morphs its Material 3 Expressive polygon per sub-topic, and
+ * mounts an inline morphing topic bar directly beneath the hero — eliminating pogo-sticking back to
+ * the Settings root just to change an adjacent option.
  */
+@Immutable
+internal data class SettingsUmbrellaNavState(
+    val group: SettingsUmbrellaGroup,
+    val active: SettingsDestination,
+    val onSelect: (SettingsDestination) -> Unit
+)
+
+internal val LocalSettingsUmbrellaNav = staticCompositionLocalOf<SettingsUmbrellaNavState?> { null }
+
 @Composable
 internal fun MarbleExpressivePageScaffold(
     title: String,
@@ -97,6 +106,7 @@ internal fun MarbleExpressivePageScaffold(
 ) {
     val colors = MaterialTheme.colorScheme
     val motion = marbleMotion()
+    val umbrella = LocalSettingsUmbrellaNav.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     if (onContentScrollChanged != null) {
@@ -105,8 +115,6 @@ internal fun MarbleExpressivePageScaffold(
         }
     }
 
-    // The halo, the hero glyph's scale and the subtitle's alpha all read the same fraction, so a
-    // scroll moves one object rather than three that happen to start together.
     val collapse by remember {
         derivedStateOf {
             collapseFractionOf(
@@ -120,19 +128,18 @@ internal fun MarbleExpressivePageScaffold(
         animationSpec = if (motion.still) snap() else motion.settleSpec(220),
         label = "settingsHeroScale"
     )
+    val heroMotif = umbrella?.let { SettingsHubLayout.motifFor(it.active) }
+        ?: MarbleExpressiveMotif.forGlyph(glyph)
+    val umbrellaTitle = umbrella?.let { trx(it.group.titleKey) }.orEmpty()
 
     Scaffold(
         modifier = modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
-        // Transparent on purpose: the shell draws the ambient light, and a page that filled its
-        // own background would cover it at the one place a settings page is most of the screen.
         containerColor = Color.Transparent,
         topBar = {
             MediumTopAppBar(
                 title = {
-                    // The title lives in the hero while the hero is on screen, and fades into the
-                    // bar exactly as the hero leaves: one title, two places, one opacity.
                     Text(
                         text = title,
                         maxLines = 1,
@@ -177,14 +184,21 @@ internal fun MarbleExpressivePageScaffold(
             verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
         ) {
             item(key = "expressive-page-hero") {
-                ExpressivePageHero(
-                    title = title,
-                    subtitle = subtitle,
-                    glyph = glyph,
-                    tint = tint,
-                    collapse = collapse,
-                    heroScale = heroScale
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ExpressivePageHero(
+                        overline = umbrellaTitle,
+                        title = title,
+                        subtitle = subtitle,
+                        glyph = glyph,
+                        motif = heroMotif,
+                        tint = tint,
+                        collapse = collapse,
+                        heroScale = heroScale
+                    )
+                    if (umbrella != null && umbrella.group.destinations.size > 1) {
+                        SettingsUmbrellaTopicBar(umbrella = umbrella)
+                    }
+                }
             }
             content()
             item(key = "expressive-page-tail") {
@@ -194,18 +208,83 @@ internal fun MarbleExpressivePageScaffold(
     }
 }
 
+@Composable
+private fun SettingsUmbrellaTopicBar(
+    umbrella: SettingsUmbrellaNavState
+) {
+    val colors = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        umbrella.group.destinations.forEach { dest ->
+            val selected = dest == umbrella.active
+            val label = trx(SettingsHubLayout.shortTopicTitleKey(dest))
+            val motif = SettingsHubLayout.motifFor(dest)
+            val shape = marbleSelectionMorphShape(
+                selected = selected,
+                idleDp = 14.dp,
+                selectedDp = 28.dp
+            )
+            val container by animateColorAsState(
+                targetValue = if (selected) colors.primaryContainer else colors.surfaceContainerLow,
+                animationSpec = marbleDefaultEffectsSpec(),
+                label = "topicChipBg"
+            )
+            val ink = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant
+            Row(
+                modifier = Modifier
+                    .heightIn(min = 44.dp)
+                    .clip(shape)
+                    .background(container)
+                    .clickable(role = Role.Tab) {
+                        if (!selected) {
+                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            umbrella.onSelect(dest)
+                        }
+                    }
+                    .testTag("settings-topic-${dest.name}")
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(if (selected) 16.dp else 10.dp)
+                        .clip(marbleExpressiveShape(motif))
+                        .background(
+                            if (selected) colors.primary else colors.onSurfaceVariant.copy(alpha = 0.35f)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (selected) {
+                        MarbleGlyphIcon(
+                            glyph = MarbleGlyph.CHECK,
+                            color = colors.onPrimary,
+                            modifier = Modifier.size(10.dp),
+                            weight = 1.3f
+                        )
+                    }
+                }
+                Text(
+                    text = label,
+                    color = ink,
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                    ),
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
 /**
  * MARBLE_EXPRESSIVE_PAGES_V251 — the app's own light.
- *
- * Every screen sits on it: two very wide, very soft radial washes in the theme's primary and
- * tertiary tones, drifting a few dozen pixels over half a minute. It is *behind* the content at
- * single-digit alpha, so it never competes with a card, and it is the same drawing everywhere —
- * which is what makes four tabs read as one surface instead of four screens that share a colour
- * scheme.
- *
- * It is decorative, so it obeys the motion switch: calm motion freezes it, reduced motion removes
- * the drift entirely, and a true-black theme gets nothing at all (a wash on AMOLED is a glow around
- * a black rectangle, not depth).
  */
 @Composable
 fun MarbleAmbientBackdrop(
@@ -259,22 +338,25 @@ fun MarbleAmbientBackdrop(
     }
 }
 
-/** The hero: shape, glyph, title, one sentence, and the same bloom the bento tiles carry. */
+/** The hero: expressive polygon badge, umbrella overline, title, subtitle, and morphing bloom. */
 @Composable
 private fun ExpressivePageHero(
+    overline: String,
     title: String,
     subtitle: String,
     glyph: MarbleGlyph,
+    motif: MarbleExpressiveMotif,
     tint: Color,
     collapse: Float,
     heroScale: Float
 ) {
     val colors = MaterialTheme.colorScheme
     val fraction = collapse.coerceIn(0f, 1f)
+    val heroShape = marbleAsymmetricShape(prominent = true)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(28.dp))
+            .clip(heroShape)
             .background(
                 Brush.linearGradient(
                     listOf(
@@ -283,15 +365,16 @@ private fun ExpressivePageHero(
                     )
                 )
             )
-            .padding(16.dp)
+            .padding(18.dp)
     ) {
         MarbleOrbitLens(
             tint = tint,
-            radiusFraction = 0.40f,
+            motif = motif,
+            radiusFraction = 0.42f,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .size(96.dp)
-                .graphicsLayer { alpha = (1f - fraction) * 0.9f }
+                .size(104.dp)
+                .graphicsLayer { alpha = (1f - fraction) * 0.92f }
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -300,26 +383,35 @@ private fun ExpressivePageHero(
         ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(54.dp)
                     .graphicsLayer {
                         scaleX = heroScale
                         scaleY = heroScale
                     }
-                    .clip(MaterialShapes.Cookie9Sided.toShape())
-                    .background(tint.copy(alpha = 0.20f)),
+                    .clip(marbleExpressiveShape(motif))
+                    .background(tint.copy(alpha = 0.22f)),
                 contentAlignment = Alignment.Center
             ) {
                 MarbleGlyphIcon(
                     glyph = glyph,
                     color = tint,
                     modifier = Modifier.size(24.dp),
-                    weight = 1.1f
+                    weight = 1.12f
                 )
             }
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
+                if (overline.isNotBlank()) {
+                    Text(
+                        text = overline,
+                        color = tint,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Text(
                     text = title,
                     color = colors.onSurface,

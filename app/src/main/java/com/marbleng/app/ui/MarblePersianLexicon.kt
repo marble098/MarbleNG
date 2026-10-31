@@ -2848,6 +2848,71 @@ private val FaFriendlyVoice: Map<String, String> = mapOf(
     "Sky" to "آسمانی",
     "Plum" to "ارغوانی",
     "Moss" to "خزه‌ای",
+
+    // MARBLE_EXPRESSIVE_STUDIO_V252 — consolidated Settings hubs, inline topic bar & Expressive Home.
+    "Appearance & interface" to "ظاهر و رابط برنامه",
+    "Themes, accents, Persian typography, Home & dock" to
+        "تم‌ها، رنگ‌ها، فونت فارسی، چیدمان خانه و نوار پایین",
+    "Connection & core" to "اتصال و هسته",
+    "VPN mode, Xray / sing-box engine, tunnel & power" to
+        "حالت VPN، موتور Xray و sing-box، مسیر تونل و مصرف باتری",
+    "Routing & bypass" to "مسیریابی و عبور هوشمند",
+    "Direct rules, per-app split tunnel & Iran mode" to
+        "قوانین مستقیم، تفکیک برنامه‌ها و آزمایشگاه حالت ایران",
+    "Ping & smart auto" to "پینگ و انتخاب هوشمند",
+    "Latency probes, one-tap modes, auto-pick & jitter" to
+        "سنجش تأخیر، حالت‌های تک‌ضربه‌ای، انتخاب خودکار و مهار نوسان",
+    "DNS & privacy" to "DNS و حریم خصوصی",
+    "Encrypted resolvers, IPv4 / IPv6 & IP leak shield" to
+        "رزولورهای رمزنگاری‌شده، IPv4 / IPv6 و سپر نشت آی‌پی",
+    "Subscriptions & backup" to "اشتراک‌ها و پشتیبان",
+    "Scheduled refresh, user-agent & full file backup" to
+        "به‌روزرسانی زمان‌بندی‌شده، شناسه کلاینت و پشتیبان کامل",
+    "System & diagnostics" to "سیستم و عیب‌یابی",
+    "Shade controls, battery, self-heal doctor & versions" to
+        "کنترل نوتیفیکیشن، باتری، دکتر خودترمیم و نسخه‌ها",
+    "Mode & ports" to "حالت و پورت‌ها",
+    "Traffic rules" to "قوانین ترافیک",
+    "DNS & IP" to "DNS و آی‌پی",
+    "Per-app VPN" to "تفکیک برنامه‌ها",
+    "Ping method" to "روش پینگ",
+    "Auto server" to "سرور خودکار",
+    "Jitter shield" to "سپر نوسان",
+    "IP privacy" to "حریم آی‌پی",
+    "Theme & colour" to "تم و رنگ",
+    "Language & font" to "زبان و فونت",
+    "Bottom bar" to "نوار پایین",
+    "Save or restore" to "ذخیره یا بازیابی",
+    "Logs, battery & doctor" to "گزارش‌ها، باتری و دکتر",
+    "Seven hubs • Search jumps straight to any setting" to
+        "هفت بخش کلی • با جست‌وجو مستقیم سر هر تنظیم برو",
+    "Whole phone" to "کل گوشی",
+    "Proxy only" to "فقط پروکسی",
+    "Paste a link or scan a QR code" to "یک لینک بچسبان یا کد QR اسکن کن",
+    "Pick a server" to "انتخاب سرور",
+    "saved" to "ذخیره‌شده",
+    "tap to open Servers" to "بزن تا سرورها باز بشه",
+    "Test ping" to "سنجش پینگ",
+    "Core test" to "تست هسته",
+    "Checking…" to "در حال بررسی…",
+    "Inspect IP" to "بررسی آی‌پی",
+    "Querying exit node" to "پرس‌وجو از گره خروجی",
+    "Tunnel exit" to "خروجی تونل",
+    "Direct line" to "خط مستقیم",
+    "Tap to verify exit IP" to "بزن تا آی‌پی خروجی بررسی بشه",
+    "Tap to check direct IP" to "بزن تا آی‌پی مستقیم بررسی بشه",
+    "Inspect server" to "جزئیات سرور",
+    "Exit IP" to "آی‌پی خروجی",
+    "Local SOCKS5" to "SOCKS5 محلی",
+    "More" to "بیشتر",
+    "Paste link" to "چسباندن لینک",
+    "From clipboard" to "از کلیپ‌بورد",
+    "Camera or photo" to "دوربین یا تصویر",
+    "Rank servers" to "رتبه‌بندی سرورها",
+    "Ping every node" to "پینگ همه سرورها",
+    "Fix blocked" to "رفع فیلتر",
+    "Iran mode lab" to "آزمایشگاه ایران",
+    "Tap a row to change it" to "روی هر بخش بزن تا باز و تنظیم بشه",
 )
 
 /** The dictionary the whole product reads: base entries with the warm voice on top. */
