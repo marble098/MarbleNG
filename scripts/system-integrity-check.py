@@ -5240,7 +5240,7 @@ check(
     and "## ۶. آنچه عمداً انجام نشد" in v251_doc
     and "## ۷. تست" in v251_doc
     and "IP_IDENTITY_AND_EXPRESSIVE_MOTION_V251.md" in files["readme"]
-    and "IP_IDENTITY_AND_EXPRESSIVE_MOTION_V251.md` is the newest chapter" in files["readme"],
+    and "IP_IDENTITY_AND_EXPRESSIVE_MOTION_V251.md` is the chapter before it" in files["readme"],
 )
 
 check(
@@ -5253,6 +5253,62 @@ check(
     and "## ۶. آنچه عمداً انجام نشد" in v250_doc
     and "EXPRESSIVE_BENTO_V250.md" in files["readme"]
     and "کد Lumen وارد مخزن نشد" in v250_doc,
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_EXPRESSIVE_STUDIO_V252 — seven-hub Settings Bento & M3 Expressive Home
+# ---------------------------------------------------------------------------
+v252_doc = read("docs/EXPRESSIVE_HOME_AND_SETTINGS_V252.md")
+v252_test = read("app/src/test/java/com/marbleng/app/ui/ExpressiveStudioV252Test.kt")
+v252_formatters = read("app/src/main/java/com/marbleng/app/ui/UiFormatters.kt")
+v252_hub = read("app/src/main/java/com/marbleng/app/ui/SettingsHubLayout.kt")
+v252_surfaces = read("app/src/main/java/com/marbleng/app/ui/MarbleExpressiveSurfaces.kt")
+v252_pages = read("app/src/main/java/com/marbleng/app/ui/MarbleExpressivePages.kt")
+
+check(
+    "V252 Settings consolidates twenty-three destinations into seven broader hubs with inline topic switching",
+    "enum class SettingsUmbrellaGroup(" in v252_hub
+    and "APPEARANCE_UI(" in v252_hub
+    and "CONNECTION_CORE(" in v252_hub
+    and "ROUTING_BYPASS(" in v252_hub
+    and "PING_SMART(" in v252_hub
+    and "DNS_PRIVACY(" in v252_hub
+    and "SUBSCRIPTIONS_BACKUP(" in v252_hub
+    and "SYSTEM_DIAGNOSTICS(" in v252_hub
+    and "fun umbrellaFor(destination: SettingsDestination): SettingsUmbrellaGroup" in v252_hub
+    and "LocalSettingsUmbrellaNav" in v252_pages
+    and "private fun SettingsUmbrellaTopicBar(" in v252_pages
+    and "SettingsHubLayout.umbrellasForCategory(category)" in files["settingsScreen"],
+)
+
+check(
+    "V252 Home and shared shell replace non-Expressive circles and grid lines with MaterialShapes and Morph",
+    "enum class MarbleExpressiveMotif" in v252_surfaces
+    and "Morph(marbleExpressivePolygon(" in v252_surfaces
+    and "fun marbleAsymmetricShape(" in v252_surfaces
+    and "fun marbleSelectionMorphShape(" in v252_surfaces
+    and "fun MarbleExpressiveIconButton(" in v252_surfaces
+    and "LoadingIndicator(" in files["shellUi"]
+    and "LoadingIndicator(" in files["homeScreen"]
+    and "HomeMetricBentoTile(" in files["homeScreen"]
+    and ".clip(CircleShape)" not in files["homeScreen"]
+    and ".clip(CircleShape)" not in files["shellUi"]
+    and "border(1.dp, colors.outlineVariant" not in v252_formatters,
+)
+
+check(
+    "V252 the chapter, tests and Persian lexicon record the pass cleanly",
+    "MARBLE_EXPRESSIVE_STUDIO_V252" in v252_doc
+    and "## ۱. تنظیمات: هفت سرفصل کلی" in v252_doc
+    and "## ۴. جدول اجرا" in v252_doc
+    and "## ۵. آنچه عمداً انجام نشد" in v252_doc
+    and "## ۶. تست" in v252_doc
+    and "EXPRESSIVE_HOME_AND_SETTINGS_V252.md` is the newest chapter" in files["readme"]
+    and "class ExpressiveStudioV252Test" in v252_test
+    and "fun sevenBroaderUmbrellasPartitionAllTwentyThreeDestinationsExactlyOnce()" in v252_test
+    and "fun expressiveScaffoldTopicBarSwitchesSiblingDestinationsInline()" in v252_test
+    and '"Appearance & interface" to "' in files["persianLexicon"]
+    and '"Connection & core" to "' in files["persianLexicon"],
 )
 
 failed = [name for name, passed in checks if not passed]

@@ -1,7 +1,6 @@
 package com.marbleng.app.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
@@ -184,8 +183,8 @@ fun dockSlotColor(accent: DockSlotAccent): Color {
 }
 
 /**
- * Expressive server avatar: a crisp vector country flag when known, or a tonal
- * row-icon chip with a globe/server glyph when unknown.
+ * Expressive server avatar: a crisp vector country flag framed inside a soft Material 3 Expressive
+ * polygon when known, or an expressive polygon badge with a globe/server glyph when unknown.
  */
 @Composable
 fun MarbleServerAvatar(
@@ -199,9 +198,8 @@ fun MarbleServerAvatar(
         Box(
             modifier = modifier
                 .size(size)
-                .clip(MarbleRowIconShape)
-                .background(colors.surfaceContainerHighest)
-                .border(1.dp, colors.outlineVariant, MarbleRowIconShape),
+                .clip(marbleExpressiveShape(MarbleExpressiveMotif.DIAMOND))
+                .background(colors.surfaceContainerHighest),
             contentAlignment = Alignment.Center
         ) {
             CountryFlagCircle(
@@ -210,12 +208,21 @@ fun MarbleServerAvatar(
             )
         }
     } else {
-        MarbleRowIcon(
-            glyph = if (profile == null) MarbleGlyph.GLOBE else MarbleGlyph.SERVER,
-            tint = if (profile == null) colors.onSurfaceVariant else protocolRowColor(profile.scheme),
-            size = size,
-            glyphSize = size * 0.55f,
+        val motif = if (profile == null) MarbleExpressiveMotif.CLOVER else MarbleExpressiveMotif.FAN
+        val tint = if (profile == null) colors.onSurfaceVariant else protocolRowColor(profile.scheme)
+        Box(
             modifier = modifier
-        )
+                .size(size)
+                .clip(marbleExpressiveShape(motif))
+                .background(tint.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center
+        ) {
+            MarbleGlyphIcon(
+                glyph = if (profile == null) MarbleGlyph.GLOBE else MarbleGlyph.SERVER,
+                color = tint,
+                modifier = Modifier.size(size * 0.52f),
+                weight = 1.05f
+            )
+        }
     }
 }

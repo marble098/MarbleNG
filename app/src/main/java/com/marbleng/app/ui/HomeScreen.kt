@@ -1,26 +1,34 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.marbleng.app.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,14 +43,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
@@ -54,6 +63,7 @@ import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.HomePingAction
 import com.marbleng.app.model.HomeSection
 import com.marbleng.app.model.HomeStudio
+import com.marbleng.app.model.IpAddressBook
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.ServerHealth
@@ -62,13 +72,22 @@ import com.marbleng.app.model.connectModeChipOf
 import com.marbleng.app.model.parseHomePingAction
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
-import com.marbleng.app.ui.theme.MarbleCardShape
 import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
+import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
+import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.onSuccessContainer
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.successContainer
 import com.marbleng.app.ui.theme.warning
 
+/**
+ * MARBLE_EXPRESSIVE_SHELL_V241 + MARBLE_WEIGHT_LADDER_V235 + MARBLE_EXPRESSIVE_STUDIO_V252:
+ *
+ * The Material 3 Expressive Home screen. Non-Expressive borders, plain circles, spreadsheet grid
+ * lines, and four-row vertical lists are replaced with official `MaterialShapes` polygons,
+ * spring-driven `Morph` transitions, asymmetric tonal Bento cards, and Google's Expressive
+ * `LoadingIndicator` for live probes.
+ */
 @Composable
 fun HomeScreen(
     repo: AppRepository,
@@ -83,6 +102,7 @@ fun HomeScreen(
     onContentScrollChanged: (Boolean) -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
+    val tones = marbleExpressiveTones()
     val strings = Tr.now
     val settings = repo.settings
     val clipboard = LocalClipboardManager.current
@@ -114,13 +134,6 @@ fun HomeScreen(
         }
     }
 
-    // MARBLE_EXPRESSIVE_SHELL_V241 — one control, one decision.
-    //
-    // The old Home asked the user to pick between five ways to connect (a power orb, a slide
-    // track and three deck cards). The pill above owns the action; this chip owns the *mode*
-    // and nothing else, and its label always states the mode it is in. Choosing FULL or LOCAL
-    // changes the persisted connection mode (which stops a live tunnel, because the transport
-    // itself changes); SMART leaves the mode alone and lets the ranker pick the route.
     var chosenChipId by rememberSaveable { mutableStateOf("") }
     val modeChip = if (chosenChipId.isBlank()) {
         connectModeChipOf(settings.connectionMode)
@@ -161,6 +174,10 @@ fun HomeScreen(
         }
     }
 
+    val qrDesc = trx("Scan QR")
+    val addDesc = trx("Add Server")
+    val diagDesc = trx("Fix & diagnose")
+
     val homeSections = HomeStudio.visible(
         orderRaw = settings.homeLayout.sectionOrder,
         hiddenRaw = settings.homeLayout.hiddenSections,
@@ -172,7 +189,6 @@ fun HomeScreen(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
-            // MARBLE_EXPRESSIVE_PAGES_V251 — the shell owns the ground now.
             .statusBarsPadding(),
         contentPadding = PaddingValues(
             start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
@@ -182,14 +198,6 @@ fun HomeScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
     ) {
-        // MARBLE_HOME_STUDIO_V249 — Home draws the sections the user kept, in the order they put
-        // them. Every section is one branch of one `when`, so there is exactly one place that decides
-        // what a section is and one that decides whether it is here: the layout lives in
-        // [HomeStudio], and this list only paints it.
-        //
-        // The two legacy switches (`modularShowStats`, `modularShowShortcuts`) are honoured as a
-        // floor inside [HomeStudio.visible], so somebody who turned the speed card off two versions
-        // ago still has it off, and the settings page keeps writing both records in one update.
         homeSections.forEach { section ->
             when (section) {
                 HomeSection.HEADER -> item(key = "home-header") {
@@ -201,20 +209,30 @@ fun HomeScreen(
                             firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
                         )
                     ) {
-                        MarbleIconButton(
-                            glyph = MarbleGlyph.QR,
-                            onClick = onOpenQrImport,
-                            tint = colors.secondary
-                        )
-                        MarbleIconButton(
-                            glyph = MarbleGlyph.PLUS,
-                            onClick = onOpenAddSheet,
-                            tint = colors.primary
-                        )
-                        MarbleIconButton(
+                        MarbleExpressiveIconButton(
                             glyph = MarbleGlyph.SHIELD,
-                            onClick = onOpenDiagnostics,
-                            tint = if (connected) colors.success else colors.onSurfaceVariant
+                            motif = MarbleExpressiveMotif.ARCH,
+                            containerColor = tones.plum.container,
+                            contentColor = if (connected) colors.success else colors.onSurfaceVariant,
+                            contentDescription = diagDesc,
+                            onClick = onOpenDiagnostics
+                        )
+                        MarbleExpressiveIconButton(
+                            glyph = MarbleGlyph.QR,
+                            motif = MarbleExpressiveMotif.DIAMOND,
+                            containerColor = tones.plum.container,
+                            contentColor = colors.secondary,
+                            contentDescription = qrDesc,
+                            onClick = onOpenQrImport
+                        )
+                        MarbleExpressiveIconButton(
+                            glyph = MarbleGlyph.PLUS,
+                            motif = MarbleExpressiveMotif.CLOVER,
+                            containerColor = colors.primary,
+                            contentColor = colors.onPrimary,
+                            prominent = true,
+                            contentDescription = addDesc,
+                            onClick = onOpenAddSheet
                         )
                     }
                 }
@@ -279,13 +297,18 @@ fun HomeScreen(
                 HomeSection.SHORTCUTS -> item(key = "home-shortcuts-section") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         MarbleSectionHeader(title = trx("Quick Actions"))
-                        // Council grid: 2x2 tiles — faster scan, less scroll, no duplicate list chrome
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(IntrinsicSize.Min)
+                            ) {
                                 HomeQuickTile(
                                     title = strings.addFromClipboard,
                                     subtitle = trx("Paste a link"),
                                     glyph = MarbleGlyph.COPY,
+                                    motif = MarbleExpressiveMotif.CLOVER,
                                     tint = colors.primary,
                                     onClick = pasteFromClipboard,
                                     modifier = Modifier.weight(1f)
@@ -294,16 +317,23 @@ fun HomeScreen(
                                     title = trx("Scan QR"),
                                     subtitle = trx("Scan to import"),
                                     glyph = MarbleGlyph.QR,
+                                    motif = MarbleExpressiveMotif.DIAMOND,
                                     tint = colors.secondary,
                                     onClick = onOpenQrImport,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(IntrinsicSize.Min)
+                            ) {
                                 HomeQuickTile(
                                     title = trx("Smart Rank"),
                                     subtitle = trx("Find the fastest route"),
                                     glyph = MarbleGlyph.SPARK,
+                                    motif = MarbleExpressiveMotif.SUNNY,
                                     tint = colors.warning,
                                     enabled = !repo.busy && !repo.probeActive,
                                     onClick = { repo.smartRank() },
@@ -313,6 +343,7 @@ fun HomeScreen(
                                     title = trx("Censorship Lab"),
                                     subtitle = trx("Test the network"),
                                     glyph = MarbleGlyph.SHIELD,
+                                    motif = MarbleExpressiveMotif.ARCH,
                                     tint = colors.success,
                                     onClick = { onOpenSettingsPage(SettingsDestination.CENSORSHIP_LAB) },
                                     modifier = Modifier.weight(1f)
@@ -325,8 +356,6 @@ fun HomeScreen(
         }
     }
 
-    // MARBLE_EXPRESSIVE_SHELL_V241 — the live core log, one tap from the status chip instead of
-    // five taps into Settings → Diagnostics.
     if (showQuickLogs) {
         QuickLogsSheet(
             repo = repo,
@@ -336,15 +365,8 @@ fun HomeScreen(
 }
 
 /**
- * MARBLE_EXPRESSIVE_SHELL_V241 — Home's whole decision, in two rows.
- *
- * Row one: the one pill. Row two: the mode chip (how to connect) and the status chip (why it
- * is not connected, plus the live core log one tap away). There is no second connect control,
- * no slide track and no deck of alternatives: the happy path is a single, physical button.
- *
- * MARBLE_WEIGHT_LADDER_V235 — the hierarchy survives the simplification: the pill's label is
- * the TITLE rung's emphasized twin (the one focal point of the screen), the chip labels stay on
- * LABEL and the status line on BODY. Nothing here invents a weight outside the ladder.
+ * MARBLE_WEIGHT_LADDER_V235 + MARBLE_EXPRESSIVE_STUDIO_V252 — Home's asymmetric Material 3
+ * Expressive connection stage.
  */
 @Composable
 private fun HomeHero(
@@ -362,10 +384,9 @@ private fun HomeHero(
 ) {
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
+    val motion = marbleMotion()
     val working = connecting || disconnecting
 
-    // MARBLE_LIVE_TICKER_V249 — the clock keeps its own tempo; the state label changes only
-    // when the tunnel changes state.
     val subline = when {
         connected -> "${trx(stateLabel)} · ${strings.uptime}"
         working -> trx(stateLabel)
@@ -374,8 +395,6 @@ private fun HomeHero(
     }
     val ticker = if (connected) faDigits(uptime) else ""
 
-    // MARBLE_EXPRESSIVE_BENTO_V250 — Home's connection stage: one tonal canvas, one primary
-    // action, and the mode/status controls beside it. The stage colour follows the tunnel.
     val stageColor by animateColorAsState(
         targetValue = when {
             connected -> colors.successContainer
@@ -390,13 +409,36 @@ private fun HomeHero(
         working -> colors.onTertiaryContainer
         else -> colors.onPrimaryContainer
     }
+    val stageMorph by animateFloatAsState(
+        targetValue = when {
+            connected -> 1f
+            working -> 0.5f
+            else -> 0f
+        },
+        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
+        label = "homeStagePetalMorph"
+    )
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(32.dp))
+            .clip(marbleAsymmetricShape(prominent = true))
             .background(stageColor)
     ) {
+        MarblePetalMark(
+            color = onStage.copy(alpha = if (connected || working) 0.14f else 0.08f),
+            size = 152.dp,
+            motif = MarbleExpressiveMotif.CLOVER,
+            targetMotif = MarbleExpressiveMotif.FLOWER,
+            morphProgress = stageMorph,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .graphicsLayer {
+                    translationX = 32.dp.toPx()
+                    translationY = (-24).dp.toPx()
+                }
+        )
+
         Column(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -456,19 +498,74 @@ private fun HomeHero(
                     onSelect = onSelectMode,
                     enabled = !disconnecting
                 )
-                Spacer(Modifier.weight(1f))
-                MarbleIconButton(
-                    glyph = MarbleGlyph.ROUTE,
+                HomeStageRoutePill(
+                    activeRoute = activeRoute,
                     onClick = onOpenServers,
-                    tint = onStage,
-                    contentDescription = trx("Choose server")
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
     }
 }
 
-/** The one-line state of the tunnel; tapping it opens the live core log. */
+@Composable
+private fun HomeStageRoutePill(
+    activeRoute: ProxyProfile?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
+    val routeName = if (activeRoute != null) {
+        cleanServerName(activeRoute.name).ifBlank { activeRoute.host }
+    } else {
+        trx("Choose server")
+    }
+    val shape = marbleSelectionMorphShape(
+        selected = activeRoute != null,
+        idleDp = 16.dp,
+        selectedDp = 26.dp
+    )
+    Row(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .background(colors.surfaceContainerHigh)
+            .clickable(role = Role.Button) {
+                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                onClick()
+            }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(marbleExpressiveShape(MarbleExpressiveMotif.ARCH))
+                .background(colors.tertiary.copy(alpha = 0.22f)),
+            contentAlignment = Alignment.Center
+        ) {
+            MarbleGlyphIcon(
+                glyph = MarbleGlyph.ROUTE,
+                color = colors.tertiary,
+                modifier = Modifier.size(11.dp),
+                weight = 1.2f
+            )
+        }
+        Text(
+            text = routeName,
+            color = colors.onSurface,
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        MarbleChevron(size = 14.dp, tint = colors.onSurfaceVariant)
+    }
+}
+
+/** Expressive status + core-log capsule in the hero header. */
 @Composable
 private fun HomeStatusChip(
     connected: Boolean,
@@ -482,28 +579,28 @@ private fun HomeStatusChip(
         working -> ServerHealth.SLOW
         else -> ServerHealth.UNTESTED
     }
+    val shape = marbleSelectionMorphShape(
+        selected = connected,
+        idleDp = 16.dp,
+        selectedDp = 26.dp
+    )
     Row(
         modifier = Modifier
-            .clip(CircleShape)
+            .heightIn(min = 44.dp)
+            .clip(shape)
             .background(colors.surfaceContainerHigh)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label }
-            .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            MarblePetalMark(
-                color = colors.primary.copy(alpha = 0.15f),
-                size = 28.dp
-            )
-            MarbleHealthDot(health = health, size = 9.dp)
-        }
-        MarbleGlyphIcon(
-            glyph = MarbleGlyph.TUNERS,
-            color = colors.onSurfaceVariant,
-            modifier = Modifier.size(14.dp),
-            weight = 1.1f
+        MarbleHealthDot(health = health, size = 12.dp)
+        Text(
+            text = trx("Logs"),
+            color = colors.onSurface,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 1
         )
     }
 }
@@ -522,6 +619,7 @@ private fun HomeQuickTile(
     glyph: MarbleGlyph,
     tint: Color,
     modifier: Modifier = Modifier,
+    motif: MarbleExpressiveMotif = MarbleExpressiveMotif.forGlyph(glyph),
     subtitle: String = "",
     enabled: Boolean = true,
     onClick: () -> Unit
@@ -530,6 +628,7 @@ private fun HomeQuickTile(
         title = title,
         subtitle = subtitle,
         glyph = glyph,
+        motif = motif,
         tint = tint,
         enabled = enabled,
         onClick = onClick,
@@ -538,6 +637,12 @@ private fun HomeQuickTile(
     )
 }
 
+/**
+ * MARBLE_EXPRESSIVE_STUDIO_V252 — Expressive Route & Identity Bento.
+ *
+ * Replaces the four-row vertical divider list with a tonal active-server card above a balanced
+ * two-column Expressive Bento pair for Ping (`Sunny` / `LoadingIndicator`) and Exit IP (`Clover`).
+ */
 @Composable
 private fun HomeRouteAndIdentityCard(
     repo: AppRepository,
@@ -548,7 +653,7 @@ private fun HomeRouteAndIdentityCard(
     onTriggerPing: () -> Unit,
     onOpenIpPage: () -> Unit
 ) {
-    val colors = MaterialTheme.colorScheme
+    val tones = marbleExpressiveTones()
     val strings = Tr.now
     val countryCode = activeRoute?.let { repo.serverLocation(it).code }
 
@@ -583,17 +688,12 @@ private fun HomeRouteAndIdentityCard(
         }
     }
 
-    val pingTone = when {
-        isMeasuring -> colors.primary
-        pingState == ConnectionPingState.MEASURED && pingMs in 1..180 -> colors.success
-        pingState == ConnectionPingState.MEASURED && pingMs > 180 -> colors.warning
-        pingState == ConnectionPingState.FAILED -> colors.error
-        else -> colors.success
+    val pingPair = when {
+        pingState == ConnectionPingState.MEASURED && pingMs in 1..180 -> tones.mint
+        pingState == ConnectionPingState.MEASURED && pingMs > 180 -> tones.amber
+        else -> tones.plum
     }
 
-    // MARBLE_IP_IDENTITY_V251 — Home still shows the exit at a glance, and the row now opens the
-    // IP page instead of a sheet: the sheet was three facts, the page is every address this phone
-    // holds plus whether each family answers, in every connection state.
     val ipReport = repo.ipStackReport
     val intel = repo.serverIntel
     val ipTitle = when {
@@ -603,11 +703,9 @@ private fun HomeRouteAndIdentityCard(
         else -> strings.ipAddress
     }
     val ipSubtitle = when {
-        ipReport?.exit?.discovered == true -> buildString {
-            val detailed = com.marbleng.app.model.IpAddressBook.egressDetail(ipReport.exit)
-            append(detailed.ifBlank { trx("Public exit address") })
-            append(" · ")
-            append(trx("Every address, in every state"))
+        ipReport?.exit?.discovered == true -> {
+            val detailed = IpAddressBook.egressDetail(ipReport.exit)
+            detailed.ifBlank { trx("Public exit address") }
         }
         intel != null -> listOf(intel.locationLabel, intel.datacenterLabel)
             .filter { it.isNotBlank() }
@@ -616,63 +714,208 @@ private fun HomeRouteAndIdentityCard(
         repo.serverIntelError.isNotBlank() -> trx(repo.serverIntelError)
         else -> trx("Tap to open every address on this phone")
     }
+    val inspectDesc = trx("Inspect Server Configuration")
 
-    MarbleCard {
-        MarbleListItem(
-            title = activeRoute?.let { cleanServerName(it.name) } ?: strings.chooseRoute,
-            subtitle = if (activeRoute != null) {
-                "${protocolShortLabel(activeRoute)} · ${activeRoute.subscriptionName}"
-            } else {
-                trx("Select or import a server from the Servers tab")
-            },
-            leading = {
-                MarbleServerAvatar(profile = activeRoute, countryCode = countryCode)
-            },
-            trailing = {
-                MarbleBadge(
-                    text = if (connected) strings.homeConnectedBadge else strings.changeRoute,
-                    color = if (connected) colors.success else colors.primary
-                )
-            },
-            onClick = onOpenServers
-        )
-
-        if (activeRoute != null) {
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Inspect Server Configuration"),
-                subtitle = "${activeRoute.host}:${activeRoute.port}",
-                glyph = MarbleGlyph.TUNERS,
-                iconTint = colors.secondary,
-                onClick = { onOpenServerDetail(activeRoute) }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(marbleAsymmetricShape(prominent = false))
+                .background(tones.sky.container)
+                .clickable(role = Role.Button, onClick = onOpenServers)
+                .padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            MarbleServerAvatar(
+                profile = activeRoute,
+                countryCode = countryCode,
+                size = 46.dp
             )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = activeRoute?.let { cleanServerName(it.name) } ?: strings.chooseRoute,
+                    color = tones.sky.content,
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (activeRoute != null) {
+                        "${protocolShortLabel(activeRoute)} · ${activeRoute.subscriptionName}"
+                    } else {
+                        trx("Select or import a server from the Servers tab")
+                    },
+                    color = tones.sky.content.copy(alpha = 0.80f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (activeRoute != null) {
+                MarbleActionColumn {
+                    MarbleExpressiveIconButton(
+                        glyph = MarbleGlyph.TUNERS,
+                        motif = MarbleExpressiveMotif.FLOWER,
+                        containerColor = tones.sky.content.copy(alpha = 0.12f),
+                        contentColor = tones.sky.content,
+                        contentDescription = inspectDesc,
+                        onClick = { onOpenServerDetail(activeRoute) }
+                    )
+                }
+            } else {
+                MarbleChevron(size = 18.dp, tint = tones.sky.content)
+            }
         }
 
-        MarbleDivider()
-        MarbleListItem(
-            title = "${strings.connectionPing}: $pingHeadline",
-            subtitle = pingSub,
-            glyph = MarbleGlyph.GAUGE,
-            iconTint = pingTone,
-            trailing = if (isMeasuring) {
-                { MarblePulseDot(color = colors.primary) }
-            } else null,
-            onClick = onTriggerPing
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            HomeMetricBentoTile(
+                overline = strings.connectionPing,
+                value = pingHeadline,
+                subtitle = pingSub,
+                glyph = MarbleGlyph.GAUGE,
+                motif = MarbleExpressiveMotif.SUNNY,
+                pair = pingPair,
+                loading = isMeasuring,
+                monospaceValue = !isMeasuring && (pingMs > 0 || (connected && repo.livePingMs > 0)),
+                flipped = false,
+                onClick = onTriggerPing,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            )
+            HomeMetricBentoTile(
+                overline = trx("Exit IP"),
+                value = ipTitle,
+                subtitle = ipSubtitle,
+                glyph = MarbleGlyph.GLOBE,
+                motif = MarbleExpressiveMotif.CLOVER,
+                pair = tones.lavender,
+                loading = repo.ipStackScanning && ipReport?.exit?.discovered != true,
+                monospaceValue = ipReport?.exit?.address?.isNotBlank() == true || (intel != null && intel.ip.isNotBlank()),
+                flipped = true,
+                onClick = {
+                    if (ipReport == null && !repo.ipStackScanning) {
+                        repo.refreshIpStack()
+                    }
+                    onOpenIpPage()
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            )
+        }
+    }
+}
 
-        MarbleDivider()
-        MarbleListItem(
-            title = ipTitle,
-            subtitle = ipSubtitle,
-            glyph = MarbleGlyph.GLOBE,
-            iconTint = colors.tertiary,
-            onClick = {
-                if (ipReport == null && !repo.ipStackScanning) {
-                    repo.refreshIpStack()
-                }
-                onOpenIpPage()
+@Composable
+private fun HomeMetricBentoTile(
+    overline: String,
+    value: String,
+    subtitle: String,
+    glyph: MarbleGlyph,
+    motif: MarbleExpressiveMotif,
+    pair: MarbleExpressivePair,
+    loading: Boolean,
+    monospaceValue: Boolean,
+    flipped: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val motion = marbleMotion()
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) MarbleSpec.PRESSED_SCALE else 1f,
+        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
+        label = "homeMetricPress"
+    )
+    val shape = marbleAsymmetricShape(
+        prominent = false,
+        pressed = pressed,
+        flipped = flipped
+    )
+
+    Column(
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
             }
-        )
+            .clip(shape)
+            .background(pair.container)
+            .clickable(
+                role = Role.Button,
+                interactionSource = interaction,
+                indication = androidx.compose.foundation.LocalIndication.current,
+                onClick = onClick
+            )
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(marbleExpressiveShape(motif))
+                    .background(pair.badge.copy(alpha = 0.20f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (loading) {
+                    LoadingIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = pair.badge
+                    )
+                } else {
+                    MarbleGlyphIcon(
+                        glyph = glyph,
+                        color = pair.badge,
+                        modifier = Modifier.size(19.dp),
+                        weight = 1.12f
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = overline,
+                color = pair.content.copy(alpha = 0.72f),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = value,
+                color = pair.content,
+                style = MaterialTheme.typography.titleMediumEmphasized.copy(
+                    fontFamily = if (monospaceValue) FontFamily.Monospace else FontFamily.Default
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = subtitle,
+                color = pair.content.copy(alpha = 0.78f),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -690,17 +933,20 @@ private fun HomeTelemetryCard(
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
 
-    MarbleCard(contentPadding = PaddingValues(14.dp)) {
-        // MARBLE_EXPRESSIVE_SHELL_V241 — the numbers alone were four dead strings. The graph
-        // is the answer to "is anything actually moving?"; the tiles below stay because the
-        // graph is a shape and the numbers are the truth.
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(marbleAsymmetricShape(prominent = true))
+            .background(colors.surfaceContainerLow)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         MarbleTrafficSparkline(
             downBps = downBps,
             upBps = upBps,
             active = live,
             height = MarbleSpec.SPARKLINE_HEIGHT_DP.dp
         )
-        Spacer(Modifier.height(14.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -709,20 +955,23 @@ private fun HomeTelemetryCard(
                 value = faDigits(formatRate(downBps)),
                 label = strings.download,
                 glyph = MarbleGlyph.DOWNLOAD,
+                motif = MarbleExpressiveMotif.FAN,
                 tint = colors.primary,
                 prominent = true,
+                flipped = false,
                 modifier = Modifier.weight(1f)
             )
             HomeStatTile(
                 value = faDigits(formatRate(upBps)),
                 label = strings.upload,
                 glyph = MarbleGlyph.UPLOAD,
+                motif = MarbleExpressiveMotif.GEM,
                 tint = colors.tertiary,
                 prominent = true,
+                flipped = true,
                 modifier = Modifier.weight(1f)
             )
         }
-        Spacer(Modifier.height(10.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -731,6 +980,7 @@ private fun HomeTelemetryCard(
                 value = faDigits(formatBytes(sessionBytes)),
                 label = trx("Session"),
                 glyph = MarbleGlyph.LAYERS,
+                motif = MarbleExpressiveMotif.CLOVER,
                 tint = colors.secondary,
                 modifier = Modifier.weight(1f)
             )
@@ -738,27 +988,58 @@ private fun HomeTelemetryCard(
                 value = faDigits(formatBytes(totalBytes)),
                 label = trx("Total"),
                 glyph = MarbleGlyph.VAULT,
+                motif = MarbleExpressiveMotif.COOKIE,
                 tint = colors.secondary,
                 modifier = Modifier.weight(1f)
             )
         }
         if (showSocks) {
-            Spacer(Modifier.height(6.dp))
-            MarbleListItem(
-                title = "${strings.socksProxyLabel} · 127.0.0.1:$socksPort",
-                subtitle = trx("Tap to copy local SOCKS5 address"),
-                glyph = MarbleGlyph.LINK,
-                iconTint = colors.secondary,
-                trailing = {
-                    Text(
-                        text = strings.copyAction,
-                        color = colors.primary,
-                        style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(colors.surfaceContainer)
+                    .clickable(role = Role.Button, onClick = onCopySocks)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(marbleExpressiveShape(MarbleExpressiveMotif.DIAMOND))
+                        .background(colors.secondary.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    MarbleGlyphIcon(
+                        glyph = MarbleGlyph.LINK,
+                        color = colors.secondary,
+                        modifier = Modifier.size(16.dp),
+                        weight = 1.1f
                     )
-                },
-                showChevron = false,
-                onClick = onCopySocks
-            )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${strings.socksProxyLabel} · 127.0.0.1:$socksPort",
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = trx("Tap to copy local SOCKS5 address"),
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = strings.copyAction,
+                    color = colors.primary,
+                    style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace)
+                )
+            }
         }
     }
 }
@@ -768,15 +1049,17 @@ private fun HomeStatTile(
     value: String,
     label: String,
     glyph: MarbleGlyph,
+    motif: MarbleExpressiveMotif,
     tint: Color,
     modifier: Modifier = Modifier,
-    prominent: Boolean = false
+    prominent: Boolean = false,
+    flipped: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
     if (prominent) {
         Column(
             modifier = modifier
-                .clip(RoundedCornerShape(24.dp))
+                .clip(marbleAsymmetricShape(prominent = false, flipped = flipped))
                 .background(tint.copy(alpha = 0.12f))
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -785,11 +1068,24 @@ private fun HomeStatTile(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                MarbleGlyphIcon(glyph = glyph, color = tint, modifier = Modifier.size(18.dp))
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(marbleExpressiveShape(motif))
+                        .background(tint.copy(alpha = 0.20f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    MarbleGlyphIcon(
+                        glyph = glyph,
+                        color = tint,
+                        modifier = Modifier.size(15.dp),
+                        weight = 1.15f
+                    )
+                }
                 Text(
                     text = label,
                     color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -805,18 +1101,26 @@ private fun HomeStatTile(
     } else {
         Row(
             modifier = modifier
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(18.dp))
                 .background(colors.surfaceContainer)
-                .padding(horizontal = 10.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            MarbleRowIcon(
-                glyph = glyph,
-                tint = tint,
-                size = 28.dp,
-                glyphSize = 16.dp
-            )
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(marbleExpressiveShape(motif))
+                    .background(tint.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                MarbleGlyphIcon(
+                    glyph = glyph,
+                    color = tint,
+                    modifier = Modifier.size(15.dp),
+                    weight = 1.1f
+                )
+            }
             Column(verticalArrangement = Arrangement.spacedBy(1.dp), modifier = Modifier.weight(1f)) {
                 Text(
                     text = value,

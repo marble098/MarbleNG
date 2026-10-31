@@ -635,7 +635,7 @@ internal fun MarbleEmptyState(
             Box(
                 modifier = Modifier
                     .size(64.dp)
-                    .clip(MaterialShapes.Cookie9Sided.toShape())
+                    .clip(marbleExpressiveShape(MarbleExpressiveMotif.forGlyph(glyph)))
                     .background(tint.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center
             ) {
