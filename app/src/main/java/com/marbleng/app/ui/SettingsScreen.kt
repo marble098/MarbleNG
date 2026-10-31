@@ -1,39 +1,42 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.marbleng.app.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,15 +44,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import com.marbleng.app.AppRepository
 import com.marbleng.app.BuildConfig
 import com.marbleng.app.core.AutoServerSelector
@@ -58,9 +63,9 @@ import com.marbleng.app.core.TunnelCoreInfo
 import com.marbleng.app.core.coreEngine
 import com.marbleng.app.core.tunnelCore
 import com.marbleng.app.model.AppLanguage
-import com.marbleng.app.model.MapMotion
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.JitterSmartMode
+import com.marbleng.app.model.MapMotion
 import com.marbleng.app.model.PlainVoice
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.RoutingMode
@@ -72,12 +77,12 @@ import com.marbleng.app.model.matchSmartPreset
 import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseFlatAccent
 import com.marbleng.app.model.parsePowerProfile
-import androidx.compose.material3.MaterialTheme
+import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
 import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.panSpec
 import com.marbleng.app.ui.theme.settleSpec
-import com.marbleng.app.ui.theme.MarbleSpec
-import com.marbleng.app.ui.theme.MarbleTheme
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
 
@@ -115,41 +120,60 @@ fun SettingsScreen(
     onCloseDestination: () -> Unit,
     onContentScrollChanged: (Boolean) -> Unit
 ) {
-    // MARBLE_MAP_MOTION_V249 — opening a setting is a zoom into the map, and going back is the same
-    // zoom reversed.
-    //
-    // This used to be an early return: `if (activeDestination != null) { …page…; return }` and then
-    // the menu, which meant the two could never be on screen at the same time and neither could
-    // move. The cost of making them one `AnimatedContent` is that the menu becomes its own
-    // composable ([SettingsMenuPage]); the gain is that a drill-in and a drill-out are the same
-    // movement in opposite directions, on the same curve and at the same tempo as the tab map one
-    // level up — which is what makes the app read as one surface instead of a stack of screens.
+    // MARBLE_MAP_MOTION_V249 + MARBLE_EXPRESSIVE_STUDIO_V252:
+    // Entering or leaving the hub uses the map depth zoom; switching between sibling topics inside
+    // the same broader umbrella pans laterally on the shared expressive curve.
     val motion = marbleMotion()
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     AnimatedContent(
         targetState = activeDestination,
         transitionSpec = {
-            val duration = MapMotion.durationMs(1)
-            val arrivingScale = if (targetState != null) {
-                MapMotion.DETAIL_ENTER_SCALE
+            val from = initialState
+            val to = targetState
+            if (from != null && to != null &&
+                SettingsHubLayout.umbrellaFor(from) == SettingsHubLayout.umbrellaFor(to)
+            ) {
+                val siblings = SettingsHubLayout.umbrellaFor(to).destinations
+                val forward = siblings.indexOf(to) >= siblings.indexOf(from)
+                val sign = when {
+                    forward && !isRtl -> 1
+                    !forward && isRtl -> 1
+                    else -> -1
+                }
+                val panMs = MapMotion.durationMs(1)
+                (
+                    slideInHorizontally(motion.panSpec(panMs)) { full -> (full / 14) * sign } +
+                        scaleIn(motion.panSpec(panMs), initialScale = 0.975f) +
+                        fadeIn(motion.settleSpec(panMs))
+                    ) togetherWith (
+                    slideOutHorizontally(motion.panSpec(panMs)) { full -> -(full / 20) * sign } +
+                        scaleOut(motion.panSpec(panMs), targetScale = 0.985f) +
+                        fadeOut(motion.settleSpec(panMs / 2))
+                    )
             } else {
-                MapMotion.DETAIL_EXIT_SCALE
+                val duration = MapMotion.durationMs(1)
+                val arrivingScale = if (to != null) {
+                    MapMotion.DETAIL_ENTER_SCALE
+                } else {
+                    MapMotion.DETAIL_EXIT_SCALE
+                }
+                val departingScale = if (to != null) {
+                    MapMotion.DETAIL_EXIT_SCALE
+                } else {
+                    MapMotion.DETAIL_ENTER_SCALE
+                }
+                (
+                    fadeIn(motion.settleSpec(duration)) + scaleIn(
+                        animationSpec = motion.panSpec(duration),
+                        initialScale = arrivingScale
+                    )
+                    ) togetherWith (
+                    fadeOut(motion.settleSpec(duration)) + scaleOut(
+                        animationSpec = motion.panSpec(duration),
+                        targetScale = departingScale
+                    )
+                    )
             }
-            val departingScale = if (targetState != null) {
-                MapMotion.DETAIL_EXIT_SCALE
-            } else {
-                MapMotion.DETAIL_ENTER_SCALE
-            }
-            (
-                fadeIn(motion.settleSpec(duration)) + scaleIn(
-                    animationSpec = motion.panSpec(duration),
-                    initialScale = arrivingScale
-                )
-                ) togetherWith (
-                fadeOut(motion.settleSpec(duration)) + scaleOut(
-                    animationSpec = motion.panSpec(duration),
-                    targetScale = departingScale
-                )
-                )
         },
         label = "marbleSettingsDepth"
     ) { destination ->
@@ -160,38 +184,49 @@ fun SettingsScreen(
                 onContentScrollChanged = onContentScrollChanged
             )
         } else {
-            when (destination) {
-                SettingsDestination.CONNECTION_MODE -> SettingsConnectionModePage(repo, onCloseDestination)
-                SettingsDestination.CORE_ENGINE -> SettingsCoreEnginePage(repo, onCloseDestination)
-                SettingsDestination.TUNNEL_DATAPATH -> SettingsTunnelDatapathPage(repo, onCloseDestination)
-                SettingsDestination.POWER_PROFILE -> SettingsPowerProfilePage(repo, onCloseDestination)
-                SettingsDestination.ROUTING -> SettingsRoutingPage(repo, onCloseDestination)
-                SettingsDestination.DNS_FAMILY -> SettingsDnsAndFamilyPage(repo, onCloseDestination)
-                SettingsDestination.SPLIT_TUNNEL -> SettingsSplitTunnelPage(repo, onCloseDestination)
-                SettingsDestination.CENSORSHIP_LAB -> SettingsCensorshipLabPage(repo, onCloseDestination)
-                SettingsDestination.PING_TESTING -> SettingsPingTestingPage(repo, onCloseDestination)
-                SettingsDestination.NETWORK_COUNCIL -> SettingsNetworkCouncilPage(repo, onCloseDestination)
-                SettingsDestination.AUTO_SELECTOR -> SettingsAutoSelectorPage(repo, onCloseDestination)
-                SettingsDestination.SMART_PRESETS -> SettingsSmartPresetsPage(repo, onCloseDestination)
-                SettingsDestination.SMART_JITTER -> SettingsSmartJitterPage(repo, onCloseDestination)
-                SettingsDestination.IDENTITY_LOCATION -> SettingsIdentityLocationPage(repo, onCloseDestination)
-                SettingsDestination.APPEARANCE -> SettingsAppearancePage(repo, onCloseDestination)
-                SettingsDestination.LANGUAGE_FONT -> SettingsLanguageAndFontPage(repo, onCloseDestination)
-                SettingsDestination.TAB_BAR -> SettingsTabBarPage(repo, onCloseDestination)
-                SettingsDestination.HOME_LAYOUT -> SettingsHomeLayoutPage(repo, onCloseDestination)
-                SettingsDestination.SUBSCRIPTIONS_DATA -> SettingsSubscriptionsPage(repo, onCloseDestination)
-                SettingsDestination.BACKUP_RESTORE -> SettingsBackupRestorePage(repo, onCloseDestination)
-                SettingsDestination.NOTIFICATIONS_BG -> SettingsNotificationsPage(repo, onCloseDestination)
-                SettingsDestination.DIAGNOSTICS -> SettingsDiagnosticsPage(repo, onCloseDestination)
-                SettingsDestination.ABOUT -> SettingsAboutPage(repo, onCloseDestination)
+            val umbrellaState = SettingsUmbrellaNavState(
+                group = SettingsHubLayout.umbrellaFor(destination),
+                active = destination,
+                onSelect = onOpenDestination
+            )
+            CompositionLocalProvider(LocalSettingsUmbrellaNav provides umbrellaState) {
+                when (destination) {
+                    SettingsDestination.CONNECTION_MODE -> SettingsConnectionModePage(repo, onCloseDestination)
+                    SettingsDestination.CORE_ENGINE -> SettingsCoreEnginePage(repo, onCloseDestination)
+                    SettingsDestination.TUNNEL_DATAPATH -> SettingsTunnelDatapathPage(repo, onCloseDestination)
+                    SettingsDestination.POWER_PROFILE -> SettingsPowerProfilePage(repo, onCloseDestination)
+                    SettingsDestination.ROUTING -> SettingsRoutingPage(repo, onCloseDestination)
+                    SettingsDestination.DNS_FAMILY -> SettingsDnsAndFamilyPage(repo, onCloseDestination)
+                    SettingsDestination.SPLIT_TUNNEL -> SettingsSplitTunnelPage(repo, onCloseDestination)
+                    SettingsDestination.CENSORSHIP_LAB -> SettingsCensorshipLabPage(repo, onCloseDestination)
+                    SettingsDestination.PING_TESTING -> SettingsPingTestingPage(repo, onCloseDestination)
+                    SettingsDestination.NETWORK_COUNCIL -> SettingsNetworkCouncilPage(repo, onCloseDestination)
+                    SettingsDestination.AUTO_SELECTOR -> SettingsAutoSelectorPage(repo, onCloseDestination)
+                    SettingsDestination.SMART_PRESETS -> SettingsSmartPresetsPage(repo, onCloseDestination)
+                    SettingsDestination.SMART_JITTER -> SettingsSmartJitterPage(repo, onCloseDestination)
+                    SettingsDestination.IDENTITY_LOCATION -> SettingsIdentityLocationPage(repo, onCloseDestination)
+                    SettingsDestination.APPEARANCE -> SettingsAppearancePage(repo, onCloseDestination)
+                    SettingsDestination.LANGUAGE_FONT -> SettingsLanguageAndFontPage(repo, onCloseDestination)
+                    SettingsDestination.TAB_BAR -> SettingsTabBarPage(repo, onCloseDestination)
+                    SettingsDestination.HOME_LAYOUT -> SettingsHomeLayoutPage(repo, onCloseDestination)
+                    SettingsDestination.SUBSCRIPTIONS_DATA -> SettingsSubscriptionsPage(repo, onCloseDestination)
+                    SettingsDestination.BACKUP_RESTORE -> SettingsBackupRestorePage(repo, onCloseDestination)
+                    SettingsDestination.NOTIFICATIONS_BG -> SettingsNotificationsPage(repo, onCloseDestination)
+                    SettingsDestination.DIAGNOSTICS -> SettingsDiagnosticsPage(repo, onCloseDestination)
+                    SettingsDestination.ABOUT -> SettingsAboutPage(repo, onCloseDestination)
+                }
             }
         }
     }
 }
 
 /**
- * MARBLE_MAP_MOTION_V249 — the Settings menu, extracted unchanged so [SettingsScreen] can cross
- * between it and a sub-page instead of returning early into one or the other.
+ * MARBLE_EXPRESSIVE_STUDIO_V252 — the cohesive Settings Bento hub.
+ *
+ * Instead of twenty-three separate micro-cards under stacked headings, the resting hub displays
+ * seven broader categories in a single Material 3 Expressive Bento catalogue with contrast-paired
+ * tonal tiles, distinct `MaterialShapes` polygons, and live status summaries. Typing in search
+ * flattens across all twenty-three detailed destinations so any deep knob stays one tap away.
  */
 @Composable
 private fun SettingsMenuPage(
@@ -199,8 +234,8 @@ private fun SettingsMenuPage(
     onOpenDestination: (SettingsDestination) -> Unit,
     onContentScrollChanged: (Boolean) -> Unit
 ) {
-
     val colors = MaterialTheme.colorScheme
+    val tones = marbleExpressiveTones()
     val strings = Tr.now
     val s = repo.settings
     val listState = rememberLazyListState()
@@ -213,119 +248,146 @@ private fun SettingsMenuPage(
         onContentScrollChanged(listState.isScrollInProgress)
     }
 
-    val connectionGroup = listOf(
+    val modeSummary = if (s.connectionMode == ConnectionMode.FULL_TUN) {
+        trx("Whole-phone VPN")
+    } else {
+        "${trx("Local proxy")} :${s.localProxyPort}"
+    }
+    val engineSummary = CoreEngineInfo.displayName(s.coreEngine())
+    val tunnelSummary = TunnelCoreInfo.displayName(s.tunnelCore())
+    val powerSummary = trx(parsePowerProfile(s.powerProfile).label)
+    val routingSummary = when (s.routingMode) {
+        RoutingMode.PROXY_ALL -> trx("Proxy all traffic")
+        RoutingMode.BYPASS_PRIVATE -> trx("Bypass private LAN")
+        RoutingMode.GEO_DIRECT -> trx("Iranian sites stay direct")
+        RoutingMode.CUSTOM -> trx("Your own rules")
+    }
+    val splitSummary = when (s.splitTunnelMode) {
+        SplitTunnelMode.ALL_APPS -> trx("All apps use VPN")
+        SplitTunnelMode.ONLY_SELECTED -> trx("Only the apps you pick")
+        SplitTunnelMode.BYPASS_SELECTED -> trx("The apps you pick stay direct")
+    }
+    val dnsSummary = "${s.dnsPrimaryIp} · " + trx(PlainVoice.addressFamilyLabel(s.addressFamilyMode.name))
+    val pingSummary = when (s.probeMethod) {
+        ProbeMethod.REAL_DELAY -> trx("Real tunnel delay")
+        ProbeMethod.TCP_PING -> trx("Quick TCP ping")
+        ProbeMethod.URL_TEST -> trx("Built-in core test")
+    }
+    val autoSummary = if (s.autoServerSelectorEnabled) {
+        "${trx("On")} · " + trx(AutoServerSelector.shortLabel(s.autoServerStrategyEnum))
+    } else {
+        trx("Off · you pick the server")
+    }
+    val themeSummary = "${trx(s.theme.replaceFirstChar { it.uppercase() })} · ${trx(parseFlatAccent(s.accentTheme).label)}"
+    val languageSummary = when (parseAppLanguage(s.appLanguage)) {
+        AppLanguage.SYSTEM -> strings.languageSystem
+        AppLanguage.ENGLISH -> strings.languageEnglish
+        AppLanguage.PERSIAN -> strings.languagePersian
+    }
+    val subscriptionSummary = if (s.subscriptionAutoRefresh) {
+        "${trx("Every")} ${faDigits("${s.subscriptionRefreshHours}")}h"
+    } else {
+        trx("Only when you ask")
+    }
+
+    val detailedCatalog = listOf(
         SettingsRowSpec(
             destination = SettingsDestination.CONNECTION_MODE,
             title = trx("How you connect"),
-            subtitle = if (s.connectionMode == ConnectionMode.FULL_TUN) {
-                trx("Whole-phone VPN")
-            } else {
-                "${trx("Local proxy")} :${s.localProxyPort}"
-            },
+            subtitle = modeSummary,
             glyph = MarbleGlyph.TUNNEL,
-            iconTint = colors.primary
+            iconTint = colors.primary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.CONNECTION_MODE)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.CORE_ENGINE,
             title = trx("Proxy engine"),
-            subtitle = CoreEngineInfo.displayName(s.coreEngine()),
+            subtitle = engineSummary,
             glyph = MarbleGlyph.SERVER,
-            iconTint = colors.secondary
+            iconTint = colors.secondary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.CORE_ENGINE)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.TUNNEL_DATAPATH,
             title = trx("Tunnel path"),
-            subtitle = TunnelCoreInfo.displayName(s.tunnelCore()),
+            subtitle = tunnelSummary,
             glyph = MarbleGlyph.LAYERS,
-            iconTint = colors.tertiary
+            iconTint = colors.tertiary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.TUNNEL_DATAPATH)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.POWER_PROFILE,
             title = trx("Speed and battery"),
-            subtitle = trx(parsePowerProfile(s.powerProfile).label),
+            subtitle = powerSummary,
             glyph = MarbleGlyph.SPARK,
-            iconTint = colors.warning
-        )
-    )
-
-    val routingGroup = listOf(
+            iconTint = colors.warning,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.POWER_PROFILE)
+        ),
         SettingsRowSpec(
             destination = SettingsDestination.ROUTING,
             title = trx("What goes direct"),
-            subtitle = when (s.routingMode) {
-                RoutingMode.PROXY_ALL -> trx("Proxy all traffic")
-                RoutingMode.BYPASS_PRIVATE -> trx("Bypass private LAN")
-                RoutingMode.GEO_DIRECT -> trx("Iranian sites stay direct")
-                RoutingMode.CUSTOM -> trx("Your own rules")
-            },
+            subtitle = routingSummary,
             glyph = MarbleGlyph.ROUTE,
-            iconTint = colors.success
+            iconTint = colors.success,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.ROUTING)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.DNS_FAMILY,
             title = trx("DNS and IP version"),
-            subtitle = "${s.dnsPrimaryIp} · " + trx(PlainVoice.addressFamilyLabel(s.addressFamilyMode.name)),
+            subtitle = dnsSummary,
             glyph = MarbleGlyph.GLOBE,
-            iconTint = colors.tertiary
+            iconTint = colors.tertiary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.DNS_FAMILY)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.SPLIT_TUNNEL,
             title = trx("Which apps use the tunnel"),
-            subtitle = when (s.splitTunnelMode) {
-                SplitTunnelMode.ALL_APPS -> trx("All apps use VPN")
-                SplitTunnelMode.ONLY_SELECTED -> trx("Only the apps you pick")
-                SplitTunnelMode.BYPASS_SELECTED -> trx("The apps you pick stay direct")
-            },
+            subtitle = splitSummary,
             glyph = MarbleGlyph.FOLDER,
-            iconTint = colors.secondary
+            iconTint = colors.secondary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.SPLIT_TUNNEL)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.CENSORSHIP_LAB,
             title = trx("Iran mode & blocking test"),
             subtitle = trx("Find what blocks you and fix it"),
             glyph = MarbleGlyph.SHIELD,
-            iconTint = colors.error
-        )
-    )
-
-    val testingGroup = listOf(
+            iconTint = colors.error,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.CENSORSHIP_LAB)
+        ),
         SettingsRowSpec(
             destination = SettingsDestination.PING_TESTING,
             title = trx("How ping is measured"),
-            subtitle = when (s.probeMethod) {
-                ProbeMethod.REAL_DELAY -> trx("Real tunnel delay")
-                ProbeMethod.TCP_PING -> trx("Quick TCP ping")
-                ProbeMethod.URL_TEST -> trx("Built-in core test")
-            },
+            subtitle = pingSummary,
             glyph = MarbleGlyph.GAUGE,
-            iconTint = colors.success
+            iconTint = colors.success,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.PING_TESTING)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.NETWORK_COUNCIL,
             title = trx("Network check"),
             subtitle = repo.councilReport?.let {
-                "${trx("Last result")} · ${it.score} ${it.grade} · ${it.changes.size} " + trx("changes")
+                "${trx("Last result")} · ${faDigits("${it.score}")} ${it.grade} · ${faDigits("${it.changes.size}")} " + trx("changes")
             } ?: trx("Twelve quick checks that tune the app for this network"),
             glyph = MarbleGlyph.RADAR,
-            iconTint = colors.tertiary
+            iconTint = colors.tertiary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.NETWORK_COUNCIL)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.SMART_PRESETS,
             title = trx("One-tap modes"),
             subtitle = trx("Gaming, streaming or hard bypass in one tap"),
             glyph = MarbleGlyph.SPARK,
-            iconTint = colors.warning
+            iconTint = colors.warning,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.SMART_PRESETS)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.AUTO_SELECTOR,
             title = trx("Pick a server for me"),
-            subtitle = if (s.autoServerSelectorEnabled) {
-                "${trx("On")} · " + trx(AutoServerSelector.shortLabel(s.autoServerStrategyEnum))
-            } else {
-                trx("Off · you pick the server")
-            },
+            subtitle = autoSummary,
             glyph = MarbleGlyph.RADAR,
-            iconTint = colors.primary
+            iconTint = colors.primary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.AUTO_SELECTOR)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.SMART_JITTER,
@@ -336,126 +398,149 @@ private fun SettingsMenuPage(
                 "${trx("On")} · ${trx(s.jitterSmartModeEnum.label)}"
             },
             glyph = MarbleGlyph.GAUGE,
-            iconTint = colors.success
+            iconTint = colors.success,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.SMART_JITTER)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.IDENTITY_LOCATION,
             title = trx("Hide my real IP"),
             subtitle = trx("Protect your IP and find server countries"),
             glyph = MarbleGlyph.GLOBE,
-            iconTint = colors.secondary
-        )
-    )
-
-    val appearanceGroup = listOf(
+            iconTint = colors.secondary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.IDENTITY_LOCATION)
+        ),
         SettingsRowSpec(
             destination = SettingsDestination.APPEARANCE,
             title = trx("Look and colour"),
-            subtitle = "${trx(s.theme.replaceFirstChar { it.uppercase() })} · ${trx(parseFlatAccent(s.accentTheme).label)}",
+            subtitle = themeSummary,
             glyph = MarbleGlyph.PALETTE,
-            iconTint = colors.secondary
+            iconTint = colors.secondary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.APPEARANCE)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.LANGUAGE_FONT,
             title = "${strings.languageTitle} & ${trx("Typography")}",
-            subtitle = when (parseAppLanguage(s.appLanguage)) {
-                AppLanguage.SYSTEM -> strings.languageSystem
-                AppLanguage.ENGLISH -> strings.languageEnglish
-                AppLanguage.PERSIAN -> strings.languagePersian
-            },
+            subtitle = languageSummary,
             glyph = MarbleGlyph.FONT,
-            iconTint = colors.secondary
+            iconTint = colors.secondary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.LANGUAGE_FONT)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.TAB_BAR,
             title = trx("Bottom bar & fourth tab"),
-            subtitle = if (s.dockSlotEnabled) {
-                trx("Four tabs")
-            } else {
-                trx("Three tabs")
-            },
+            subtitle = if (s.dockSlotEnabled) trx("Four tabs") else trx("Three tabs"),
             glyph = MarbleGlyph.DOCK,
-            iconTint = colors.tertiary
+            iconTint = colors.tertiary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.TAB_BAR)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.HOME_LAYOUT,
             title = strings.homeStyleTitle,
             subtitle = trx("Connect style, cards and shortcuts"),
             glyph = MarbleGlyph.HOME,
-            iconTint = colors.warning
-        )
-    )
-
-    val systemGroup = listOf(
+            iconTint = colors.warning,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.HOME_LAYOUT)
+        ),
         SettingsRowSpec(
             destination = SettingsDestination.SUBSCRIPTIONS_DATA,
             title = trx("Subscriptions & refresh"),
-            subtitle = if (s.subscriptionAutoRefresh) {
-                "${trx("Every")} ${s.subscriptionRefreshHours}h"
-            } else {
-                trx("Only when you ask")
-            },
+            subtitle = subscriptionSummary,
             glyph = MarbleGlyph.REFRESH,
-            iconTint = colors.primary
+            iconTint = colors.primary,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.SUBSCRIPTIONS_DATA)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.BACKUP_RESTORE,
             title = trx("Backup"),
             subtitle = trx("Save or restore everything in one file"),
             glyph = MarbleGlyph.VAULT,
-            iconTint = colors.success
+            iconTint = colors.success,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.BACKUP_RESTORE)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.NOTIFICATIONS_BG,
             title = trx("Notifications & battery"),
             subtitle = trx("Live stats in the shade, and battery access"),
             glyph = MarbleGlyph.BELL,
-            iconTint = colors.error
+            iconTint = colors.error,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.NOTIFICATIONS_BG)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.DIAGNOSTICS,
             title = trx("Fix & diagnose"),
             subtitle = trx("Checks that find and fix problems"),
             glyph = MarbleGlyph.TUNERS,
-            iconTint = colors.warning
+            iconTint = colors.warning,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.DIAGNOSTICS)
         ),
         SettingsRowSpec(
             destination = SettingsDestination.ABOUT,
             title = strings.informationTitle,
             subtitle = "v${BuildConfig.VERSION_NAME} · Xray ${BuildConfig.XRAY_CORE_TAG}",
             glyph = MarbleGlyph.INFO,
-            iconTint = colors.onSurfaceVariant
+            iconTint = colors.onSurfaceVariant,
+            motif = SettingsHubLayout.motifFor(SettingsDestination.ABOUT)
         )
     )
 
-    val categorizedSections = listOf(
-        SettingsHubCategory.CONNECTION to (trx(SettingsHubCategory.CONNECTION.titleKey) to (connectionGroup + routingGroup)),
-        SettingsHubCategory.NETWORK to (trx(SettingsHubCategory.NETWORK.titleKey) to testingGroup),
-        SettingsHubCategory.SYSTEM to (trx(SettingsHubCategory.SYSTEM.titleKey) to (appearanceGroup + systemGroup))
-    )
-    val sections = categorizedSections.mapNotNull { (sectionCategory, pair) ->
-        val (header, items) = pair
-        val filtered = when {
-            searching -> {
-                val q = search.trim()
-                items.filter {
-                    it.title.contains(q, ignoreCase = true) ||
-                        it.subtitle.contains(q, ignoreCase = true)
-                }
-            }
-            category == SettingsHubCategory.ALL || category == sectionCategory -> items
-            else -> emptyList()
+    val umbrellaSpecs = SettingsHubLayout.umbrellasForCategory(category).mapIndexed { index, group ->
+        val pair = when (group) {
+            SettingsUmbrellaGroup.APPEARANCE_UI -> tones.stage
+            SettingsUmbrellaGroup.CONNECTION_CORE -> tones.sky
+            SettingsUmbrellaGroup.ROUTING_BYPASS -> tones.mint
+            SettingsUmbrellaGroup.PING_SMART -> tones.amber
+            SettingsUmbrellaGroup.DNS_PRIVACY -> tones.lavender
+            SettingsUmbrellaGroup.SUBSCRIPTIONS_BACKUP -> tones.plum
+            SettingsUmbrellaGroup.SYSTEM_DIAGNOSTICS -> tones.plum
         }
-        if (filtered.isEmpty()) null else Triple(sectionCategory, header, filtered)
+        val liveSubtitle = when (group) {
+            SettingsUmbrellaGroup.APPEARANCE_UI -> "$themeSummary · $languageSummary"
+            SettingsUmbrellaGroup.CONNECTION_CORE -> "$modeSummary · $engineSummary"
+            SettingsUmbrellaGroup.ROUTING_BYPASS -> "$routingSummary · $splitSummary"
+            SettingsUmbrellaGroup.PING_SMART -> "$pingSummary · $autoSummary"
+            SettingsUmbrellaGroup.DNS_PRIVACY -> dnsSummary
+            SettingsUmbrellaGroup.SUBSCRIPTIONS_BACKUP -> "$subscriptionSummary · ${trx("Save or restore")}"
+            SettingsUmbrellaGroup.SYSTEM_DIAGNOSTICS -> "v${BuildConfig.VERSION_NAME} · ${trx("Logs, battery & doctor")}"
+        }
+        val pills = group.destinations.take(3).map { dest ->
+            trx(SettingsHubLayout.shortTopicTitleKey(dest))
+        }
+        SettingsRowSpec(
+            destination = group.primaryDestination,
+            title = trx(group.titleKey),
+            subtitle = liveSubtitle,
+            glyph = group.glyph,
+            iconTint = pair.badge,
+            motif = group.motif,
+            indexBadge = faDigits((index + 1).toString().padStart(2, '0')),
+            topicPills = pills,
+            containerOverride = pair.container,
+            contentOverride = pair.content
+        )
+    }
+
+    val activeRows = if (searching) {
+        val q = search.trim()
+        detailedCatalog.filter { spec ->
+            val group = SettingsHubLayout.umbrellaFor(spec.destination)
+            spec.title.contains(q, ignoreCase = true) ||
+                spec.subtitle.contains(q, ignoreCase = true) ||
+                trx(group.titleKey).contains(q, ignoreCase = true) ||
+                trx(SettingsHubLayout.shortTopicTitleKey(spec.destination)).contains(q, ignoreCase = true)
+        }
+    } else {
+        umbrellaSpecs
     }
 
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            // MARBLE_EXPRESSIVE_PAGES_V251 — the shell's ambient light is this page's ground.
             .statusBarsPadding()
     ) {
         val columns = SettingsHubLayout.columns(maxWidth.value.toInt())
+        val featured = SettingsHubLayout.featuredDestinations(activeRows, searching)
+        val tileRows = SettingsHubLayout.rows(activeRows, columns, featured)
+
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
@@ -465,7 +550,7 @@ private fun SettingsMenuPage(
                 top = 8.dp,
                 bottom = MarbleTheme.bottomClearance
             ),
-            verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item(key = "settings-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -476,14 +561,25 @@ private fun SettingsMenuPage(
                             firstVisibleItemIndex = listState.firstVisibleItemIndex,
                             firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
                         )
-                    )
+                    ) {
+                        MarblePetalMark(
+                            color = colors.primary.copy(alpha = 0.22f),
+                            size = 36.dp,
+                            motif = MarbleExpressiveMotif.FLOWER,
+                            targetMotif = MarbleExpressiveMotif.SUNNY
+                        )
+                    }
                     MarbleSearchField(
                         value = search,
                         onValueChange = { search = it },
                         placeholder = trx("Search settings"),
-                        trailingCount = if (searching) "" else faDigits("${connectionGroup.size + routingGroup.size + testingGroup.size + appearanceGroup.size + systemGroup.size}")
+                        trailingCount = if (searching) {
+                            faDigits("${activeRows.size}")
+                        } else {
+                            faDigits("${SettingsUmbrellaGroup.entries.size}")
+                        }
                     )
-                    if (searching && sections.isEmpty()) {
+                    if (searching && activeRows.isEmpty()) {
                         MarbleEmptyState(
                             title = trx("No matches"),
                             body = trx("Try a shorter keyword — e.g. DNS, Theme, or Ping"),
@@ -513,42 +609,36 @@ private fun SettingsMenuPage(
                 }
             }
 
-            sections.forEach { (sectionCategory, header, rows) ->
-                item(key = "settings-sec-${sectionCategory.id}") {
-                    MarbleSectionHeader(
-                        title = header,
-                        badge = "",
-                        badgeColor = colors.primary
-                    )
-                }
-                val featured = emptySet<SettingsDestination>()
-                val tileRows = SettingsHubLayout.rows(rows, columns, featured)
-                items(
-                    count = tileRows.size,
-                    key = { index -> "settings-row-${sectionCategory.id}-$index" }
-                ) { index ->
-                    val row = tileRows[index]
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(IntrinsicSize.Min),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        row.forEach { spec ->
-                            if (spec == null) {
-                                Spacer(Modifier.weight(1f))
-                            } else {
-                                MarbleExpressiveTile(
-                                    title = spec.title,
-                                    subtitle = spec.subtitle,
-                                    glyph = spec.glyph,
-                                    tint = spec.iconTint,
-                                    featured = spec.destination in featured,
-                                    onClick = { onOpenDestination(spec.destination) },
-                                    modifier = Modifier.weight(1f),
-                                    tag = "settings-tile-${spec.destination}"
-                                )
-                            }
+            items(
+                count = tileRows.size,
+                key = { index -> "settings-bento-row-${if (searching) "search" else category.id}-$index" }
+            ) { index ->
+                val row = tileRows[index]
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    row.forEach { spec ->
+                        if (spec == null) {
+                            Spacer(Modifier.weight(1f))
+                        } else {
+                            MarbleExpressiveTile(
+                                title = spec.title,
+                                subtitle = spec.subtitle,
+                                glyph = spec.glyph,
+                                tint = spec.iconTint,
+                                motif = spec.motif,
+                                indexBadge = spec.indexBadge,
+                                topicPills = spec.topicPills,
+                                containerOverride = spec.containerOverride,
+                                contentOverride = spec.contentOverride,
+                                featured = spec.destination in featured,
+                                onClick = { onOpenDestination(spec.destination) },
+                                modifier = Modifier.weight(1f),
+                                tag = "settings-tile-${spec.destination}"
+                            )
                         }
                     }
                 }
@@ -556,19 +646,21 @@ private fun SettingsMenuPage(
 
             item(key = "settings-footer") {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "v${BuildConfig.VERSION_NAME} · Xray ${BuildConfig.XRAY_CORE_TAG} · MarbleNG",
+                        text = "MarbleNG · v${BuildConfig.VERSION_NAME} · Xray ${BuildConfig.XRAY_CORE_TAG}",
                         color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1
                     )
                     Text(
-                        text = trx("Tap a row to change it • Search to find one"),
-                        color = colors.onSurfaceVariant,
+                        text = trx("Tap a row to change it"),
+                        color = colors.onSurfaceVariant.copy(alpha = 0.8f),
                         style = MaterialTheme.typography.labelSmall,
                         textAlign = TextAlign.Center
                     )
@@ -586,12 +678,27 @@ private fun SettingsCategoryChip(
 ) {
     val colors = MaterialTheme.colorScheme
     val haptics = LocalHapticFeedback.current
-    val container = if (selected) colors.primaryContainer else colors.surfaceContainerLow
+    val shape = marbleSelectionMorphShape(
+        selected = selected,
+        idleDp = 14.dp,
+        selectedDp = 28.dp
+    )
+    val container by animateColorAsState(
+        targetValue = if (selected) colors.primaryContainer else colors.surfaceContainerLow,
+        animationSpec = marbleDefaultEffectsSpec(),
+        label = "settingsCategoryBg"
+    )
     val ink = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant
+    val motif = when (category) {
+        SettingsHubCategory.ALL -> MarbleExpressiveMotif.FLOWER
+        SettingsHubCategory.CONNECTION -> MarbleExpressiveMotif.FAN
+        SettingsHubCategory.NETWORK -> MarbleExpressiveMotif.SUNNY
+        else -> MarbleExpressiveMotif.DIAMOND
+    }
     Row(
         modifier = Modifier
             .heightIn(min = 48.dp)
-            .clip(CircleShape)
+            .clip(shape)
             .background(container)
             .clickable(role = Role.Button) {
                 haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
@@ -600,15 +707,23 @@ private fun SettingsCategoryChip(
             .testTag("settings-category-${category.id}")
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (selected) {
-            MarbleGlyphIcon(
-                glyph = MarbleGlyph.CHECK,
-                color = ink,
-                modifier = Modifier.size(16.dp),
-                weight = 1.2f
-            )
+        Box(
+            modifier = Modifier
+                .size(if (selected) 18.dp else 10.dp)
+                .clip(marbleExpressiveShape(motif))
+                .background(if (selected) colors.primary else colors.onSurfaceVariant.copy(alpha = 0.35f)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (selected) {
+                MarbleGlyphIcon(
+                    glyph = MarbleGlyph.CHECK,
+                    color = colors.onPrimary,
+                    modifier = Modifier.size(11.dp),
+                    weight = 1.25f
+                )
+            }
         }
         Text(
             text = trx(category.titleKey),
@@ -621,10 +736,6 @@ private fun SettingsCategoryChip(
 
 /**
  * MARBLE_EXPRESSIVE_SHELL_V241 — the page behind the Home preset strip.
- *
- * The same three decisions, with their consequences written out, and a derived check mark on
- * whichever one the current settings already match. Applying a preset writes tuning knobs only
- * (see [SmartPreset.apply]); routing, DNS, the split tunnel and the selected server are untouched.
  */
 @Composable
 internal fun SettingsSmartPresetsPage(
@@ -649,6 +760,11 @@ internal fun SettingsSmartPresetsPage(
         items(SmartPreset.ordered) { preset ->
             val selected = preset == active
             val appliedLabel = trx(preset.title) + " • " + trx("applied")
+            val motif = when (preset) {
+                SmartPreset.GAMING -> MarbleExpressiveMotif.SUNNY
+                SmartPreset.STREAMING -> MarbleExpressiveMotif.FAN
+                SmartPreset.EXTREME_BYPASS -> MarbleExpressiveMotif.CLOVER
+            }
             MarbleCard(
                 modifier = Modifier.clickable {
                     repo.updateSettings(preset.apply(repo.settings))
@@ -659,12 +775,24 @@ internal fun SettingsSmartPresetsPage(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    MarbleRowIcon(
-                        glyph = presetGlyph(preset),
-                        tint = if (selected) colors.primary else colors.secondary
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(marbleExpressiveShape(motif))
+                            .background(
+                                (if (selected) colors.primary else colors.secondary).copy(alpha = 0.16f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MarbleGlyphIcon(
+                            glyph = presetGlyph(preset),
+                            color = if (selected) colors.primary else colors.secondary,
+                            modifier = Modifier.size(22.dp),
+                            weight = 1.1f
+                        )
+                    }
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(2.dp)

@@ -1,33 +1,32 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.marbleng.app.ui
 
-// MARBLE_EXPRESSIVE_SHELL_V241 — the five controls that replace the clutter.
+// MARBLE_EXPRESSIVE_SHELL_V241 + MARBLE_EXPRESSIVE_STUDIO_V252 — the Expressive controls that
+// power Home and Servers.
 //
-// The audit of the old Home screen was blunt: one job (connect) had five controls (a power
-// orb, a slide track and three deck cards), so the user had to decide *how* to connect before
-// deciding *whether* to. The screen now has one pill, one menu chip and one status chip. The
-// same chapter answers the rest of the audit here:
-//
-//   * [MarbleTrafficSparkline]  — a live, tap-to-inspect throughput graph instead of four
-//                                 dead strings, drawn on the window's own peak so a slow link
-//                                 and a fast link both fill the height.
-//   * [MarbleHealthPill]        — mint / amber / muted-grey capsule + dot for a probe result,
-//                                 never the old error-red field behind the rows.
-//   * [QuickLogsSheet]          — the live core tail one tap from Home, not five taps into
-//                                 Settings → Diagnostics.
-//   * [SmartPresetStrip]        — Gaming / Streaming / Extreme Bypass over the knobs that used
-//                                 to be raw switches.
-//
-// Every animation is a theme spring or a Canvas; no new dependency and no View is introduced.
+//   * [MarbleConnectPill]       — solid M3 Expressive tonal/status pill with spatial corner
+//                                 morphing, a Clover4Leaf ↔ Flower morphing emblem, and Google's
+//                                 Expressive LoadingIndicator while negotiating the tunnel.
+//   * [MarbleModeMenuChip]      — spring-morphing mode capsule with an Expressive Fan badge.
+//   * [MarbleTrafficSparkline]  — grid-free live throughput canvas inside an asymmetric Expressive
+//                                 container with a morphing series lens pill.
+//   * [MarbleHealthPill]        — Expressive polygon health dot + calm tonal capsule.
+//   * [QuickLogsSheet]          — the live core tail one tap from Home.
+//   * [SmartPresetStrip]        — three Expressive morphing preset capsules with Sunny / Fan /
+//                                 Clover4Leaf polygon badges.
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -55,10 +54,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -80,6 +79,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
@@ -94,21 +94,23 @@ import androidx.compose.ui.unit.sp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.model.ConnectModeChip
 import com.marbleng.app.model.ConnectPillMotion
+import com.marbleng.app.model.LogLevel
 import com.marbleng.app.model.QuickLogLine
 import com.marbleng.app.model.ServerHealth
 import com.marbleng.app.model.SmartPreset
 import com.marbleng.app.model.TrafficSample
 import com.marbleng.app.model.TrafficTimeline
-import com.marbleng.app.model.LogLevel
 import com.marbleng.app.model.matchSmartPreset
 import com.marbleng.app.model.quickLogLines
 import com.marbleng.app.model.sparklineAreaPoints
 import com.marbleng.app.model.sparklinePoints
 import com.marbleng.app.model.trafficPeak
 import com.marbleng.app.model.trafficSeries
-import com.marbleng.app.ui.theme.MarbleCardShape
 import com.marbleng.app.ui.theme.MarbleSheetShape
 import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
+import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
+import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.onSuccess
 import com.marbleng.app.ui.theme.onWarning
 import com.marbleng.app.ui.theme.rememberReducedMotion
@@ -123,11 +125,11 @@ import kotlinx.coroutines.withContext
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The single primary action of the app: a wide pill that squishes on press and grows into its
- * connected shape (taller, wider, flatter corners) when the tunnel is up.
+ * MARBLE_EXPRESSIVE_STUDIO_V252 — the single primary action of the app.
  *
- * There is no second copy of this control anywhere on Home — no orb above it, no slide track
- * under it and no row of deck cards beside it. Changing *how* it connects is the chip below.
+ * Replaces non-Expressive `CircleShape` halos/dots and linear gradients with solid Material 3
+ * Expressive tonal/status fills, spatial-spring corner morphing, a `Clover4Leaf` ↔ `Flower`
+ * morphing emblem, and Google's Expressive `LoadingIndicator` while negotiating the tunnel.
  */
 @Composable
 fun MarbleConnectPill(
@@ -138,19 +140,12 @@ fun MarbleConnectPill(
     subtitle: String,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
-    /**
-     * MARBLE_LIVE_TICKER_V249 — the clock, as its own reading instead of the tail of [subtitle].
-     *
-     * It is a separate parameter because it changes once a second while the rest of the line changes
-     * when the state changes, and one `AnimatedContent` around the whole sentence meant the words
-     * re-flew sixty times a minute. Empty means "no clock on this pill", which is what an
-     * unconnected tunnel shows: a session that has not started has no duration to count.
-     */
     ticker: String = ""
 ) {
     val colors = MaterialTheme.colorScheme
     val haptics = LocalHapticFeedback.current
     val reducedMotion = rememberReducedMotion()
+    val motion = marbleMotion()
     val working = connecting || disconnecting
 
     val tone by animateColorAsState(
@@ -168,75 +163,93 @@ fun MarbleConnectPill(
         else -> colors.onPrimary
     }
 
-    // The squish: a connected pill is 8 dp taller and 20 dp wider (it gives back its side
-    // insets), with a slightly flatter corner. Unconnected it is the classic stadium.
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+
     val height by animateDpAsState(
-        targetValue = if (connected) 88.dp else 76.dp,
-        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        targetValue = if (connected) 88.dp else 78.dp,
+        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
         label = "connectPillHeight"
     )
-    // V242: padding is a layout constraint, not a springy visual. The expressive spatial
-    // spring overshoots 20 -> 0 below zero and crashed every connect/reconnect. Effects
-    // springs do not overshoot; ConnectPillMotion.insetDp is the second line of defence.
+    // V242: Effects springs do not overshoot; ConnectPillMotion.insetDp is the second line of defence.
     val inset by animateDpAsState(
         targetValue = if (connected) 0.dp else ConnectPillMotion.RESTING_INSET_DP.dp,
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "connectPillInset"
     )
     val corner by animateDpAsState(
-        targetValue = if (connected) 28.dp else 38.dp,
-        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        targetValue = when {
+            pressed -> 20.dp
+            connected -> 26.dp
+            working -> 30.dp
+            else -> 38.dp
+        },
+        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
         label = "connectPillCorner"
     )
-
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
         targetValue = if (pressed) MarbleSpec.PRESSED_SCALE else 1f,
         animationSpec = if (reducedMotion) {
             spring(stiffness = Spring.StiffnessHigh)
         } else {
-            spring(dampingRatio = 0.42f, stiffness = Spring.StiffnessMediumLow)
+            spring(dampingRatio = 0.48f, stiffness = Spring.StiffnessMediumLow)
         },
         label = "connectPillPress"
     )
-
-    val shape = RoundedCornerShape(corner)
-    // MARBLE_M3_EXPRESSIVE_V242 — the pill is alive: animateContentSize with a medium-bouncy
-    // spring, a pulsating halo in idle, and a glowing emerald container when connected.
-    // MARBLE_LIVE_TICKER_V249 — the second line is now two things with two tempos: the words
-    // (state, route, protocol) flip with AnimatedContent when the state changes, and the clock is
-    // drawn by MarbleRollingClock, which moves only the digit that moved. An instrument is what
-    // this line is, and an instrument does not re-draw its whole face every second.
-    val haloTransition = rememberInfiniteTransition(label = "connectHalo")
-    val haloScale by haloTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.45f,
-        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 1100)),
-        label = "connectHaloScale"
+    val stateMorph by animateFloatAsState(
+        targetValue = when {
+            connected -> 1f
+            pressed -> 0.55f
+            else -> 0f
+        },
+        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
+        label = "connectPillStateMorph"
     )
+    val emblemSpin by animateFloatAsState(
+        targetValue = when {
+            pressed -> -18f
+            connected -> 45f
+            else -> 0f
+        },
+        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
+        label = "connectPillSpin"
+    )
+
+    val ambientTurn = if (connected && motion.loops) {
+        val transition = rememberInfiniteTransition(label = "connectEmblemIdle")
+        val angle by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 22_000, easing = LinearEasing)
+            ),
+            label = "connectEmblemAngle"
+        )
+        angle
+    } else {
+        0f
+    }
+
+    val shape = RoundedCornerShape(corner.coerceAtLeast(0.dp))
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = ConnectPillMotion.insetDp(inset.value).dp)
-            .height(height)
+            .height(height.coerceAtLeast(64.dp))
             .scale(pressScale)
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(tone, tone.copy(alpha = 0.86f))
-                )
-            )
+            .background(tone)
             .clickable(
                 enabled = !disconnecting,
                 role = Role.Button,
                 interactionSource = interaction,
-                indication = null
+                indication = androidx.compose.foundation.LocalIndication.current
             ) {
                 haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                 onToggle()
             }
-            .padding(horizontal = 24.dp),
+            .padding(horizontal = 20.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -254,30 +267,44 @@ fun MarbleConnectPill(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(if (connected) 48.dp else 44.dp)
-                    .clip(CircleShape)
-                    .background(onTone.copy(alpha = 0.18f)),
-                contentAlignment = Alignment.Center
-            ) {
-                // Idle pulsating halo behind the icon
-                if (!connected && !working && !reducedMotion) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .scale(haloScale)
-                            .clip(CircleShape)
-                            .background(onTone.copy(alpha = 0.10f * (2f - haloScale)))
+            if (working) {
+                Box(
+                    modifier = Modifier
+                        .size(50.dp)
+                        .clip(marbleExpressiveShape(MarbleExpressiveMotif.BURST))
+                        .background(onTone.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    LoadingIndicator(
+                        modifier = Modifier.size(28.dp),
+                        color = onTone
                     )
                 }
-                MarbleGlyphIcon(
-                    glyph = if (connected || connecting) MarbleGlyph.STOP else MarbleGlyph.POWER,
-                    color = onTone,
-                    modifier = Modifier.size(22.dp),
-                    weight = 1.2f
+            } else {
+                val emblemShape = marbleMorphingShape(
+                    from = MarbleExpressiveMotif.CLOVER,
+                    to = MarbleExpressiveMotif.FLOWER,
+                    progress = stateMorph
                 )
+                Box(
+                    modifier = Modifier
+                        .size(if (connected) 52.dp else 48.dp)
+                        .graphicsLayer { rotationZ = emblemSpin + ambientTurn }
+                        .clip(emblemShape)
+                        .background(onTone.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    MarbleGlyphIcon(
+                        glyph = if (connected) MarbleGlyph.STOP else MarbleGlyph.POWER,
+                        color = onTone,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .graphicsLayer { rotationZ = -(emblemSpin + ambientTurn) },
+                        weight = 1.2f
+                    )
+                }
             }
+
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -285,8 +312,8 @@ fun MarbleConnectPill(
                 AnimatedContent(
                     targetState = title,
                     transitionSpec = {
-                        (slideInVertically { height -> height / 2 } + fadeIn()) togetherWith
-                            slideOutVertically { height -> -height / 2 } + fadeOut()
+                        (slideInVertically { h -> h / 2 } + fadeIn()) togetherWith
+                            slideOutVertically { h -> -h / 2 } + fadeOut()
                     },
                     label = "pillTitle"
                 ) { t ->
@@ -303,15 +330,15 @@ fun MarbleConnectPill(
                         targetState = subtitle,
                         modifier = Modifier.weight(1f, fill = false),
                         transitionSpec = {
-                            (slideInVertically { height -> height / 3 } + fadeIn(
+                            (slideInVertically { h -> h / 3 } + fadeIn(
                                 animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-                            )) togetherWith slideOutVertically { height -> -height / 3 } + fadeOut()
+                            )) togetherWith slideOutVertically { h -> -h / 3 } + fadeOut()
                         },
                         label = "pillSubtitle"
                     ) { s ->
                         Text(
                             text = s,
-                            color = onTone.copy(alpha = 0.82f),
+                            color = onTone.copy(alpha = 0.84f),
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -320,7 +347,7 @@ fun MarbleConnectPill(
                     if (ticker.isNotEmpty()) {
                         MarbleRollingClock(
                             clock = ticker,
-                            color = onTone.copy(alpha = 0.9f),
+                            color = onTone.copy(alpha = 0.92f),
                             modifier = Modifier.padding(start = 6.dp),
                             style = MaterialTheme.typography.bodySmall.copy(
                                 fontWeight = FontWeight.SemiBold
@@ -329,16 +356,17 @@ fun MarbleConnectPill(
                     }
                 }
             }
-            if (connected) {
-                MarblePulseDot(color = onTone)
-            } else if (!working) {
-                // Prominent pulsating dot in idle — the one liveness signal before connect
+
+            if (!working) {
                 Box(
                     modifier = Modifier
-                        .size(10.dp)
-                        .scale(if (reducedMotion) 1f else haloScale * 0.78f)
-                        .clip(CircleShape)
-                        .background(onTone.copy(alpha = 0.92f))
+                        .size(16.dp)
+                        .clip(
+                            marbleExpressiveShape(
+                                if (connected) MarbleExpressiveMotif.SUNNY else MarbleExpressiveMotif.DIAMOND
+                            )
+                        )
+                        .background(onTone.copy(alpha = if (connected) 0.92f else 0.78f))
                 )
             }
         }
@@ -346,8 +374,8 @@ fun MarbleConnectPill(
 }
 
 /**
- * The mode chip under the pill. One tap opens a three-item menu; the current mode is the chip
- * label, so the answer to "which mode am I in?" never needs a tap at all.
+ * The mode chip under the pill: morphs its corners when open and wears an Expressive `Fan` badge
+ * instead of a plain circle dot.
  */
 @Composable
 fun MarbleModeMenuChip(
@@ -357,39 +385,61 @@ fun MarbleModeMenuChip(
     enabled: Boolean = true
 ) {
     val colors = MaterialTheme.colorScheme
+    val motion = marbleMotion()
     val haptics = LocalHapticFeedback.current
     var open by remember { mutableStateOf(false) }
+    val chevronTurn by animateFloatAsState(
+        targetValue = if (open) 180f else 0f,
+        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
+        label = "modeChipChevron"
+    )
+    val shape = marbleSelectionMorphShape(
+        selected = open,
+        idleDp = 16.dp,
+        selectedDp = 28.dp
+    )
 
     Box(modifier = modifier) {
         Row(
             modifier = Modifier
-                .clip(CircleShape)
+                .heightIn(min = 48.dp)
+                .clip(shape)
                 .background(colors.surfaceContainerHigh)
                 .clickable(enabled = enabled, role = Role.Button) {
                     haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                     open = true
                 }
-                .padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(colors.primary)
-            )
+                    .size(18.dp)
+                    .clip(marbleExpressiveShape(MarbleExpressiveMotif.FAN))
+                    .background(colors.primary),
+                contentAlignment = Alignment.Center
+            ) {
+                MarbleGlyphIcon(
+                    glyph = MarbleGlyph.TUNNEL,
+                    color = colors.onPrimary,
+                    modifier = Modifier.size(10.dp),
+                    weight = 1.25f
+                )
+            }
             Text(
                 text = trx(selected.label),
                 color = colors.onSurface,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                 maxLines = 1
             )
             MarbleGlyphIcon(
                 glyph = MarbleGlyph.CHEVRON_DOWN,
                 color = colors.onSurfaceVariant,
-                modifier = Modifier.size(12.dp),
-                weight = 1.1f
+                modifier = Modifier
+                    .size(13.dp)
+                    .graphicsLayer { rotationZ = chevronTurn },
+                weight = 1.15f
             )
         }
         DropdownMenu(
@@ -431,7 +481,6 @@ fun MarbleModeMenuChip(
 // Server health
 // ---------------------------------------------------------------------------------------------
 
-/** The colour of one health state — mint, amber, muted grey and the quiet untested grey. */
 @Composable
 fun marbleHealthColor(health: ServerHealth): Color {
     val colors = MaterialTheme.colorScheme
@@ -443,35 +492,28 @@ fun marbleHealthColor(health: ServerHealth): Color {
     }
 }
 
-/** A dot that says the state in one glance, with a soft halo for the live states. */
+/** Expressive polygon health mark (`Flower` good, `Sunny` slow, `Pentagon` dead, `Cookie` idle). */
 @Composable
 fun MarbleHealthDot(
     health: ServerHealth,
     modifier: Modifier = Modifier,
-    size: Dp = 8.dp
+    size: Dp = 10.dp
 ) {
     val tone = marbleHealthColor(health)
+    val motif = when (health) {
+        ServerHealth.GOOD -> MarbleExpressiveMotif.FLOWER
+        ServerHealth.SLOW -> MarbleExpressiveMotif.SUNNY
+        ServerHealth.DEAD -> MarbleExpressiveMotif.PENTAGON
+        ServerHealth.UNTESTED -> MarbleExpressiveMotif.COOKIE
+    }
     Box(
         modifier = modifier
             .size(size)
-            .clip(CircleShape)
-            .background(tone.copy(alpha = if (health == ServerHealth.DEAD) 0.55f else 0.16f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .size(size * 0.52f)
-                .clip(CircleShape)
-                .background(tone)
-        )
-    }
+            .clip(marbleExpressiveShape(motif))
+            .background(tone.copy(alpha = if (health == ServerHealth.DEAD) 0.65f else 0.92f))
+    )
 }
 
-/**
- * Capsule badge for a probe result: dot + value on the card's own surface container.
- * No filled red field, no error container behind the row — a slow server is amber ink on a
- * neutral capsule, which is a reading, not an alarm.
- */
 @Composable
 fun MarbleHealthPill(
     health: ServerHealth,
@@ -482,13 +524,13 @@ fun MarbleHealthPill(
     val tone = marbleHealthColor(health)
     Row(
         modifier = modifier
-            .clip(CircleShape)
-            .background(colors.surfaceContainerHighest.copy(alpha = 0.75f))
+            .clip(RoundedCornerShape(14.dp))
+            .background(colors.surfaceContainerHighest.copy(alpha = 0.78f))
             .padding(start = 8.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        MarbleHealthDot(health = health, size = 8.dp)
+        MarbleHealthDot(health = health, size = 9.dp)
         Text(
             text = text,
             modifier = Modifier.weight(1f, fill = false),
@@ -519,12 +561,8 @@ private enum class TrafficLens(val label: String) {
 private const val TRAFFIC_SAMPLE_MS = 1_000L
 
 /**
- * A live sparkline of tunnel throughput. It samples the repository's rate once a second into
- * a one-minute window, then draws that window against its own peak — so the graph answers
- * "is data moving?" at any link speed.
- *
- * Tap the graph to switch the lens between down+up, down only and up only. The peak and the
- * current rate sit above it as numbers, because the graph is a shape and the numbers are truth.
+ * MARBLE_EXPRESSIVE_STUDIO_V252 — grid-free live throughput sparkline inside an asymmetric
+ * Material 3 Expressive surface with a spring-morphing series lens capsule.
  */
 @Composable
 fun MarbleTrafficSparkline(
@@ -535,6 +573,7 @@ fun MarbleTrafficSparkline(
     height: Dp = 104.dp
 ) {
     val colors = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
     val reducedMotion = rememberReducedMotion()
     val samples = remember { mutableStateListOf<TrafficSample>() }
     var lens by remember { mutableStateOf(TrafficLens.BOTH) }
@@ -559,6 +598,11 @@ fun MarbleTrafficSparkline(
 
     val downTone = colors.primary
     val upTone = colors.tertiary
+    val lensShape = marbleSelectionMorphShape(
+        selected = lens != TrafficLens.BOTH,
+        idleDp = 12.dp,
+        selectedDp = 24.dp
+    )
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -569,12 +613,31 @@ fun MarbleTrafficSparkline(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(
-                    text = trx(lens.label),
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier
+                        .clip(lensShape)
+                        .background(colors.surfaceContainerHigh)
+                        .clickable(role = Role.Button) {
+                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            lens = lens.next()
+                        }
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(marbleExpressiveShape(MarbleExpressiveMotif.SUNNY))
+                            .background(if (lens == TrafficLens.UP) upTone else downTone)
+                    )
+                    Text(
+                        text = trx(lens.label),
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                }
                 Text(
                     text = faDigits(formatRate(peak)) + " " + trx("peak"),
                     color = colors.onSurface,
@@ -589,12 +652,14 @@ fun MarbleTrafficSparkline(
                 SparklineLegend(
                     label = Tr.now.download,
                     value = faDigits(formatRate(snapshot.lastOrNull()?.downBps ?: 0L)),
-                    color = downTone
+                    color = downTone,
+                    motif = MarbleExpressiveMotif.FAN
                 )
                 SparklineLegend(
                     label = Tr.now.upload,
                     value = faDigits(formatRate(snapshot.lastOrNull()?.upBps ?: 0L)),
-                    color = upTone
+                    color = upTone,
+                    motif = MarbleExpressiveMotif.GEM
                 )
             }
         }
@@ -603,9 +668,10 @@ fun MarbleTrafficSparkline(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height)
-                .clip(MarbleCardShape)
-                .background(colors.surfaceContainerLow)
+                .clip(marbleAsymmetricShape(prominent = false, flipped = true))
+                .background(colors.surfaceContainer)
                 .clickable(role = Role.Button) {
+                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                     lens = lens.next()
                 }
                 .semantics {
@@ -616,21 +682,6 @@ fun MarbleTrafficSparkline(
                 val w = size.width
                 val h = size.height
                 if (w <= 0f || h <= 0f) return@Canvas
-
-                // Two quiet grid lines: the peak and the half-height, so the shape has a scale.
-                val gridTone = colors.outlineVariant.copy(alpha = 0.45f)
-                drawLine(
-                    color = gridTone,
-                    start = androidx.compose.ui.geometry.Offset(0f, h * 0.08f),
-                    end = androidx.compose.ui.geometry.Offset(w, h * 0.08f),
-                    strokeWidth = 1f
-                )
-                drawLine(
-                    color = gridTone.copy(alpha = 0.25f),
-                    start = androidx.compose.ui.geometry.Offset(0f, h * 0.54f),
-                    end = androidx.compose.ui.geometry.Offset(w, h * 0.54f),
-                    strokeWidth = 1f
-                )
 
                 val hasLiveData = downSeries.size > 1 || upSeries.size > 1
                 val showDown = lens != TrafficLens.UP
@@ -655,14 +706,13 @@ fun MarbleTrafficSparkline(
                         )
                     }
                 } else {
-                    // MARBLE_M3_EXPRESSIVE_V242 — no flat dead line. When there is nothing to
-                    // measure yet, a faint idle Bézier wave with gradient keeps the card alive
-                    // instead of a vacant box with a straight line in the middle.
                     val idleDown = (0..28).map { i ->
-                        0.46f + 0.14f * kotlin.math.sin(i * 0.52).toFloat() + 0.04f * kotlin.math.cos(i * 0.27).toFloat()
+                        0.46f + 0.14f * kotlin.math.sin(i * 0.52).toFloat() +
+                            0.04f * kotlin.math.cos(i * 0.27).toFloat()
                     }
                     val idleUp = (0..28).map { i ->
-                        0.38f + 0.11f * kotlin.math.cos(i * 0.48).toFloat() + 0.03f * kotlin.math.sin(i * 0.31).toFloat()
+                        0.38f + 0.11f * kotlin.math.cos(i * 0.48).toFloat() +
+                            0.03f * kotlin.math.sin(i * 0.31).toFloat()
                     }
                     if (showDown) {
                         drawSeries(
@@ -704,7 +754,12 @@ fun MarbleTrafficSparkline(
 }
 
 @Composable
-private fun SparklineLegend(label: String, value: String, color: Color) {
+private fun SparklineLegend(
+    label: String,
+    value: String,
+    color: Color,
+    motif: MarbleExpressiveMotif
+) {
     val colors = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
         Row(
@@ -713,8 +768,8 @@ private fun SparklineLegend(label: String, value: String, color: Color) {
         ) {
             Box(
                 modifier = Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
+                    .size(9.dp)
+                    .clip(marbleExpressiveShape(motif))
                     .background(color)
             )
             Text(
@@ -733,10 +788,6 @@ private fun SparklineLegend(label: String, value: String, color: Color) {
     }
 }
 
-/**
- * Draw one normalised series. A DrawScope is not a composable scope, so every colour and
- * every geometry value arrives as a parameter — the same rule the glyph art follows.
- */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSeries(
     values: List<Float>,
     width: Float,
@@ -763,16 +814,10 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSeries(
     drawPath(
         path = linePath,
         color = tone,
-        style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
-    )
-    drawCircle(
-        color = tone,
-        radius = 3.dp.toPx(),
-        center = androidx.compose.ui.geometry.Offset(line.last().first, line.last().second)
+        style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
     )
 }
 
-/** Build a path through the points; [smooth] swaps the straight segments for mid-point cubics. */
 private fun smoothPath(points: List<Pair<Float, Float>>, smooth: Boolean): Path {
     val path = Path()
     if (points.isEmpty()) return path
@@ -803,13 +848,6 @@ private fun smoothPath(points: List<Pair<Float, Float>>, smooth: Boolean): Path 
 // Quick core logs
 // ---------------------------------------------------------------------------------------------
 
-/**
- * The live core tail, in a tall sheet, one tap from wherever the status is shown.
- *
- * It polls the manager's own log file every 1.5 s on the IO dispatcher (never the main
- * thread) and keeps the last [com.marbleng.app.model.DEFAULT_QUICK_LOG_LINES] classified
- * lines. The overlay is deliberately read-only: copy is one tap, editing is Settings' job.
- */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun QuickLogsSheet(
@@ -870,14 +908,14 @@ fun QuickLogsSheet(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                MarblePulseDot(color = colors.success)
+                MarbleHealthDot(health = ServerHealth.GOOD, size = 14.dp)
             }
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 180.dp, max = 420.dp)
-                    .clip(MarbleCardShape)
+                    .clip(marbleAsymmetricShape(prominent = false))
                     .background(colors.surfaceContainerLow)
             ) {
                 when {
@@ -919,11 +957,6 @@ fun QuickLogsSheet(
     }
 }
 
-/**
- * The one-line verdict above the log list. Counts are assembled from translated parts rather
- * than from a translated sentence, because "3 errors · 5 warnings" has two numbers in it and
- * a phrase table cannot carry those.
- */
 @Composable
 private fun logSummaryLabel(lines: List<QuickLogLine>, loaded: Boolean): String {
     if (!loaded) return trx("Reading the core…")
@@ -957,8 +990,9 @@ private fun logLineColor(
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The three named decisions as a chip strip. The active preset is derived from the settings
- * themselves, so a hand-tuned configuration simply shows no chip selected.
+ * Three-up Expressive preset capsules on Home. Each preset wears its own Material 3 Expressive
+ * polygon (`Sunny`, `Fan`, `Clover4Leaf`) and morphs from a soft squircle into a stadium pill when
+ * active.
  */
 @Composable
 fun SmartPresetStrip(
@@ -966,6 +1000,7 @@ fun SmartPresetStrip(
     onOpenAll: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = MaterialTheme.colorScheme
     val selected = matchSmartPreset(repo.settings)
     val haptics = LocalHapticFeedback.current
 
@@ -978,24 +1013,83 @@ fun SmartPresetStrip(
             trailing = {
                 Text(
                     text = trx("All presets"),
-                    color = MaterialTheme.colorScheme.primary,
+                    color = colors.primary,
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                    modifier = Modifier.clickable { onOpenAll() }
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable(role = Role.Button) { onOpenAll() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
         )
-        MarbleChipStrip {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             SmartPreset.ordered.forEach { preset ->
+                val active = preset == selected
                 val appliedLabel = trx(preset.title) + " • " + trx("applied")
-                MarblePillChip(
-                    label = trx(preset.title),
-                    selected = preset == selected,
-                    onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                        repo.updateSettings(preset.apply(repo.settings))
-                        repo.setRuntimeMessage(appliedLabel)
-                    }
+                val motif = when (preset) {
+                    SmartPreset.GAMING -> MarbleExpressiveMotif.SUNNY
+                    SmartPreset.STREAMING -> MarbleExpressiveMotif.FAN
+                    SmartPreset.EXTREME_BYPASS -> MarbleExpressiveMotif.CLOVER
+                }
+                val badgeTint = when (preset) {
+                    SmartPreset.GAMING -> colors.warning
+                    SmartPreset.STREAMING -> colors.primary
+                    SmartPreset.EXTREME_BYPASS -> colors.tertiary
+                }
+                val shape = marbleSelectionMorphShape(
+                    selected = active,
+                    idleDp = 16.dp,
+                    selectedDp = 28.dp
                 )
+                val bg by animateColorAsState(
+                    targetValue = if (active) colors.primaryContainer else colors.surfaceContainerLow,
+                    animationSpec = marbleDefaultEffectsSpec(),
+                    label = "presetStripBg"
+                )
+                val fg = if (active) colors.onPrimaryContainer else colors.onSurface
+
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 52.dp)
+                        .clip(shape)
+                        .background(bg)
+                        .clickable(role = Role.RadioButton) {
+                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                            repo.updateSettings(preset.apply(repo.settings))
+                            repo.setRuntimeMessage(appliedLabel)
+                        }
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(marbleExpressiveShape(motif))
+                            .background(if (active) colors.primary else badgeTint.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MarbleGlyphIcon(
+                            glyph = presetGlyph(preset),
+                            color = if (active) colors.onPrimary else badgeTint,
+                            modifier = Modifier.size(14.dp),
+                            weight = 1.15f
+                        )
+                    }
+                    Text(
+                        text = trx(preset.title),
+                        color = fg,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
@@ -1018,13 +1112,18 @@ fun SmartPresetSheet(
         SmartPreset.ordered.forEach { preset ->
             val selected = preset == active
             val appliedLabel = trx(preset.title) + " • " + trx("applied")
+            val motif = when (preset) {
+                SmartPreset.GAMING -> MarbleExpressiveMotif.SUNNY
+                SmartPreset.STREAMING -> MarbleExpressiveMotif.FAN
+                SmartPreset.EXTREME_BYPASS -> MarbleExpressiveMotif.CLOVER
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(MarbleCardShape)
+                    .clip(marbleSelectionMorphShape(selected = selected, idleDp = 20.dp, selectedDp = 28.dp))
                     .background(
                         if (selected) {
-                            colors.primary.copy(alpha = 0.12f)
+                            colors.primaryContainer
                         } else {
                             colors.surfaceContainerLow
                         }
@@ -1041,15 +1140,23 @@ fun SmartPresetSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    MarbleRowIcon(
-                        glyph = presetGlyph(preset),
-                        tint = if (selected) colors.primary else colors.secondary,
-                        size = 34.dp,
-                        glyphSize = 18.dp
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(marbleExpressiveShape(motif))
+                            .background((if (selected) colors.primary else colors.secondary).copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MarbleGlyphIcon(
+                            glyph = presetGlyph(preset),
+                            color = if (selected) colors.primary else colors.secondary,
+                            modifier = Modifier.size(18.dp),
+                            weight = 1.1f
+                        )
+                    }
                     Text(
                         text = trx(preset.title),
-                        color = colors.onSurface,
+                        color = if (selected) colors.onPrimaryContainer else colors.onSurface,
                         style = MaterialTheme.typography.titleMedium
                     )
                     Spacer(Modifier.weight(1f))
@@ -1064,7 +1171,7 @@ fun SmartPresetSheet(
                 }
                 Text(
                     text = trx(preset.body),
-                    color = colors.onSurfaceVariant,
+                    color = if (selected) colors.onPrimaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
