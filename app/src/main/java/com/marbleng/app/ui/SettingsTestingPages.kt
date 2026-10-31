@@ -50,7 +50,7 @@ fun SettingsPingTestingPage(
     ) {
         item(key = "probe-methods") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Measurement Method"))
+                MarbleSectionHeader(title = trx("How a server is measured"))
                 MarbleCard {
                     val details = mapOf(
                         ProbeMethod.REAL_DELAY to (trx("Real HTTPS Delay") to trx("Opens an HTTPS request through the tunnel and measures browser-like latency")),
@@ -81,7 +81,7 @@ fun SettingsPingTestingPage(
 
         item(key = "probe-url-and-budgets") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MarbleSectionHeader(title = trx("Test Endpoint & Budgets"))
+                MarbleSectionHeader(title = trx("Test endpoint and budget"))
                 MarbleChipStrip {
                     listOf(
                         "Google 204" to DelayTest.URL,
@@ -188,7 +188,7 @@ fun SettingsPingTestingPage(
 
         item(key = "home-ping-action") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Home ping button"))
+                MarbleSectionHeader(title = trx("What the Home ping button does"))
                 MarbleCard {
                     listOf(
                         HomePingAction.ROUTE to trx("Test Active / Selected Server"),
@@ -206,7 +206,8 @@ fun SettingsPingTestingPage(
                                 repo.updateSettings(
                                     s.copy(
                                         homePingGaugeAction = action.id,
-                                        homePingHeaderAction = action.id
+                                        homePingHeaderAction = action.id,
+                                        homePingChipAction = action.id
                                     )
                                 )
                             }
@@ -265,7 +266,7 @@ fun SettingsAutoSelectorPage(
         if (strategy == AutoServerStrategy.CUSTOM) {
             item(key = "auto-custom-weights") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MarbleSectionHeader(title = trx("Custom Signal Weights"))
+                    MarbleSectionHeader(title = trx("What the pick weighs"))
                     MarbleCard {
                         MarbleNumberStepperRow(
                             title = trx("Latency Weight"),
@@ -313,7 +314,7 @@ fun SettingsAutoSelectorPage(
 
         item(key = "auto-triggers") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Pool & Triggers"))
+                MarbleSectionHeader(title = trx("When it switches"))
                 MarbleSegmentedControl(
                     options = listOf(
                         AutoServerScope.SOURCE to trx("Current Source"),
@@ -363,7 +364,7 @@ fun SettingsAutoSelectorPage(
 
         item(key = "auto-preview") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MarbleSectionHeader(title = trx("Current Recommendation"))
+                MarbleSectionHeader(title = trx("What it would pick now"))
                 MarbleCard {
                     MarbleListItem(
                         title = preview.profile?.let { cleanServerName(it.name) } ?: trx("Measure servers first"),
@@ -445,10 +446,10 @@ fun SettingsIdentityLocationPage(
 
         item(key = "location-intel") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Exit Intelligence & Country Flags"))
+                MarbleSectionHeader(title = trx("What the app knows about each server"))
                 MarbleCard {
                     MarbleSwitchRow(
-                        title = trx("Public Exit IP Intelligence"),
+                        title = trx("Look up the exit address after connecting"),
                         subtitle = trx("Resolve exit IP, country, ISP and ASN after connecting"),
                         checked = s.serverIntelEnabled,
                         glyph = MarbleGlyph.GLOBE,
@@ -457,7 +458,7 @@ fun SettingsIdentityLocationPage(
                     )
                     MarbleDivider()
                     MarbleSwitchRow(
-                        title = trx("Auto-Detect Server Countries"),
+                        title = trx("Find each server's country"),
                         subtitle = "$knownCount / $totalCount ${trx("servers resolved")}",
                         checked = s.serverLocationAutoDetect,
                         glyph = MarbleGlyph.RADAR,

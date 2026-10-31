@@ -49,6 +49,7 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A Servers page that starts with servers** — one search line and one filter sheet instead of four chip rows, a compact "active route" strip, one overflow per section, 68dp rows with a four-level ping, delete by swipe with undo.
 - **A Servers page that is an atlas** — a sources rail that makes a subscription one tap away (with its plan bar and its measured flag cluster), a flag tile on every server drawn from the app's own vector art and filled by the automatic location sweep, one Add pill instead of two buttons, and a sources sheet that owns refresh, scan and edit.
 - **A twelve-expert network council in Settings** — one scan reads the link, the operator, ping, TCP, UDP, DNS, ports, MTU and both address families, then applies the settings it can defend on both cores — with a dissent line for every seat that lost the argument.
+- **A routing page that shows the decision, not the storage** — four modes in one sentence each, written through a single seam that keeps the mode and the rule-list switch describing the same policy; one card that names every layer actually emitting rules (ads, home ranges, Iranian addresses and sites, precision, expert lists, your own rules) with the count it contributes; rule rows that can be paused, moved and copied; duplicate and `regexp:` warnings that used to be silent; and the five expert lists that no screen ever offered, moved behind one Expert settings row.
 - **A crystal liquid-lens navigation bar** — a 68dp frosted stadium with a 52dp glass lens: 22dp glyphs and 11sp labels at rest, a 1.30× bold projection inside the lens, a translucent 0.12 white core, a dual specular rim, a caustic inner glow and a droplet shadow, all drawn — never blurred.
 - **A dual pass that cannot ghost** — the passive row is clipped *out* of the lens oval (even-odd) and the magnified projection is clipped *into* it, so the glass never shows two glyphs at two scales. The lens is dragged with a `VelocityTracker`, stretches `1 + min(|v|/3000, 0.25)`, squashes `1 − min(|v|/6000, 0.12)`, snaps to the nearest anchor at `dampingRatio 0.65`, and its centre obeys `paddingStart + lensWidth/2 … width − paddingEnd − lensWidth/2` in every path.
 - **Settings that speak plainly** — 71 titles and sentences rewritten from mechanism to meaning (`Tunnel Datapath` → `Tunnel path`, `Geo direct domestic separation` → `Iranian sites stay direct`, `Network Council Scanner` → `Network check`), constants no longer printed where words belong (`1.1.1.1 · FORCE_IPV4` → `1.1.1.1 · IPv4 only`), with a test that forbids the jargon and a Persian voice for every one of them.
@@ -61,7 +62,11 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-`docs/IP_PASSPORT_SETTINGS_POSITION_V253.md` is the newest chapter: the IP tab as a passport page
+`docs/ROUTING_REBUILD_V254.md` is the newest chapter: the routing page rebuilt from the outcome
+backwards (one mode seam, one visible layer list, rules that can be paused and moved, expert lists
+behind one row), the DNS, per-app and blocking pages read against the same rule, and the dead ends
+removed.
+`docs/IP_PASSPORT_SETTINGS_POSITION_V253.md` is the chapter before it: the IP tab as a passport page
 (flag, the facts a leak-check site shows, one privacy verdict), Settings that remember the section
 and scroll you left, a re-ordered seven-hub taxonomy, the Servers page's RTL and reset fixes, and
 the quiet default — text ships at its smallest rung.

@@ -52,7 +52,7 @@ fun SettingsSmartJitterPage(
     ) {
         item(key = "live") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Live route quality"))
+                MarbleSectionHeader(title = trx("How the route feels right now"))
                 MarbleCard {
                     Column(
                         modifier = Modifier
@@ -76,19 +76,19 @@ fun SettingsSmartJitterPage(
                         ) {
                             LiveStat(
                                 label = trx("Jitter"),
-                                value = if (live.samples > 0) "${live.jitterMs.toInt()} ms" else "—"
+                                value = if (live.samples > 0) faDigits("${live.jitterMs.toInt()}") + " " + trx("ms") else "—"
                             )
                             LiveStat(
                                 label = trx("Mean RTT"),
-                                value = if (live.samples > 0) "${live.rttMeanMs.toInt()} ms" else "—"
+                                value = if (live.samples > 0) faDigits("${live.rttMeanMs.toInt()}") + " " + trx("ms") else "—"
                             )
                             LiveStat(
                                 label = trx("Loss"),
-                                value = if (live.samples > 0) "${live.lossPercent.toInt()} %" else "—"
+                                value = if (live.samples > 0) faDigits("${live.lossPercent.toInt()}") + " ٪" else "—"
                             )
                             LiveStat(
                                 label = trx("Score"),
-                                value = live.currentScore?.let { "${it.toInt()}" } ?: "—"
+                                value = live.currentScore?.let { faDigits("${it.toInt()}") } ?: "—"
                             )
                         }
                         if (live.series.size >= 2) {
@@ -100,8 +100,8 @@ fun SettingsSmartJitterPage(
                             )
                         }
                         Text(
-                            text = "${trx("Samples")}: ${live.validSamples} • " +
-                                "${trx("Calm streak")}: ${live.calmStreak}" +
+                            text = "${trx("Samples")}: ${faDigits("${live.validSamples}")} • " +
+                                "${trx("Calm streak")}: ${faDigits("${live.calmStreak}")}" +
                                 if (live.powerMultiplier > 1.0) {
                                     " • ${trx("Power saving: probing less")}"
                                 } else {
@@ -117,7 +117,7 @@ fun SettingsSmartJitterPage(
 
         item(key = "switch-log") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Switch log"))
+                MarbleSectionHeader(title = trx("What changed lately"))
                 MarbleCard {
                     if (live.switchLog.isEmpty()) {
                         Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
@@ -154,7 +154,7 @@ fun SettingsSmartJitterPage(
 
         item(key = "mode") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Mode"))
+                MarbleSectionHeader(title = trx("How hard it should try"))
                 MarbleCard {
                     val modes = listOf(
                         Triple(JitterSmartMode.OFF, trx("Off"), trx("No probe, no switch, no lock")),
@@ -193,7 +193,7 @@ fun SettingsSmartJitterPage(
 
         item(key = "probe") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Probe budget"))
+                MarbleSectionHeader(title = trx("How often it checks"))
                 MarbleCard {
                     Column(
                         modifier = Modifier
@@ -252,7 +252,7 @@ fun SettingsSmartJitterPage(
 
         item(key = "rails") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Switch guard rails"))
+                MarbleSectionHeader(title = trx("When it may switch"))
                 MarbleCard {
                     MarbleNumberStepperRow(
                         title = trx("Minimum improvement"),
@@ -287,12 +287,12 @@ fun SettingsSmartJitterPage(
 
         item(key = "tuner") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Auto-Tuner (experimental)"))
+                MarbleSectionHeader(title = trx("Packet size tuner"))
                 MarbleCard {
                     MarbleSwitchRow(
-                        title = trx("MTU Auto-Tuner"),
+                        title = trx("Let the app settle on a packet size"),
                         subtitle = trx(
-                            "Off by default. When on, a confirmed recommendation can be applied to the profile and is reversible."
+                            "Off by default. When on, a confirmed size can be written into the profile, and turning it off puts the old one back."
                         ),
                         checked = s.jitterAutoTunerEnabled,
                         glyph = MarbleGlyph.TUNERS,
@@ -311,7 +311,7 @@ fun SettingsSmartJitterPage(
                         ) {
                             Text(
                                 text = if (s.jitterTunerMtu in JitterAutoTuner.MTU_MIN..JitterAutoTuner.MTU_MAX) {
-                                    trx("Applied MTU override") + ": ${s.jitterTunerMtu}"
+                                    trx("Applied packet size") + ": " + faDigits("${s.jitterTunerMtu}")
                                 } else {
                                     trx("No MTU override applied — the adaptive policy decides")
                                 },

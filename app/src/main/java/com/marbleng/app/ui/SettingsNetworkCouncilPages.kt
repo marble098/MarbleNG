@@ -157,7 +157,7 @@ fun SettingsNetworkCouncilPage(
                             )
                             if (plan != null && plan.changes.isNotEmpty() && !running) {
                                 MarbleButton(
-                                    label = "${trx("Apply")} ${plan.changes.size}",
+                                    label = "${trx("Apply")} ${faDigits("${plan.changes.size}")}",
                                     glyph = MarbleGlyph.CHECK,
                                     style = MarbleButtonStyle.TINTED,
                                     onClick = { repo.applyNetworkCouncilPlan() },
@@ -184,7 +184,7 @@ fun SettingsNetworkCouncilPage(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(
                     title = trx("The twelve checks"),
-                    badge = if (plan == null) "" else "${plan.findings.size}",
+                    badge = if (plan == null) "" else faDigits("${plan.findings.size}"),
                     badgeColor = colors.secondary
                 )
                 MarbleCard {
@@ -210,7 +210,7 @@ fun SettingsNetworkCouncilPage(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     MarbleSectionHeader(
                         title = trx("What it would change"),
-                        badge = "${plan.changes.size}",
+                        badge = faDigits("${plan.changes.size}"),
                         badgeColor = colors.success
                     )
                     if (plan.changes.isEmpty()) {
@@ -382,7 +382,7 @@ fun SettingsNetworkCouncilPage(
                                     "${(evidence.path.mtuConfidence * 100).roundToInt()}% confidence"
                             } else {
                                 trx("Not measured") + " · " +
-                                    trx("link") + " ${evidence.radio.interfaceMtu}"
+                                    trx("link") + " " + faDigits("${evidence.radio.interfaceMtu}")
                             }
                         )
                         MarbleDivider()
@@ -479,7 +479,7 @@ fun SettingsNetworkCouncilPage(
                             label = report.operatorName.ifBlank {
                                 report.networkType.ifBlank { report.transport.label }
                             },
-                            value = "${report.score} ${report.grade} · ${report.changes.size} " + trx("changes")
+                            value = faDigits("${report.score}") + " " + report.grade + " · " + faDigits("${report.changes.size}") + " " + trx("changes")
                         )
                     }
                 }
@@ -490,7 +490,7 @@ fun SettingsNetworkCouncilPage(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleCard {
                     MarbleSwitchRow(
-                        title = trx("Apply the verdict automatically"),
+                        title = trx("Apply what the check suggests, without asking"),
                         subtitle = trx(
                             "Off: the council still scans and explains, but every change waits for your tap."
                         ),
@@ -499,19 +499,24 @@ fun SettingsNetworkCouncilPage(
                         iconTint = colors.tertiary,
                         onCheckedChange = { repo.updateCouncilAutoApply(it) }
                     )
-                    MarbleDivider()
-                    MarbleSwitchRow(
-                        title = trx("Clear the last result"),
-                        subtitle = repo.councilReport?.let { saved ->
-                            listOf(saved.summary, repo.councilScanAgeLabel())
+                    val saved = repo.councilReport
+                    if (saved != null) {
+                        MarbleDivider()
+                        // MARBLE_ROUTING_REBUILD_V254 — this was a switch whose only state was
+                        // "off": flicking it cleared the report and it snapped straight back. A row
+                        // with a button says what it does and stays honest.
+                        MarbleListItem(
+                            title = trx("Forget the last result"),
+                            subtitle = listOf(saved.summary, repo.councilScanAgeLabel())
                                 .filter { it.isNotBlank() }
-                                .joinToString(" · ")
-                        } ?: trx("Nothing saved yet"),
-                        checked = false,
-                        glyph = MarbleGlyph.TRASH,
-                        iconTint = colors.onSurfaceVariant,
-                        onCheckedChange = { if (it) repo.clearNetworkCouncilReport() }
-                    )
+                                .joinToString(" · "),
+                            glyph = MarbleGlyph.TRASH,
+                            iconTint = colors.onSurfaceVariant,
+                            showChevron = false,
+                            value = trx("Forget"),
+                            onClick = { repo.clearNetworkCouncilReport() }
+                        )
+                    }
                 }
             }
         }

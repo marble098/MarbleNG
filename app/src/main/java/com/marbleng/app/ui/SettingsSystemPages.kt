@@ -253,7 +253,7 @@ fun SettingsNotificationsPage(
         item(key = "permissions-status") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(
-                    title = trx("System Permissions"),
+                    title = trx("Permissions"),
                     badge = permissionBadge,
                     badgeColor = permissionTint
                 )
@@ -503,7 +503,7 @@ fun SettingsNotificationsPage(
                 )
                 MarbleCard {
                     MarbleSwitchRow(
-                        title = trx("Live Telemetry in Ongoing Notification"),
+                        title = trx("Live ping in the notification"),
                         subtitle = trx("Show real-time ping and throughput in the status bar notification"),
                         checked = s.notificationLiveStats,
                         glyph = MarbleGlyph.GAUGE,

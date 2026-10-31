@@ -356,7 +356,7 @@ fun SettingsLanguageAndFontPage(
                         MarbleChipStrip {
                             TextScale.STEPS.forEach { preset ->
                                 MarblePillChip(
-                                    label = "$preset%",
+                                    label = faDigits("$preset%"),
                                     selected = scale == preset,
                                     onClick = { repo.updateSettings(s.copy(textScalePercent = preset)) }
                                 )
