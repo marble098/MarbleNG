@@ -190,7 +190,6 @@ fun ServersScreen(
     var openGroupMenu by remember { mutableStateOf("") }
     var selection by remember { mutableStateOf(emptySet<String>()) }
     var pendingRemoval by remember { mutableStateOf<PendingServerRemoval?>(null) }
-    var sortMenuOpen by remember { mutableStateOf(false) }
     var librarySheetOpen by remember { mutableStateOf(false) }
 
     BackHandler(enabled = selection.isNotEmpty()) { selection = emptySet() }
@@ -346,7 +345,7 @@ fun ServersScreen(
             },
             modifier = Modifier
                 .fillMaxSize()
-                .background(colors.surface)
+                // MARBLE_EXPRESSIVE_PAGES_V251 — the shell's ambient light is this page's ground.
                 .statusBarsPadding()
         ) {
             LazyColumn(
@@ -431,78 +430,26 @@ fun ServersScreen(
                             placeholder = strings.searchServersHint,
                             modifier = Modifier.weight(1f)
                         )
-                        Box {
-                            MarbleIconButton(
-                                glyph = MarbleGlyph.TUNERS,
-                                tint = if (
-                                    settings.nodeSortMode != NodeSortMode.DEFAULT ||
-                                    settings.nodeSortReverse
-                                ) {
-                                    colors.primary
+                        // MARBLE_IP_IDENTITY_V251 — this slot used to hold a sort menu. It answered
+                        // the same question the filter sheet one tap to its right answers, from a
+                        // narrower list, and two controls that do one job make the reader choose
+                        // between them. Sorting stays where it was complete (the sheet, section
+                        // "Sort Order"); the vacancy is a measurement instead: one tap ranks the
+                        // library and connects to the route that wins.
+                        MarbleButton(
+                            label = if (repo.probeActive) trx("Stop") else trx("Fastest"),
+                            glyph = if (repo.probeActive) MarbleGlyph.STOP else MarbleGlyph.SPARK,
+                            style = MarbleButtonStyle.TONAL,
+                            compact = true,
+                            enabled = !repo.busy,
+                            onClick = {
+                                if (repo.probeActive || repo.probeCancelling) {
+                                    repo.cancelProbes()
                                 } else {
-                                    colors.onSurfaceVariant
-                                },
-                                contentDescription = trx("Sort"),
-                                onClick = { sortMenuOpen = true }
-                            )
-                            DropdownMenu(
-                                expanded = sortMenuOpen,
-                                onDismissRequest = { sortMenuOpen = false },
-                                containerColor = colors.surfaceContainerHigh
-                            ) {
-                                serverSortChoices().forEach { (mode, label) ->
-                                    val chosen = settings.nodeSortMode == mode
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = label,
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                        },
-                                        leadingIcon = {
-                                            MarbleGlyphIcon(
-                                                glyph = if (chosen) MarbleGlyph.CHECK else MarbleGlyph.FILTER,
-                                                color = if (chosen) colors.primary else colors.onSurfaceVariant,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        },
-                                        onClick = {
-                                            repo.updateSettings(settings.copy(nodeSortMode = mode))
-                                            sortMenuOpen = false
-                                        }
-                                    )
+                                    repo.smart { best -> onConnect(best) }
                                 }
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = trx("Reverse sort direction"),
-                                            style = MaterialTheme.typography.bodyMedium
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        MarbleGlyphIcon(
-                                            glyph = if (settings.nodeSortReverse) {
-                                                MarbleGlyph.CHECK
-                                            } else {
-                                                MarbleGlyph.TUNERS
-                                            },
-                                            color = if (settings.nodeSortReverse) {
-                                                colors.primary
-                                            } else {
-                                                colors.onSurfaceVariant
-                                            },
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    },
-                                    onClick = {
-                                        repo.updateSettings(
-                                            settings.copy(nodeSortReverse = !settings.nodeSortReverse)
-                                        )
-                                        sortMenuOpen = false
-                                    }
-                                )
                             }
-                        }
+                        )
                         MarbleIconButton(
                             glyph = MarbleGlyph.FILTER,
                             tint = if (filterChips.isNotEmpty()) colors.primary else colors.onSurfaceVariant,

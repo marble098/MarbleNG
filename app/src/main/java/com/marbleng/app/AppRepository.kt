@@ -406,6 +406,17 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     var serverIntelError by mutableStateOf(""); private set
     private val serverIntelGeneration = AtomicLong(0L)
 
+    // MARBLE_IP_IDENTITY_V251 — the fourth tab is an IP page, and it is opened in every state:
+    // connected, connecting, or bare. Its report therefore cannot depend on a live tunnel the way
+    // `serverIntel` does, so it is assembled here from three planes — the device's own interfaces,
+    // the public address the exit shows, and a reachability witness for each family — and it is
+    // kept after a disconnect instead of being cleared with the tunnel.
+    var ipStackReport by mutableStateOf<IpStackReport?>(null); private set
+    var ipStackScanning by mutableStateOf(false); private set
+    var ipStackError by mutableStateOf(""); private set
+    private val ipStackGeneration = AtomicLong(0L)
+    private val ipStackInFlight = AtomicBoolean(false)
+
     val serverLocations: MutableMap<String, ServerCountry> = initialServerLocations()
     var serverLocationScanning by mutableStateOf(false); private set
     private val locationInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -1187,6 +1198,293 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     fun geoGateReason(): String {
         val status = runCatching { xray.routingAssetStatus() }.getOrNull() ?: return ""
         return RoutingEngine.geoDowngradeReason(settings, status.geoIpReady, status.geoSiteReady)
+    }
+
+    /**
+     * MARBLE_IP_IDENTITY_V251 — one sweep of every address this phone can see.
+     *
+     * It runs in four bounded stages, and each one may fail without taking the report with it:
+     *
+     * 1. **the device** — every address on every live interface, classified by its own bytes, with
+     *    the tunnel interfaces (`tun`, `utun`, `ppp`, `wg`, `clat`) marked as lent rather than owned;
+     * 2. **the exit** — the public address as the internet sees it. When a healthy core is up the
+     *    probe goes *through* the tunnel (`SocksHttpClient`, port 10808/ the local proxy port), so
+     *    the answer is the exit identity; when there is no tunnel the same probe goes direct, so the
+     *    page still has an answer;
+     * 3. **the metadata** — country, city and ASN for the two addresses, from the same public
+     *    endpoint the home page already trusts (`ipwho.is`), never more than once per address;
+     * 4. **the witnesses** — one TCP connect per family to a well-known literal, timed. The result
+     *    distinguishes "the interface advertises IPv6" from "IPv6 actually answers", which is the
+     *    difference that matters on the networks this app is built for.
+     *
+     * Nothing here is cached across a forced refresh, and the cheap path (a bare device with no
+     * tunnel) still finishes well inside the page's own spinner budget.
+     */
+    fun refreshIpStack(force: Boolean = false) {
+        val cached = ipStackReport
+        if (!force && cached != null && System.currentTimeMillis() - cached.capturedAtMs < IP_STACK_TTL_MS) {
+            return
+        }
+        if (!ipStackInFlight.compareAndSet(false, true)) return
+        val generation = ipStackGeneration.incrementAndGet()
+        postToMain {
+            ipStackScanning = true
+            ipStackError = ""
+        }
+
+        io.execute {
+            var report: IpStackReport? = null
+            try {
+                val device = captureIpDevicePlane()
+                val tunnelUp = state == "CONNECTED" && if (activeCoreEngine == CoreEngine.SINGBOX) {
+                    singBox.isAlive
+                } else {
+                    xray.isAlive
+                }
+                val probe = probeIpExit(tunnelUp)
+                val witnesses = probeIpReachability()
+                val exit = probe.first
+                val direct = probe.second
+                val enriched = enrichIpEgress(
+            listOfNotNull(exit, direct).distinctBy { "${it.viaTunnel}|${it.address}" }
+        )
+
+                val built = IpStackReport(
+                    capturedAtMs = System.currentTimeMillis(),
+                    transport = device.transport,
+                    metered = device.metered,
+                    validated = device.validated,
+                    mtu = device.mtu,
+                    addresses = device.addresses,
+                    dnsServers = device.dnsServers,
+                    reachability = witnesses,
+                    egress = enriched,
+                    tunnelActive = tunnelUp,
+                    note = probe.third
+                )
+                report = built
+                postToMain {
+                    if (ipStackGeneration.get() == generation) {
+                        ipStackReport = built
+                        ipStackError = ""
+                    }
+                }
+                diagnostics.event(
+                    "IP_STACK",
+                    "sweep-ready",
+                    "tunnel" to tunnelUp,
+                    "v4" to built.hasIpv4,
+                    "v6" to built.hasIpv6,
+                    "witnesses" to witnesses.count { it.ok }
+                )
+            } catch (t: Throwable) {
+                val fallback = ipStackReport
+                postToMain {
+                    if (ipStackGeneration.get() == generation) {
+                        ipStackError = "Could not finish the address sweep · showing the last complete answer"
+                        if (fallback == null) ipStackReport = null
+                    }
+                }
+                diagnostics.event("IP_STACK", "sweep-failed", "type" to t::class.java.simpleName)
+            } finally {
+                postToMain {
+                    if (ipStackGeneration.get() == generation) ipStackScanning = false
+                    ipStackInFlight.set(false)
+                }
+            }
+        }
+    }
+
+    /** Stage 1: the device's own interfaces, read straight off the kernel's table. */
+    private fun captureIpDevicePlane(): IpDeviceSnapshot {
+        val entries = mutableListOf<IpAddressEntry>()
+        runCatching {
+            java.net.NetworkInterface.getNetworkInterfaces()?.asSequence()
+                ?.filter { it.isUp && !it.isVirtual }
+                ?.forEach { network ->
+                    val name = network.name.orEmpty()
+                    val tunnel = IpAddressBook.isTunnelInterface(name)
+                    network.interfaceAddresses.forEach { iface ->
+                        val address = iface.address ?: return@forEach
+                        val literal = address.hostAddress?.substringBefore('%')?.trim().orEmpty()
+                        if (literal.isBlank()) return@forEach
+                        entries.add(
+                            IpAddressEntry(
+                                address = literal,
+                                prefixLength = iface.networkPrefixLength.toInt(),
+                                kind = IpAddressBook.kindOf(literal),
+                                scope = IpAddressBook.scopeOf(literal),
+                                interfaceName = name,
+                                tunnel = tunnel
+                            )
+                        )
+                    }
+                }
+        }
+        val unique = entries
+            .distinctBy { "${it.interfaceName}|${it.address}" }
+            .let { IpAddressBook.ordered(it) }
+
+        val snapshot = runCatching { intelligence.currentSnapshot() }.getOrNull()
+        val link = runCatching {
+            val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
+            val active = connectivity?.activeNetwork
+            connectivity?.getLinkProperties(active)
+        }.getOrNull()
+
+        val dns = runCatching {
+            link?.dnsServers.orEmpty().mapNotNull { it?.hostAddress?.substringBefore('%') }
+        }.getOrDefault(emptyList())
+
+        val wifi = snapshot?.transport?.equals("wifi", ignoreCase = true) == true
+
+        return IpDeviceSnapshot(
+            addresses = unique,
+            dnsServers = dns,
+            transport = snapshot?.transport.orEmpty().ifBlank {
+                when {
+                    link == null -> ""
+                    wifi -> "wifi"
+                    else -> "mobile"
+                }
+            },
+            metered = snapshot?.metered ?: false,
+            validated = snapshot?.validated ?: false,
+            mtu = snapshot?.mtu ?: (runCatching { link?.mtu }.getOrNull() ?: 0),
+            tunnelActive = unique.any { it.tunnel }
+        )
+    }
+
+    /**
+     * Stage 2: the public address, twice. `first` is the exit the app is using (through the tunnel
+     * when one is healthy, direct otherwise); `second` is the direct observation, and it is asked
+     * for **only** when a tunnel is up, because that is the only case in which a second, different
+     * answer can prove the real address is being replaced. `third` carries the sentence the page
+     * shows when an observation failed.
+     *
+     * MARBLE_IP_IDENTITY_V251 — the dialing itself lives in [IpEchoProbe]; this function only
+     * decides *which planes to ask*, which is the part that depends on the app's state.
+     */
+    private fun probeIpExit(tunnelUp: Boolean): Triple<IpEgress?, IpEgress?, String> {
+        val userAgent = "MarbleNG/${BuildConfig.VERSION_NAME}"
+        val exitPlane = runCatching {
+            IpEchoProbe.observe(
+                port = if (tunnelUp) activeProxyPort() else 0,
+                viaTunnel = tunnelUp,
+                userAgent = userAgent
+            )
+        }.getOrDefault(emptyList())
+
+        val exit = exitPlane.firstOrNull { it.family == IpKind.IPV4 } ?: exitPlane.firstOrNull()
+        val direct = if (tunnelUp) {
+            runCatching {
+                IpEchoProbe.observe(port = 0, viaTunnel = false, userAgent = userAgent)
+                    .firstOrNull { it.family == IpKind.IPV4 }
+            }.getOrNull()
+        } else {
+            exit
+        }
+
+        val note = when {
+            exit == null && direct == null -> "The public address service could not be reached"
+            exit == null -> "The tunnel did not answer the address question"
+            else -> ""
+        }
+        // A v6 question the tunnel never answered is normal on a v4-only exit; a v6 answer that
+        // differs from the v4 one is the interesting case, and it stays on its own line.
+        return Triple(exit, direct, note)
+    }
+
+    /**
+     * Stage 3: country, city and ASN for the observed addresses. The same public endpoint the home
+     * page already uses, asked once per distinct address, and every field is optional: a rate limit
+     * costs the page a line of metadata, never the address it just measured.
+     */
+    private fun enrichIpEgress(observations: List<IpEgress>): List<IpEgress> {
+        val cache = mutableMapOf<String, IpEgress>()
+        return observations.map { observation ->
+            if (observation.address.isBlank()) return@map observation
+            cache[observation.address]?.let { known -> return@map observation.copy(
+                country = known.country,
+                countryCode = known.countryCode,
+                city = known.city,
+                asn = known.asn,
+                organization = known.organization
+            ) }
+            val enriched = runCatching { lookupIpMetadata(observation) }.getOrDefault(observation)
+            cache[observation.address] = enriched
+            enriched
+        }
+    }
+
+    private fun lookupIpMetadata(observation: IpEgress): IpEgress {
+        val encoded = java.net.URLEncoder.encode(observation.address, Charsets.UTF_8.name())
+        val fields = "success,country,country_code,region,city,connection"
+        val connection = (URL("https://ipwho.is/$encoded?fields=$fields").openConnection() as HttpURLConnection)
+            .apply {
+                requestMethod = "GET"
+                connectTimeout = 4_000
+                readTimeout = 5_000
+                instanceFollowRedirects = true
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "MarbleNG/${BuildConfig.VERSION_NAME}")
+            }
+        return try {
+            if (connection.responseCode !in 200..299) return observation
+            val payload = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val json = JSONObject(payload)
+            if (!json.optBoolean("success", false)) return observation
+            val network = json.optJSONObject("connection")
+            val asnNumber = network?.optLong("asn") ?: 0L
+            observation.copy(
+                country = json.optString("country"),
+                countryCode = json.optString("country_code"),
+                city = json.optString("city"),
+                asn = asnNumber.takeIf { it > 0L }?.let { "AS$it" }.orEmpty(),
+                organization = network?.optString("org").orEmpty().ifBlank {
+                    network?.optString("isp").orEmpty()
+                }
+            )
+        } catch (t: Throwable) {
+            observation
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /**
+     * Stage 4: the witnesses. A TCP connect to a well-known literal, once per target, timed with the
+     * monotonic clock.
+     *
+     * The socket is deliberately a bare one: this app excludes itself from its own VPN, so a plain
+     * connect from inside the process measures the *physical* network — which is exactly the
+     * question "does this network carry IPv6", independent of what the tunnel does with it.
+     */
+    private fun probeIpReachability(): List<IpReachability> {
+        val targets = listOf(
+            Triple("Cloudflare", "1.1.1.1", IpKind.IPV4),
+            Triple("Google", "8.8.8.8", IpKind.IPV4),
+            Triple("Cloudflare", "2606:4700:4700::1111", IpKind.IPV6),
+            Triple("Google", "2001:4860:4860::8888", IpKind.IPV6)
+        )
+        return targets.map { (label, target, kind) ->
+            val started = SystemClock.elapsedRealtime()
+            val ok = runCatching {
+                java.net.Socket().use { socket ->
+                    socket.connect(java.net.InetSocketAddress(target, 443), IP_PROBE_TIMEOUT_MS)
+                    true
+                }
+            }.getOrDefault(false)
+            val elapsed = (SystemClock.elapsedRealtime() - started).toInt()
+            IpReachability(
+                label = label,
+                target = target,
+                kind = kind,
+                ok = ok,
+                latencyMs = if (ok) elapsed else -1,
+                detail = if (ok) "" else "no answer within ${IP_PROBE_TIMEOUT_MS} ms"
+            )
+        }
     }
 
     fun refreshServerIntel(targetProfile: ProxyProfile? = null, force: Boolean = false) {
@@ -5476,6 +5774,14 @@ private fun postToMain(block: () -> Unit) {
     }
 
     private companion object {
+        /**
+         * MARBLE_IP_IDENTITY_V251 — the IP page's own refresh window and witness budget. Short
+         * enough that a network change is noticed, long enough that tapping the tab twice is not
+         * two sweeps.
+         */
+        const val IP_STACK_TTL_MS: Long = 45_000L
+        const val IP_PROBE_TIMEOUT_MS: Int = 2_500
+
         /** MARBLE_SMART_JITTER_V238 — the reducer's candidate and handoff budgets. */
         const val MAX_JITTER_CANDIDATES = 8
 

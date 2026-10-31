@@ -5,113 +5,14 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.AppUpdateInfo
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
-
-@Composable
-fun ExitIpDetailsSheet(
-    repo: AppRepository,
-    onDismiss: () -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val strings = Tr.now
-    val clipboard = LocalClipboardManager.current
-    val intel = repo.serverIntel
-
-    MarbleBottomSheet(
-        title = strings.ipAddress,
-        subtitle = trx("Public exit identity & ASN intelligence"),
-        onDismiss = onDismiss
-    ) {
-        if (intel == null) {
-            MarbleCard {
-                MarbleListItem(
-                    title = if (repo.serverIntelLoading) strings.resolving else strings.unavailable,
-                    subtitle = repo.serverIntelError.ifBlank {
-                        trx("Connect to a server or tap Refresh below to resolve exit IP details")
-                    },
-                    glyph = MarbleGlyph.GLOBE,
-                    iconTint = colors.tertiary,
-                    showChevron = false
-                )
-            }
-        } else {
-            MarbleCard {
-                MarbleListItem(
-                    title = intel.ip,
-                    subtitle = intel.ipType.ifBlank { trx("Public Exit IP") },
-                    glyph = MarbleGlyph.GLOBE,
-                    iconTint = colors.primary,
-                    trailing = {
-                        Text(
-                            text = strings.copyAction,
-                            color = colors.primary,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    },
-                    showChevron = false,
-                    onClick = {
-                        clipboard.setText(AnnotatedString(intel.ip))
-                        repo.setRuntimeMessage(strings.ipCopied)
-                    }
-                )
-                MarbleDivider()
-                MarbleListItem(
-                    title = intel.locationLabel.ifBlank { strings.unavailable },
-                    subtitle = trx("Location"),
-                    leading = {
-                        MarbleServerAvatar(profile = null, countryCode = intel.countryCode)
-                    },
-                    showChevron = false
-                )
-                MarbleDivider()
-                MarbleListItem(
-                    title = intel.datacenterLabel,
-                    subtitle = listOf(intel.asn, intel.domain).filter { it.isNotBlank() }.joinToString(" · "),
-                    glyph = MarbleGlyph.SERVER,
-                    iconTint = colors.secondary,
-                    showChevron = false
-                )
-            }
-        }
-
-        Row(modifier = Modifier.fillMaxWidth()) {
-            MarbleButton(
-                label = strings.refreshIp,
-                glyph = MarbleGlyph.REFRESH,
-                enabled = !repo.serverIntelLoading,
-                onClick = { repo.refreshServerIntel(force = true) },
-                modifier = Modifier.weight(1f)
-            )
-            if (intel != null && intel.ip.isNotBlank()) {
-                Spacer(Modifier.width(10.dp))
-                MarbleButton(
-                    label = strings.copyIp,
-                    glyph = MarbleGlyph.COPY,
-                    style = MarbleButtonStyle.TINTED,
-                    onClick = {
-                        clipboard.setText(AnnotatedString(intel.ip))
-                        repo.setRuntimeMessage(strings.ipCopied)
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
 
 @Composable
 fun QrImportSourceDialogController(

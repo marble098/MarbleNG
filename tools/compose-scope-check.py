@@ -186,8 +186,10 @@ NON_COMPOSABLE = {
     "onAction", "onBack", "onSelect", "onToggle", "onDismiss", "onConfirm", "onLongPress",
     "onExpandedChange", "onNavigate", "onPressed", "onApply", "onReset", "onClear",
     "onOpen", "onClose", "onConnect", "onImportFile", "onOpenDetail", "onOpenServers",
-    "onOpenQrImport", "onOpenAddSheet", "onOpenExitIpSheet", "onOpenDiagnostics",
-    "onOpenSettingsPage", "onCustomizeSlot", "onOpenDestination", "onCloseDestination",
+    # MARBLE_IP_IDENTITY_V251 — `onOpenIpPage` replaced `onOpenExitIpSheet` when the exit sheet
+    # became the IP page, and `onCustomizeSlot` went with the shortcut it customised.
+    "onOpenQrImport", "onOpenAddSheet", "onOpenIpPage", "onOpenDiagnostics",
+    "onOpenSettingsPage", "onOpenDestination", "onCloseDestination",
 }
 
 # Inline / @Composable lambdas: the composable context flows through them.

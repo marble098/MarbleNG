@@ -40,8 +40,10 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - Signed multi-ABI APKs built by GitHub Actions.
 - Remembers the last ping of every server across restarts, updates and process death.
 - A **ping speed dial**: the default sweeps about 50 % faster across all three methods, and a slider lets you choose slower or faster — width and pacing only, never accuracy.
-- A **fourth tab you fill yourself** — a subscription, one config, or the live pulse of the route.
+- A **fourth tab that is the IP page** — every address this phone holds (interface, prefix, private/public/CGNAT/NAT64 scope, and the tunnel's own), the address the internet sees, the difference between the two, and a timed witness for each of IPv4 and IPv6 — in every state, connected or bare.
 - **Material 3 Expressive motion** — stretching loaders, cascading arrivals, rolling readouts and springy releases on every control.
+- **An app that moves as one surface** — one ambient light under all four tabs, breathing Material shapes in every tile, an orbit lens inside each bento card, and a shared inner-page scaffold (hero, collapsing title, one section rhythm) behind all 23 Settings destinations. Calm motion and the platform's *remove animations* still win.
+- **One control per job on Servers** — the sort menu that repeated the filter sheet is gone; the slot beside the search field is now **Fastest**, one tap that ranks the library and connects to the route that wins.
 - **A living, layered surface** — a slowly breathing brand aurora behind every page, and one cool-shadow depth system above it, so nothing floats on a dead flat field.
 - **A Servers page that shows its hierarchy** — subscription cards with a real usage bar, and their servers nested inside them, smaller in every dimension.
 - **A Servers page that starts with servers** — one search line and one filter sheet instead of four chip rows, a compact "active route" strip, one overflow per section, 68dp rows with a four-level ping, delete by swipe with undo.
@@ -58,8 +60,9 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-`docs/EXPRESSIVE_BENTO_V250.md` is the newest chapter.
-`docs/PERSIAN_JOIN_SHADE_STUDIO_AND_MAP_MOTION_V249.md` is the chapter before it.
+`docs/IP_IDENTITY_AND_EXPRESSIVE_MOTION_V251.md` is the newest chapter.
+`docs/EXPRESSIVE_BENTO_V250.md` is the chapter before it.
+`docs/PERSIAN_JOIN_SHADE_STUDIO_AND_MAP_MOTION_V249.md` is the one before that.
 `docs/LIQUID_GLASS_LENS_V248.md` is the one before that.
 `docs/LIQUID_GLASS_LENS_V247.md` is the one before that.
 `docs/PLAIN_VOICE_V246.md` is the one before that.

@@ -70,7 +70,9 @@ fun SettingsRoutingPage(
         if (simHost.isBlank()) null else repo.simulateRoute(simHost.trim())
     }
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.ROUTE,
+        tint = colors.success,
         title = trx("What goes direct"),
         onBack = onBack
     ) {
@@ -418,7 +420,9 @@ fun SettingsDnsAndFamilyPage(
     val underlay = repo.networkSnapshot
     val plan = AddressFamilyPolicy.plan(settings = s, underlayHasIpv6 = underlay.hasIpv6)
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.GLOBE,
+        tint = colors.tertiary,
         title = trx("DNS and IP version"),
         onBack = onBack
     ) {
@@ -645,7 +649,9 @@ fun SettingsSplitTunnelPage(
         base.sortedByDescending { it.packageName in selectedPackages }
     }
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.FOLDER,
+        tint = colors.secondary,
         title = trx("Which apps use the tunnel"),
         onBack = onBack
     ) {
@@ -748,7 +754,9 @@ fun SettingsCensorshipLabPage(
         repo.setRuntimeMessage("Censorship prescription applied")
     }
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.SHIELD,
+        tint = colors.error,
         title = trx("Iran mode & blocking test"),
         onBack = onBack
     ) {

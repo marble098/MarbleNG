@@ -77,7 +77,7 @@ fun HomeScreen(
     onOpenServerDetail: (ProxyProfile) -> Unit,
     onOpenQrImport: () -> Unit,
     onOpenAddSheet: () -> Unit,
-    onOpenExitIpSheet: () -> Unit,
+    onOpenIpPage: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     onOpenSettingsPage: (SettingsDestination) -> Unit,
     onContentScrollChanged: (Boolean) -> Unit
@@ -172,7 +172,7 @@ fun HomeScreen(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.surface)
+            // MARBLE_EXPRESSIVE_PAGES_V251 — the shell owns the ground now.
             .statusBarsPadding(),
         contentPadding = PaddingValues(
             start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
@@ -252,7 +252,7 @@ fun HomeScreen(
                             onOpenServers = onOpenServers,
                             onOpenServerDetail = onOpenServerDetail,
                             onTriggerPing = triggerHomePing,
-                            onOpenExitIpSheet = onOpenExitIpSheet
+                            onOpenIpPage = onOpenIpPage
                         )
                     }
                 }
@@ -550,7 +550,7 @@ private fun HomeRouteAndIdentityCard(
     onOpenServers: () -> Unit,
     onOpenServerDetail: (ProxyProfile) -> Unit,
     onTriggerPing: () -> Unit,
-    onOpenExitIpSheet: () -> Unit
+    onOpenIpPage: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
@@ -595,19 +595,30 @@ private fun HomeRouteAndIdentityCard(
         else -> colors.success
     }
 
+    // MARBLE_IP_IDENTITY_V251 — Home still shows the exit at a glance, and the row now opens the
+    // IP page instead of a sheet: the sheet was three facts, the page is every address this phone
+    // holds plus whether each family answers, in every connection state.
+    val ipReport = repo.ipStackReport
     val intel = repo.serverIntel
     val ipTitle = when {
-        repo.serverIntelLoading -> strings.resolving
+        repo.ipStackScanning && ipReport?.exit?.discovered != true -> strings.resolving
+        ipReport?.exit?.address?.isNotBlank() == true -> ipReport.exit!!.address
         intel != null && intel.ip.isNotBlank() -> intel.ip
         else -> strings.ipAddress
     }
     val ipSubtitle = when {
+        ipReport?.exit?.discovered == true -> buildString {
+            val detailed = com.marbleng.app.model.IpAddressBook.egressDetail(ipReport.exit)
+            append(detailed.ifBlank { trx("Public exit address") })
+            append(" · ")
+            append(trx("Every address, in every state"))
+        }
         intel != null -> listOf(intel.locationLabel, intel.datacenterLabel)
             .filter { it.isNotBlank() }
             .joinToString(" · ")
-            .ifBlank { trx("Tap to inspect exit IP details") }
+            .ifBlank { trx("Tap to open the IP page") }
         repo.serverIntelError.isNotBlank() -> trx(repo.serverIntelError)
-        else -> trx("Tap to inspect exit IP, country and ASN")
+        else -> trx("Tap to open every address on this phone")
     }
 
     MarbleCard {
@@ -660,10 +671,10 @@ private fun HomeRouteAndIdentityCard(
             glyph = MarbleGlyph.GLOBE,
             iconTint = colors.tertiary,
             onClick = {
-                if (intel == null && !repo.serverIntelLoading) {
-                    repo.refreshServerIntel(force = true)
+                if (ipReport == null && !repo.ipStackScanning) {
+                    repo.refreshIpStack()
                 }
-                onOpenExitIpSheet()
+                onOpenIpPage()
             }
         )
     }

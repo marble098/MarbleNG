@@ -705,8 +705,11 @@ fun ServerDetailPage(
         else -> colors.onSurfaceVariant
     }
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.SERVER,
+        tint = securityTone,
         title = cleanServerName(liveProfile.name),
+        subtitle = "${protocolShortLabel(liveProfile)} · ${liveProfile.host}:${liveProfile.port}",
         onBack = onBack
     ) {
         item(key = "detail-summary") {

@@ -31,11 +31,9 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.model.AppFont
 import com.marbleng.app.model.AppLanguage
-import com.marbleng.app.model.DOCK_SLOT_CAPTION_MAX
 import com.marbleng.app.model.DockPresentation
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.DockSlotAccent
-import com.marbleng.app.model.DockSlotIcon
 import com.marbleng.app.model.DockSlotKind
 import com.marbleng.app.model.FlatAccent
 import com.marbleng.app.model.HomeSection
@@ -49,8 +47,6 @@ import com.marbleng.app.model.encodeDockPreference
 import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSize
 import com.marbleng.app.model.parseDockSlotAccent
-import com.marbleng.app.model.parseDockSlotIcon
-import com.marbleng.app.model.parseDockSlotKind
 import com.marbleng.app.model.parseFlatAccent
 import kotlin.math.roundToInt
 import com.marbleng.app.ui.theme.marbleAccentPrimary
@@ -74,7 +70,9 @@ fun SettingsAppearancePage(
     val haptics = LocalHapticFeedback.current
     val activeAccent = parseFlatAccent(s.accentTheme)
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.PALETTE,
+        tint = colors.primary,
         title = trx("Look and colour"),
         onBack = onBack
     ) {
@@ -290,7 +288,9 @@ fun SettingsLanguageAndFontPage(
     val lang = parseAppLanguage(s.appLanguage)
     val font = parseAppFont(s.fontFamily)
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.FONT,
+        tint = colors.secondary,
         title = "${strings.languageTitle} & ${trx("Typography")}",
         onBack = onBack
     ) {
@@ -381,13 +381,15 @@ fun SettingsTabBarPage(
     val s = repo.settings
     val dockSize = parseDockSize(s.dockSize)
     val dockPresentation = parseDockPresentation(s.dockSize)
-    val slotKind = parseDockSlotKind(s.dockSlotKind)
-    val slotIcon = parseDockSlotIcon(s.dockSlotIcon)
     val slotAccent = parseDockSlotAccent(s.dockSlotAccent)
     val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
     val showIcons = dockShowsIcons(s.dockShowIcons, s.dockShowLabels)
+    // Resolved in the composition: an onClick lambda is not a composable context.
+    val openIpPageNotice = trx("Tap the fourth tab to open the IP page")
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.DOCK,
+        tint = colors.tertiary,
         title = trx("Bottom bar & fourth tab"),
         onBack = onBack
     ) {
@@ -456,30 +458,16 @@ fun SettingsTabBarPage(
 
         item(key = "fourth-tab-config") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MarbleSectionHeader(title = trx("Fourth Tab Shortcut"))
+                MarbleSectionHeader(title = trx("Fourth Tab"))
                 MarbleCard {
                     MarbleSwitchRow(
                         title = trx("Show Fourth Tab"),
-                        subtitle = trx("Add a dedicated Pulse, Subscription or Server tab to the bottom bar"),
+                        subtitle = trx("The IP page: every address this phone holds, in every state"),
                         checked = s.dockSlotEnabled,
-                        glyph = MarbleGlyph.DOCK,
+                        glyph = MarbleGlyph.GLOBE,
                         iconTint = colors.tertiary,
                         onCheckedChange = { repo.updateSettings(s.copy(dockSlotEnabled = it)) }
                     )
-                    listOf(
-                        DockSlotKind.PULSE to trx("Live Pulse & Diagnostics"),
-                        DockSlotKind.SOURCE to trx("Pinned Subscription Group"),
-                        DockSlotKind.CONFIG to trx("Pinned Single Server")
-                    ).forEach { (candidate, label) ->
-                        MarbleDivider()
-                        MarbleChoiceRow(
-                            title = label,
-                            selected = slotKind == candidate,
-                            glyph = MarbleGlyph.SPARK,
-                            iconTint = colors.primary,
-                            onClick = { repo.updateSettings(s.copy(dockSlotKind = candidate.id)) }
-                        )
-                    }
                     MarbleDivider()
                     MarbleSwitchRow(
                         title = trx("Live Connection Dot"),
@@ -491,61 +479,22 @@ fun SettingsTabBarPage(
                     )
                 }
 
-                if (slotKind == DockSlotKind.SOURCE) {
-                    val sourceOptions = buildList {
-                        add(MarbleMenuOption("all", Tr.now.homeAllGroups))
-                        repo.subscriptions.forEach { add(MarbleMenuOption(it.id, it.name)) }
-                        add(MarbleMenuOption("manual", Tr.now.homeManualGroup))
-                    }
-                    MarbleDropdownField(
-                        label = trx("Pinned Subscription Group"),
-                        value = s.dockSlotSourceId.ifBlank { "all" },
-                        options = sourceOptions,
-                        onSelect = { repo.updateSettings(s.copy(dockSlotSourceId = it)) }
-                    )
-                } else if (slotKind == DockSlotKind.CONFIG && repo.libraryProfiles.isNotEmpty()) {
-                    val profileOptions = repo.libraryProfiles.map { p ->
-                        MarbleMenuOption(
-                            value = "${p.subscriptionId}|${p.id}",
-                            label = cleanServerName(p.name),
-                            detail = "${protocolShortLabel(p)} · ${p.subscriptionName}"
-                        )
-                    }
-                    val currentKey = "${s.dockSlotProfileSourceId}|${s.dockSlotProfileId}"
-                    MarbleDropdownField(
-                        label = trx("Pinned Server"),
-                        value = currentKey,
-                        options = profileOptions,
-                        onSelect = { raw ->
-                            val parts = raw.split('|', limit = 2)
-                            if (parts.size == 2) {
-                                repo.updateSettings(
-                                    s.copy(
-                                        dockSlotProfileSourceId = parts[0],
-                                        dockSlotProfileId = parts[1]
-                                    )
-                                )
-                            }
-                        }
-                    )
-                }
-
+                // MARBLE_IP_IDENTITY_V251 — the tab stopped being a shortcut, so three settings left
+                // with it: which kind of shortcut, which group or server it pinned, and the custom
+                // caption. What is left is appearance — the glyph and the accent — plus one page
+                // that explains what the tab now is, instead of a picker for something it no
+                // longer does.
                 MarbleCard(contentPadding = PaddingValues(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        MarbleTextField(
-                            label = trx("Custom Tab Label (optional)"),
-                            value = s.dockSlotLabel,
-                            onValueChange = { repo.updateSettings(s.copy(dockSlotLabel = it.take(DOCK_SLOT_CAPTION_MAX))) }
+                        Text(
+                            text = trx(
+                                "The fourth tab is the IP page now. It opens the same way whether the " +
+                                    "tunnel is up or down, and it draws every address this phone holds, " +
+                                    "the address the internet sees, and which of IPv4 and IPv6 answers."
+                            ),
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
                         )
-                        MarbleChipStrip {
-                            DockSlotIcon.entries.forEach { ic ->
-                                MarblePillChip(
-                                    label = ic.id.uppercase(),
-                                    selected = slotIcon == ic,
-                                    onClick = { repo.updateSettings(s.copy(dockSlotIcon = ic.id)) }
-                                )
-                            }
-                        }
                         MarbleChipStrip {
                             DockSlotAccent.entries.forEach { ac ->
                                 MarblePillChip(
@@ -556,6 +505,16 @@ fun SettingsTabBarPage(
                                 )
                             }
                         }
+                        MarbleButton(
+                            label = trx("Open the IP page"),
+                            glyph = MarbleGlyph.GLOBE,
+                            style = MarbleButtonStyle.TINTED,
+                            onClick = {
+                                repo.updateSettings(s.copy(dockSlotKind = DockSlotKind.IP.id))
+                                repo.setRuntimeMessage(openIpPageNotice)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }
@@ -571,7 +530,9 @@ fun SettingsHomeLayoutPage(
     val colors = MaterialTheme.colorScheme
     val s = repo.settings
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.HOME,
+        tint = colors.warning,
         title = Tr.now.homeStyleTitle,
         onBack = onBack
     ) {

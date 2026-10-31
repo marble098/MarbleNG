@@ -454,7 +454,7 @@ private fun SettingsMenuPage(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.surface)
+            // MARBLE_EXPRESSIVE_PAGES_V251 — the shell's ambient light is this page's ground.
             .statusBarsPadding()
     ) {
         val columns = SettingsHubLayout.columns(maxWidth.value.toInt())
@@ -636,8 +636,11 @@ internal fun SettingsSmartPresetsPage(
     val colors = MaterialTheme.colorScheme
     val active = matchSmartPreset(repo.settings)
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.SPARK,
+        tint = colors.warning,
         title = trx("One-tap modes"),
+        subtitle = trx("Gaming, streaming or hard bypass in one tap"),
         onBack = onBack
     ) {
         item(key = "presets-intro") {
