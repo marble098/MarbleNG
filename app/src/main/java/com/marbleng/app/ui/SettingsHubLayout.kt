@@ -19,15 +19,20 @@ internal data class SettingsRowSpec(
 
 internal enum class SettingsHubCategory(val id: String, val titleKey: String) {
     ALL("all", "All"),
-    CONNECTION("connection", "Connection"),
-    NETWORK("network", "Network"),
+    CONNECTION("connection", "Connection & routing"),
+    NETWORK("network", "Network & testing"),
     TESTS("tests", "Tests"),
     APPEARANCE("appearance", "Appearance"),
-    SYSTEM("system", "System");
+    SYSTEM("system", "Appearance & system");
 
     companion object {
-        fun fromId(raw: String?): SettingsHubCategory =
-            entries.firstOrNull { it.id == raw } ?: ALL
+        val visible = listOf(ALL, CONNECTION, NETWORK, SYSTEM)
+
+        fun fromId(raw: String?): SettingsHubCategory = when (raw) {
+            TESTS.id -> NETWORK
+            APPEARANCE.id -> SYSTEM
+            else -> visible.firstOrNull { it.id == raw } ?: ALL
+        }
     }
 }
 

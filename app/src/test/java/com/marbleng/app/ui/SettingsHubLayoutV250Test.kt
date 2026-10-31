@@ -76,4 +76,12 @@ class SettingsHubLayoutV250Test {
         assertEquals(SettingsHubCategory.ALL, SettingsHubCategory.fromId("missing"))
         assertEquals(SettingsHubCategory.NETWORK, SettingsHubCategory.fromId("network"))
     }
+    @Test
+    fun legacyCategoriesMapToVisibleBroaderGroups() {
+        assertEquals(listOf(SettingsHubCategory.ALL, SettingsHubCategory.CONNECTION,
+            SettingsHubCategory.NETWORK, SettingsHubCategory.SYSTEM), SettingsHubCategory.visible)
+        assertEquals(SettingsHubCategory.NETWORK, SettingsHubCategory.fromId("tests"))
+        assertEquals(SettingsHubCategory.SYSTEM, SettingsHubCategory.fromId("appearance"))
+    }
+
 }

@@ -397,19 +397,9 @@ private fun HomeHero(
             .clip(RoundedCornerShape(32.dp))
             .background(stageColor)
     ) {
-        MarblePetalMark(
-            color = onStage.copy(alpha = 0.06f),
-            size = 180.dp,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .graphicsLayer {
-                    translationX = 44.dp.toPx()
-                    translationY = (-44).dp.toPx()
-                }
-        )
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -502,7 +492,13 @@ private fun HomeStatusChip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        MarbleHealthDot(health = health, size = 9.dp)
+        Box(contentAlignment = Alignment.Center) {
+            MarblePetalMark(
+                color = colors.primary.copy(alpha = 0.15f),
+                size = 28.dp
+            )
+            MarbleHealthDot(health = health, size = 9.dp)
+        }
         MarbleGlyphIcon(
             glyph = MarbleGlyph.TUNERS,
             color = colors.onSurfaceVariant,

@@ -429,11 +429,9 @@ private fun SettingsMenuPage(
     )
 
     val categorizedSections = listOf(
-        SettingsHubCategory.CONNECTION to (strings.categoryConnection to connectionGroup),
-        SettingsHubCategory.NETWORK to (strings.categoryNetwork to routingGroup),
-        SettingsHubCategory.TESTS to (strings.categoryTests to testingGroup),
-        SettingsHubCategory.APPEARANCE to (strings.categoryAppearance to appearanceGroup),
-        SettingsHubCategory.SYSTEM to (strings.categorySystem to systemGroup)
+        SettingsHubCategory.CONNECTION to (trx(SettingsHubCategory.CONNECTION.titleKey) to (connectionGroup + routingGroup)),
+        SettingsHubCategory.NETWORK to (trx(SettingsHubCategory.NETWORK.titleKey) to testingGroup),
+        SettingsHubCategory.SYSTEM to (trx(SettingsHubCategory.SYSTEM.titleKey) to (appearanceGroup + systemGroup))
     )
     val sections = categorizedSections.mapNotNull { (sectionCategory, pair) ->
         val (header, items) = pair
@@ -504,7 +502,7 @@ private fun SettingsMenuPage(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        SettingsHubCategory.entries.forEach { entry ->
+                        SettingsHubCategory.visible.forEach { entry ->
                             SettingsCategoryChip(
                                 category = entry,
                                 selected = entry == category,
@@ -519,11 +517,11 @@ private fun SettingsMenuPage(
                 item(key = "settings-sec-${sectionCategory.id}") {
                     MarbleSectionHeader(
                         title = header,
-                        badge = faDigits("${rows.size}"),
+                        badge = "",
                         badgeColor = colors.primary
                     )
                 }
-                val featured = SettingsHubLayout.featuredDestinations(rows, searching)
+                val featured = emptySet<SettingsDestination>()
                 val tileRows = SettingsHubLayout.rows(rows, columns, featured)
                 items(
                     count = tileRows.size,

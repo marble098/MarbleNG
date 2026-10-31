@@ -407,6 +407,9 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Device" to "دستگاه",
     "Local" to "محلی",
     "System" to "سیستم",
+    "Connection & routing" to "اتصال و مسیریابی",
+    "Network & testing" to "شبکه و آزمون",
+    "Appearance & system" to "ظاهر و سیستم",
 
     "Exit" to "خروج",
     "stages with evidence" to "مرحلهٔ مبتنی بر اندازه‌گیری",

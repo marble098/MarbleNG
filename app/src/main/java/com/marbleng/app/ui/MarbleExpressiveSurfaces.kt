@@ -212,7 +212,7 @@ internal fun MarbleExpressiveTile(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = if (featured) 148.dp else 164.dp)
+            .heightIn(min = if (featured) 140.dp else 144.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -242,17 +242,6 @@ internal fun MarbleExpressiveTile(
                     translationX = 28.dp.toPx()
                     translationY = (-24).dp.toPx()
                 }
-        )
-        // MARBLE_EXPRESSIVE_BLOOM_V251 — the lens travels inside the card, behind the text, so the
-        // tile has a centre of light that moves without anything being clickable twice.
-        MarbleOrbitLens(
-            tint = tint,
-            radiusFraction = if (featured) 0.46f else 0.40f,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(8.dp)
-                .size(if (featured) 104.dp else 88.dp)
-                .graphicsLayer { alpha = if (enabled) 0.9f else 0.4f }
         )
         Column(
             modifier = Modifier.padding(16.dp),
