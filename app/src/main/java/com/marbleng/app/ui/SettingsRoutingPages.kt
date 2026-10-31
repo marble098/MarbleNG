@@ -65,6 +65,7 @@ fun SettingsRoutingPage(
 
     var editingRule by remember { mutableStateOf<RoutingRule?>(null) }
     var editingIsNew by remember { mutableStateOf(false) }
+    var showGeoSourceDetails by rememberSaveable { mutableStateOf(false) }
     var simHost by rememberSaveable { mutableStateOf("") }
     val simulation = remember(simHost, s, repo.geoGateNote) {
         if (simHost.isBlank()) null else repo.simulateRoute(simHost.trim())
@@ -179,31 +180,40 @@ fun SettingsRoutingPage(
                         showChevron = false
                     )
                     MarbleDivider()
-                    MarbleSwitchRow(
-                        title = trx("Multi-Source Geo Databases"),
-                        subtitle = trx("Combine rules from several sources"),
-                        checked = s.geoMultiSourceEnabled,
+                    MarbleListItem(
+                        title = trx("Database sources"),
+                        subtitle = if (showGeoSourceDetails) trx("Hide source selection") else trx("Change source or combine databases"),
                         glyph = MarbleGlyph.FOLDER,
                         iconTint = colors.secondary,
-                        onCheckedChange = { repo.updateSettings(s.copy(geoMultiSourceEnabled = it)) }
+                        onClick = { showGeoSourceDetails = !showGeoSourceDetails }
                     )
-                    geoCatalog.forEach { spec ->
-                        MarbleDivider()
-                        val selected = spec.id in geoIds
-                        MarbleChoiceRow(
-                            title = spec.label,
-                            subtitle = spec.id,
-                            selected = selected,
-                            glyph = MarbleGlyph.DOWNLOAD,
-                            iconTint = colors.tertiary,
-                            onClick = {
-                                if (s.geoMultiSourceEnabled && selected && spec.id != geoIds.firstOrNull()) {
-                                    repo.toggleGeoAssetSource(spec.id)
-                                } else {
-                                    repo.applyGeoAssetSource(spec.id)
-                                }
-                            }
+                    if (showGeoSourceDetails) {
+                        MarbleSwitchRow(
+                            title = trx("Combine multiple sources"),
+                            subtitle = trx("Use more than one database provider"),
+                            checked = s.geoMultiSourceEnabled,
+                            glyph = MarbleGlyph.LAYERS,
+                            iconTint = colors.secondary,
+                            onCheckedChange = { repo.updateSettings(s.copy(geoMultiSourceEnabled = it)) }
                         )
+                        geoCatalog.forEach { spec ->
+                            MarbleDivider()
+                            val selected = spec.id in geoIds
+                            MarbleChoiceRow(
+                                title = spec.label,
+                                subtitle = if (selected) trx("Selected") else trx("Available source"),
+                                selected = selected,
+                                glyph = MarbleGlyph.DOWNLOAD,
+                                iconTint = colors.tertiary,
+                                onClick = {
+                                    if (s.geoMultiSourceEnabled && selected && spec.id != geoIds.firstOrNull()) {
+                                        repo.toggleGeoAssetSource(spec.id)
+                                    } else {
+                                        repo.applyGeoAssetSource(spec.id)
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
 
