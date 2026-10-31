@@ -48,7 +48,9 @@ fun SettingsNetworkCouncilPage(
     val evidence = repo.councilEvidence
     val running = repo.councilRunning
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.RADAR,
+        tint = colors.tertiary,
         title = trx("Network check"),
         onBack = onBack
     ) {

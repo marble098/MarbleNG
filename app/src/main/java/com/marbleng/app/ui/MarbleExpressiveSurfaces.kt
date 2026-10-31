@@ -2,9 +2,15 @@
 
 package com.marbleng.app.ui
 
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -32,7 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -74,19 +82,96 @@ internal fun MarbleActionColumn(
     }
 }
 
-/** A decorative Material shape. It carries no semantics and never intercepts a touch. */
+/**
+ * A decorative Material shape. It carries no semantics and never intercepts a touch.
+ *
+ * MARBLE_EXPRESSIVE_BLOOM_V251 — it also breathes: the cookie turns a slow quarter circle and its
+ * radius swells a few percent, so a page of tiles is *alive* rather than a grid of stickers. Both
+ * movements are decorative by definition, so [MarbleMotionStyle.loops] switches them off — a calm
+ * or reduced-motion reader gets the resting frame instead.
+ */
 @Composable
 internal fun MarblePetalMark(
     color: Color,
     modifier: Modifier = Modifier,
-    size: Dp = 96.dp
+    size: Dp = 96.dp,
+    animated: Boolean = true
 ) {
+    val motion = marbleMotion()
+    val floating = animated && motion.loops
+    val transition = rememberInfiniteTransition(label = "petalBloom")
+    val turn by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 22_000)),
+        label = "petalTurn"
+    )
+    val bloom by transition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3_400),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "petalBloom"
+    )
     Box(
         modifier = modifier
             .size(size)
+            .graphicsLayer {
+                rotationZ = if (floating) turn else 0f
+                scaleX = if (floating) bloom else 1f
+                scaleY = if (floating) bloom else 1f
+            }
             .clip(MaterialShapes.Cookie9Sided.toShape())
             .background(color)
     )
+}
+
+/**
+ * MARBLE_EXPRESSIVE_BLOOM_V251 — one travelling arc inside a tile: a hairline ring with a bead that
+ * goes round it once every few seconds. Drawn with the tile's own accent at low alpha, so it reads
+ * as light on a surface rather than as a second control.
+ */
+@Composable
+internal fun MarbleOrbitLens(
+    tint: Color,
+    modifier: Modifier = Modifier,
+    periodMs: Int = 7_000,
+    radiusFraction: Float = 0.42f
+) {
+    val motion = marbleMotion()
+    if (!motion.loops) {
+        Canvas(modifier = modifier) {
+            drawCircle(
+                color = tint.copy(alpha = 0.10f),
+                radius = size.minDimension * radiusFraction,
+                style = Stroke(width = 1f)
+            )
+        }
+        return
+    }
+    val transition = rememberInfiniteTransition(label = "orbitLens")
+    val angle by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(animation = tween(durationMillis = periodMs)),
+        label = "orbitLensAngle"
+    )
+    Canvas(modifier = modifier) {
+        val radius = size.minDimension * radiusFraction
+        val center = Offset(size.width / 2f, size.height / 2f)
+        drawCircle(color = tint.copy(alpha = 0.10f), radius = radius, center = center, style = Stroke(width = 1f))
+        val radians = Math.toRadians(angle.toDouble())
+        drawCircle(
+            color = tint.copy(alpha = 0.55f),
+            radius = 3.5f,
+            center = Offset(
+                center.x + (radius * kotlin.math.cos(radians)).toFloat(),
+                center.y + (radius * kotlin.math.sin(radians)).toFloat()
+            )
+        )
+    }
 }
 
 /**
@@ -157,6 +242,17 @@ internal fun MarbleExpressiveTile(
                     translationX = 28.dp.toPx()
                     translationY = (-24).dp.toPx()
                 }
+        )
+        // MARBLE_EXPRESSIVE_BLOOM_V251 — the lens travels inside the card, behind the text, so the
+        // tile has a centre of light that moves without anything being clickable twice.
+        MarbleOrbitLens(
+            tint = tint,
+            radiusFraction = if (featured) 0.46f else 0.40f,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(8.dp)
+                .size(if (featured) 104.dp else 88.dp)
+                .graphicsLayer { alpha = if (enabled) 0.9f else 0.4f }
         )
         Column(
             modifier = Modifier.padding(16.dp),

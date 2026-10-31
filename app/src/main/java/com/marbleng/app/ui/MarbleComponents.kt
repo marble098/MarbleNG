@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -40,10 +39,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
@@ -65,19 +60,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -95,7 +87,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
@@ -1368,77 +1359,6 @@ fun MarbleLargeHeader(
                 content = actions
             )
         }
-    }
-}
-
-/**
- * Sub-page scaffold: collapsing medium top app bar with a mirrored back affordance,
- * tonal scrolled container, and the standard 20dp section rhythm below.
- */
-@Composable
-fun MarbleSubPageScaffold(
-    title: String,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-    backLabel: String = Tr.now.backLabel,
-    trailing: (@Composable RowScope.() -> Unit)? = null,
-    listState: LazyListState = rememberLazyListState(),
-    bottomClearance: Dp = MarbleTheme.bottomClearance,
-    floatingActionButton: (@Composable () -> Unit)? = null,
-    content: LazyListScope.() -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-
-    Scaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            MediumTopAppBar(
-                title = {
-                    Text(
-                        text = title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        MarbleGlyphIcon(
-                            glyph = if (isRtl) MarbleGlyph.CHEVRON else MarbleGlyph.CHEVRON_LEFT,
-                            color = colors.onSurface,
-                            modifier = Modifier.size(22.dp),
-                            weight = 1.15f
-                        )
-                    }
-                },
-                actions = { trailing?.invoke(this) },
-                scrollBehavior = scrollBehavior,
-                colors = TopAppBarDefaults.mediumTopAppBarColors(
-                    containerColor = colors.surface,
-                    scrolledContainerColor = colors.surfaceContainer
-                )
-            )
-        },
-        floatingActionButton = { floatingActionButton?.invoke() },
-        containerColor = colors.surface
-    ) { padding ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(
-                start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-                end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-                top = MarbleSpec.SECTION_SPACING_DP.dp,
-                bottom = bottomClearance
-            ),
-            verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp),
-            content = content
-        )
     }
 }
 

@@ -65,12 +65,13 @@ import com.marbleng.app.model.LiquidDockNotices
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.dockShowsIcons
 import com.marbleng.app.model.dockShowsLabels
+import com.marbleng.app.model.DockSlotKind
+import com.marbleng.app.model.dockSlotDefaultCaption
 import com.marbleng.app.model.dockSlotIndex
 import com.marbleng.app.model.dockSlots
 import com.marbleng.app.model.parseDockSize
 import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSlotAccent
-import com.marbleng.app.model.parseDockSlotIcon
 import kotlinx.coroutines.delay
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.scaleIn
@@ -92,12 +93,19 @@ import com.marbleng.app.ui.theme.settleSpec
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
 import com.marbleng.app.ui.theme.MarbleExpressiveTheme
+import com.marbleng.app.ui.theme.isTrueBlack
 import kotlin.math.roundToInt
 
+/**
+ * MARBLE_IP_IDENTITY_V251 — `CUSTOM_SLOT` is `IP`. The fourth tab is no longer a shortcut the user
+ * configures; it is the page that draws every address this phone holds, in every connection state.
+ * The enum constant was renamed with it so no screen can keep reading a name the product no longer
+ * has.
+ */
 enum class MarbleRootTab {
     HOME,
     SERVERS,
-    CUSTOM_SLOT,
+    IP,
     SETTINGS
 }
 
@@ -154,7 +162,6 @@ private fun MarbleRootShell(
     var inspectingProfileSource by rememberSaveable { mutableStateOf("") }
     var showAddSheet by remember { mutableStateOf(false) }
     var showQrSheet by remember { mutableStateOf(false) }
-    var showExitIpSheet by remember { mutableStateOf(false) }
     // MARBLE_EXPRESSIVE_SHELL_V241 — the bottom bar now hides while a page is scrolling, so
     // reading a long server list never happens through a strip of chrome. The pages already
     // report their scroll state; this shell is the one place that acts on it.
@@ -162,7 +169,7 @@ private fun MarbleRootShell(
 
     val visibleTabs = dockSlots(
         all = MarbleRootTab.entries,
-        optional = MarbleRootTab.CUSTOM_SLOT,
+        optional = MarbleRootTab.IP,
         showOptional = settings.dockSlotEnabled
     )
     val activeTab = visibleTabs[dockSlotIndex(visibleTabs, rememberedTab)]
@@ -271,6 +278,9 @@ private fun MarbleRootShell(
             .fillMaxSize()
             .background(colors.surface)
     ) {
+        // MARBLE_EXPRESSIVE_PAGES_V251 — one ambient light under all four tabs, drawn once here
+        // rather than four times inside the screens, so the wash cannot jump when a tab changes.
+        MarbleAmbientBackdrop(trueBlack = isTrueBlack(settings.theme))
         // Tablets, open foldables and wide windows get a navigation rail beside a
         // capped reading column; phones keep the overlay dock. The clearance the
         // screens and the Servers FAB float above follows the chrome.
@@ -414,7 +424,10 @@ private fun MarbleRootShell(
                                             onOpenServerDetail = openDetail,
                                             onOpenQrImport = { showQrSheet = true },
                                             onOpenAddSheet = { showAddSheet = true },
-                                            onOpenExitIpSheet = { showExitIpSheet = true },
+                                            // MARBLE_IP_IDENTITY_V251 — the Home row used to open a
+                                            // bottom sheet with the same three facts the fourth tab
+                                            // now draws as a whole page. One answer, one destination.
+                                            onOpenIpPage = { rememberedTab = MarbleRootTab.IP },
                                             onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
                                             onOpenSettingsPage = openSettingsDest,
                                             onContentScrollChanged = reportScroll
@@ -429,12 +442,10 @@ private fun MarbleRootShell(
                                             onContentScrollChanged = reportScroll
                                         )
 
-                                        MarbleRootTab.CUSTOM_SLOT -> CustomSlotScreen(
+                                        MarbleRootTab.IP -> IpIdentityScreen(
                                             repo = repo,
-                                            onConnect = onConnect,
-                                            onOpenDetail = openDetail,
-                                            onCustomizeSlot = { openSettingsDest(SettingsDestination.TAB_BAR) },
                                             onOpenDiagnostics = { openSettingsDest(SettingsDestination.DIAGNOSTICS) },
+                                            onOpenSettingsPage = openSettingsDest,
                                             onContentScrollChanged = reportScroll
                                         )
 
@@ -525,13 +536,6 @@ private fun MarbleRootShell(
         onDismiss = { showQrSheet = false }
     )
 
-    if (showExitIpSheet) {
-        ExitIpDetailsSheet(
-            repo = repo,
-            onDismiss = { showExitIpSheet = false }
-        )
-    }
-
     repo.availableUpdate?.let { update ->
         AppUpdateAvailableDialog(
             update = update,
@@ -558,8 +562,11 @@ private fun MarbleNavigationRail(
     val haptics = LocalHapticFeedback.current
     val s = repo.settings
     val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
-    val slot = resolveDockSlot(repo)
-    val slotIcon = dockSlotMarbleGlyph(parseDockSlotIcon(s.dockSlotIcon))
+    // MARBLE_IP_IDENTITY_V251 — the fourth tab has a fixed name and glyph now: it is the IP page,
+    // not a shortcut whose identity the user picks. The slot's own colour still applies, because
+    // that is appearance, not meaning.
+    val ipLabel = trx(dockSlotDefaultCaption(DockSlotKind.IP, ""))
+    val ipGlyph = MarbleGlyph.GLOBE
     val slotColor = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
     val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
         when (repo.state) {
@@ -577,17 +584,17 @@ private fun MarbleNavigationRail(
     ) {
         tabs.forEach { tab ->
             val isSelected = tab == selected
-            val accent = if (tab == MarbleRootTab.CUSTOM_SLOT) slotColor else colors.primary
+            val accent = if (tab == MarbleRootTab.IP) slotColor else colors.primary
             val glyph = when (tab) {
                 MarbleRootTab.HOME -> MarbleGlyph.HOME
                 MarbleRootTab.SERVERS -> MarbleGlyph.SERVER
-                MarbleRootTab.CUSTOM_SLOT -> slotIcon
+                MarbleRootTab.IP -> ipGlyph
                 MarbleRootTab.SETTINGS -> MarbleGlyph.TUNERS
             }
             val label = when (tab) {
                 MarbleRootTab.HOME -> strings.tabHome
                 MarbleRootTab.SERVERS -> strings.tabLibrary
-                MarbleRootTab.CUSTOM_SLOT -> trx(slot.title)
+                MarbleRootTab.IP -> ipLabel
                 MarbleRootTab.SETTINGS -> strings.tabSettings
             }
             NavigationRailItem(
@@ -599,7 +606,7 @@ private fun MarbleNavigationRail(
                 icon = {
                     BadgedBox(
                         badge = {
-                            if (tab == MarbleRootTab.CUSTOM_SLOT && statusDotColor != null) {
+                            if (tab == MarbleRootTab.IP && statusDotColor != null) {
                                 Badge(containerColor = statusDotColor)
                             }
                         }
@@ -654,8 +661,8 @@ private fun MarbleBottomTabBar(
     val floating = parseDockPresentation(s.dockSize) == DockPresentation.FLOATING
     val showIcons = dockShowsIcons(s.dockShowIcons, s.dockShowLabels)
     val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
-    val slot = resolveDockSlot(repo)
-    val slotIcon = dockSlotMarbleGlyph(parseDockSlotIcon(s.dockSlotIcon))
+    val ipLabel = trx(dockSlotDefaultCaption(DockSlotKind.IP, ""))
+    val ipGlyph = MarbleGlyph.GLOBE
     val slotColor = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
     val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
         when (repo.state) {
@@ -684,18 +691,18 @@ private fun MarbleBottomTabBar(
             label = when (tab) {
                 MarbleRootTab.HOME -> strings.tabHome
                 MarbleRootTab.SERVERS -> strings.tabLibrary
-                MarbleRootTab.CUSTOM_SLOT -> trx(slot.title)
+                MarbleRootTab.IP -> ipLabel
                 MarbleRootTab.SETTINGS -> strings.tabSettings
             },
             glyph = when (tab) {
                 MarbleRootTab.HOME -> MarbleGlyph.HOME
                 MarbleRootTab.SERVERS -> MarbleGlyph.SERVER
-                MarbleRootTab.CUSTOM_SLOT -> slotIcon
+                MarbleRootTab.IP -> ipGlyph
                 MarbleRootTab.SETTINGS -> MarbleGlyph.TUNERS
             },
-            accent = if (tab == MarbleRootTab.CUSTOM_SLOT) slotColor else colors.primary,
+            accent = if (tab == MarbleRootTab.IP) slotColor else colors.primary,
             badgeCount = if (tab == MarbleRootTab.SETTINGS) notices else 0,
-            statusDot = if (tab == MarbleRootTab.CUSTOM_SLOT) statusDotColor else null
+            statusDot = if (tab == MarbleRootTab.IP) statusDotColor else null
         )
     }
 

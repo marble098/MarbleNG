@@ -491,7 +491,14 @@ files = {
     "serversAtlasTest": read("app/src/test/java/com/marbleng/app/core/ServersAtlasV244Test.kt"),
     "serversAtlasDoc": read("docs/SERVERS_ATLAS_V244.md"),
     "serverForms": read("app/src/main/java/com/marbleng/app/ui/ServerFormsAndDetailPages.kt"),
-    "customSlot": read("app/src/main/java/com/marbleng/app/ui/CustomSlotScreen.kt"),
+    # MARBLE_IP_IDENTITY_V251 — the fourth tab is the IP page, not a user-chosen shortcut. The
+    # addresses it draws are computed in `IpAddressBook`, drawn in `IpIdentityScreen`, and swept in
+    # the repository from three planes: the device, the exit, and a witness per family.
+    "ipIdentityScreen": read("app/src/main/java/com/marbleng/app/ui/IpIdentityScreen.kt"),
+    "ipAddressBook": read("app/src/main/java/com/marbleng/app/model/IpAddressBook.kt"),
+    "ipEchoProbe": read("app/src/main/java/com/marbleng/app/core/IpEchoProbe.kt"),
+    "ipIdentityTest": read("app/src/test/java/com/marbleng/app/model/IpIdentityV251Test.kt"),
+    "ipEchoTest": read("app/src/test/java/com/marbleng/app/core/IpEchoProbeV251Test.kt"),
     "settingsScreen": read("app/src/main/java/com/marbleng/app/ui/SettingsScreen.kt"),
     "settingsConnection": read("app/src/main/java/com/marbleng/app/ui/SettingsConnectionPages.kt"),
     "settingsRouting": read("app/src/main/java/com/marbleng/app/ui/SettingsRoutingPages.kt"),
@@ -2418,6 +2425,53 @@ check(
     and "dockSlotIndex" in files["dockSlotDoc"]
     and "Fourth tab" in files["dockSlotDoc"],
 )
+# MARBLE_IP_IDENTITY_V251 — the fourth tab stopped being a shortcut. The check above still holds
+# (the doc still says "Fourth tab"); this one pins what it became, and that the three retired
+# shortcut ids resolve to it instead of to a page that no longer exists.
+check(
+    "V251 the fourth tab is the IP page in every state, with no shortcut left behind",
+    "IP(\"ip\")" in files["models"]
+    and "val DEFAULT: DockSlotKind get() = IP" in files["models"]
+    and 'DOCK_SLOT_CAPTION_IP: String = "IP"' in files["models"]
+    and "IpIdentityScreen(" in files["marbleApp"]
+    and "CustomSlotScreen(" not in files["marbleApp"]
+    and "ExitIpDetailsSheet(" not in files["marbleApp"]
+    and "fun ExitIpDetailsSheet(" not in files["marbleModals"]
+    and not (ROOT / "app/src/main/java/com/marbleng/app/ui/CustomSlotScreen.kt").exists(),
+)
+
+# The sweep itself: four planes, none of which needs a live tunnel to answer.
+check(
+    "V251 a sweep reads the device, the exit, the metadata and a witness per family",
+    "fun refreshIpStack(" in files["repo"]
+    and "var ipStackReport by mutableStateOf<IpStackReport?>(null)" in files["repo"]
+    and "fun captureIpDevicePlane(" in files["repo"]
+    and "fun probeIpExit(" in files["repo"]
+    and "fun enrichIpEgress(" in files["repo"]
+    and "fun probeIpReachability(" in files["repo"]
+    and "IpEchoProbe.observe(" in files["repo"]
+    and "fun literalOf(body: String, family: IpKind): String?" in files["ipEchoProbe"]
+    and "SocksHttpClient.get(" not in files["repo"]
+    # The page sweeps on arrival, in every state, instead of waiting for a tunnel or a tap.
+    and "repo.refreshIpStack()" in files["ipIdentityScreen"]
+    and "report.tunnelActive" in files["ipIdentityScreen"],
+)
+
+# The arithmetic is pure and the drawing is only drawing.
+check(
+    "V251 the address arithmetic is pure, tested on the host, and never resolves a literal",
+    "object IpAddressBook" in files["ipAddressBook"]
+    and "MARBLE_IP_IDENTITY_V251" in files["ipAddressBook"]
+    and "fun scopeOf(address: String): IpScope" in files["ipAddressBook"]
+    and "fun parseIpv6(address: String): List<Int>?" in files["ipAddressBook"]
+    and "fun isTunnelInterface(name: String): Boolean" in files["ipAddressBook"]
+    and "InetAddress.getByName" not in files["ipAddressBook"]
+    and "InetAddress.getByName" not in files["ipEchoProbe"]
+    and "class IpIdentityV251Test" in files["ipIdentityTest"]
+    and "fun aLocalAddressOnTheTunnelIsNotReportedAsThePublicExit()" in files["ipIdentityTest"]
+    and "class IpEchoProbeV251Test" in files["ipEchoTest"]
+    and "fun aPrivateAnswerFromAPublicServiceIsTreatedAsNoAnswer()" in files["ipEchoTest"],
+)
 
 # MARBLE_SOCKET_FLIGHT_V168 — one authority owns the tuning of every socket that crosses the
 # physical network. Xray and sing-box used to tune different sockets and forget others, and HEV
@@ -3225,7 +3279,7 @@ check(
     and "MarbleExpressiveTheme(" in files["marbleApp"]
     and "HomeScreen(" in files["marbleApp"]
     and "ServersScreen(" in files["marbleApp"]
-    and "CustomSlotScreen(" in files["marbleApp"]
+    and "IpIdentityScreen(" in files["marbleApp"]
     and "SettingsScreen(" in files["marbleApp"]
     and "ServerDetailPage(" in files["marbleApp"]
     and "ServerAddSheet(" in files["marbleApp"],
@@ -5136,6 +5190,57 @@ check(
     and "MarbleExpressiveTile(" in files["homeScreen"]
     and "MarblePetalMark(" in files["homeScreen"]
     and "val ticker = if (connected) faDigits(uptime) else \"\"" in files["homeScreen"],
+)
+
+v251_pages = read("app/src/main/java/com/marbleng/app/ui/MarbleExpressivePages.kt")
+v251_surfaces = read("app/src/main/java/com/marbleng/app/ui/MarbleExpressiveSurfaces.kt")
+v251_doc = read("docs/IP_IDENTITY_AND_EXPRESSIVE_MOTION_V251.md")
+
+check(
+    "V251 the expressive design is animated, and every Settings inner page uses the shared scaffold",
+    "fun MarbleAmbientBackdrop(" in v251_pages
+    and "fun MarbleOrbitLens(" in v251_surfaces
+    and "val turn by transition.animateFloat(" in v251_surfaces
+    and "motion.loops" in v251_surfaces
+    and "MarbleAmbientBackdrop(" in files["marbleApp"]
+    # One scaffold, and the old one is gone from the tree: a page cannot opt out of the design.
+    and "fun MarbleExpressivePageScaffold(" in v251_pages
+    and "fun MarbleSubPageScaffold(" not in files["marbleComponents"]
+    and all(
+        (ROOT / f"app/src/main/java/com/marbleng/app/ui/{name}").read_text(encoding="utf-8").count(
+            "MarbleExpressivePageScaffold("
+        ) >= expected
+        for name, expected in (
+            ("SettingsAppearancePages.kt", 4),
+            ("SettingsConnectionPages.kt", 4),
+            ("SettingsRoutingPages.kt", 4),
+            ("SettingsSystemPages.kt", 5),
+            ("SettingsTestingPages.kt", 3),
+            ("SettingsJitterPages.kt", 1),
+            ("SettingsNetworkCouncilPages.kt", 1),
+            ("SettingsScreen.kt", 1),
+            ("ServerFormsAndDetailPages.kt", 1),
+        )
+    ),
+)
+
+check(
+    "V251 Servers has one sort control, and the vacancy became a measurement",
+    "MarbleGlyph.FILTER" in files["serversScreen"]
+    and "fun ServersFilterSheet(" in files["serversScreen"]
+    and "repo.smart { best -> onConnect(best) }" in files["serversScreen"]
+    # The duplicated dropdown is gone: the sheet owns ordering, and there is no second copy.
+    and "sortMenuOpen" not in files["serversScreen"],
+)
+
+check(
+    "V251 the chapter is written down and linked as the newest one",
+    "## ۱. تب چهارم دیگر میان‌بر نیست" in v251_doc
+    and "## ۵. جدول اجرا" in v251_doc
+    and "## ۶. آنچه عمداً انجام نشد" in v251_doc
+    and "## ۷. تست" in v251_doc
+    and "IP_IDENTITY_AND_EXPRESSIVE_MOTION_V251.md" in files["readme"]
+    and "IP_IDENTITY_AND_EXPRESSIVE_MOTION_V251.md` is the newest chapter" in files["readme"],
 )
 
 check(

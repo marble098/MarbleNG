@@ -52,6 +52,58 @@ private fun faTranslateRaw(text: String): String {
 
 private val FaLexicon: Map<String, String> = mapOf(
 
+    // MARBLE_IP_IDENTITY_V251 — the Servers search line's second button asks for a route instead of
+    // repeating the filter sheet's sort list.
+    "Fastest" to "سریع‌ترین",
+    "Stop" to "بس کن",
+
+    // MARBLE_IP_IDENTITY_V251 — the fourth tab became the IP page. The voice is the same as the
+    // rest of the app: second person, short verbs, and the address itself is never translated.
+    "Address families" to "خانواده‌های آدرس",
+    "Address the internet sees" to "آدرسی که اینترنت می‌بینه",
+    "Addresses" to "آدرس‌ها",
+    "Addresses are read from this device and from one public echo service." to "آدرس‌ها از همین دستگاه و از یک سرویس عمومی بازخوانی می‌شن.",
+    "Addresses on this device" to "آدرس‌های این دستگاه",
+    "Android did not publish the resolver list for this network" to "اندروید فهرست رزولورها رو برای این شبکه منتشر نکرد",
+    "Choose the resolver and which family is preferred" to "رزولور و خانواده‌ی ترجیحی رو انتخاب کن",
+    "Compare the tunnel address with the network underneath" to "آدرس تونل رو با شبکه‌ی زیرین مقایسه کن",
+    "Copy every address" to "همه‌ی آدرس‌ها رو کپی کن",
+    "Every address this phone holds, and where it goes" to "هر آدرسی که این گوشی داره، و کجا می‌ره",
+    "Every address, in every state" to "همه‌ی آدرس‌ها، در هر حالتی",
+    "Families" to "خانواده‌ها",
+    "Lent by the tunnel" to "امانت‌گرفته از تونل",
+    "Measure the address families" to "خانواده‌های آدرس رو اندازه بگیر",
+    "Moving the route" to "دارم مسیر رو جابه‌جا می‌کنم",
+    "Network diagnostics" to "عیب‌یابی شبکه",
+    "No address on the physical network" to "هیچ آدرسی روی شبکه‌ی فیزیکی نیست",
+    "No address yet" to "هنوز آدرسی نیست",
+    "No resolver reported" to "هیچ رزولوری گزارش نشد",
+    "Open the IP page" to "صفحه‌ی IP رو باز کن",
+    "Privacy and leak audit" to "بازرسی حریم خصوصی و نشتی",
+    "Public exit address" to "آدرس خروج عمومی",
+    "Reading every address…" to "دارم همه‌ی آدرس‌ها رو می‌خونم…",
+    "Reading…" to "دارم می‌خونم…",
+    "Refresh every address" to "به‌روزرسانی همه‌ی آدرس‌ها",
+    "Resolver handed out by this network" to "رزولوری که این شبکه تحویل داده",
+    "Scan which of IPv4 and IPv6 this network really carries" to "اسکن کن ببین این شبکه واقعاً IPv4 و IPv6 رو حمل می‌کنه یا نه",
+    "Tap refresh to ask a public echo service for this device's address." to "روی به‌روزرسانی بزن تا یک سرویس عمومی آدرس این دستگاه رو بگه.",
+    "Tap the fourth tab to open the IP page" to "برای باز کردن صفحه‌ی IP روی تب چهارم بزن",
+    "Tap to open every address on this phone" to "برای دیدن همه‌ی آدرس‌های این گوشی بزن",
+    "Tap to open the IP page" to "برای باز کردن صفحه‌ی IP بزن",
+    "The IP page: every address this phone holds, in every state" to "صفحه‌ی IP: هر آدرسی که این گوشی داره، در هر حالتی",
+    "The interface reports an address · not measured yet" to "اینترفیس یک آدرس گزارش می‌کنه • هنوز اندازه‌گیری نشده",
+    "This device has not reported an address. Turn on Wi-Fi or mobile data, then refresh." to "این دستگاه هیچ آدرسی گزارش نکرده. وای‌فای یا داده‌ی همراه رو روشن کن و بعد به‌روزرسانی بزن.",
+    "This network does not report one" to "این شبکه آدرسی گزارش نمی‌کنه",
+    "What this means" to "معنی‌اش چیه",
+    "Wi-Fi and mobile data both reported nothing" to "وای‌فای و داده‌ی همراه هیچی گزارش نکردن",
+    "Your address right now" to "آدرست، همین حالا",
+    "Your address, in every state" to "آدرست، در هر حالتی",
+    "public" to "عمومی",
+    "reached" to "پاسخ داد",
+    "resolver and family policy" to "رزولور و سیاست خانواده",
+    "through the tunnel" to "از داخل تونل",
+    "unknown interface" to "اینترفیس ناشناس",
+
     // MARBLE_EXPRESSIVE_BENTO_V250 — the bento hub, connection stage and aligned source cards.
     "Your network, your way" to "شبکه‌ات، به سلیقه خودت",
     "Choose server" to "سرور رو انتخاب کن",

@@ -868,21 +868,33 @@ fun parseDockSize(raw: String): DockSize {
         }
 }
 
+/**
+ * MARBLE_IP_IDENTITY_V251 — the fourth tab is no longer a user-chosen shortcut.
+ *
+ * It used to be one of three: a live pulse, a pinned subscription group, or one pinned server. The
+ * three were shortcuts to answers that already lived elsewhere — pulse repeated Home's telemetry,
+ * the group repeated Servers, the pinned server repeated both — and none of them answered the
+ * question a phone using a tunnel actually asks: *what address am I on right now, and is it mine*.
+ * The slot is that page, in every state, whether the tunnel is up or the phone is bare.
+ *
+ * The three ids survive as aliases so a phone that has one of them stored keeps opening a working
+ * tab on the first launch after the update; they all resolve to [IP] now, because there is no
+ * longer a second kind of fourth tab to resolve to.
+ */
 enum class DockSlotKind(val id: String) {
-    PULSE("pulse"),
-    SOURCE("source"),
-    CONFIG("config");
+    IP("ip");
 
     companion object {
-        val DEFAULT: DockSlotKind get() = PULSE
+        val DEFAULT: DockSlotKind get() = IP
     }
 }
 
 fun parseDockSlotKind(raw: String): DockSlotKind =
     DockSlotKind.entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) }
         ?: when (raw.trim().uppercase()) {
-            "SUB", "SUBSCRIPTION", "GROUP", "SUBS" -> DockSlotKind.SOURCE
-            "NODE", "PROFILE", "SERVER", "CONFIGS" -> DockSlotKind.CONFIG
+            // Retired ids: the tab they used to name is the IP page now.
+            "PULSE", "SUB", "SUBSCRIPTION", "GROUP", "SUBS",
+            "NODE", "PROFILE", "SERVER", "CONFIGS" -> DockSlotKind.IP
             else -> DockSlotKind.DEFAULT
         }
 
@@ -929,7 +941,10 @@ fun parseDockSlotAccent(raw: String): DockSlotAccent =
 
 const val DOCK_SLOT_CAPTION_MAX: Int = 14
 
-const val DOCK_SLOT_CAPTION_PULSE: String = "Pulse"
+/** The fourth tab's own name. It is no longer a user-chosen shortcut, so the caption is fixed. */
+const val DOCK_SLOT_CAPTION_IP: String = "IP"
+
+const val DOCK_SLOT_CAPTION_PULSE: String = DOCK_SLOT_CAPTION_IP
 
 const val DOCK_SLOT_CAPTION_FALLBACK: String = "Custom"
 
@@ -937,7 +952,10 @@ fun dockSlotCaption(configured: String): String =
     configured.trim().take(DOCK_SLOT_CAPTION_MAX)
 
 fun dockSlotDefaultCaption(kind: DockSlotKind, targetName: String): String = when {
-    kind == DockSlotKind.PULSE -> DOCK_SLOT_CAPTION_PULSE
+    // MARBLE_IP_IDENTITY_V251 — the tab has one name now; `targetName` is kept in the signature
+    // because the call sites still pass the route they used to pin, and a rename is cheaper than
+    // five edits that prove nothing.
+    kind == DockSlotKind.IP -> DOCK_SLOT_CAPTION_IP
     targetName.isNotBlank() -> targetName.trim().take(DOCK_SLOT_CAPTION_MAX)
     else -> DOCK_SLOT_CAPTION_FALLBACK
 }

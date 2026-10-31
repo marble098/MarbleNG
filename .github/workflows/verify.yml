@@ -570,8 +570,23 @@ jobs:
               "MarbleApp modular tabs": (
                   "HomeScreen(" in marble_app
                   and "ServersScreen(" in marble_app
-                  and "CustomSlotScreen(" in marble_app
+                  and "IpIdentityScreen(" in marble_app
                   and "SettingsScreen(" in marble_app
+              ),
+              # MARBLE_IP_IDENTITY_V251 — the fourth tab is the IP page in every state, every
+              # Settings inner page shares one expressive scaffold, and the app draws one ambient
+              # light under all four tabs instead of repainting it per screen.
+              "the fourth tab is the IP page": (
+                  "CustomSlotScreen(" not in marble_app
+                  and "MarbleAmbientBackdrop(" in marble_app
+                  and "IpAddressBook.scopeOf(" in Path(
+                      "app/src/main/java/com/marbleng/app/ui/IpIdentityScreen.kt"
+                  ).read_text(encoding="utf-8")
+                  and "fun refreshIpStack(" in repo
+                  and "MarbleExpressivePageScaffold(" in Path(
+                      "app/src/main/java/com/marbleng/app/ui/MarbleExpressivePages.kt"
+                  ).read_text(encoding="utf-8")
+                  and "MarbleSubPageScaffold(" not in marble_components
               ),
               "source-aware deletion": (
                   "removeProfile(profile.id, profile.subscriptionId)" in servers

@@ -44,7 +44,9 @@ fun SettingsSmartJitterPage(
     val live by repo.jitterReducer.state.collectAsState()
     val mode = JitterSmartMode.fromId(s.jitterSmartMode)
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.GAUGE,
+        tint = colors.success,
         title = trx("Smooth out the jitter"),
         onBack = onBack
     ) {

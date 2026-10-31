@@ -42,7 +42,9 @@ fun SettingsPingTestingPage(
     val engine = s.coreEngine()
     val homeAction = parseHomePingAction(s.homePingGaugeAction)
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.GAUGE,
+        tint = colors.success,
         title = trx("How ping is measured"),
         onBack = onBack
     ) {
@@ -227,7 +229,9 @@ fun SettingsAutoSelectorPage(
     val scope = s.autoServerScopeEnum
     val preview = repo.previewAutoServerChoice()
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.RADAR,
+        tint = colors.primary,
         title = trx("Pick a server for me"),
         onBack = onBack
     ) {
@@ -408,7 +412,9 @@ fun SettingsIdentityLocationPage(
     val s = repo.settings
     val (knownCount, totalCount) = repo.serverLocationSummary()
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.EYE_OFF,
+        tint = colors.secondary,
         title = trx("Hide my real IP"),
         onBack = onBack
     ) {

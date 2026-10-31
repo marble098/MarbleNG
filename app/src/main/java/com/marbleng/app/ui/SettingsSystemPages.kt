@@ -56,7 +56,9 @@ fun SettingsSubscriptionsPage(
     val colors = MaterialTheme.colorScheme
     val s = repo.settings
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.REFRESH,
+        tint = colors.primary,
         title = trx("Subscriptions & refresh"),
         onBack = onBack
     ) {
@@ -115,7 +117,9 @@ fun SettingsBackupRestorePage(
         if (uri != null) repo.restoreBackup(uri)
     }
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.VAULT,
+        tint = colors.success,
         title = trx("Backup"),
         onBack = onBack
     ) {
@@ -240,7 +244,9 @@ fun SettingsNotificationsPage(
         else -> trx("Allowed by Android — the tunnel item and alerts can appear")
     }
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.BELL,
+        tint = colors.error,
         title = trx("Notifications & battery"),
         onBack = onBack
     ) {
@@ -869,7 +875,9 @@ fun SettingsDiagnosticsPage(
     val clipboard = LocalClipboardManager.current
     var tab by rememberSaveable { mutableStateOf(DiagnosticsTab.BUG_FINDER) }
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.TUNERS,
+        tint = colors.warning,
         title = trx("Fix & diagnose"),
         onBack = onBack
     ) {
@@ -1120,7 +1128,9 @@ fun SettingsAboutPage(
     val s = repo.settings
     var confirmReset by remember { mutableStateOf(false) }
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.INFO,
+        tint = colors.onSurfaceVariant,
         title = strings.informationTitle,
         onBack = onBack
     ) {

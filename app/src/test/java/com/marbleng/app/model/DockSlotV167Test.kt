@@ -15,20 +15,25 @@ class DockSlotV167Test {
     }
 
     @Test
-    fun aFreshInstallOpensOnThePulse() {
-        assertEquals(DockSlotKind.PULSE, DockSlotKind.DEFAULT)
-        listOf("", "   ", "nebula", "PULSE-TRACE").forEach { raw ->
-            assertEquals("unknown kind '$raw' must fall back", DockSlotKind.PULSE, parseDockSlotKind(raw))
+    fun aFreshInstallOpensOnTheIpPage() {
+        assertEquals(DockSlotKind.IP, DockSlotKind.DEFAULT)
+        listOf("", "   ", "nebula", "IP-TRACE").forEach { raw ->
+            assertEquals("unknown kind '$raw' must fall back", DockSlotKind.IP, parseDockSlotKind(raw))
         }
     }
 
+    /**
+     * MARBLE_IP_IDENTITY_V251 — the three retired shortcut ids all name the tab that replaced them.
+     * A phone that had `config` stored must open a working tab on the first launch after the
+     * update, not an empty page and not a crash.
+     */
     @Test
-    fun theRetiredVocabularyStillNamesItsSlot() {
-        listOf("sub", "subscription", "group", "subs").forEach { legacy ->
-            assertEquals(legacy, DockSlotKind.SOURCE, parseDockSlotKind(legacy))
-        }
-        listOf("node", "profile", "server", "configs").forEach { legacy ->
-            assertEquals(legacy, DockSlotKind.CONFIG, parseDockSlotKind(legacy))
+    fun theRetiredVocabularyStillNamesItsTab() {
+        listOf(
+            "pulse", "sub", "subscription", "group", "subs",
+            "node", "profile", "server", "config", "configs"
+        ).forEach { legacy ->
+            assertEquals(legacy, DockSlotKind.IP, parseDockSlotKind(legacy))
         }
     }
 
@@ -72,34 +77,34 @@ class DockSlotV167Test {
     @Test
     fun theBarIsThreeTabsWhenTheFourthIsSwitchedOff() {
         val all = SpatialTabLike.entries
-        val shown = dockSlots(all, SpatialTabLike.CUSTOM, showOptional = true)
+        val shown = dockSlots(all, SpatialTabLike.IP, showOptional = true)
         assertEquals(all, shown)
 
-        val hidden = dockSlots(all, SpatialTabLike.CUSTOM, showOptional = false)
+        val hidden = dockSlots(all, SpatialTabLike.IP, showOptional = false)
         assertEquals(3, hidden.size)
-        assertFalse(SpatialTabLike.CUSTOM in hidden)
+        assertFalse(SpatialTabLike.IP in hidden)
 
         assertEquals(listOf(SpatialTabLike.DECK, SpatialTabLike.LIBRARY, SpatialTabLike.SETTINGS), hidden)
     }
 
     @Test
     fun aRememberedFourthTabFallsBackIntoTheBarThatExists() {
-        val hidden = dockSlots(SpatialTabLike.entries, SpatialTabLike.CUSTOM, showOptional = false)
+        val hidden = dockSlots(SpatialTabLike.entries, SpatialTabLike.IP, showOptional = false)
 
-        assertEquals(0, dockSlotIndex(hidden, SpatialTabLike.CUSTOM))
+        assertEquals(0, dockSlotIndex(hidden, SpatialTabLike.IP))
         assertEquals(0, dockSlotIndex(hidden, SpatialTabLike.DECK))
         assertEquals(SpatialTabLike.SETTINGS, hidden[dockSlotIndex(hidden, SpatialTabLike.SETTINGS)])
 
-        val shown = dockSlots(SpatialTabLike.entries, SpatialTabLike.CUSTOM, showOptional = true)
-        assertEquals(SpatialTabLike.CUSTOM, shown[dockSlotIndex(shown, SpatialTabLike.CUSTOM)])
+        val shown = dockSlots(SpatialTabLike.entries, SpatialTabLike.IP, showOptional = true)
+        assertEquals(SpatialTabLike.IP, shown[dockSlotIndex(shown, SpatialTabLike.IP)])
     }
 
     @Test
     fun theShownBarKeepsTheFourthSlotExactlyWhereItWas() {
-        val shown = dockSlots(SpatialTabLike.entries, SpatialTabLike.CUSTOM, showOptional = true)
+        val shown = dockSlots(SpatialTabLike.entries, SpatialTabLike.IP, showOptional = true)
         assertEquals(4, shown.size)
-        assertEquals(3, dockSlotIndex(shown, SpatialTabLike.CUSTOM))
-        assertEquals(SpatialTabLike.CUSTOM, shown.last())
+        assertEquals(3, dockSlotIndex(shown, SpatialTabLike.IP))
+        assertEquals(SpatialTabLike.IP, shown.last())
     }
 
     @Test
@@ -108,27 +113,26 @@ class DockSlotV167Test {
     }
 
     @Test
-    fun theCaptionIsTheUsersOwnWordsBoundedToTheBar() {
+    fun theCaptionIsBoundedToTheBar() {
         assertEquals("Pulse", dockSlotCaption("  Pulse  "))
         assertEquals("", dockSlotCaption("   "))
         assertEquals(DOCK_SLOT_CAPTION_MAX, dockSlotCaption("x".repeat(40)).length)
         assertEquals("x".repeat(DOCK_SLOT_CAPTION_MAX), dockSlotCaption("x".repeat(40)))
     }
 
+    /**
+     * MARBLE_IP_IDENTITY_V251 — the tab has one name in every case. It does not matter what the
+     * caller passes as the target: the fourth tab is the IP page, so its caption is the IP page's
+     * name, and a stored custom caption from the shortcut era cannot rename it back.
+     */
     @Test
-    fun theDefaultCaptionNamesWhatTheSlotActuallyOpens() {
-        assertEquals(DOCK_SLOT_CAPTION_PULSE, dockSlotDefaultCaption(DockSlotKind.PULSE, ""))
-
-        assertEquals(DOCK_SLOT_CAPTION_PULSE, dockSlotDefaultCaption(DockSlotKind.PULSE, "My Sub"))
-        assertEquals("My Sub", dockSlotDefaultCaption(DockSlotKind.SOURCE, "My Sub"))
-        assertEquals("Tokyo", dockSlotDefaultCaption(DockSlotKind.CONFIG, "Tokyo"))
-        assertEquals(DOCK_SLOT_CAPTION_FALLBACK, dockSlotDefaultCaption(DockSlotKind.SOURCE, ""))
-        assertEquals(DOCK_SLOT_CAPTION_FALLBACK, dockSlotDefaultCaption(DockSlotKind.CONFIG, "   "))
-        assertEquals(
-            DOCK_SLOT_CAPTION_MAX,
-            dockSlotDefaultCaption(DockSlotKind.SOURCE, "a very long subscription name").length
-        )
+    fun theDefaultCaptionNamesWhatTheTabOpensInEveryCase() {
+        assertEquals(DOCK_SLOT_CAPTION_IP, dockSlotDefaultCaption(DockSlotKind.IP, ""))
+        assertEquals("IP", DOCK_SLOT_CAPTION_IP)
+        listOf("My Sub", "Tokyo", "   ", "a very long subscription name").forEach { target ->
+            assertEquals(DOCK_SLOT_CAPTION_IP, dockSlotDefaultCaption(DockSlotKind.IP, target))
+        }
     }
 
-    private enum class SpatialTabLike { DECK, LIBRARY, SETTINGS, CUSTOM }
+    private enum class SpatialTabLike { DECK, LIBRARY, SETTINGS, IP }
 }

@@ -32,7 +32,9 @@ fun SettingsConnectionModePage(
     val colors = MaterialTheme.colorScheme
     val s = repo.settings
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.TUNNEL,
+        tint = colors.primary,
         title = trx("How you connect"),
         onBack = onBack
     ) {
@@ -109,7 +111,9 @@ fun SettingsCoreEnginePage(
     val engine = s.coreEngine()
     val isXray = engine == CoreEngine.XRAY
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.SERVER,
+        tint = colors.secondary,
         title = trx("Proxy engine"),
         onBack = onBack
     ) {
@@ -373,7 +377,9 @@ fun SettingsTunnelDatapathPage(
     val s = repo.settings
     val current = s.tunnelCore()
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.LAYERS,
+        tint = colors.tertiary,
         title = trx("Tunnel path"),
         onBack = onBack
     ) {
@@ -502,7 +508,9 @@ fun SettingsPowerProfilePage(
     val s = repo.settings
     val profile = parsePowerProfile(s.powerProfile)
 
-    MarbleSubPageScaffold(
+    MarbleExpressivePageScaffold(
+        glyph = MarbleGlyph.SPARK,
+        tint = colors.warning,
         title = trx("Speed and battery"),
         onBack = onBack
     ) {
