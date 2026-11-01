@@ -78,7 +78,7 @@ rebuilt as a Material 3 Expressive object rather than a fifth tab — the capsul
 outgrows every glyph beside it, three elevation layers and a specular rim replace the flat circle, a
 live halo breathes while the tunnel is up, and the bloom carries the state word and the measured
 latency — with the scroll clearance derived from that taller capsule so nothing is buried; Settings
-inner pages swapping the 112dp `MediumTopAppBar` for a 64dp `SmallTopAppBar` so a page's title box no
+inner pages swapping the 112dp `MediumTopAppBar` for a 64dp `TopAppBar` so a page's title box no
 longer floats a band below the top of the app; and a Home that ships quiet, drawing only the heading,
 the connect control and the route it will use until the reader adds the rest from a studio of named
 switches with a live preview, from the card Home itself offers at the bottom of the page, or from the

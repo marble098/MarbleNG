@@ -5631,11 +5631,10 @@ check(
 check(
     "V259 a Settings inner page's title box sits at the top of the app",
     # 112dp of reserved title area was spent on nothing: the page's own heading is drawn in the
-    # hero, 24dp below. One 64dp row instead, with the same scroll behaviour.
-    "SmallTopAppBar(" in v259_pages
-    # The call site, not the word: the file's own comment names `MediumTopAppBar` to explain why
-    # the 112dp reservation was the gap.
-    and "\n            MediumTopAppBar(" not in v259_pages
+    # hero, 24dp below. One 64dp row instead, with the same scroll behaviour. The row itself, not
+    # the word: the file's own comment names `MediumTopAppBar` to explain why the 112dp reservation
+    # was the gap, so the call site is what is pinned.
+    "\n            TopAppBar(" in v259_pages
     and "TopAppBarDefaults.topAppBarColors(" in v259_pages
     and "exitUntilCollapsedScrollBehavior" in v259_pages
     and "MARBLE_SETTINGS_TOP_AIR_V259" in v259_pages,

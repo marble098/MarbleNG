@@ -497,7 +497,7 @@ internal fun MarbleCenterSpringTrigger(
         Box(
             modifier = Modifier
                 .width(width)
-                .height(height + (breath * 1f.dp))
+                .height(height + (breath * 1f).dp)
                 .graphicsLayer {
                     // A hair of scale on the same phase as the travel: the disc rises *and* swells,
                     // which is the Expressive way of saying "this is alive" without a porthole.

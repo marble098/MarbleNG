@@ -52,6 +52,8 @@ import com.marbleng.app.model.HomeSection
 import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
 import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.onSuccessContainer
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.successContainer
 
 /**
  * MARBLE_HOME_QUIET_V259 — Home's new furniture: the calm stage, the calm menu card, and the two
@@ -602,6 +604,7 @@ internal fun MarbleHomeSectionPreview(
  * MARBLE_HOME_QUIET_V259 — "3 of 6" for the studio's header badge, and the calm-state badge Home
  * prints. One function so the two can never round differently.
  */
+@Composable
 internal fun homeQuietShownLabel(shown: Int, total: Int = HomeSection.entries.size): String =
     faDigits("$shown/$total")
 

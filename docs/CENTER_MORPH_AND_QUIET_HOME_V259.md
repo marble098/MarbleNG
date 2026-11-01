@@ -54,7 +54,7 @@
 چیزی نمی‌شد، چون عنوان ۲۴dp پایین‌تر در hero کشیده می‌شود. نتیجه: صفحه با یک نوار خالی بالای
 سربرگ خودش باز می‌شد و عنوان از بالای اپ فاصله داشت.
 
-حالا `SmallTopAppBar` است: یک ردیف ۶۴dp که فلش بازگشت، عنوانِ جمع‌شده و اکشنِ خود صفحه را نگه
+حالا `TopAppBar` استاندارد است (ردیف ۶۴dp؛ `SmallTopAppBar` در این نسخهٔ Material3 وجود ندارد): یک ردیف ۶۴dp که فلش بازگشت، عنوانِ جمع‌شده و اکشنِ خود صفحه را نگه
 می‌دارد و hero بلافاصله زیرش می‌آید. رفتار اسکرول دست‌نخورده است — عنوان هنوز با جمع‌شدن hero
 محو/ظاهر می‌شود — پس این تغییر فقط **فاصله** را برمی‌دارد، نه یک حرکت را.
 
@@ -132,7 +132,7 @@ hero قرص اتصال را به‌عنوان اکشن اصلی داخل صحن�
 | متریال تازه | `ui/MarbleDockWings.kt` | سه لایه سایه، شِن آینه‌ای، دو رینگ، هالهٔ ۱٫۶s، شکوفاییِ خوانا |
 | کپسول بلندتر | `ui/MarbleLumenDock.kt` | پارامتر `centerProud`، `height = centerDockHeightDp(size)` |
 | فاصلهٔ اسکرول درست | `ui/MarbleApp.kt` | `centerClearanceDp` وقتی `showsCenterTrigger` |
-| فاصلهٔ بالای تنظیمات | `ui/MarbleExpressivePages.kt` | `SmallTopAppBar` جای `MediumTopAppBar` |
+| فاصلهٔ بالای تنظیمات | `ui/MarbleExpressivePages.kt` | `TopAppBar` (۶۴dp) جای `MediumTopAppBar` (۱۱۲dp) |
 | پیش‌فرض آرام | `model/HomeQuiet.kt`، `data/AppStore.kt` | `CALM_SECTIONS`، `calmOrder()`، `CALM_HIDDEN` به‌عنوان fallback فقط |
 | کارت خلوت + آماده‌سازی | `ui/MarbleHomeStudio.kt`، `ui/HomeScreen.kt` | `MarbleQuietCard`، `MarbleWarmupRow` |
 | استودیوی بخش‌ها | `ui/SettingsAppearancePages.kt` | یک سوئیچ در هر بخش + `MarbleHomeSectionPreview` |

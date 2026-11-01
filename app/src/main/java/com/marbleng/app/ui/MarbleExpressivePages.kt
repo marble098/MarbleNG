@@ -37,7 +37,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallTopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -144,11 +144,11 @@ internal fun MarbleExpressivePageScaffold(
             // the status bar and shrinks to 64dp as the list scrolls. On an inner Settings page that
             // reservation was spent on nothing — the title is already drawn 24dp below in the hero —
             // so the page opened with an empty band above its own heading and the heading sat far
-            // from the top of the app. It is now a `SmallTopAppBar`: one 64dp row that holds the
+            // from the top of the app. It is now the standard `TopAppBar`: one 64dp row that holds the
             // back arrow, the collapsed title and the page's own trailing action, with the hero
             // immediately under it. The scroll behaviour is unchanged, so the title still fades in as
             // the hero collapses.
-            SmallTopAppBar(
+            TopAppBar(
                 title = {
                     Text(
                         text = title,
