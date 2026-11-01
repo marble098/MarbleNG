@@ -7,6 +7,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -62,168 +67,89 @@ fun ServerAddSheet(
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val clipboard = LocalClipboardManager.current
-    var activeTab by rememberSaveable { mutableStateOf(AddSheetTab.IMPORT) }
+    var manual by rememberSaveable { mutableStateOf(false) }
+    var manualTab by rememberSaveable { mutableStateOf(AddSheetTab.NODE) }
     var targetGroup by rememberSaveable {
         mutableStateOf(repo.intakeTargetOrManual(repo.librarySourceFilter))
     }
-
     val groupChoices = buildList {
         add(MarbleMenuOption("manual", strings.homeManualGroup))
         repo.subscriptions.forEach { add(MarbleMenuOption(it.id, it.name)) }
     }
+    val clipboardText = remember { clipboard.getText()?.text?.trim().orEmpty() }
+    val importClipboard: () -> Unit = {
+        val raw = clipboard.getText()?.text?.trim().orEmpty()
+        if (raw.isBlank()) repo.setRuntimeMessage(strings.clipboardNothingFound)
+        else {
+            repo.importClipboard(raw, targetGroup)
+            onDismiss()
+        }
+    }
 
-    MarbleBottomSheet(
-        title = trx("Add Server or Source"),
-        subtitle = trx("Import links, add an HTTPS subscription, build a node or compose a chain"),
-        onDismiss = onDismiss
-    ) {
-        MarbleSegmentedControl(
-            options = listOf(
-                AddSheetTab.IMPORT to trx("Import"),
-                AddSheetTab.SUBSCRIPTION to trx("Sub"),
-                AddSheetTab.NODE to trx("Manual"),
-                AddSheetTab.CHAIN to trx("Chain")
-            ),
-            selected = activeTab,
-            onSelect = { activeTab = it }
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            when (activeTab) {
-                AddSheetTab.IMPORT -> {
-                    var pastedText by remember { mutableStateOf("") }
-                    MarbleCard {
-                        MarbleListItem(
-                            title = strings.addFromClipboard,
-                            subtitle = trx("Automatically detects proxy links, JSON or HTTPS subscription URLs"),
-                            glyph = MarbleGlyph.COPY,
-                            iconTint = colors.primary,
-                            onClick = {
-                                val raw = clipboard.getText()?.text?.trim().orEmpty()
-                                if (raw.isBlank()) {
-                                    repo.setRuntimeMessage(strings.clipboardNothingFound)
-                                } else {
-                                    repo.importClipboard(raw, targetGroup)
-                                    onDismiss()
-                                }
-                            }
-                        )
-                        MarbleDivider()
-                        MarbleListItem(
-                            title = trx("Scan or Pick QR Code"),
-                            subtitle = trx("Read QR code from camera or gallery image"),
-                            glyph = MarbleGlyph.QR,
-                            iconTint = colors.secondary,
-                            onClick = {
-                                onDismiss()
-                                onOpenQrImport()
-                            }
-                        )
-                        MarbleDivider()
-                        MarbleListItem(
-                            title = trx("Import from File"),
-                            subtitle = trx("Load a .txt or .json file from device storage"),
-                            glyph = MarbleGlyph.FOLDER,
-                            iconTint = colors.tertiary,
-                            onClick = {
-                                onDismiss()
-                                onImportFile()
-                            }
-                        )
+    MarbleBottomSheet(title = if (manual) trx("Manual Configuration") else trx("Add Server"), onDismiss = onDismiss) {
+        if (manual) {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                MarbleSegmentedControl(
+                    options = listOf(AddSheetTab.NODE to trx("Manual"), AddSheetTab.CHAIN to trx("Chain"), AddSheetTab.SUBSCRIPTION to trx("Sub")),
+                    selected = manualTab,
+                    onSelect = { manualTab = it }
+                )
+                when (manualTab) {
+                    AddSheetTab.CHAIN -> MarbleChainBuilderForm(repo, targetGroup, groupChoices, { targetGroup = it }, onDismiss)
+                    AddSheetTab.SUBSCRIPTION -> {
+                        var name by remember { mutableStateOf("") }
+                        var url by remember { mutableStateOf("") }
+                        MarbleTextField(label = trx("Subscription Name"), value = name, onValueChange = { name = it })
+                        MarbleTextField(label = trx("HTTPS Subscription URL"), value = url, onValueChange = { url = it })
+                        MarbleSectionFooter(text = trx("Leave URL blank to create a local-only server group."))
+                        MarbleButton(label = trx("Save Subscription"), glyph = MarbleGlyph.PLUS,
+                            enabled = name.trim().isNotBlank() && !repo.busy,
+                            onClick = { repo.addSubscription(name.trim(), url.trim()); onDismiss() },
+                            modifier = Modifier.fillMaxWidth())
                     }
-
-                    if (groupChoices.size > 1) {
-                        MarbleDropdownField(
-                            label = trx("Save Imported Nodes Into"),
-                            value = targetGroup,
-                            options = groupChoices,
-                            onSelect = { targetGroup = it }
-                        )
-                    }
-
-                    MarbleTextField(
-                        label = trx("Paste Links or JSON"),
-                        value = pastedText,
-                        onValueChange = { pastedText = it },
-                        placeholder = "vless://... or { \"outbounds\": [...] }",
-                        singleLine = false,
-                        monospace = true,
-                        minLines = 4,
-                        maxLines = 8
-                    )
-                    MarbleButton(
-                        label = trx("Import Text"),
-                        glyph = MarbleGlyph.PLUS,
-                        enabled = pastedText.trim().isNotBlank() && !repo.busy,
-                        onClick = {
-                            repo.importClipboard(pastedText, targetGroup)
-                            onDismiss()
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    else -> MarbleManualNodeForm(repo, targetGroup, groupChoices, { targetGroup = it }, onDismiss)
                 }
-
-                AddSheetTab.SUBSCRIPTION -> {
-                    var subName by remember { mutableStateOf("") }
-                    var subUrl by remember { mutableStateOf("") }
-
-                    MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            MarbleTextField(
-                                label = trx("Subscription Name"),
-                                value = subName,
-                                onValueChange = { subName = it },
-                                placeholder = trx("My Provider")
-                            )
-                            MarbleTextField(
-                                label = trx("HTTPS Subscription URL"),
-                                value = subUrl,
-                                onValueChange = { subUrl = it },
-                                placeholder = "https://example.com/sub"
-                            )
-                            MarbleSectionFooter(
-                                text = trx("Leave URL blank to create a local-only server group.")
-                            )
-                            MarbleButton(
-                                label = trx("Save Subscription"),
-                                glyph = MarbleGlyph.PLUS,
-                                enabled = subName.trim().isNotBlank() && !repo.busy,
-                                onClick = {
-                                    repo.addSubscription(subName.trim(), subUrl.trim())
-                                    onDismiss()
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AddServerAction(trx("Clipboard"), MarbleGlyph.COPY, importClipboard, Modifier.weight(1f))
+                    AddServerAction(trx("Scan QR"), MarbleGlyph.QR, { onDismiss(); onOpenQrImport() }, Modifier.weight(1f))
                 }
-
-                AddSheetTab.NODE -> {
-                    MarbleManualNodeForm(
-                        repo = repo,
-                        targetGroup = targetGroup,
-                        groupChoices = groupChoices,
-                        onTargetGroupChange = { targetGroup = it },
-                        onSaved = onDismiss
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AddServerAction(trx("Import File"), MarbleGlyph.FOLDER, { onDismiss(); onImportFile() }, Modifier.weight(1f))
+                    AddServerAction(trx("Manual Configuration"), MarbleGlyph.PENCIL, { manual = true }, Modifier.weight(1f))
                 }
-
-                AddSheetTab.CHAIN -> {
-                    MarbleChainBuilderForm(
-                        repo = repo,
-                        targetGroup = targetGroup,
-                        groupChoices = groupChoices,
-                        onTargetGroupChange = { targetGroup = it },
-                        onSaved = onDismiss
+                if (clipboardText.startsWith("https://", ignoreCase = true)) {
+                    MarblePillChip(
+                        label = trx("Subscription detected in clipboard: Tap to import"),
+                        selected = false,
+                        accent = colors.primary,
+                        onClick = importClipboard
                     )
                 }
             }
-            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun AddServerAction(label: String, glyph: MarbleGlyph, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Card(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            MarbleGlyphIcon(glyph = glyph, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+            Text(label, style = MaterialTheme.typography.titleSmall, minLines = 2)
         }
     }
 }

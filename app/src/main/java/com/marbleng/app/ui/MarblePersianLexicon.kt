@@ -51,6 +51,9 @@ private fun faTranslateRaw(text: String): String {
 }
 
 private val FaLexicon: Map<String, String> = mapOf(
+    "Clipboard" to "کلیپ‌بورد",
+    "Manual Configuration" to "پیکربندی دستی",
+    "Subscription detected in clipboard: Tap to import" to "اشتراک در کلیپ‌بورد پیدا شد: برای وارد کردن بزنید",
 
     "Off" to "خاموش",
     "On" to "روشن",

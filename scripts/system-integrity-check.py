@@ -5149,9 +5149,9 @@ check(
 
 check(
     "Design council aggregate sources keep management without a duplicate card rail",
-    'if (selectedId != "all") LazyRow(' in files["serversScreen"]
+    'item(key = "servers-sources")' not in files["serversScreen"]
     and 'contentDescription = trx("Manage sources")' in files["serversScreen"]
-    and 'onManage = { librarySheetOpen = true }' in files["serversScreen"],
+    and 'onClick = { librarySheetOpen = true }' in files["serversScreen"],
 )
 
 # ---------------------------------------------------------------------------
