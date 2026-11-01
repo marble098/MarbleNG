@@ -184,7 +184,13 @@ class DockStudioCenterMorphV259Test {
             order = toggle.order
             hidden = toggle.hidden
         }
-        assertEquals(HomeSection.entries, HomeStudio.visible(order, hidden))
+        // Every section is drawn again — and in the string's own order, which is what the store
+        // canonicalized. (A calm layout lists its three sections first; `HomeStudio.order` appends
+        // the ones the string did not name rather than re-sorting, which is the rule that lets a
+        // layout string be read without inverting anything.) "Show everything" writes the shipped
+        // order itself, and that is the assertion one test above.
+        assertEquals(HomeSection.entries.toSet(), HomeStudio.visible(order, hidden).toSet())
+        assertEquals(HomeSection.entries.size, HomeStudio.visible(order, hidden).size)
     }
 
     @Test

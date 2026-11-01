@@ -151,6 +151,7 @@ internal fun MarbleCalmStage(
             .fillMaxWidth()
             .clip(marbleAsymmetricShape(prominent = true))
             .background(stageColor)
+            .testTag(tag)
     ) {
         // The state's own light, painted into the stage rather than layered over it: two radial
         // washes in the state's own hue, so the surface has a direction without a border.
