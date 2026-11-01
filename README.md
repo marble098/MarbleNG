@@ -58,11 +58,24 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A rolling uptime clock** — `Protected Uptime 00:10:01` keeps its Persian words still and rolls only the digits that changed, one cell at a time, tabular, left-to-right, with a breathing colon, and cross-fades when the reading changes shape.
 - **Motion that behaves like a map** — a tab change pans the page from the side the tab is on (mirrored for RTL) while the departing page leaves the other way, a detail page zooms instead of sliding, and Settings gained one depth transition between its menu and its pages. A calm-motion setting scales every duration and distance to 0.6, and Android's own *remove animations* still snaps everything.
 - **A Home you arrange, and four themes** — six Home sections each with a switch and two move buttons (an empty Home is allowed, and the page says so), plus a fourth theme, True Black, and nine accent colours laid out in rows of five.
+- **A dock that cannot clip, and three places to put the switch** — the bottom capsule takes
+  `WindowInsets.navigationBars` and the safe-drawing edges *before* it is measured, floats 16dp above
+  the bar at 48 / 56 / 64dp, opens a selected tab into a caption for exactly two seconds and then
+  relaxes it, and carries the connection control wherever the reader wants it: a status island (with
+  inline ping and a silent `12/79 pinging…` counter) plus a power button on its right edge, one
+  morphing spring button in its centre, or the flattened hero card still on Home.
 - **Material 3 Expressive Home and seven-hub Settings** — twenty-three scattered Settings tiles are consolidated into seven cohesive broader Bento hubs (`Appearance & interface`, `Connection & core`, `Routing & bypass`, `Ping & smart auto`, `DNS & privacy`, `Subscriptions & backup`, `System & diagnostics`) with an inline morphing sub-topic switcher (`SettingsUmbrellaTopicBar`) and full-depth search, while Home replaces every non-Expressive border, circle halo and spreadsheet grid line with official `MaterialShapes` polygons, `Morph` transitions, asymmetric Bento telemetry and Google's Expressive `LoadingIndicator`.
 
 ## The expressive shell: one control, one decision
 
-`docs/ROUTING_REBUILD_V254.md` is the newest chapter: the routing page rebuilt from the outcome
+`docs/LUMEN_DOCK_AND_INTAKE_GRID_V256.md` is the newest chapter: the navigation dock inset before it
+is measured (so it cannot clip on a gesture bar, a three-button bar or a notch), a 48/56/64dp size
+ladder with a two-second transient caption, three selectable connection shapes (island in the dock,
+one spring button in its centre, or the calm hero card on Home), Home Settings for the four blocks
+Home draws, Add Server as a 2×2 of tonal keys that classifies the clipboard before offering it, the
+server overflow as a six-verb bubble instead of a full-height sheet, the Sources rail replaced by one
+circular Auto-Select, and the IP page's 32sp monospaced address with key/value copy tiles.
+`docs/ROUTING_REBUILD_V254.md` is the chapter before it: the routing page rebuilt from the outcome
 backwards (one mode seam, one visible layer list, rules that can be paused and moved, expert lists
 behind one row), the DNS, per-app and blocking pages read against the same rule, and the dead ends
 removed.

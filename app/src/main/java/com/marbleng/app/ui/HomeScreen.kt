@@ -3,7 +3,12 @@
 package com.marbleng.app.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
@@ -74,7 +79,10 @@ import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
 import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
 import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
+import com.marbleng.app.ui.theme.MARBLE_CHROME_FLIGHT_MS
 import com.marbleng.app.ui.theme.marbleMotion
+import com.marbleng.app.ui.theme.panSpec
+import com.marbleng.app.ui.theme.settleSpec
 import com.marbleng.app.ui.theme.onSuccessContainer
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.successContainer
@@ -185,6 +193,17 @@ fun HomeScreen(
         legacyShortcutsVisible = settings.modularShowShortcuts
     )
 
+    // MARBLE_HOME_WIDGETS_V256 — Home Settings. `HomeStudio` owns *which sections exist*; these four
+    // switches own *what is inside the ones that stay*, and both are honoured in the same place so
+    // the page cannot end up half-built.
+    val widgets = settings.homeLayout
+    val widgetStyle = widgets.widgetStyle
+    val motion = marbleMotion()
+    val appear = fadeIn(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)) +
+        expandVertically(animationSpec = motion.panSpec(MARBLE_CHROME_FLIGHT_MS))
+    val vanish = fadeOut(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)) +
+        shrinkVertically(animationSpec = motion.panSpec(MARBLE_CHROME_FLIGHT_MS))
+
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -238,44 +257,89 @@ fun HomeScreen(
                 }
 
                 HomeSection.CONNECT -> item(key = "home-hero") {
-                    HomeHero(
-                        connected = connected,
-                        connecting = connecting,
-                        disconnecting = disconnecting,
-                        uptime = uptime,
-                        activeRoute = activeRoute,
-                        stateLabel = headlineFor(connected, connecting, disconnecting),
-                        modeChip = modeChip,
-                        onSelectMode = selectModeChip,
-                        onToggle = toggleConnection,
-                        onOpenServers = onOpenServers,
-                        onOpenLogs = { showQuickLogs = true }
-                    )
-                }
-
-                HomeSection.PRESETS -> item(key = "home-presets") {
-                    SmartPresetStrip(
-                        repo = repo,
-                        onOpenAll = { onOpenSettingsPage(SettingsDestination.SMART_PRESETS) }
-                    )
-                }
-
-                HomeSection.ROUTE -> item(key = "home-route-section") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MarbleSectionHeader(title = trx("Active Route"))
-                        HomeRouteAndIdentityCard(
-                            repo = repo,
-                            activeRoute = activeRoute,
+                    if (widgetStyle.showsHomeHero) {
+                        // Style C — the refined hero card: no border, one shape, two type sizes.
+                        HomeHero(
                             connected = connected,
+                            connecting = connecting,
+                            disconnecting = disconnecting,
+                            uptime = uptime,
+                            activeRoute = activeRoute,
+                            stateLabel = headlineFor(connected, connecting, disconnecting),
+                            modeChip = modeChip,
+                            onSelectMode = selectModeChip,
+                            onToggle = toggleConnection,
                             onOpenServers = onOpenServers,
-                            onOpenServerDetail = onOpenServerDetail,
-                            onTriggerPing = triggerHomePing,
-                            onOpenIpPage = onOpenIpPage
+                            onOpenLogs = { showQuickLogs = true }
+                        )
+                    } else {
+                        // Styles A and B — the connect control is *in the dock*, so Home draws a
+                        // readout instead of a second button for the same action.
+                        HomeDockedStage(
+                            connected = connected,
+                            connecting = connecting,
+                            disconnecting = disconnecting,
+                            uptime = uptime,
+                            activeRoute = activeRoute,
+                            stateLabel = headlineFor(connected, connecting, disconnecting),
+                            modeChip = modeChip,
+                            onSelectMode = selectModeChip,
+                            onOpenServers = onOpenServers,
+                            onOpenLogs = { showQuickLogs = true }
                         )
                     }
                 }
 
+                HomeSection.PRESETS -> item(key = "home-presets") {
+                    AnimatedVisibility(
+                        visible = widgets.showPresets,
+                        enter = appear,
+                        exit = vanish
+                    ) {
+                        SmartPresetStrip(
+                            repo = repo,
+                            onOpenAll = { onOpenSettingsPage(SettingsDestination.SMART_PRESETS) }
+                        )
+                    }
+                }
+
+                HomeSection.ROUTE -> item(key = "home-route-section") {
+                    // Two of the four switches live here: the route strip and the exit-IP box are
+                    // separate answers to separate questions, so they are two gates, not one.
+                    AnimatedVisibility(
+                        visible = widgets.showRouteCard || widgets.showIpBox,
+                        enter = appear,
+                        exit = vanish
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AnimatedVisibility(
+                                visible = widgets.showRouteCard,
+                                enter = appear,
+                                exit = vanish
+                            ) {
+                                MarbleSectionHeader(title = trx("Active Route"))
+                            }
+                            HomeRouteAndIdentityCard(
+                                repo = repo,
+                                activeRoute = activeRoute,
+                                connected = connected,
+                                showRoute = widgets.showRouteCard,
+                                showIpBox = widgets.showIpBox,
+                                onOpenServers = onOpenServers,
+                                onOpenServerDetail = onOpenServerDetail,
+                                onTriggerPing = triggerHomePing,
+                                onOpenIpPage = onOpenIpPage
+                            )
+                        }
+                    }
+                }
+
                 HomeSection.STATS -> item(key = "home-telemetry-section") {
+                    AnimatedVisibility(
+                        visible = widgets.showSpeedGraph,
+                        enter = appear,
+                        exit = vanish
+                    ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         MarbleSectionHeader(title = strings.networkSpeed)
                         HomeTelemetryCard(
@@ -291,6 +355,7 @@ fun HomeScreen(
                                 repo.setRuntimeMessage(strings.socksCopied)
                             }
                         )
+                    }
                     }
                 }
 
@@ -368,6 +433,118 @@ fun HomeScreen(
  * MARBLE_WEIGHT_LADDER_V235 + MARBLE_EXPRESSIVE_STUDIO_V252 — Home's asymmetric Material 3
  * Expressive connection stage.
  */
+/**
+ * MARBLE_HOME_WIDGETS_V256 — Home while the dock carries the power button (styles A and B).
+ *
+ * One control, one decision: the connect verb is in the dock, so Home must not draw a second
+ * button for it — that was the whole point of moving it. What Home keeps is the *reading*: the
+ * state, the protected clock, the route and the mode chip, in the calmer of the two stage shapes.
+ */
+@Composable
+private fun HomeDockedStage(
+    connected: Boolean,
+    connecting: Boolean,
+    disconnecting: Boolean,
+    uptime: String,
+    activeRoute: ProxyProfile?,
+    stateLabel: String,
+    modeChip: ConnectModeChip,
+    onSelectMode: (ConnectModeChip) -> Unit,
+    onOpenServers: () -> Unit,
+    onOpenLogs: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val strings = Tr.now
+    val working = connecting || disconnecting
+
+    val stageColor by animateColorAsState(
+        targetValue = when {
+            connected -> colors.successContainer
+            working -> colors.tertiaryContainer
+            else -> colors.primaryContainer
+        },
+        animationSpec = marbleDefaultEffectsSpec(),
+        label = "homeDockedStage"
+    )
+    val onStage = when {
+        connected -> colors.onSuccessContainer
+        working -> colors.onTertiaryContainer
+        else -> colors.onPrimaryContainer
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.extraLarge)
+            .background(stageColor)
+            .clickable(role = Role.Button, onClick = onOpenLogs)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = trx("Connection"),
+                    color = onStage.copy(alpha = 0.76f),
+                    style = MaterialTheme.typography.labelMedium
+                )
+                AnimatedContent(targetState = stateLabel, label = "homeDockedState") { label ->
+                    Text(
+                        text = trx(label),
+                        color = onStage,
+                        style = MaterialTheme.typography.headlineSmallEmphasized,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (connected && uptime.isNotBlank()) {
+                    Text(
+                        text = "${faDigits(uptime)} · ${strings.uptime}",
+                        color = onStage.copy(alpha = 0.80f),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+            HomeStatusChip(
+                connected = connected,
+                working = working,
+                label = if (connected) {
+                    strings.statusProtected
+                } else if (working) {
+                    strings.securingRoute
+                } else {
+                    strings.readyToConnect
+                },
+                onClick = onOpenLogs
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MarbleModeMenuChip(
+                selected = modeChip,
+                onSelect = onSelectMode,
+                enabled = !disconnecting
+            )
+            HomeStageRoutePill(
+                activeRoute = activeRoute,
+                onClick = onOpenServers,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
 @Composable
 private fun HomeHero(
     connected: Boolean,
@@ -419,10 +596,13 @@ private fun HomeHero(
         label = "homeStagePetalMorph"
     )
 
+    // MARBLE_HOME_WIDGETS_V256 — Style C, refined: one squircle
+    // (`MaterialTheme.shapes.extraLarge`), no border, no second container, and two type sizes doing
+    // all the work — `labelMedium` for the overline, `headlineSmall` for the answer.
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(marbleAsymmetricShape(prominent = true))
+            .clip(MaterialTheme.shapes.extraLarge)
             .background(stageColor)
     ) {
         MarblePetalMark(
@@ -648,12 +828,15 @@ private fun HomeRouteAndIdentityCard(
     repo: AppRepository,
     activeRoute: ProxyProfile?,
     connected: Boolean,
+    showRoute: Boolean = true,
+    showIpBox: Boolean = true,
     onOpenServers: () -> Unit,
     onOpenServerDetail: (ProxyProfile) -> Unit,
     onTriggerPing: () -> Unit,
     onOpenIpPage: () -> Unit
 ) {
     val tones = marbleExpressiveTones()
+    val motion = marbleMotion()
     val strings = Tr.now
     val countryCode = activeRoute?.let { repo.serverLocation(it).code }
 
@@ -720,6 +903,13 @@ private fun HomeRouteAndIdentityCard(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        AnimatedVisibility(
+            visible = showRoute,
+            enter = fadeIn(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)) +
+                expandVertically(animationSpec = motion.panSpec(MARBLE_CHROME_FLIGHT_MS)),
+            exit = fadeOut(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)) +
+                shrinkVertically(animationSpec = motion.panSpec(MARBLE_CHROME_FLIGHT_MS))
+        ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -773,6 +963,7 @@ private fun HomeRouteAndIdentityCard(
                 MarbleChevron(size = 18.dp, tint = tones.sky.content)
             }
         }
+        }
 
         Row(
             modifier = Modifier
@@ -795,7 +986,7 @@ private fun HomeRouteAndIdentityCard(
                     .weight(1f)
                     .fillMaxHeight()
             )
-            HomeMetricBentoTile(
+            if (showIpBox) HomeMetricBentoTile(
                 overline = trx("Exit IP"),
                 value = ipTitle,
                 subtitle = ipSubtitle,

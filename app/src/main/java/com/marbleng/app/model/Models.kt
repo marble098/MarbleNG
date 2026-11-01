@@ -1100,13 +1100,41 @@ data class ShadeRouteControl(
  */
 data class HomeLayout(
     val sectionOrder: String = HomeStudio.DEFAULT_ORDER,
-    val hiddenSections: String = HomeStudio.DEFAULT_HIDDEN
+    val hiddenSections: String = HomeStudio.DEFAULT_HIDDEN,
+
+    // MARBLE_HOME_WIDGETS_V256 — the four Home blocks that can be switched off on their own, plus
+    // the one setting that decides *where* the connect control lives (dock island, dock centre, or
+    // the Home hero card). They ride on this value instead of adding five parameters to
+    // `AppSettings`, and the reason is the same hard ceiling the V249 note below records: this
+    // class was at 244 parameters, and `copy$default` is already at 254 of the JVM's 255 argument
+    // slots. One more field there is a `ClassFormatError` at runtime, not a compile error.
+    val showRouteCard: Boolean = true,
+    val showPresets: Boolean = true,
+    val showSpeedGraph: Boolean = true,
+    val showIpBox: Boolean = true,
+    val connectionStyle: String = ConnectionWidgetStyle.DEFAULT.id
 ) {
+    /** The typed style, resolved once so no screen has to remember the fallback rule. */
+    val widgetStyle: ConnectionWidgetStyle get() = ConnectionWidgetStyle.fromId(connectionStyle)
+
     companion object {
         /** Canonical on the way in, so a hand-edited backup resolves to a complete layout. */
-        fun of(sectionOrder: String?, hiddenSections: String?): HomeLayout = HomeLayout(
+        fun of(
+            sectionOrder: String?,
+            hiddenSections: String?,
+            showRouteCard: Boolean = true,
+            showPresets: Boolean = true,
+            showSpeedGraph: Boolean = true,
+            showIpBox: Boolean = true,
+            connectionStyle: String? = null
+        ): HomeLayout = HomeLayout(
             sectionOrder = HomeStudio.canonicalOrder(sectionOrder ?: HomeStudio.DEFAULT_ORDER),
-            hiddenSections = HomeStudio.canonicalHidden(hiddenSections ?: HomeStudio.DEFAULT_HIDDEN)
+            hiddenSections = HomeStudio.canonicalHidden(hiddenSections ?: HomeStudio.DEFAULT_HIDDEN),
+            showRouteCard = showRouteCard,
+            showPresets = showPresets,
+            showSpeedGraph = showSpeedGraph,
+            showIpBox = showIpBox,
+            connectionStyle = ConnectionWidgetStyle.fromId(connectionStyle).id
         )
     }
 }

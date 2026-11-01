@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -32,7 +33,11 @@ import com.marbleng.app.AppRepository
 import com.marbleng.app.model.AppFont
 import com.marbleng.app.model.AppLanguage
 import com.marbleng.app.model.DockPresentation
+import com.marbleng.app.model.ConnectionWidgetStyle
 import com.marbleng.app.model.DockSize
+import com.marbleng.app.model.DockStudio
+import com.marbleng.app.model.HomeWidget
+import com.marbleng.app.model.HomeWidgets
 import com.marbleng.app.model.DockSlotAccent
 import com.marbleng.app.model.DockSlotKind
 import com.marbleng.app.model.FlatAccent
@@ -393,18 +398,27 @@ fun SettingsTabBarPage(
         item(key = "tabbar-chrome") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 MarbleSectionHeader(title = trx("Tab Bar Appearance"))
+                // MARBLE_LUMEN_DOCK_V256 — the ladder now names its own heights, and the third
+                // rung is "Comfortable" because that is what 64dp is: the same bar with more air,
+                // not a bigger bar with bigger words. The numbers are printed under the control so
+                // the setting is a measurement rather than a mood.
                 MarbleSegmentedControl(
-                    options = listOf(
-                        DockSize.SMALL to trx("Compact"),
-                        DockSize.MEDIUM to trx("Standard"),
-                        DockSize.LARGE to trx("Large")
-                    ),
+                    options = DockSize.entries.map { it to trx(DockStudio.ladderTitle(it)) },
                     selected = dockSize,
                     onSelect = {
                         repo.updateSettings(
                             s.copy(dockSize = encodeDockPreference(it, parseDockPresentation(s.dockSize)))
                         )
                     }
+                )
+                // `joinToString` is not inline, so the rungs are translated before it is asked for
+                // a string: a composable call inside its lambda would be a compile error, not a
+                // crash, but the error is in the wrong file to look for the bug.
+                val rungLabels = DockSize.entries.map { size ->
+                    "${trx(DockStudio.ladderTitle(size))} ${faDigits(DockStudio.ladderHeightLabel(size))}"
+                }
+                MarbleSectionFooter(
+                    text = "${trx("Pill height")} · " + rungLabels.joinToString(" · ")
                 )
                 MarbleSectionHeader(title = trx("Bottom Bar Position"))
                 MarbleSegmentedControl(
@@ -548,6 +562,98 @@ fun SettingsHomeLayoutPage(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+            }
+        }
+
+        // MARBLE_HOME_WIDGETS_V256 — "Home Settings": where the connect control lives, and which
+        // of the four Home blocks exist. Both answers are one write each, and both are read by the
+        // Home page's `AnimatedVisibility` gates, so the page really does rebuild itself.
+        item(key = "home-widget-settings") {
+            val style = s.homeLayout.widgetStyle
+            val visibleWidgets = HomeWidgets.visibleCount(
+                showRouteCard = s.homeLayout.showRouteCard,
+                showPresets = s.homeLayout.showPresets,
+                showSpeedGraph = s.homeLayout.showSpeedGraph,
+                showIpBox = s.homeLayout.showIpBox
+            )
+
+            fun setWidget(widget: HomeWidget, visible: Boolean) {
+                val layout = s.homeLayout
+                repo.updateSettings(
+                    s.copy(
+                        homeLayout = when (widget) {
+                            HomeWidget.ROUTE_CARD -> layout.copy(showRouteCard = visible)
+                            HomeWidget.PRESETS -> layout.copy(showPresets = visible)
+                            HomeWidget.SPEED_GRAPH -> layout.copy(showSpeedGraph = visible)
+                            HomeWidget.IP_BOX -> layout.copy(showIpBox = visible)
+                        }
+                    )
+                )
+            }
+
+            fun isOn(widget: HomeWidget): Boolean = HomeWidgets.isVisible(
+                widget = widget,
+                showRouteCard = s.homeLayout.showRouteCard,
+                showPresets = s.homeLayout.showPresets,
+                showSpeedGraph = s.homeLayout.showSpeedGraph,
+                showIpBox = s.homeLayout.showIpBox
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleSectionHeader(
+                    title = trx("Home Settings"),
+                    badge = faDigits("$visibleWidgets/${HomeWidget.entries.size}"),
+                    badgeColor = if (visibleWidgets == HomeWidget.entries.size) colors.success else colors.warning
+                )
+                MarbleCard(contentPadding = PaddingValues(bottom = 8.dp)) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = trx("Connection widget"),
+                            color = colors.onSurface,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Text(
+                            text = trx(style.hint),
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    MarbleDropdownField(
+                        label = trx("Connection style"),
+                        value = style.id,
+                        options = ConnectionWidgetStyle.entries.map { option ->
+                            MarbleMenuOption(option.id, trx(option.title), trx(option.hint))
+                        },
+                        onSelect = { picked ->
+                            repo.updateSettings(
+                                s.copy(
+                                    homeLayout = s.homeLayout.copy(
+                                        connectionStyle = ConnectionWidgetStyle.fromId(picked).id
+                                    )
+                                )
+                            )
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                    MarbleDivider()
+                    HomeWidget.entries.forEachIndexed { index, widget ->
+                        if (index > 0) MarbleDivider()
+                        MarbleSwitchRow(
+                            title = trx(widget.title),
+                            subtitle = trx(widget.hint),
+                            checked = isOn(widget),
+                            onCheckedChange = { setWidget(widget, it) }
+                        )
+                    }
+                }
+                MarbleSectionFooter(
+                    text = trx(
+                        "These switches rebuild Home immediately. A block that is off is not drawn at all."
+                    )
+                )
             }
         }
 

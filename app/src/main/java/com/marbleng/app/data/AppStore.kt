@@ -688,7 +688,17 @@ class AppStore(context: Context) {
         // instead of being silently dropped, and a section retired by one disappears from it.
         homeLayout = HomeLayout.of(
             sectionOrder = prefs.getString("homeSectionOrder", HomeStudio.DEFAULT_ORDER),
-            hiddenSections = prefs.getString("homeHiddenSections", HomeStudio.DEFAULT_HIDDEN)
+            hiddenSections = prefs.getString("homeHiddenSections", HomeStudio.DEFAULT_HIDDEN),
+            // MARBLE_HOME_WIDGETS_V256 — four switches and one dropdown, all defaulted to what the
+            // app already drew, so an upgrade changes nobody's Home until somebody asks.
+            showRouteCard = prefs.getBoolean("homeShowRouteCard", true),
+            showPresets = prefs.getBoolean("homeShowPresets", true),
+            showSpeedGraph = prefs.getBoolean("homeShowSpeedGraph", true),
+            showIpBox = prefs.getBoolean("homeShowIpBox", true),
+            connectionStyle = prefs.getString(
+                "homeConnectionStyle",
+                ConnectionWidgetStyle.DEFAULT.id
+            )
         ),
         appCalmMotion = prefs.getBoolean("appCalmMotion", false),
         modularShowStatus = prefs.getBoolean("modularShowStatus", true),
@@ -959,6 +969,12 @@ class AppStore(context: Context) {
             "homeHiddenSections",
             HomeStudio.canonicalHidden(s.homeLayout.hiddenSections)
         )
+        // MARBLE_HOME_WIDGETS_V256 — the four Home widget switches and the connection style.
+        .putBoolean("homeShowRouteCard", s.homeLayout.showRouteCard)
+        .putBoolean("homeShowPresets", s.homeLayout.showPresets)
+        .putBoolean("homeShowSpeedGraph", s.homeLayout.showSpeedGraph)
+        .putBoolean("homeShowIpBox", s.homeLayout.showIpBox)
+        .putString("homeConnectionStyle", ConnectionWidgetStyle.fromId(s.homeLayout.connectionStyle).id)
         .putBoolean("appCalmMotion", s.appCalmMotion)
         .putBoolean("modularShowStatus", s.modularShowStatus)
         .putBoolean("modularShowServers", s.modularShowServers)

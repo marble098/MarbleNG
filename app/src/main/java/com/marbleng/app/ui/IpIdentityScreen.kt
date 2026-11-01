@@ -11,6 +11,8 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -23,11 +25,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -37,6 +42,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,13 +58,16 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.model.IpAddressBook
+import com.marbleng.app.model.IpTileCopy
 import com.marbleng.app.model.IpAddressEntry
 import com.marbleng.app.model.IpEgress
 import com.marbleng.app.model.IpKind
@@ -70,6 +81,7 @@ import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.panSpec
 import com.marbleng.app.ui.theme.settleSpec
 import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.successContainer
 import com.marbleng.app.ui.theme.warning
 
 /**
@@ -366,21 +378,18 @@ private fun IpPassportHero(
                             MarblePulseDot(color = tone)
                         }
                     }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        if (exit?.countryCode.orEmpty().isNotBlank()) {
-                            MarbleBadge(
-                                text = exit!!.countryCode.uppercase(),
-                                color = tone
-                            )
-                        }
-                        MarbleBadge(
-                            text = if (exit?.family == IpKind.IPV6) "IPv6" else "IPv4",
-                            color = colors.secondary
-                        )
-                    }
+                    // MARBLE_IP_TILES_V256 — one badge, four facts: the country's own art, its
+                    // code, the address family and whether what the internet sees came through the
+                    // tunnel or straight off the radio. Five separate pills used to say this in a
+                    // stack the eye had to parse; a single high-contrast badge says it in one look.
+                    IpIdentityFactsBadge(
+                        countryCode = exit?.countryCode.orEmpty(),
+                        countryName = exit?.country.orEmpty(),
+                        family = if (exit?.family == IpKind.IPV6) "IPv6" else "IPv4",
+                        throughTunnel = exit?.viaTunnel == true,
+                        connected = connected,
+                        tone = tone
+                    )
                     Text(
                         text = label,
                         color = colors.onSurfaceVariant,
@@ -404,32 +413,23 @@ private fun IpPassportHero(
                 },
                 label = "ipExitLiteral"
             ) { shown ->
+                // MARBLE_IP_TILES_V256 — the address is the page's headline, so it is sized like
+                // one: `headlineMedium` (32sp) in a monospaced face, because a person reading an IP
+                // aloud is matching characters, not words, and tabular digits are how you compare
+                // two addresses without reading them twice.
                 Text(
                     text = if (shown.isBlank()) trx("Not measured") else shown,
                     color = colors.onSurface,
                     style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 32.sp,
+                        lineHeight = 38.sp
                     ),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.testTag("ip-exit-literal")
                 )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                if (literal.isNotBlank()) {
-                    if (scope == IpScope.PUBLIC) {
-                        MarbleBadge(text = trx("public"), color = colors.success)
-                    }
-                    if (exit?.viaTunnel == true) {
-                        MarbleBadge(text = trx("through the tunnel"), color = colors.primary)
-                    } else {
-                        MarbleBadge(text = trx("direct"), color = colors.secondary)
-                    }
-                }
             }
 
             Row(
@@ -596,22 +596,213 @@ private fun IpInternetCard(
             badge = exit?.countryCode?.takeIf { it.isNotBlank() }?.uppercase().orEmpty(),
             badgeColor = colors.success
         )
-        MarbleCard {
-            rows.forEachIndexed { index, (label, value, visual) ->
-                if (index > 0) MarbleDivider(insetStart = 50.dp)
-                IpFactRow(
-                    label = label,
-                    value = value,
-                    glyph = visual.glyph,
-                    tint = visual.tint,
-                    onCopy = onCopy
-                )
+        // MARBLE_IP_TILES_V256 — a two-column grid of key/value tiles. Each row of the grid shares
+        // `IntrinsicSize.Min` so a long value (a DNS pair, a time zone) does not leave its
+        // neighbour a different height: the grid stays a grid.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            rows.chunked(2).forEach { pair ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    pair.forEach { (label, value, visual) ->
+                        IpFactTile(
+                            label = label,
+                            value = value,
+                            glyph = visual.glyph,
+                            tint = visual.tint,
+                            onCopy = onCopy,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                        )
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
             }
         }
     }
 }
 
 private data class IpFactVisual(val glyph: MarbleGlyph, val tint: Color)
+
+/**
+ * MARBLE_IP_TILES_V256 — the country, the family and the route, in one badge.
+ *
+ * The page used to say this four times in three styles: a `DE` chip, an `IPv4` chip, a `public`
+ * chip and a `direct` / `through the tunnel` chip, each in a different colour, stacked under the
+ * city. A reader who wants to know "am I protected, and from where" had to assemble the answer out
+ * of four fragments. This is the assembly: the country's own flag art, its code and name, the
+ * family, and the one word that matters — **Protected** (green) or **Direct** (secondary) — inside
+ * a single high-contrast pill.
+ */
+@Composable
+private fun IpIdentityFactsBadge(
+    countryCode: String,
+    countryName: String,
+    family: String,
+    throughTunnel: Boolean,
+    connected: Boolean,
+    tone: Color
+) {
+    val colors = MaterialTheme.colorScheme
+    val protectedRoute = throughTunnel && connected
+    val routeTone = if (protectedRoute) colors.success else colors.secondary
+    val place = when {
+        countryCode.isNotBlank() && countryName.isNotBlank() -> "${countryCode.uppercase()} · $countryName"
+        countryCode.isNotBlank() -> countryCode.uppercase()
+        else -> trx("Not measured")
+    }
+
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(percent = 50))
+            .background(colors.surfaceContainerHighest)
+            .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)
+            .testTag("ip-identity-badge"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (countryCode.isNotBlank()) {
+            CountryFlagCircle(code = countryCode, size = 22.dp)
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(tone.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                MarbleGlyphIcon(
+                    glyph = MarbleGlyph.GLOBE,
+                    color = tone,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+        }
+        Text(
+            text = place,
+            color = colors.onSurface,
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false)
+        )
+        Text(
+            text = family,
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 1
+        )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(percent = 50))
+                .background(routeTone.copy(alpha = 0.18f))
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (protectedRoute) trx("Protected") else trx("Direct"),
+                color = routeTone,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1
+            )
+        }
+    }
+}
+
+/**
+ * MARBLE_IP_TILES_V256 — one measured fact as a *tile*, not a row.
+ *
+ * The V251 page printed these as muted `labelSmall` above `bodyMedium` in a list, sixteen lines of
+ * near-identical grey. Two things changed: the value is now `titleMedium` and the label
+ * `bodySmall`, so the hierarchy is legible at arm's length; and the tile carries its own copy
+ * button, which becomes a checkmark for [IpTileCopy.COPIED_HOLD_MS] and then goes back — a copy a
+ * reader can *see* happened instead of a toast they may have missed.
+ */
+@Composable
+private fun IpFactTile(
+    label: String,
+    value: String,
+    glyph: MarbleGlyph,
+    tint: Color,
+    onCopy: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
+    var copied by remember(value) { mutableStateOf(false) }
+
+    LaunchedEffect(copied) {
+        if (copied) {
+            kotlinx.coroutines.delay(IpTileCopy.COPIED_HOLD_MS)
+            copied = false
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(colors.surfaceContainerLow)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .testTag("ip-fact-tile"),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MarbleGlyphIcon(
+                glyph = glyph,
+                color = tint,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = label,
+                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            // The copy affordance: glyph → check → glyph, one tap, no snackbar.
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(if (copied) colors.successContainer else colors.surfaceContainerHigh)
+                    .clickable(role = Role.Button) {
+                        haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                        onCopy(value)
+                        copied = true
+                    }
+                    .testTag("ip-fact-copy"),
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedContent(
+                    targetState = copied,
+                    transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.7f)) togetherWith (fadeOut() + scaleOut(targetScale = 0.7f)) },
+                    label = "ipCopyMorph"
+                ) { done ->
+                    MarbleGlyphIcon(
+                        glyph = if (done) MarbleGlyph.CHECK else MarbleGlyph.COPY,
+                        color = if (done) colors.success else colors.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+        Text(
+            text = value,
+            color = colors.onSurface,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
 
 /** One measured fact: the label small above, the value large below, one tap to copy. */
 @Composable
