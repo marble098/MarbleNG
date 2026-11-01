@@ -9,6 +9,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import com.marbleng.app.model.FlatAccent
+import com.marbleng.app.model.MarblePalette
 
 // MARBLE_M3_EXPRESSIVE_V240 — the one color system of the app.
 //
@@ -382,6 +383,330 @@ fun marbleStatusColors(dark: Boolean): MarbleStatusColors =
 /** The fallback primary of [accent] in [dark] mode — for swatches and previews. JVM-safe. */
 fun marbleAccentPrimary(accent: FlatAccent, dark: Boolean): Color =
     if (dark) marbleFallbackDarkScheme(accent).primary else marbleFallbackLightScheme(accent).primary
+
+// ---------------------------------------------------------------------------------------------
+// MARBLE_PALETTE_STUDIO_V258 — three whole-scheme colour themes.
+// ---------------------------------------------------------------------------------------------
+//
+// An accent seeds the primary ramp and nothing else, which is why nine swatches still read as one
+// app in nine blues. A palette replaces every *expressive* role at once — primary, secondary,
+// tertiary, their containers, the four surface container tones, the outline pair and the inverse
+// pair — so the whole product, not just its buttons, changes temperature.
+//
+// Every value below is a designed pair (a light ramp and its dark twin), not a computed tint: the
+// dark rows are the light rows re-lit, so switching the system to dark keeps the palette's identity
+// instead of washing it to grey. Error ramps stay M3's own, because a failure is a failure in any
+// palette; scrim stays black for the same reason.
+
+/**
+ * The full scheme of [palette] in [dark] mode.
+ *
+ * [MarblePalette.CLASSIC] deliberately falls back to the accent-seeded scheme, because "Classic"
+ * means *the accent you picked*, not a fourth palette.
+ */
+fun marblePaletteScheme(palette: MarblePalette, dark: Boolean): ColorScheme =
+    when (palette) {
+        MarblePalette.CLASSIC ->
+            if (dark) marbleFallbackDarkScheme(FlatAccent.OCEAN) else marbleFallbackLightScheme(FlatAccent.OCEAN)
+
+        // ── Aurora: arctic teal on the primary, a cold slate secondary and a dusk-violet tertiary.
+        //    Cool, luminous and quiet; the palette for a page that is read at night.
+        MarblePalette.AURORA -> if (dark) {
+            darkColorScheme().copy(
+                primary = Color(0xFF82D5DB),
+                onPrimary = Color(0xFF00363A),
+                primaryContainer = Color(0xFF004F53),
+                onPrimaryContainer = Color(0xFF9DF2F8),
+                inversePrimary = Color(0xFF00696E),
+                secondary = Color(0xFFB1CADD),
+                onSecondary = Color(0xFF1C3444),
+                secondaryContainer = Color(0xFF334B5B),
+                onSecondaryContainer = Color(0xFFCEE6FA),
+                tertiary = Color(0xFFC0C2F5),
+                onTertiary = Color(0xFF272B54),
+                tertiaryContainer = Color(0xFF3E4273),
+                onTertiaryContainer = Color(0xFFE1E0F9),
+                background = Color(0xFF0E1415),
+                onBackground = Color(0xFFDDE3E4),
+                surface = Color(0xFF0E1415),
+                onSurface = Color(0xFFDDE3E4),
+                surfaceVariant = Color(0xFF3F494A),
+                onSurfaceVariant = Color(0xFFBEC8C9),
+                surfaceTint = Color(0xFF82D5DB),
+                inverseSurface = Color(0xFFDDE3E4),
+                inverseOnSurface = Color(0xFF2A3132),
+                outline = Color(0xFF889394),
+                outlineVariant = Color(0xFF3F494A),
+                surfaceBright = Color(0xFF343A3B),
+                surfaceDim = Color(0xFF0E1415),
+                surfaceContainer = Color(0xFF1A2122),
+                surfaceContainerHigh = Color(0xFF242B2C),
+                surfaceContainerHighest = Color(0xFF2F3637),
+                surfaceContainerLow = Color(0xFF161D1E),
+                surfaceContainerLowest = Color(0xFF080D0E),
+                primaryFixed = Color(0xFF9FF0F5),
+                primaryFixedDim = Color(0xFF82D5DB),
+                onPrimaryFixed = Color(0xFF00201F),
+                onPrimaryFixedVariant = Color(0xFF004F53),
+                secondaryFixed = Color(0xFFCEE6FA),
+                secondaryFixedDim = Color(0xFFB1CADD),
+                onSecondaryFixed = Color(0xFF051E2C),
+                onSecondaryFixedVariant = Color(0xFF334B5B),
+                tertiaryFixed = Color(0xFFE1E0F9),
+                tertiaryFixedDim = Color(0xFFC0C2F5),
+                onTertiaryFixed = Color(0xFF13163C),
+                onTertiaryFixedVariant = Color(0xFF3E4273)
+            )
+        } else {
+            lightColorScheme().copy(
+                primary = Color(0xFF00696E),
+                onPrimary = Color.White,
+                primaryContainer = Color(0xFF9FF0F5),
+                onPrimaryContainer = Color(0xFF00201F),
+                inversePrimary = Color(0xFF82D5DB),
+                secondary = Color(0xFF4A6273),
+                onSecondary = Color.White,
+                secondaryContainer = Color(0xFFCEE6FA),
+                onSecondaryContainer = Color(0xFF051E2C),
+                tertiary = Color(0xFF565D92),
+                onTertiary = Color.White,
+                tertiaryContainer = Color(0xFFE1E0F9),
+                onTertiaryContainer = Color(0xFF13163C),
+                background = Color(0xFFF5FBFC),
+                onBackground = Color(0xFF171D1E),
+                surface = Color(0xFFF5FBFC),
+                onSurface = Color(0xFF171D1E),
+                surfaceVariant = Color(0xFFDAE4E6),
+                onSurfaceVariant = Color(0xFF3F494A),
+                surfaceTint = Color(0xFF00696E),
+                inverseSurface = Color(0xFF2A3132),
+                inverseOnSurface = Color(0xFFEBF1F2),
+                outline = Color(0xFF6F797A),
+                outlineVariant = Color(0xFFC0C9CA),
+                surfaceBright = Color(0xFFF5FBFC),
+                surfaceDim = Color(0xFFD5DADB),
+                surfaceContainer = Color(0xFFE9EFF0),
+                surfaceContainerHigh = Color(0xFFE3E9EA),
+                surfaceContainerHighest = Color(0xFFDDE3E4),
+                surfaceContainerLow = Color(0xFFEFF5F6),
+                surfaceContainerLowest = Color(0xFFFFFFFF),
+                primaryFixed = Color(0xFF9FF0F5),
+                primaryFixedDim = Color(0xFF82D5DB),
+                onPrimaryFixed = Color(0xFF00201F),
+                onPrimaryFixedVariant = Color(0xFF004F53),
+                secondaryFixed = Color(0xFFCEE6FA),
+                secondaryFixedDim = Color(0xFFB1CADD),
+                onSecondaryFixed = Color(0xFF051E2C),
+                onSecondaryFixedVariant = Color(0xFF334B5B),
+                tertiaryFixed = Color(0xFFE1E0F9),
+                tertiaryFixedDim = Color(0xFFC0C2F5),
+                onTertiaryFixed = Color(0xFF13163C),
+                onTertiaryFixedVariant = Color(0xFF3E4273)
+            )
+        }
+
+        // ── Ember: a coral primary, a plum secondary and a lamp-gold tertiary on warm paper.
+        //    The palette that makes a phone feel lit rather than lit *up*.
+        MarblePalette.EMBER -> if (dark) {
+            darkColorScheme().copy(
+                primary = Color(0xFFFFB59B),
+                onPrimary = Color(0xFF5B1A00),
+                primaryContainer = Color(0xFF7E2E12),
+                onPrimaryContainer = Color(0xFFFFDBD2),
+                inversePrimary = Color(0xFFA73A21),
+                secondary = Color(0xFFDABDE8),
+                onSecondary = Color(0xFF3B2947),
+                secondaryContainer = Color(0xFF52405E),
+                onSecondaryContainer = Color(0xFFF3DAFF),
+                tertiary = Color(0xFFE4C46A),
+                onTertiary = Color(0xFF3E2E00),
+                tertiaryContainer = Color(0xFF584400),
+                onTertiaryContainer = Color(0xFFFFE08B),
+                background = Color(0xFF191110),
+                onBackground = Color(0xFFF0DED8),
+                surface = Color(0xFF191110),
+                onSurface = Color(0xFFF0DED8),
+                surfaceVariant = Color(0xFF53433F),
+                onSurfaceVariant = Color(0xFFD8C2BC),
+                surfaceTint = Color(0xFFFFB59B),
+                inverseSurface = Color(0xFFF0DED8),
+                inverseOnSurface = Color(0xFF3A2F2C),
+                outline = Color(0xFFA08C87),
+                outlineVariant = Color(0xFF53433F),
+                surfaceBright = Color(0xFF413633),
+                surfaceDim = Color(0xFF191110),
+                surfaceContainer = Color(0xFF261D1B),
+                surfaceContainerHigh = Color(0xFF312725),
+                surfaceContainerHighest = Color(0xFF3C322F),
+                surfaceContainerLow = Color(0xFF221917),
+                surfaceContainerLowest = Color(0xFF120C0B),
+                primaryFixed = Color(0xFFFFDBD2),
+                primaryFixedDim = Color(0xFFFFB59B),
+                onPrimaryFixed = Color(0xFF3D0700),
+                onPrimaryFixedVariant = Color(0xFF7E2E12),
+                secondaryFixed = Color(0xFFF3DAFF),
+                secondaryFixedDim = Color(0xFFDABDE8),
+                onSecondaryFixed = Color(0xFF261437),
+                onSecondaryFixedVariant = Color(0xFF52405E),
+                tertiaryFixed = Color(0xFFFFE08B),
+                tertiaryFixedDim = Color(0xFFE4C46A),
+                onTertiaryFixed = Color(0xFF241A00),
+                onTertiaryFixedVariant = Color(0xFF584400)
+            )
+        } else {
+            lightColorScheme().copy(
+                primary = Color(0xFFA73A21),
+                onPrimary = Color.White,
+                primaryContainer = Color(0xFFFFDBD2),
+                onPrimaryContainer = Color(0xFF3D0700),
+                inversePrimary = Color(0xFFFFB59B),
+                secondary = Color(0xFF6B5778),
+                onSecondary = Color.White,
+                secondaryContainer = Color(0xFFF3DAFF),
+                onSecondaryContainer = Color(0xFF261437),
+                tertiary = Color(0xFF765B00),
+                onTertiary = Color.White,
+                tertiaryContainer = Color(0xFFFFE08B),
+                onTertiaryContainer = Color(0xFF241A00),
+                background = Color(0xFFFFF8F5),
+                onBackground = Color(0xFF221A18),
+                surface = Color(0xFFFFF8F5),
+                onSurface = Color(0xFF221A18),
+                surfaceVariant = Color(0xFFF4DED8),
+                onSurfaceVariant = Color(0xFF53433F),
+                surfaceTint = Color(0xFFA73A21),
+                inverseSurface = Color(0xFF3A2F2C),
+                inverseOnSurface = Color(0xFFFFEDE7),
+                outline = Color(0xFF85736E),
+                outlineVariant = Color(0xFFD8C2BC),
+                surfaceBright = Color(0xFFFFF8F5),
+                surfaceDim = Color(0xFFE8D6D0),
+                surfaceContainer = Color(0xFFFCEAE4),
+                surfaceContainerHigh = Color(0xFFF6E4DE),
+                surfaceContainerHighest = Color(0xFFF0DED8),
+                surfaceContainerLow = Color(0xFFFFF1EC),
+                surfaceContainerLowest = Color(0xFFFFFFFF),
+                primaryFixed = Color(0xFFFFDBD2),
+                primaryFixedDim = Color(0xFFFFB59B),
+                onPrimaryFixed = Color(0xFF3D0700),
+                onPrimaryFixedVariant = Color(0xFF7E2E12),
+                secondaryFixed = Color(0xFFF3DAFF),
+                secondaryFixedDim = Color(0xFFDABDE8),
+                onSecondaryFixed = Color(0xFF261437),
+                onSecondaryFixedVariant = Color(0xFF52405E),
+                tertiaryFixed = Color(0xFFFFE08B),
+                tertiaryFixedDim = Color(0xFFE4C46A),
+                onTertiaryFixed = Color(0xFF241A00),
+                onTertiaryFixedVariant = Color(0xFF584400)
+            )
+        }
+
+        // ── Neon Prism: magenta, acid lime and signal cyan on glass that is almost black even in
+        //    daylight. The loudest palette, and the only one whose *light* scheme is a bright room
+        //    with the same three neons in it.
+        MarblePalette.PRISM -> if (dark) {
+            darkColorScheme().copy(
+                primary = Color(0xFFFFA9DC),
+                onPrimary = Color(0xFF5E0042),
+                primaryContainer = Color(0xFF83005C),
+                onPrimaryContainer = Color(0xFFFFD9EF),
+                inversePrimary = Color(0xFFA6007A),
+                secondary = Color(0xFFBBD97C),
+                onSecondary = Color(0xFF283500),
+                secondaryContainer = Color(0xFF3C4E00),
+                onSecondaryContainer = Color(0xFFD9F58F),
+                tertiary = Color(0xFF93CCFF),
+                onTertiary = Color(0xFF003354),
+                tertiaryContainer = Color(0xFF004A76),
+                onTertiaryContainer = Color(0xFFCBE6FF),
+                background = Color(0xFF100B10),
+                onBackground = Color(0xFFECDFE6),
+                surface = Color(0xFF100B10),
+                onSurface = Color(0xFFECDFE6),
+                surfaceVariant = Color(0xFF51434B),
+                onSurfaceVariant = Color(0xFFD4C2CC),
+                surfaceTint = Color(0xFFFFA9DC),
+                inverseSurface = Color(0xFFECDFE6),
+                inverseOnSurface = Color(0xFF352F33),
+                outline = Color(0xFF9C8C96),
+                outlineVariant = Color(0xFF51434B),
+                surfaceBright = Color(0xFF382F37),
+                surfaceDim = Color(0xFF100B10),
+                surfaceContainer = Color(0xFF1D151D),
+                surfaceContainerHigh = Color(0xFF281F27),
+                surfaceContainerHighest = Color(0xFF332A32),
+                surfaceContainerLow = Color(0xFF191219),
+                surfaceContainerLowest = Color(0xFF0A060A),
+                primaryFixed = Color(0xFFFFD9EF),
+                primaryFixedDim = Color(0xFFFFA9DC),
+                onPrimaryFixed = Color(0xFF3B0029),
+                onPrimaryFixedVariant = Color(0xFF83005C),
+                secondaryFixed = Color(0xFFD9F58F),
+                secondaryFixedDim = Color(0xFFBBD97C),
+                onSecondaryFixed = Color(0xFF131F00),
+                onSecondaryFixedVariant = Color(0xFF3C4E00),
+                tertiaryFixed = Color(0xFFCBE6FF),
+                tertiaryFixedDim = Color(0xFF93CCFF),
+                onTertiaryFixed = Color(0xFF001D34),
+                onTertiaryFixedVariant = Color(0xFF004A76)
+            )
+        } else {
+            lightColorScheme().copy(
+                primary = Color(0xFFA6007A),
+                onPrimary = Color.White,
+                primaryContainer = Color(0xFFFFD9EF),
+                onPrimaryContainer = Color(0xFF3B0029),
+                inversePrimary = Color(0xFFFFA9DC),
+                secondary = Color(0xFF4C6B00),
+                onSecondary = Color.White,
+                secondaryContainer = Color(0xFFD9F58F),
+                onSecondaryContainer = Color(0xFF131F00),
+                tertiary = Color(0xFF00639B),
+                onTertiary = Color.White,
+                tertiaryContainer = Color(0xFFCBE6FF),
+                onTertiaryContainer = Color(0xFF001D34),
+                background = Color(0xFFFFF7FB),
+                onBackground = Color(0xFF201A1E),
+                surface = Color(0xFFFFF7FB),
+                onSurface = Color(0xFF201A1E),
+                surfaceVariant = Color(0xFFF0DEE8),
+                onSurfaceVariant = Color(0xFF51434B),
+                surfaceTint = Color(0xFFA6007A),
+                inverseSurface = Color(0xFF352F33),
+                inverseOnSurface = Color(0xFFFAEEF4),
+                outline = Color(0xFF83737D),
+                outlineVariant = Color(0xFFD4C2CC),
+                surfaceBright = Color(0xFFFFF7FB),
+                surfaceDim = Color(0xFFE4D6DE),
+                surfaceContainer = Color(0xFFF8EAF2),
+                surfaceContainerHigh = Color(0xFFF2E4EC),
+                surfaceContainerHighest = Color(0xFFECDFE6),
+                surfaceContainerLow = Color(0xFFFDF0F7),
+                surfaceContainerLowest = Color(0xFFFFFFFF),
+                primaryFixed = Color(0xFFFFD9EF),
+                primaryFixedDim = Color(0xFFFFA9DC),
+                onPrimaryFixed = Color(0xFF3B0029),
+                onPrimaryFixedVariant = Color(0xFF83005C),
+                secondaryFixed = Color(0xFFD9F58F),
+                secondaryFixedDim = Color(0xFFBBD97C),
+                onSecondaryFixed = Color(0xFF131F00),
+                onSecondaryFixedVariant = Color(0xFF3C4E00),
+                tertiaryFixed = Color(0xFFCBE6FF),
+                tertiaryFixedDim = Color(0xFF93CCFF),
+                onTertiaryFixed = Color(0xFF001D34),
+                onTertiaryFixedVariant = Color(0xFF004A76)
+            )
+        }
+    }
+
+/**
+ * A palette's own three-colour signature, for swatches and the About hero: primary, secondary and
+ * tertiary of the live mode, in the order the interface paints them.
+ */
+fun marblePaletteSignature(palette: MarblePalette, dark: Boolean): List<Color> {
+    val scheme = marblePaletteScheme(palette, dark)
+    return listOf(scheme.primary, scheme.secondary, scheme.tertiary, scheme.primaryContainer)
+}
 
 val LocalMarbleStatusColors = staticCompositionLocalOf { MarbleLightStatusColors }
 

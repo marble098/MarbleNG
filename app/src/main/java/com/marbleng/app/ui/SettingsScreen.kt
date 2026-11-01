@@ -70,6 +70,7 @@ import com.marbleng.app.model.AppLanguage
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.JitterSmartMode
 import com.marbleng.app.model.MapMotion
+import com.marbleng.app.model.MarblePalette
 import com.marbleng.app.model.PlainVoice
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.RoutingMode
@@ -80,6 +81,7 @@ import com.marbleng.app.model.jitterSmartModeEnum
 import com.marbleng.app.model.matchSmartPreset
 import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseFlatAccent
+import com.marbleng.app.model.parseMarblePalette
 import com.marbleng.app.model.parsePowerProfile
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
@@ -256,7 +258,13 @@ fun SettingsScreen(
                     SettingsDestination.BACKUP_RESTORE -> SettingsBackupRestorePage(repo, onCloseDestination)
                     SettingsDestination.NOTIFICATIONS_BG -> SettingsNotificationsPage(repo, onCloseDestination)
                     SettingsDestination.DIAGNOSTICS -> SettingsDiagnosticsPage(repo, onCloseDestination)
-                    SettingsDestination.ABOUT -> SettingsAboutPage(repo, onCloseDestination)
+                    // MARBLE_ABOUT_PAGE_V258 — the same independent page the hub's top-right
+                    // corner opens, so there is one About in the product and not two.
+                    SettingsDestination.ABOUT -> AboutScreen(
+                        repo = repo,
+                        onBack = onCloseDestination,
+                        applyStatusBarInset = false
+                    )
                 }
             }
         }
@@ -325,7 +333,16 @@ private fun SettingsMenuPage(
     } else {
         trx("Off · you pick the server")
     }
-    val themeSummary = "${trx(s.theme.replaceFirstChar { it.uppercase() })} · ${trx(parseFlatAccent(s.accentTheme).label)}"
+    // MARBLE_PALETTE_STUDIO_V258 — the summary names the palette when one is in charge, and the
+    // accent when "Marble Classic" handed the colour back.
+    val activePalette = parseMarblePalette(s.themePalette)
+    val themeSummary = "${trx(s.theme.replaceFirstChar { it.uppercase() })} · " + trx(
+        if (activePalette == MarblePalette.CLASSIC) {
+            parseFlatAccent(s.accentTheme).label
+        } else {
+            activePalette.label
+        }
+    )
     val languageSummary = when (parseAppLanguage(s.appLanguage)) {
         AppLanguage.SYSTEM -> strings.languageSystem
         AppLanguage.ENGLISH -> strings.languageEnglish
@@ -483,7 +500,7 @@ private fun SettingsMenuPage(
         SettingsRowSpec(
             destination = SettingsDestination.HOME_LAYOUT,
             title = strings.homeStyleTitle,
-            subtitle = trx("Connect style, cards and shortcuts"),
+            subtitle = trx("Where the connect control lives"),
             glyph = MarbleGlyph.HOME,
             iconTint = colors.warning,
             motif = SettingsHubLayout.motifFor(SettingsDestination.HOME_LAYOUT)
@@ -566,6 +583,12 @@ private fun SettingsMenuPage(
         )
     }
 
+    // MARBLE_PALETTE_STUDIO_V258 — "All" is the whole catalogue, not seven summaries.
+    //
+    // The category chips still group the twenty-three destinations into their umbrellas, but the
+    // resting "All" view now lays every part of Settings side by side in one uniform bento: same
+    // tile, same height, same rhythm, no featured hero breaking the grid. A summary tile that says
+    // "Appearance & interface" was a second tap to reach a page the grid could hold itself.
     val activeRows = if (searching) {
         val q = search.trim()
         detailedCatalog.filter { spec ->
@@ -575,6 +598,8 @@ private fun SettingsMenuPage(
                 trx(group.titleKey).contains(q, ignoreCase = true) ||
                 trx(SettingsHubLayout.shortTopicTitleKey(spec.destination)).contains(q, ignoreCase = true)
         }
+    } else if (category == SettingsHubCategory.ALL) {
+        detailedCatalog
     } else {
         umbrellaSpecs
     }
@@ -585,7 +610,12 @@ private fun SettingsMenuPage(
             .statusBarsPadding()
     ) {
         val columns = SettingsHubLayout.columns(maxWidth.value.toInt())
-        val featured = SettingsHubLayout.featuredDestinations(activeRows, searching)
+        // The uniform catalogue in "All" has no featured tile: an unbroken grid is the point.
+        val featured = if (searching || category == SettingsHubCategory.ALL) {
+            emptySet()
+        } else {
+            SettingsHubLayout.featuredDestinations(activeRows, searching)
+        }
         val tileRows = SettingsHubLayout.rows(activeRows, columns, featured)
 
         LazyColumn(
@@ -615,11 +645,10 @@ private fun SettingsMenuPage(
                             motif = MarbleExpressiveMotif.FLOWER,
                             targetMotif = MarbleExpressiveMotif.SUNNY
                         )
-                        // MARBLE_SETTINGS_ABOUT_V257 — About is one tap away from the hub's top
-                        // corner instead of hiding inside a category tile.
-                        MarbleIconButton(
-                            glyph = MarbleGlyph.INFO,
-                            tint = colors.primary,
+                        // MARBLE_ABOUT_PAGE_V258 — the hub's top-right corner is the door to the
+                        // independent About page, and the door is the app's own turning Material
+                        // shape: the decorative polygon and the INFO button became one object.
+                        MarbleAboutOrbitButton(
                             contentDescription = strings.informationTitle,
                             onClick = { onOpenDestination(SettingsDestination.ABOUT) }
                         )
@@ -628,7 +657,7 @@ private fun SettingsMenuPage(
                         value = search,
                         onValueChange = { hubState.search = it },
                         placeholder = trx("Search settings"),
-                        trailingCount = if (searching) {
+                        trailingCount = if (searching || category == SettingsHubCategory.ALL) {
                             faDigits("${activeRows.size}")
                         } else {
                             faDigits("${SettingsUmbrellaGroup.entries.size}")
@@ -702,22 +731,6 @@ private fun SettingsMenuPage(
                 }
             }
 
-            item(key = "settings-footer") {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "MarbleNG · v${BuildConfig.VERSION_NAME} · Xray ${BuildConfig.XRAY_CORE_TAG}",
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1
-                    )
-                }
-            }
         }
     }
 }

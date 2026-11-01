@@ -12,8 +12,9 @@ package com.marbleng.app.model
  *     gate: a size that would not fit is a size the settings page must not offer, and the shell
  *     must never draw a capsule the last row of a list can hide under.
  *  2. **The bar had one height.** The setting offered Compact / Standard / Large of a fixed 68dp
- *     capsule. The ladder is now 48 / 56 / 64 dp of *capsule*, and padding, glyph and the expanded
- *     label are derived from it instead of being three constants that could drift apart.
+ *     capsule. The ladder is now 56 / 68 / 82 dp of *capsule* (V258: V256's 48 / 56 / 64 was
+ *     inside the noise of a screenshot), and padding, glyph, label rung and caption behaviour are
+ *     derived from it instead of being constants that could drift apart.
  *  3. **A selected tab kept its caption forever.** The transparent label is now a **transient**:
  *     [EXPANDED_HOLD_MS] of icon + word, then the capsule relaxes back to the glyph, so four tabs
  *     fit on a small phone without a permanent second row of text.
@@ -25,10 +26,29 @@ object DockStudio {
     const val MARKER: String = "MARBLE_LUMEN_DOCK_V256"
 
     /** Air between the pill and the screen edge. The pill floats; it is never full-bleed. */
-    const val HORIZONTAL_MARGIN_DP: Int = 20
+    const val HORIZONTAL_MARGIN_DP: Int = 18
 
-    /** Air between the pill and the gesture bar — the 16dp the brief asks for, inside the inset. */
-    const val BOTTOM_MARGIN_DP: Int = 16
+    /**
+     * MARBLE_FLOATING_DOCK_V258 — the air under the capsule, [DEFAULT_BOTTOM_GAP_DP] by default.
+     *
+     * Kept as [BOTTOM_MARGIN_DP] because two generations of call sites and one pinned test name it
+     * that; it is the *default* of the user's adjustable gap, not a constant the dock obeys.
+     */
+    const val BOTTOM_MARGIN_DP: Int = DEFAULT_BOTTOM_GAP_DP
+
+    /** The rung the dock ships on. Larger than V256's 16dp: the capsule now visibly floats. */
+    const val DEFAULT_BOTTOM_GAP_DP: Int = 22
+
+    /** The adjustable range of [DEFAULT_BOTTOM_GAP_DP] — the setting's own bounds. */
+    const val MIN_BOTTOM_GAP_DP: Int = 8
+    const val MAX_BOTTOM_GAP_DP: Int = 44
+    const val BOTTOM_GAP_STEP_DP: Int = 2
+
+    /** The scroll clearance every screen reserved before the gap became adjustable. */
+    const val BASE_CLEARANCE_DP: Int = 112
+
+    /** Air the dock keeps between its own top rim and the last row of a list. */
+    const val CLEARANCE_BREATHING_DP: Int = 26
 
     /** How long a newly selected tab shows its word before it relaxes back to its glyph. */
     const val EXPANDED_HOLD_MS: Long = 2_000L
@@ -55,37 +75,57 @@ object DockStudio {
     /** The circle a tab rests in before it becomes a capsule: half the dock height, no wider. */
     fun restingTabSizeDp(size: DockSize): Int = heightDp(size) - pillPaddingDp(size) * 2
 
-    /** The capsule height of the ladder. Compact 48, Standard 56, Comfortable 64. */
+    /**
+     * MARBLE_FLOATING_DOCK_V258 — the ladder is now 56 / 68 / 82 dp of *capsule*.
+     *
+     * V256 shipped 48 / 56 / 64, and the report was right about it: eight dp between two rungs is
+     * inside the noise of a screenshot. Ten to fourteen dp, a glyph that grows 20 → 24 → 28, and a
+     * third rung that keeps its captions drawn are three differences a person can see side by side.
+     */
     fun heightDp(size: DockSize): Int = when (size) {
-        DockSize.SMALL -> 48
-        DockSize.MEDIUM -> 56
-        DockSize.LARGE -> 64
+        DockSize.SMALL -> 56
+        DockSize.MEDIUM -> 68
+        DockSize.LARGE -> 82
     }
 
     /**
-     * Inner air: 4 / 6 / 8 dp. The glyph never touches the rim, and the difference between two
+     * Inner air: 6 / 8 / 11 dp. The glyph never touches the rim, and the difference between two
      * rungs is what makes the ladder visible at a glance.
      */
     fun pillPaddingDp(size: DockSize): Int = when (size) {
-        DockSize.SMALL -> 4
-        DockSize.MEDIUM -> 6
-        DockSize.LARGE -> 8
+        DockSize.SMALL -> 6
+        DockSize.MEDIUM -> 8
+        DockSize.LARGE -> 11
     }
 
-    /** 20 / 22 / 24 dp glyphs: the icon grows with the capsule, never past the row icon size. */
+    /** 20 / 24 / 28 dp glyphs: the icon grows with the capsule, never past the row icon size. */
     fun iconSizeDp(size: DockSize): Int = when (size) {
         DockSize.SMALL -> 20
-        DockSize.MEDIUM -> 22
-        DockSize.LARGE -> 24
+        DockSize.MEDIUM -> 24
+        DockSize.LARGE -> 28
     }
+
+    /** The word's rung: 10 / 11 / 13 sp, so a Grand capsule is not a Slim one with big glyphs. */
+    fun labelSp(size: DockSize): Int = when (size) {
+        DockSize.SMALL -> 10
+        DockSize.MEDIUM -> 11
+        DockSize.LARGE -> 13
+    }
+
+    /**
+     * The third difference between the rungs, and the one a screenshot cannot miss: on the biggest
+     * capsule the selected tab keeps its word drawn for as long as it is selected, the middle one
+     * opens it for [EXPANDED_HOLD_MS] and then relaxes, and the smallest stays a pure icon bar.
+     */
+    fun showsCaptionsAlways(size: DockSize): Boolean = size == DockSize.LARGE
 
     /** A stadium, at every rung: the corner radius is exactly half the height. */
     fun cornerRadiusDp(size: DockSize): Float = heightDp(size) / 2f
 
     /**
      * Width of a tab while its word is showing: the resting circle plus the word's own room.
-     * Derived from the height so a Comfortable dock's capsule is proportionally wider rather than
-     * a Compact capsule with a long word squeezed into it.
+     * Derived from the height so a Grand dock's capsule is proportionally wider rather than
+     * a Slim capsule with a long word squeezed into it.
      */
     fun expandedTabWidthDp(size: DockSize, labelChars: Int): Int {
         val base = restingTabSizeDp(size)
@@ -97,27 +137,52 @@ object DockStudio {
         return base + 20 + labelChars.coerceIn(1, 14) * perChar
     }
 
+    /** The user's chosen air under the capsule, clamped into the setting's own range. */
+    fun bottomGapDp(gapDp: Int): Int = gapDp.coerceIn(MIN_BOTTOM_GAP_DP, MAX_BOTTOM_GAP_DP)
+
     /** The pill plus the air under it — what the bottom of the screen actually loses. */
-    fun occupiedHeightDp(size: DockSize): Int = heightDp(size) + BOTTOM_MARGIN_DP
+    fun occupiedHeightDp(size: DockSize, gapDp: Int = DEFAULT_BOTTOM_GAP_DP): Int =
+        heightDp(size) + bottomGapDp(gapDp)
 
     /**
-     * Does this rung fit the clearance every screen already reserves?
+     * The scroll clearance a page must reserve for this rung at this gap.
      *
-     * `MarbleSpec.BOTTOM_BAR_CLEARANCE_DP` is 112dp and the screens spend it as scroll padding. A
-     * dock taller than that would sit on the last row of every list — the clipping the brief
-     * reported, from the other side of the same fact.
+     * It is derived, never a second constant that could drift: the dock's own height, the air the
+     * user chose under it, and [CLEARANCE_BREATHING_DP] so the last row of a list does not touch
+     * the rim. [BASE_CLEARANCE_DP] is the floor, so a slim dock at 8dp never makes the pages
+     * tighter than they were before the gap existed.
      */
-    fun fitsClearance(size: DockSize, clearanceDp: Int = 112): Boolean =
-        occupiedHeightDp(size) <= clearanceDp
+    fun clearanceDp(size: DockSize, gapDp: Int = DEFAULT_BOTTOM_GAP_DP): Int =
+        maxOf(BASE_CLEARANCE_DP, occupiedHeightDp(size, gapDp) + CLEARANCE_BREATHING_DP)
+
+    /**
+     * Does this rung fit the clearance a page reserves?
+     *
+     * The argument order is deliberate: [clearanceDp] stays second, because that is the call every
+     * existing site makes, and [gapDp] is the new axis.
+     */
+    fun fitsClearance(
+        size: DockSize,
+        clearanceDp: Int = BASE_CLEARANCE_DP,
+        gapDp: Int = DEFAULT_BOTTOM_GAP_DP
+    ): Boolean = occupiedHeightDp(size, gapDp) <= clearanceDp
 
     /** Every rung has to fit, or the settings page is offering a size the shell cannot honour. */
-    fun ladderFits(clearanceDp: Int = 112): Boolean = DockSize.entries.all { fitsClearance(it, clearanceDp) }
+    fun ladderFits(clearanceDp: Int = BASE_CLEARANCE_DP): Boolean =
+        DockSize.entries.all { fitsClearance(it, clearanceDp) }
 
     /** The settings labels, in ladder order, as the English keys `trx` translates. */
     fun ladderTitle(size: DockSize): String = when (size) {
-        DockSize.SMALL -> "Compact"
-        DockSize.MEDIUM -> "Standard"
-        DockSize.LARGE -> "Comfortable"
+        DockSize.SMALL -> "Slim"
+        DockSize.MEDIUM -> "Classic"
+        DockSize.LARGE -> "Grand"
+    }
+
+    /** One line per rung that says what is actually different, not only how tall it is. */
+    fun ladderHint(size: DockSize): String = when (size) {
+        DockSize.SMALL -> "Icons only, tightest capsule"
+        DockSize.MEDIUM -> "Bigger glyphs, the selected word opens for a moment"
+        DockSize.LARGE -> "Largest glyphs, the selected word never closes"
     }
 
     fun ladderHeightLabel(size: DockSize): String = "${heightDp(size)} dp"

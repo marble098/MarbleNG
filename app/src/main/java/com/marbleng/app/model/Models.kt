@@ -443,7 +443,13 @@ data class AppBehaviorPrefs(
     val dynamicColor: Boolean = true,
     val warmupOnLaunch: Boolean = true,
     val censorshipAutoApply: Boolean = false,
-    val debugModeEnabled: Boolean = false
+    val debugModeEnabled: Boolean = false,
+    /**
+     * MARBLE_PALETTE_STUDIO_V258 — the whole-scheme colour theme. Grouped here rather than added
+     * to [AppSettings]' own constructor because that record already sits against the JVM's
+     * 255-slot method limit; a behaviour axis is exactly what this class exists for.
+     */
+    val themePalette: String = MarblePalette.CLASSIC.id
 )
 
 /**
@@ -563,6 +569,67 @@ fun parseFlatAccent(raw: String): FlatAccent =
             "olive", "lime", "khaki", "moss green" -> FlatAccent.MOSS
             else -> FlatAccent.DEFAULT
         }
+
+/**
+ * MARBLE_PALETTE_STUDIO_V258 — whole-app colour themes, not just another accent.
+ *
+ * [FlatAccent] seeds **one** ramp (primary) on a fixed neutral surface ladder, which is why every
+ * accent still reads as the same app in a different blue. A palette is a different question: it
+ * replaces the *whole* scheme — primary, secondary, tertiary, the four container tones and the
+ * surface ladder — so a phone on [AURORA] and a phone on [EMBER] do not look like two settings of
+ * one theme, they look like two designed products.
+ *
+ * [CLASSIC] is the default and means "the accent you chose, on the neutral ladder", i.e. the
+ * behaviour of every build before this one. Picking a palette deliberately outranks both the accent
+ * swatch and the wallpaper palette: a person who just chose Aurora is not asking the wallpaper to
+ * overrule them. Switching back to Classic returns the accent and dynamic colour to control.
+ */
+enum class MarblePalette(val id: String, val label: String, val hint: String) {
+    CLASSIC(
+        id = "classic",
+        label = "Marble Classic",
+        hint = "Your accent colour on the neutral surface ladder"
+    ),
+    AURORA(
+        id = "aurora",
+        label = "Aurora",
+        hint = "Arctic teal melting into violet — cool, luminous, quiet"
+    ),
+    EMBER(
+        id = "ember",
+        label = "Ember",
+        hint = "Sunset coral and deep plum — warm, confident, dramatic"
+    ),
+    PRISM(
+        id = "prism",
+        label = "Neon Prism",
+        hint = "Electric magenta and acid lime on near-black glass"
+    );
+
+    companion object {
+        val DEFAULT: MarblePalette get() = CLASSIC
+
+        /** Every palette that owns the whole scheme — i.e. everything except the accent-seeded default. */
+        val brokenOut: List<MarblePalette> get() = entries.filter { it != CLASSIC }
+
+        /**
+         * A stored id, a hand-edited preference and a restored backup all arrive here. An unknown
+         * value resolves to [CLASSIC], never to a half-applied theme.
+         */
+        fun fromId(raw: String?): MarblePalette {
+            val value = raw?.trim().orEmpty()
+            return entries.firstOrNull { it.id.equals(value, ignoreCase = true) }
+                ?: when (value.lowercase()) {
+                    "teal", "northern", "northern lights" -> AURORA
+                    "sunset", "dusk", "fire" -> EMBER
+                    "neon", "vapor", "cyber" -> PRISM
+                    else -> DEFAULT
+                }
+        }
+    }
+}
+
+fun parseMarblePalette(raw: String): MarblePalette = MarblePalette.fromId(raw)
 
 // MARBLE_CORE_POWER_V221 — one dial for the whole tuning surface.
 //
@@ -1572,6 +1639,15 @@ data class AppSettings(
     val dockShowLabels: Boolean = false,
     val dockShowIcons: Boolean = true,
     val dockSize: String = DockSize.MEDIUM.id,
+    /**
+     * MARBLE_FLOATING_DOCK_V258 — how far the floating capsule sits above the bottom edge.
+     *
+     * The attached presentation is gone, so this is the one control over the dock's vertical
+     * place: 8 dp hugs the gesture bar, 40 dp lifts the capsule into the page. Every screen's
+     * scroll clearance is derived from it (see `DockStudio.clearanceDp`), so raising it can never
+     * hide the last row of a list under the dock.
+     */
+    val dockBottomGapDp: Int = DockStudio.DEFAULT_BOTTOM_GAP_DP,
 
     val dockSlotEnabled: Boolean = true,
     val dockSlotKind: String = DockSlotKind.DEFAULT.id,
@@ -1648,6 +1724,8 @@ data class AppSettings(
     val iranDeepProbeEnabled: Boolean get() = appBehavior.iranDeepProbeEnabled
 
     val accentTheme: String get() = appBehavior.accentTheme
+
+    val themePalette: String get() = appBehavior.themePalette
 
     val dynamicColor: Boolean get() = appBehavior.dynamicColor
 

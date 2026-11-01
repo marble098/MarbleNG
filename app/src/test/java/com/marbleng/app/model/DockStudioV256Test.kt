@@ -20,18 +20,70 @@ class DockStudioV256Test {
     // ── the ladder ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun theLadderIsFortyEightFiftySixSixtyFour() {
-        assertEquals(48, DockStudio.heightDp(DockSize.SMALL))
-        assertEquals(56, DockStudio.heightDp(DockSize.MEDIUM))
-        assertEquals(64, DockStudio.heightDp(DockSize.LARGE))
+    fun theLadderIsFiftySixSixtyEightEightyTwo() {
+        // MARBLE_FLOATING_DOCK_V258 — the rungs are far enough apart to be told apart in a
+        // screenshot, which the V256 48 / 56 / 64 ladder was not.
+        assertEquals(56, DockStudio.heightDp(DockSize.SMALL))
+        assertEquals(68, DockStudio.heightDp(DockSize.MEDIUM))
+        assertEquals(82, DockStudio.heightDp(DockSize.LARGE))
+        // Every step is at least ten dp and every step grows.
+        val heights = DockSize.entries.map { DockStudio.heightDp(it) }
+        heights.zipWithNext().forEach { (small, large) ->
+            assertTrue("$small -> $large is not a visible step", large - small >= 10)
+        }
     }
 
     @Test
-    fun theLadderNamesItsOwnRungsInsteadOfBorrowingTheLensNames() {
-        assertEquals("Compact", DockStudio.ladderTitle(DockSize.SMALL))
-        assertEquals("Standard", DockStudio.ladderTitle(DockSize.MEDIUM))
-        assertEquals("Comfortable", DockStudio.ladderTitle(DockSize.LARGE))
-        assertEquals("64 dp", DockStudio.ladderHeightLabel(DockSize.LARGE))
+    fun theLadderNamesItsOwnRungsAndSaysWhatChanges() {
+        assertEquals("Slim", DockStudio.ladderTitle(DockSize.SMALL))
+        assertEquals("Classic", DockStudio.ladderTitle(DockSize.MEDIUM))
+        assertEquals("Grand", DockStudio.ladderTitle(DockSize.LARGE))
+        assertEquals("82 dp", DockStudio.ladderHeightLabel(DockSize.LARGE))
+        // The three rungs differ in glyph size and in words, not only in a number.
+        assertEquals(20, DockStudio.iconSizeDp(DockSize.SMALL))
+        assertEquals(24, DockStudio.iconSizeDp(DockSize.MEDIUM))
+        assertEquals(28, DockStudio.iconSizeDp(DockSize.LARGE))
+        assertEquals(10, DockStudio.labelSp(DockSize.SMALL))
+        assertEquals(13, DockStudio.labelSp(DockSize.LARGE))
+        assertFalse(DockStudio.showsCaptionsAlways(DockSize.SMALL))
+        assertFalse(DockStudio.showsCaptionsAlways(DockSize.MEDIUM))
+        assertTrue(DockStudio.showsCaptionsAlways(DockSize.LARGE))
+        DockSize.entries.forEach { size ->
+            assertTrue(DockStudio.ladderHint(size).isNotBlank())
+        }
+    }
+
+    @Test
+    fun theFloatingGapIsTheOnlyThingBetweenTheCapsuleAndTheEdge() {
+        // MARBLE_FLOATING_DOCK_V258 — the attached presentation is retired, so the gap *is* the
+        // dock's vertical place, and it is clamped into a range the shell can honour.
+        assertEquals(22, DockStudio.DEFAULT_BOTTOM_GAP_DP)
+        assertEquals(DockStudio.DEFAULT_BOTTOM_GAP_DP, DockStudio.BOTTOM_MARGIN_DP)
+        assertEquals(DockStudio.MIN_BOTTOM_GAP_DP, DockStudio.bottomGapDp(-40))
+        assertEquals(DockStudio.MAX_BOTTOM_GAP_DP, DockStudio.bottomGapDp(9_999))
+        assertEquals(26, DockStudio.bottomGapDp(26))
+        DockSize.entries.forEach { size ->
+            assertEquals(
+                DockStudio.heightDp(size) + 26,
+                DockStudio.occupiedHeightDp(size, 26)
+            )
+        }
+    }
+
+    @Test
+    fun theClearanceEveryPageReservesGrowsWithTheChosenGap() {
+        DockSize.entries.forEach { size ->
+            val floor = DockStudio.clearanceDp(size, DockStudio.MIN_BOTTOM_GAP_DP)
+            val tall = DockStudio.clearanceDp(size, DockStudio.MAX_BOTTOM_GAP_DP)
+            // Never below the floor the product shipped with, and never below the dock itself.
+            assertTrue(floor >= DockStudio.BASE_CLEARANCE_DP)
+            assertTrue(tall > floor)
+            assertTrue(tall >= DockStudio.occupiedHeightDp(size, DockStudio.MAX_BOTTOM_GAP_DP))
+            // Whatever the gap, the capsule fits the clearance the page was told to reserve.
+            assertTrue(
+                DockStudio.fitsClearance(size, tall, DockStudio.MAX_BOTTOM_GAP_DP)
+            )
+        }
     }
 
     @Test

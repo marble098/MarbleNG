@@ -718,7 +718,13 @@ class AppStore(context: Context) {
         dockShowIcons = prefs.getBoolean("dockShowIcons", true),
         dockSize = encodeDockPreference(
             parseDockSize(prefs.getString("dockSize", DockSize.MEDIUM.id) ?: DockSize.MEDIUM.id),
-            parseDockPresentation(prefs.getString("dockSize", DockSize.MEDIUM.id) ?: DockSize.MEDIUM.id)
+            // MARBLE_FLOATING_DOCK_V258 — the presentation is no longer a choice. A stored
+            // `attached` value is migrated to `floating` on the next write, so every install ends
+            // up on the one presentation the product now has.
+            DockPresentation.FLOATING
+        ),
+        dockBottomGapDp = DockStudio.bottomGapDp(
+            prefs.getInt("dockBottomGapDp", DockStudio.DEFAULT_BOTTOM_GAP_DP)
         ),
 
         dockSlotEnabled = prefs.getBoolean("dockSlotEnabled", true),
@@ -773,7 +779,12 @@ class AppStore(context: Context) {
             dynamicColor = prefs.getBoolean("dynamicColor", true),
             warmupOnLaunch = prefs.getBoolean("warmupOnLaunch", true),
             censorshipAutoApply = prefs.getBoolean("censorshipAutoApply", false),
-            debugModeEnabled = prefs.getBoolean("debugModeEnabled", false)
+            debugModeEnabled = prefs.getBoolean("debugModeEnabled", false),
+            // MARBLE_PALETTE_STUDIO_V258 — the whole-scheme colour theme, normalised on the way in
+            // so a hand-edited preference cannot half-apply a theme.
+            themePalette = parseMarblePalette(
+                prefs.getString("themePalette", MarblePalette.CLASSIC.id) ?: MarblePalette.CLASSIC.id
+            ).id
         ),
         // MARBLE_SMART_JITTER_V238 — the reducer's persisted knobs, one grouped axis.
         smartJitter = SmartJitterSettings(
@@ -988,8 +999,11 @@ class AppStore(context: Context) {
         .putBoolean("dockShowIcons", s.dockShowIcons)
         .putString(
             "dockSize",
-            encodeDockPreference(parseDockSize(s.dockSize), parseDockPresentation(s.dockSize))
+            // MARBLE_FLOATING_DOCK_V258 — always floating; the stored half is written back so an
+            // install that once chose `attached` is migrated by the next save.
+            encodeDockPreference(parseDockSize(s.dockSize), DockPresentation.FLOATING)
         )
+        .putInt("dockBottomGapDp", DockStudio.bottomGapDp(s.dockBottomGapDp))
         .putBoolean("dockSlotEnabled", s.dockSlotEnabled)
         .putString("dockSlotKind", parseDockSlotKind(s.dockSlotKind).id)
         .putString("dockSlotSourceId", s.dockSlotSourceId.trim())
@@ -1016,6 +1030,8 @@ class AppStore(context: Context) {
         // normalisers, so the preference file can never hold an id the model does not know.
         .putBoolean("flatInterface", s.flatInterface)
         .putString("accentTheme", parseFlatAccent(s.accentTheme).id)
+        // MARBLE_PALETTE_STUDIO_V258 — the whole-scheme colour theme.
+        .putString("themePalette", parseMarblePalette(s.themePalette).id)
         .putString("powerProfile", parsePowerProfile(s.powerProfile).id)
         .putString("fragmentStrategy", parseFragmentStrategy(s.fragmentStrategy).id)
         .putBoolean("warmupOnLaunch", s.warmupOnLaunch)
