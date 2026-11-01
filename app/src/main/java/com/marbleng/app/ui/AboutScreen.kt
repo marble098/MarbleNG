@@ -11,7 +11,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -25,18 +24,15 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,14 +76,23 @@ import com.marbleng.app.ui.theme.warning
  * it full-screen, it owns its own history entry, and it draws like a product page rather than a
  * preference.
  *
- * The composition is Material 3 Expressive from top to bottom:
+ * MARBLE_ABOUT_REVIEW_V260 — the page was reviewed against the thing it is for, and it was doing
+ * three jobs at once: an identity band, a version table and a settings page with its own buttons.
  *
- *  * a hero card whose ground is a two-stop palette gradient with a slowly turning, morphing
- *    `MaterialShapes` watermark behind the wordmark;
- *  * the version facts as one pill row rather than four label/value lines;
- *  * the four cores as expressive bento tiles, each with its own polygon and its own tag;
- *  * the update and source actions as tonal rows;
- *  * the destructive reset last, alone, where a destructive action belongs.
+ * What a reader opens About to find is *what this build is*. So the page is now three blocks and a
+ * footer, in that order:
+ *
+ *  1. **Identity** — one band: the mark, the wordmark, the tagline, and the three facts a build has
+ *     (version, build number, Xray tag) as a single monospaced line, with the palette's own spectrum
+ *     as a 3dp rule at the band's foot. It used to be five objects deep (icon block, two type
+ *     sizes, three fact pills, a colour swatch pill) and every one of them was tinted differently.
+ *  2. **The chain** — the four cores, as four tiles rather than five. The fifth tile was the app
+ *     itself, whose version was already printed twice above it; four tiles also fill two rows
+ *     exactly, which is why the grid no longer ends with a hole.
+ *  3. **The switches** — auto-check, check now, and the repository. Each verb appears exactly once.
+ *     V258 drew all three twice: as rows inside a card *and* as two full-width buttons underneath
+ *     that did the same two things.
+ *  4. **The destructive reset last**, alone, where a destructive action belongs.
  */
 @Composable
 fun AboutScreen(
@@ -105,8 +110,6 @@ fun AboutScreen(
     val dark = resolveMarbleDarkMode(s.theme, isSystemInDarkTheme())
     var confirmReset by remember { mutableStateOf(false) }
 
-    val sourceLabel = trx("Open the GitHub repository")
-    val checkLabel = trx("Check for updates")
 
     LazyColumn(
         state = listState,
@@ -122,40 +125,35 @@ fun AboutScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // MARBLE_ABOUT_REVIEW_V260 — the top bar is a back button and the page's name, and nothing
+        // else. V258 drew the turning orbit glyph here *and* a 52dp icon block in the hero directly
+        // under it: two decorated squares, one above the other, both meaning "MarbleNG". The orbit
+        // mark keeps its real job — it is the Settings hub's corner door (`MarbleAboutOrbitButton` is
+        // still what opens this page) — and the page itself opens with the band it is about.
         item(key = "about-top-bar") {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                MarbleAboutOrbitButton(
+                MarbleIconButton(
+                    glyph = MarbleGlyph.ARROW_BACK,
+                    tint = colors.onSurface,
+                    contentDescription = trx(strings.backLabel),
                     onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                         onBack()
                     },
-                    glyph = MarbleGlyph.ARROW_BACK,
-                    contentDescription = trx(strings.backLabel),
-                    tag = "about-back"
+                    modifier = Modifier.testTag("about-back")
                 )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(1.dp)
-                ) {
-                    Text(
-                        text = trx(strings.informationTitle),
-                        color = colors.onSurface,
-                        style = MaterialTheme.typography.headlineSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = trx("The whole build, in one place"),
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                Text(
+                    text = trx(strings.informationTitle),
+                    color = colors.onSurface,
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
@@ -170,9 +168,12 @@ fun AboutScreen(
         }
 
         item(key = "about-cores-header") {
+            // Four, not five: the fifth tile was this app, whose version the identity band above
+            // already prints twice. Four also fills the 2-column grid exactly, so the section no
+            // longer ends with a hole where a tile would have been.
             MarbleSectionHeader(
-                title = trx("Versions & Cores"),
-                badge = faDigits("5")
+                title = trx("Built on"),
+                badge = faDigits("4")
             )
         }
 
@@ -236,27 +237,6 @@ fun AboutScreen(
                         }
                     )
                 }
-                Spacer(Modifier.height(2.dp))
-                MarbleButton(
-                    label = checkLabel,
-                    glyph = MarbleGlyph.REFRESH,
-                    style = MarbleButtonStyle.TINTED,
-                    onClick = { repo.checkForAppUpdate(force = true) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                MarbleButton(
-                    label = sourceLabel,
-                    glyph = MarbleGlyph.LINK,
-                    style = MarbleButtonStyle.SECONDARY,
-                    onClick = {
-                        runCatching {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.SOURCE_URL))
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
             }
         }
 
@@ -273,31 +253,18 @@ fun AboutScreen(
             }
         }
 
+        // The page's promise, once, as the last line of prose on it. The three palette dots that used
+        // to sit above this sentence are the hero's own spectrum now — the same colours, drawn once.
         item(key = "about-signature") {
-            Column(
+            Text(
+                text = trx("Built in the open. No account, no tracking, no telemetry."),
+                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    marblePaletteSignature(palette, dark).take(3).forEach { tone ->
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(tone)
-                        )
-                    }
-                }
-                Text(
-                    text = trx("Built in the open. No account, no tracking, no telemetry."),
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
-                    textAlign = TextAlign.Center
-                )
-            }
+                    .padding(top = 6.dp)
+            )
         }
     }
 
@@ -405,8 +372,18 @@ internal fun MarbleAboutOrbitButton(
 }
 
 /**
- * The hero: palette-washed ground, a turning morphing watermark, the wordmark, and the three facts
- * a build has — version name, version code, core tag — as pills instead of a label/value table.
+ * MARBLE_ABOUT_REVIEW_V260 — the identity band.
+ *
+ * The V258 hero was five objects deep and every one of them was tinted differently: a gradient card,
+ * a solid primary icon block, three fact pills (primary, tertiary, success), a palette pill with a
+ * six-stop gradient, and a 188dp watermark turning behind all of it. Nothing in it was wrong and the
+ * whole was unreadable — there was no first thing to look at.
+ *
+ * This band has one first thing. The ground is a palette wash that stays *inside* the surface's own
+ * tone, the watermark is one polygon at 14 % behind the title, and the facts are a single monospaced
+ * line instead of three boxes: `v1.0.2 · build 10500 · Xray v26.9.9` is a sentence about a build, and
+ * it is read the way a version string is read — left to right, once. The palette's spectrum survives
+ * as the 3dp rule at the foot of the band, where it is a signature rather than a fourth pill.
  */
 @Composable
 private fun AboutHero(
@@ -438,147 +415,136 @@ private fun AboutHero(
         label = "aboutHeroBreath"
     )
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(32.dp))
+            .clip(marbleAsymmetricShape(prominent = true))
             .background(colors.surfaceContainerLow)
             .background(
                 Brush.linearGradient(
                     listOf(
-                        signature.first().copy(alpha = 0.26f),
-                        colors.surfaceContainerLow.copy(alpha = 0.05f),
-                        signature.getOrElse(2) { signature.first() }.copy(alpha = 0.20f)
+                        signature.first().copy(alpha = 0.18f),
+                        Color.Transparent,
+                        signature.getOrElse(2) { signature.first() }.copy(alpha = 0.12f)
                     )
                 )
-            )
-            .border(
-                width = 1.dp,
-                color = colors.outlineVariant.copy(alpha = 0.45f),
-                shape = RoundedCornerShape(32.dp)
             )
             .testTag("about-hero")
     ) {
-        MarbleMorphingMark(
-            motif = MarbleExpressiveMotif.BURST,
-            targetMotif = MarbleExpressiveMotif.FLOWER,
-            color = signature.first().copy(alpha = 0.16f),
-            progress = { if (motion.loops) breath else 0.5f },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .size(188.dp)
-                .graphicsLayer {
-                    translationX = 44.dp.toPx()
-                    translationY = 52.dp.toPx()
-                    rotationZ = if (motion.loops) turn else 0f
+        Box(modifier = Modifier.fillMaxWidth()) {
+            MarbleMorphingMark(
+                motif = MarbleExpressiveMotif.BURST,
+                targetMotif = MarbleExpressiveMotif.FLOWER,
+                color = signature.first().copy(alpha = 0.14f),
+                progress = { if (motion.loops) breath else 0.5f },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(150.dp)
+                    .graphicsLayer {
+                        translationX = 34.dp.toPx()
+                        translationY = (-30).dp.toPx()
+                        rotationZ = if (motion.loops) turn else 0f
+                    }
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(marbleExpressiveShape(MarbleExpressiveMotif.FLOWER))
+                            .background(colors.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MarbleGlyphIcon(
+                            glyph = MarbleGlyph.SHIELD,
+                            color = colors.onPrimary,
+                            modifier = Modifier.size(25.dp),
+                            weight = 1.2f
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = "MarbleNG",
+                            color = colors.onSurface,
+                            style = MaterialTheme.typography.headlineSmallEmphasized,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = trx("A tunnel you can read."),
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
-        )
-        Column(
+
+                // One line, one weight: the three facts a build has, in the type a version string is
+                // read in. The dots are the separator, so nothing has to be a pill to be a fact.
+                val persian = Tr.now.language == MarbleLanguage.FA
+                Text(
+                    text = buildString {
+                        append("v")
+                        append(versionName)
+                        append("  ·  ")
+                        append(trx("build"))
+                        append(" ")
+                        append(faDigits("$versionCode"))
+                        append("  ·  ")
+                        append(trx("Xray"))
+                        append(" ")
+                        append(xrayTag)
+                    },
+                    color = colors.onSurfaceVariant,
+                    // Monospace is the version-string voice, and a monospace face has no Persian
+                    // glyphs — so it is the Latin reading that gets the tabular face.
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontFamily = if (persian) FontFamily.Default else FontFamily.Monospace,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    maxLines = 2,
+                    modifier = Modifier.testTag("about-build-line")
+                )
+            }
+        }
+
+        // The palette's spectrum, as the band's foot: the one place four to six palette colours can
+        // sit together without becoming a second set of chips.
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .height(3.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
+            signature.forEach { tone ->
                 Box(
                     modifier = Modifier
-                        .size(54.dp)
-                        .clip(marbleExpressiveShape(MarbleExpressiveMotif.FLOWER))
-                        .background(colors.primary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MarbleGlyphIcon(
-                        glyph = MarbleGlyph.SHIELD,
-                        color = colors.onPrimary,
-                        modifier = Modifier.size(26.dp),
-                        weight = 1.2f
-                    )
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text(
-                        text = "MarbleNG",
-                        color = colors.onSurface,
-                        style = MaterialTheme.typography.headlineSmall,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = trx("A tunnel you can read."),
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AboutFactPill(label = trx("Version"), value = "v$versionName", tint = colors.primary)
-                AboutFactPill(
-                    label = trx("Build"),
-                    value = faDigits("$versionCode"),
-                    tint = colors.tertiary
-                )
-                AboutFactPill(label = trx("Xray"), value = xrayTag, tint = colors.success)
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(width = 26.dp, height = 8.dp)
-                        .clip(RoundedCornerShape(percent = 50))
-                        .background(Brush.linearGradient(signature))
-                )
-                Text(
-                    text = trx(palette.label),
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1
+                        .weight(1f)
+                        .height(3.dp)
+                        .background(tone)
                 )
             }
         }
     }
-}
 
-@Composable
-private fun AboutFactPill(
-    label: String,
-    value: String,
-    tint: Color
-) {
-    val colors = MaterialTheme.colorScheme
-    Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(colors.surfaceContainerHighest.copy(alpha = 0.72f))
-            .padding(horizontal = 10.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.spacedBy(1.dp)
-    ) {
-        Text(
-            text = label,
-            color = colors.onSurfaceVariant,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1
-        )
-        Text(
-            text = value,
-            color = tint,
-            style = MaterialTheme.typography.labelLarge.copy(
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
+    // The palette's name, under the spectrum it belongs to, as quiet punctuation.
+    Text(
+        text = trx(palette.label),
+        color = colors.onSurfaceVariant,
+        style = MaterialTheme.typography.labelSmall,
+        maxLines = 1,
+        modifier = Modifier.padding(start = 6.dp, top = 2.dp)
+    )
 }
 
 /**
@@ -699,13 +665,5 @@ private fun aboutCores(): List<AboutCore> {
             motif = MarbleExpressiveMotif.CLOVER,
             tint = { colors.warning }
         ),
-        AboutCore(
-            id = "app",
-            title = "MarbleNG app",
-            tag = "v" + BuildConfig.VERSION_NAME,
-            glyph = MarbleGlyph.INFO,
-            motif = MarbleExpressiveMotif.BURST,
-            tint = { colors.success }
-        )
     )
 }

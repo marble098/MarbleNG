@@ -73,7 +73,18 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-`docs/CENTER_MORPH_AND_QUIET_HOME_V259.md` is the newest chapter: the centre connection style
+`docs/DESIGN_COUNCIL_V260.md` is the newest chapter: the design council's pass — one corner rule for
+the bottom capsule and everything inside it (a very round rectangle derived from the rung, with every
+nested object reading the same curve six dp inside it, instead of a stadium whose buttons could not
+share its curvature), the centre connect control rebuilt as a groove with a knob in it rather than a
+disc standing on three shadows (the whole groove is the press target, the state word and the measured
+latency are printed without a tap, and the knob slides with the reading direction), a Servers card
+that answers how much is left and when it stops (a usage bar only when there is a ceiling, one tone
+shared by the bar and its chip, calendar days for the expiry and the day itself in the reader's own
+calendar — Jalali for Persian), a Home stripped of its repeats (the "A quiet Home" card, the fourth
+warm-up key, the header's QR button, the label above the route card, and the two rows of throughput
+tiles that repeated the graph above them), and an About page rebuilt around the one thing it is for.
+`docs/CENTER_MORPH_AND_QUIET_HOME_V259.md` is the chapter before it: the centre connection style
 rebuilt as a Material 3 Expressive object rather than a fifth tab — the capsule grows 8dp, the trigger
 outgrows every glyph beside it, three elevation layers and a specular rim replace the flat circle, a
 live halo breathes while the tunnel is up, and the bloom carries the state word and the measured

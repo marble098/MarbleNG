@@ -107,7 +107,16 @@ class DockStudioV256Test {
             assertTrue("glyph is taller than the row", DockStudio.iconSizeDp(size) <= DockStudio.restingTabSizeDp(size))
             assertTrue("power button is taller than the capsule", DockStudio.powerButtonSizeDp(size) <= height)
             assertEquals("the island must not be taller than its row", height - padding * 2, DockStudio.islandHeightDp(size))
-            assertEquals("a stadium at every rung", height / 2f, DockStudio.cornerRadiusDp(size), 0.001f)
+            // MARBLE_DOCK_RADII_V260 — this used to assert `height / 2f`, a stadium. The reader asked
+            // for a bar that is still very round but no longer a stadium, so the pinned rule is the
+            // shipped ratio *and* the inequality: 44 % of the short side, strictly under half.
+            assertEquals(
+                "44 % of the short side at every rung",
+                kotlin.math.round(height * DockStudio.CORNER_RATIO),
+                DockStudio.cornerRadiusDp(size),
+                0.001f
+            )
+            assertTrue("a stadium is what V260 removed", DockStudio.cornerRadiusDp(size) < height / 2f)
         }
     }
 

@@ -2,7 +2,6 @@
 
 package com.marbleng.app.ui
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -65,7 +64,6 @@ import com.marbleng.app.model.ConnectModeChip
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.HomePingAction
-import com.marbleng.app.model.HomeQuiet
 import com.marbleng.app.model.HomeSection
 import com.marbleng.app.model.HomeStudio
 import com.marbleng.app.model.IpAddressBook
@@ -179,7 +177,6 @@ fun HomeScreen(
         }
     }
 
-    val qrDesc = trx("Scan QR")
     val addDesc = trx("Add Server")
     val diagDesc = trx("Fix & diagnose")
 
@@ -190,30 +187,15 @@ fun HomeScreen(
         legacyShortcutsVisible = settings.modularShowShortcuts
     )
 
-    // MARBLE_HOME_QUIET_V259 — Home's own loudness, resolved once.
+    // MARBLE_HOME_DECLUTTER_V260 — the warm-up is the page's only "what am I drawing" answer.
     //
-    // `homeSections` above is *what is drawn*. These three values are the page's answer to "how much
-    // am I drawing", and they are the same arithmetic the studio in Settings uses: the quiet card is
-    // shown while anything is still hidden, and the warm-up is shown while the library is empty. A
-    // page that hides sections has to say so, otherwise the quiet default reads as a missing feature.
-    val shownSectionCount = homeSections.size
-    val totalSectionCount = HomeSection.entries.size
-    val showQuietCard = homeShowsQuietCard(shownSectionCount, totalSectionCount)
+    // V259 also drew a *quiet card* here: a 3/6 counter, a line about only what you need, and a pair
+    // of buttons that expanded the page or opened the section switches. It was reported and it was
+    // right — the page that is supposed to be the calm one ended with a card explaining its own
+    // modesty, and a counter is the last thing a reader needs on a screen with three objects on it.
+    // The way back is the Settings page that already owns the switches, so the card, its copy and
+    // its two verbs are gone, and Home no longer imports the layout model at all.
     val showWarmup = homeShowsWarmup(repo.profiles.size)
-
-    val showEverything: () -> Unit = {
-        repo.updateSettings(
-            settings.copy(
-                modularShowStats = true,
-                modularShowShortcuts = true,
-                homeLayout = settings.homeLayout.copy(
-                    sectionOrder = HomeQuiet.everythingOrder(),
-                    hiddenSections = HomeQuiet.nothingHidden()
-                )
-            )
-        )
-        repo.setRuntimeMessage("Home shows everything again")
-    }
 
     // MARBLE_HOME_WIDGETS_V256 — Home Settings. `HomeStudio` owns *which sections exist*; these four
     // switches own *what is inside the ones that stay*, and both are honoured in the same place so
@@ -259,14 +241,6 @@ fun HomeScreen(
                             onClick = onOpenDiagnostics
                         )
                         MarbleExpressiveIconButton(
-                            glyph = MarbleGlyph.QR,
-                            motif = MarbleExpressiveMotif.DIAMOND,
-                            containerColor = tones.plum.container,
-                            contentColor = colors.secondary,
-                            contentDescription = qrDesc,
-                            onClick = onOpenQrImport
-                        )
-                        MarbleExpressiveIconButton(
                             glyph = MarbleGlyph.PLUS,
                             motif = MarbleExpressiveMotif.CLOVER,
                             containerColor = colors.primary,
@@ -287,10 +261,13 @@ fun HomeScreen(
                             modifier = Modifier.padding(bottom = 14.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            // MARBLE_HOME_DECLUTTER_V260 — three tonal keys, and two of them were
+                            // the header's own + button and the Add sheet's own first row. The
+                            // warm-up now offers exactly what the page does *not* already offer
+                            // for free: the clipboard it already holds, and the code it can read.
                             MarbleWarmupRow(
                                 onPaste = pasteFromClipboard,
-                                onScan = onOpenQrImport,
-                                onAdd = onOpenAddSheet
+                                onScan = onOpenQrImport
                             )
                         }
                     }
@@ -364,13 +341,10 @@ fun HomeScreen(
                         exit = vanish
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AnimatedVisibility(
-                                visible = widgets.showRouteCard,
-                                enter = appear,
-                                exit = vanish
-                            ) {
-                                MarbleSectionHeader(title = trx("Active Route"))
-                            }
+                            // MARBLE_HOME_DECLUTTER_V260 — no section label above the route card.
+                            // The card's own first line *is* the server's name, and a heading that
+                            // says "Active Route" over a card that says "Berlin 01" is the page
+                            // answering one question twice.
                             HomeRouteAndIdentityCard(
                                 repo = repo,
                                 activeRoute = activeRoute,
@@ -412,81 +386,49 @@ fun HomeScreen(
                 }
 
                 HomeSection.SHORTCUTS -> item(key = "home-shortcuts-section") {
+                    // MARBLE_HOME_DECLUTTER_V260 — the row shrank from four tiles to the two that
+                    // have nowhere else to live.
+                    //
+                    // "Paste a link" was the four-tile row's first key and the warm-up's first key,
+                    // drawn in the same place on the same page; it survives in the warm-up, which
+                    // only exists while the library is empty — the moment it is the *only* way in.
+                    // "Scan QR" is the header's own + sheet and the camera; the warm-up keeps it too.
+                    // What is left is the two verbs that are this page's own: rank the library, and
+                    // run the network lab. They are the two things a reader on Home wants to *do*
+                    // about the connection they are looking at.
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         MarbleSectionHeader(title = trx("Quick Actions"))
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(IntrinsicSize.Min)
-                            ) {
-                                HomeQuickTile(
-                                    title = strings.addFromClipboard,
-                                    subtitle = trx("Paste a link"),
-                                    glyph = MarbleGlyph.COPY,
-                                    motif = MarbleExpressiveMotif.CLOVER,
-                                    tint = colors.primary,
-                                    onClick = pasteFromClipboard,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                HomeQuickTile(
-                                    title = trx("Scan QR"),
-                                    subtitle = trx("Scan to import"),
-                                    glyph = MarbleGlyph.QR,
-                                    motif = MarbleExpressiveMotif.DIAMOND,
-                                    tint = colors.secondary,
-                                    onClick = onOpenQrImport,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(IntrinsicSize.Min)
-                            ) {
-                                HomeQuickTile(
-                                    title = trx("Smart Rank"),
-                                    subtitle = trx("Find the fastest route"),
-                                    glyph = MarbleGlyph.SPARK,
-                                    motif = MarbleExpressiveMotif.SUNNY,
-                                    tint = colors.warning,
-                                    enabled = !repo.busy && !repo.probeActive,
-                                    onClick = { repo.smartRank() },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                HomeQuickTile(
-                                    title = trx("Censorship Lab"),
-                                    subtitle = trx("Test the network"),
-                                    glyph = MarbleGlyph.SHIELD,
-                                    motif = MarbleExpressiveMotif.ARCH,
-                                    tint = colors.success,
-                                    onClick = { onOpenSettingsPage(SettingsDestination.CENSORSHIP_LAB) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Min)
+                        ) {
+                            HomeQuickTile(
+                                title = trx("Smart Rank"),
+                                subtitle = trx("Find the fastest route"),
+                                glyph = MarbleGlyph.SPARK,
+                                motif = MarbleExpressiveMotif.SUNNY,
+                                tint = colors.warning,
+                                enabled = !repo.busy && !repo.probeActive,
+                                onClick = { repo.smartRank() },
+                                modifier = Modifier.weight(1f)
+                            )
+                            HomeQuickTile(
+                                title = trx("Censorship Lab"),
+                                subtitle = trx("Test the network"),
+                                glyph = MarbleGlyph.SHIELD,
+                                motif = MarbleExpressiveMotif.ARCH,
+                                tint = colors.success,
+                                onClick = { onOpenSettingsPage(SettingsDestination.CENSORSHIP_LAB) },
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
                 }
             }
         }
 
-        // MARBLE_HOME_QUIET_V259 — the last row of the page is what the page says about itself.
-        //
-        // The card is not one of the six sections: it is the sentence "this is Home on purpose, and
-        // here is everything else", so it is drawn after whatever the layout resolved to, and only
-        // while something is still hidden. On a full Home it is a row that does not exist.
-        if (showQuietCard) {
-            item(key = "home-quiet-card") {
-                MarbleQuietCard(
-                    shownCount = shownSectionCount,
-                    totalCount = totalSectionCount,
-                    onShowEverything = showEverything,
-                    onChooseSections = { onOpenSettingsPage(SettingsDestination.HOME_LAYOUT) }
-                )
-            }
-        }
     }
 
     if (showQuickLogs) {
@@ -1125,6 +1067,20 @@ private fun HomeMetricBentoTile(
     }
 }
 
+/**
+ * MARBLE_HOME_DECLUTTER_V260 — the traffic block, as one graph and one line of readings.
+ *
+ * The previous card said the same four numbers twice. The sparkline carried a download figure and an
+ * upload figure in its legend *and* drew them; under it, two 96dp tiles repeated those two figures in
+ * display type, and under *those*, two more tiles printed the session and the lifetime totals. On a
+ * phone that is three answers to "how fast" stacked in one card, which is why the page felt long
+ * without feeling full.
+ *
+ * The graph keeps the shape of the traffic — the only thing a graph can say that a number cannot —
+ * and every number it used to shout is now one row of readings underneath it: down, up, this session,
+ * all time. Nothing was deleted from the page except the repetition; the SOCKS address stays, because
+ * it is the one thing in this card a reader *acts* on.
+ */
 @Composable
 private fun HomeTelemetryCard(
     downBps: Long,
@@ -1153,52 +1109,42 @@ private fun HomeTelemetryCard(
             active = live,
             height = MarbleSpec.SPARKLINE_HEIGHT_DP.dp
         )
+
+        // One row, four readings, equal weight: the graph above says *when*, this says *how much*.
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            HomeStatTile(
+            HomeReading(
                 value = faDigits(formatRate(downBps)),
                 label = strings.download,
-                glyph = MarbleGlyph.DOWNLOAD,
-                motif = MarbleExpressiveMotif.FAN,
                 tint = colors.primary,
-                prominent = true,
-                flipped = false,
+                glyph = MarbleGlyph.DOWNLOAD,
                 modifier = Modifier.weight(1f)
             )
-            HomeStatTile(
+            HomeReading(
                 value = faDigits(formatRate(upBps)),
                 label = strings.upload,
-                glyph = MarbleGlyph.UPLOAD,
-                motif = MarbleExpressiveMotif.GEM,
                 tint = colors.tertiary,
-                prominent = true,
-                flipped = true,
+                glyph = MarbleGlyph.UPLOAD,
                 modifier = Modifier.weight(1f)
             )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            HomeStatTile(
+            HomeReading(
                 value = faDigits(formatBytes(sessionBytes)),
                 label = trx("Session"),
-                glyph = MarbleGlyph.LAYERS,
-                motif = MarbleExpressiveMotif.CLOVER,
                 tint = colors.secondary,
+                glyph = MarbleGlyph.LAYERS,
                 modifier = Modifier.weight(1f)
             )
-            HomeStatTile(
+            HomeReading(
                 value = faDigits(formatBytes(totalBytes)),
                 label = trx("Total"),
+                tint = colors.onSurfaceVariant,
                 glyph = MarbleGlyph.VAULT,
-                motif = MarbleExpressiveMotif.COOKIE,
-                tint = colors.secondary,
                 modifier = Modifier.weight(1f)
             )
         }
+
         if (showSocks) {
             Row(
                 modifier = Modifier
@@ -1250,99 +1196,52 @@ private fun HomeTelemetryCard(
     }
 }
 
+/**
+ * One reading in the traffic card's row: a small tonal glyph, the number, the word.
+ *
+ * Deliberately *not* a tile. Four bordered tiles read as four destinations; four readings separated
+ * by air read as one sentence — and this card is a reading, so nothing in it competes with the
+ * connect control for attention.
+ */
 @Composable
-private fun HomeStatTile(
+private fun HomeReading(
     value: String,
     label: String,
-    glyph: MarbleGlyph,
-    motif: MarbleExpressiveMotif,
     tint: Color,
-    modifier: Modifier = Modifier,
-    prominent: Boolean = false,
-    flipped: Boolean = false
+    glyph: MarbleGlyph,
+    modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
-    if (prominent) {
-        Column(
-            modifier = modifier
-                .clip(marbleAsymmetricShape(prominent = false, flipped = flipped))
-                .background(tint.copy(alpha = 0.12f))
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(marbleExpressiveShape(motif))
-                        .background(tint.copy(alpha = 0.20f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MarbleGlyphIcon(
-                        glyph = glyph,
-                        color = tint,
-                        modifier = Modifier.size(15.dp),
-                        weight = 1.15f
-                    )
-                }
-                Text(
-                    text = label,
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Text(
-                text = value,
-                color = colors.onSurface,
-                style = MaterialTheme.typography.headlineSmallEmphasized,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    } else {
-        Row(
-            modifier = modifier
-                .clip(RoundedCornerShape(18.dp))
-                .background(colors.surfaceContainer)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(marbleExpressiveShape(motif))
-                    .background(tint.copy(alpha = 0.18f)),
-                contentAlignment = Alignment.Center
-            ) {
-                MarbleGlyphIcon(
-                    glyph = glyph,
-                    color = tint,
-                    modifier = Modifier.size(15.dp),
-                    weight = 1.1f
-                )
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(1.dp), modifier = Modifier.weight(1f)) {
-                Text(
-                    text = value,
-                    color = colors.onSurface,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = label,
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
+    Column(
+        modifier = modifier
+            .clip(marbleAsymmetricShape(prominent = false))
+            .background(tint.copy(alpha = 0.09f))
+            .padding(horizontal = 9.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        MarbleGlyphIcon(
+            glyph = glyph,
+            color = tint,
+            modifier = Modifier.size(14.dp),
+            weight = 1.1f
+        )
+        Text(
+            text = value,
+            color = colors.onSurface,
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = label,
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
+

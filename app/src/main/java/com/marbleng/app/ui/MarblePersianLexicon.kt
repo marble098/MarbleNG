@@ -3276,8 +3276,6 @@ private val FaFriendlyVoice: Map<String, String> = mapOf(
     "A quiet Home" to "یه خونهٔ آروم",
     "Only what you need is here. Add the rest whenever you want it." to
         "فقط چیزهایی که لازم داری اینجاست. بقیه‌ش رو هر وقت خواستی اضافه کن.",
-    "Show everything" to "همه‌ش رو نشون بده",
-    "Choose sections" to "انتخاب بخش‌ها",
     "Home starts quiet: the heading, the connect control and the route it will use." to
         "صفحه اصلی آروم شروع می‌شه: عنوان، دکمهٔ اتصال و مسیری که قراره استفاده کنه.",
     "The order is designed, not dragged: the heading, the decision, the modes, " +
@@ -3288,6 +3286,13 @@ private val FaFriendlyVoice: Map<String, String> = mapOf(
     "Home shows everything again" to "صفحه اصلی دوباره همه‌چیز رو نشون می‌ده",
     "Working\u2026" to "دارم انجامش می‌دم\u2026",
     "Scan a QR" to "یه QR اسکن کن",
+    // MARBLE_SERVER_PLAN_CARDS_V260 — the subscription card's plan plate. "Quota" is the word a
+    // provider's own panel uses; "left" is the half of the sentence that has to follow a number.
+    "Quota" to "حجم اشتراک",
+    "left" to "باقی‌مونده",
+    // MARBLE_ABOUT_REVIEW_V260 — the About page's section label. Not "cores": four tiles that are
+    // the *parts* of this build, and the app itself is not one of them any more.
+    "Built on" to "ساخته‌شده روی",
 )
 
 /** The dictionary the whole product reads: base entries with the warm voice on top. */

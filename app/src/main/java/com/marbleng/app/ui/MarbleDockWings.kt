@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -48,10 +49,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -61,6 +62,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.DockSize
@@ -163,12 +165,15 @@ internal fun MarbleConnectionIslandCapsule(
     val height = DockStudio.islandHeightDp(size)
     val horizontal = DockStudio.islandPaddingDp(size)
     val spoken = trx("Ping the active route")
+    // MARBLE_DOCK_RADII_V260 — the badge is an object *inside* the bar, so it reads the bar's own
+    // inner curve rather than a stadium of its own.
+    val islandShape = RoundedCornerShape(DockStudio.innerRadiusDp(size))
 
-    Column(
+    Row(
         modifier = modifier
             .height(height.dp)
             .widthIn(max = DockStudio.islandMaxWidthDp(size).dp)
-            .clip(RoundedCornerShape(percent = 50))
+            .clip(islandShape)
             .background(container)
             .clickable(role = Role.Button) {
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -177,47 +182,47 @@ internal fun MarbleConnectionIslandCapsule(
             .semantics { contentDescription = spoken }
             .testTag("dock-island")
             .padding(horizontal = horizontal.dp),
-        verticalArrangement = Arrangement.Center
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(
-                        when {
-                            state.connected -> colors.success
-                            state.working -> colors.warning
-                            else -> colors.outline
-                        }
-                    )
-            )
-            AnimatedContent(
-                targetState = if (state.probing) {
-                    DockStudio.batchLabel(state.probeDone, state.probeTotal)
-                } else {
-                    state.latencyLabel
-                },
-                transitionSpec = {
-                    (scaleIn(initialScale = 0.9f) + fadeIn()) togetherWith
-                        (scaleOut(targetScale = 0.9f) + fadeOut())
-                },
-                label = "islandReadout"
-            ) { readout ->
-                Text(
-                    text = faDigits(readout),
-                    color = ink,
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+        // One row now: the state dot, the reading, and — only while a batch runs — the micro bar at
+        // the end, instead of a second line under the words. A two-line badge inside a 44dp capsule
+        // was what made the wings look denser than the tabs they sit between.
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        state.connected -> colors.success
+                        state.working -> colors.warning
+                        else -> colors.outline
+                    }
                 )
-            }
+        )
+        AnimatedContent(
+            targetState = if (state.probing) {
+                DockStudio.batchLabel(state.probeDone, state.probeTotal)
+            } else {
+                state.latencyLabel
+            },
+            transitionSpec = {
+                (scaleIn(initialScale = 0.9f) + fadeIn()) togetherWith
+                    (scaleOut(targetScale = 0.9f) + fadeOut())
+            },
+            label = "islandReadout"
+        ) { readout ->
+            Text(
+                text = faDigits(readout),
+                color = ink,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
 
-        // The micro bar: two dp under the words, and only while a batch is running.
+        // The micro bar is a *counter*: a batch is already saying how far it has got, so the bar
+        // shrinks to the width of a word-tail instead of claiming a full second row.
         AnimatedVisibility(
             visible = state.probing,
             enter = fadeIn(),
@@ -225,10 +230,9 @@ internal fun MarbleConnectionIslandCapsule(
         ) {
             Box(
                 modifier = Modifier
-                    .padding(top = 2.dp)
-                    .fillMaxWidth()
-                    .height(2.dp)
-                    .clip(RoundedCornerShape(percent = 50))
+                    .width(26.dp)
+                    .height(3.dp)
+                    .clip(CircleShape)
                     .background(ink.copy(alpha = 0.18f))
             ) {
                 Box(
@@ -237,8 +241,8 @@ internal fun MarbleConnectionIslandCapsule(
                             DockStudio.batchProgress(state.probeDone, state.probeTotal)
                                 .coerceIn(0.02f, 1f)
                         )
-                        .height(2.dp)
-                        .clip(RoundedCornerShape(percent = 50))
+                        .height(3.dp)
+                        .clip(CircleShape)
                         .background(ink)
                         .testTag("dock-island-progress")
                 )
@@ -315,30 +319,32 @@ internal fun MarbleDockPowerButton(
 }
 
 /**
- * MARBLE_CENTER_MORPH_STUDIO_V259 — Style B: the centre trigger, rebuilt as a Material 3
- * Expressive object instead of a fifth tab.
+ * MARBLE_CENTER_TRIGGER_V260 — Style B: the centre control, rebuilt as the dock's *switch*.
  *
- * The complaint was exact: at the centre of the dock the app drew a circle the same size as a tab,
- * with the same flat fill, so the third connection style read as a navigation slot that happened to
- * start a tunnel. Three things make it a different object now:
+ * V259 answered "it is a fifth tab" by making the disc bigger than a tab and stacking three shadows
+ * under it. A second review of a screenshot said the honest thing: bigger, yes — beautiful, no. A
+ * saturated disc standing on three shadow layers inside a pale capsule is loud for a bar that is
+ * otherwise quiet, and "connected" was said twice (a green fill *and* a green halo) while "how fast"
+ * was only readable *after* a tap.
  *
- *  1. **It is bigger.** [DockStudio.centerTriggerSizeDp] is the inner row of a capsule that is
- *     [DockStudio.CENTER_PROUD_DP] taller than the same rung in the other two styles, so the button
- *     outgrows every glyph beside it — and the dock's scroll clearance is derived from that height,
- *     so nothing underneath is covered.
- *  2. **It is made of a different material.** A solid tonal disc, a radial specular sheen, a bright
- *     1dp inner rim, an outer rim of the capsule's own light, and a three-layer shadow (a tight
- *     contact shadow, a mid penumbra and a wide ambient one). The tab styles use a flat two-tone
- *     gradient; this one looks pressed out of the bar.
- *  3. **It breathes.** While the tunnel is up the whole disc lifts and settles on a 1.6s cycle —
- *     0.5dp of travel, a hair of scale, and a halo that opens behind it. Reduced motion holds the
- *     frame: the halo is drawn at one radius and nothing moves.
+ * This is the replacement, and its shape is the argument:
  *
- * The bloom is still the interaction: a tap widens the disc into a stadium carrying the state word
- * and the measured latency, and a micro tooltip floats 8dp above the dock for
- * [DockStudio.CENTER_TOOLTIP_HOLD_MS] — a *tooltip*, on the Expressive "surface that leaves with
- * the finger" rule, never a second nav bar. The tooltip is why the dock's surface and its content
- * are two layers: a clipped row would have cut the card in half.
+ *  1. **The capsule is a groove, not a stadium.** The trigger rests in a pill of the dock's own
+ *     inner curve ([DockStudio.innerRadiusDp]) at the surface's tone — the object the reader
+ *     presses is the *whole* groove, 8dp wider than the knob it holds, which is what makes it read
+ *     as a switch rather than a button dropped into the bar.
+ *  2. **The knob is the only coloured thing.** A 44/52/60dp disc slides to the far edge while the
+ *     tunnel is up (mirrored in RTL, because a switch follows the reading direction), and it is the
+ *     one object in the product that is *proud of* the chrome it lives in: a specular top sheen, a
+ *     1dp rim of white light, and one tinted ambient shadow instead of three stacked ones.
+ *  3. **The state is a word and the measurement is beside it.** Idle: `Ready` and the latency the
+ *     last probe left. Live: `Connected` and the same number in the knob's own ink — so the dock
+ *     answers "what is it doing" and "how fast is it" without a tap, and the tap is still the verb.
+ *  4. **It breathes only while it is live**, and only by two dp, so a working machine reads as
+ *     working rather than as an alarm.
+ *
+ * The tooltip and the bloom keep their jobs (a tap opens the reading, a second tap on the tooltip
+ * pings). What changed is the object: one disc, one groove, one moving part.
  */
 @Composable
 internal fun MarbleCenterSpringTrigger(
@@ -351,6 +357,7 @@ internal fun MarbleCenterSpringTrigger(
     val colors = MaterialTheme.colorScheme
     val haptics = LocalHapticFeedback.current
     val motion = marbleMotion()
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     var open by remember { mutableStateOf(false) }
 
     LaunchedEffect(open) {
@@ -360,20 +367,26 @@ internal fun MarbleCenterSpringTrigger(
         }
     }
 
-    val resting = DockStudio.centerTriggerSizeDp(size).dp
+    val grooveWidth = DockStudio.centerTriggerSizeDp(size).dp
+    val grooveHeight = DockStudio.centerTriggerSizeDp(size).dp
+    val knobSize = DockStudio.centerKnobSizeDp(size).dp
+    // The bloom is the groove widening under the knob, never the knob growing: the object a finger
+    // aimed at must not move while it is being pressed.
     val bloomed = DockStudio.centerBloomedWidthDp(size).dp
     val width by animateDpAsState(
-        targetValue = if (open) bloomed else resting,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (open) bloomed else grooveWidth,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
         label = "centerTriggerWidth"
     )
-    val ripple by animateFloatAsState(
-        targetValue = if (open) 1f else 0f,
+    val knobDrift by animateDpAsState(
+        targetValue = if (state.connected) 1.dp else 0.dp,
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "centerTriggerRipple"
+        label = "centerKnobDrift"
     )
-    // The living state: 0 at rest, 1 while the tunnel is up. Only the *connected* disc breathes —
-    // a warning colour that pulses is an alarm, and this is a machine that is working.
+    // The living state: 0 at rest, 1 while the tunnel is up.
     val live by animateFloatAsState(
         targetValue = if (state.connected) 1f else 0f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
@@ -385,7 +398,7 @@ internal fun MarbleCenterSpringTrigger(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 1_600, easing = FastOutSlowInEasing),
+                animation = tween(durationMillis = 1_800, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "centerBreathPhase"
@@ -395,7 +408,7 @@ internal fun MarbleCenterSpringTrigger(
         0f
     }
 
-    val container by animateColorAsState(
+    val knob by animateColorAsState(
         targetValue = when {
             state.connected -> colors.success
             state.working -> colors.warning
@@ -409,16 +422,36 @@ internal fun MarbleCenterSpringTrigger(
         state.working -> colors.onWarning
         else -> colors.onPrimary
     }
+    val grooveTone by animateColorAsState(
+        targetValue = if (state.connected) {
+            colors.successContainer.copy(alpha = 0.55f)
+        } else {
+            colors.surfaceContainerHighest.copy(alpha = 0.72f)
+        },
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "centerGrooveTone"
+    )
     val description = if (state.connected) trx("Disconnect") else trx("Connect")
     val pingDescription = trx("Ping the active route")
     val glyph = DockStudio.centerGlyphDp(size).dp
-    val height = resting
+    val stateWord = when {
+        state.working -> trx("Working\u2026")
+        state.connected -> trx("Connected")
+        else -> trx("Ready")
+    }
+    val reading = if (state.probing) {
+        faDigits(DockStudio.batchLabel(state.probeDone, state.probeTotal))
+    } else {
+        faDigits(state.latencyLabel)
+    }
+    val grooveShape = RoundedCornerShape(DockStudio.innerRadiusDp(size))
+    val knobShape = RoundedCornerShape(DockStudio.centerTriggerRadiusDp(size))
 
     Box(
         modifier = modifier.testTag("dock-center"),
         contentAlignment = Alignment.Center
     ) {
-        // The micro tooltip, 8dp above the capsule's top edge. Fixed height so the offset is exact.
+        // The micro tooltip, 8dp above the capsule's top edge. Fixed offset so it is exact.
         AnimatedVisibility(
             visible = open && !motion.still,
             enter = fadeIn() + scaleIn(initialScale = 0.86f),
@@ -449,18 +482,11 @@ internal fun MarbleCenterSpringTrigger(
                     Box(
                         modifier = Modifier
                             .size(6.dp)
-                            .clip(RoundedCornerShape(percent = 50))
+                            .clip(CircleShape)
                             .background(if (state.connected) colors.success else colors.outline)
                     )
                     Text(
-                        text = "${trx(if (state.connected) "Connected" else "Ready")} · " +
-                            faDigits(
-                                if (state.probing) {
-                                    DockStudio.batchLabel(state.probeDone, state.probeTotal)
-                                } else {
-                                    state.latencyLabel
-                                }
-                            ),
+                        text = "$stateWord · $reading",
                         color = colors.onSurface,
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.SemiBold
@@ -471,84 +497,33 @@ internal fun MarbleCenterSpringTrigger(
             }
         }
 
-        // The halo: an Expressive "state ring" that opens behind the disc while the tunnel is up.
-        // It is a second circle, not a shadow — a glow tinted with the surface it sits on is what
-        // Material 3 Expressive uses for a live control, and a blurred shadow at this size is mud.
+        // The halo: one soft ring behind the groove while the tunnel is up. It is drawn *outside*
+        // the groove, so the switch itself never grows a glow line.
         if (live > 0.01f) {
-            // Named locally so the `size` in the draw scope is unambiguous: the composable's own
-            // `size` is the *rung*, and the halo's radius must come from the canvas it is drawn on.
-            val halo = height + (breath * 8f).dp + (live * 4f).dp
+            val halo = grooveHeight + (breath * 6f).dp + (live * 3f).dp
             Canvas(
                 modifier = Modifier
                     .size(halo)
                     .testTag("dock-center-halo")
             ) {
                 drawCircle(
-                    color = container.copy(alpha = 0.16f * live * (1f - breath * 0.45f)),
+                    color = knob.copy(alpha = 0.14f * live * (1f - breath * 0.45f)),
                     radius = this.size.minDimension / 2f
-                )
-                drawCircle(
-                    color = container.copy(alpha = 0.10f * live),
-                    radius = this.size.minDimension / 2.9f
                 )
             }
         }
 
-        Box(
+        // The groove + the knob, in one pressable object.
+        Row(
             modifier = Modifier
                 .width(width)
-                .height(height + (breath * 1f).dp)
-                .graphicsLayer {
-                    // A hair of scale on the same phase as the travel: the disc rises *and* swells,
-                    // which is the Expressive way of saying "this is alive" without a porthole.
-                    val swell = 1f + live * breath * 0.015f
-                    scaleX = swell
-                    scaleY = swell
-                }
-                // Three elevation layers: a 2dp contact shadow that glues the disc to the bar, a
-                // 10dp penumbra, and a 22dp ambient pass tinted with the disc's own colour. One
-                // shadow at 18dp read as a sticker; the stack reads as an object standing on glass.
-                .shadow(elevation = 2.dp, shape = RoundedCornerShape(percent = 50))
-                .shadow(
-                    elevation = 10.dp,
-                    shape = RoundedCornerShape(percent = 50),
-                    ambientColor = container.copy(alpha = 0.6f),
-                    spotColor = container.copy(alpha = 0.8f)
-                )
-                .shadow(
-                    elevation = 22.dp,
-                    shape = RoundedCornerShape(percent = 50),
-                    ambientColor = container.copy(alpha = 0.4f),
-                    spotColor = container.copy(alpha = 0.5f)
-                )
-                .clip(RoundedCornerShape(percent = 50))
-                .background(container)
-                // The specular sheen: light gathering at the top of the disc and falling away
-                // before the rim, so the fill is a material rather than a colour.
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0.26f),
-                            Color.White.copy(alpha = 0.06f),
-                            Color.Transparent
-                        )
-                    )
-                )
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            ink.copy(alpha = 0.10f)
-                        ),
-                        center = Offset.Unspecified,
-                        radius = Float.POSITIVE_INFINITY
-                    )
-                )
-                // The bright rim, then the capsule's own light line just outside it.
+                .height(grooveHeight)
+                .clip(grooveShape)
+                .background(grooveTone)
                 .border(
                     width = 1.dp,
-                    color = Color.White.copy(alpha = 0.30f),
-                    shape = RoundedCornerShape(percent = 50)
+                    color = colors.outlineVariant.copy(alpha = 0.45f),
+                    shape = grooveShape
                 )
                 .clickable(role = Role.Button) {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -556,81 +531,86 @@ internal fun MarbleCenterSpringTrigger(
                     onToggle()
                 }
                 .semantics { contentDescription = description }
-                .testTag("dock-center-trigger"),
-            contentAlignment = Alignment.Center
+                .testTag("dock-center-trigger")
+                .padding(horizontal = DockStudio.CENTER_GROOVE_INSET_DP.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (rtl) Arrangement.End else Arrangement.Start
         ) {
-            // The ripple: a wash that travels the pill's width while it is open.
+            // The knob: the reading lives *inside* it at rest and the state word appears in the
+            // groove beside it, which is the switch metaphor made literal.
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(ripple.coerceIn(0f, 1f))
-                    .height(height)
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(ink.copy(alpha = 0.10f))
-            )
-
-            // MARBLE_CENTER_MORPH_STUDIO_V259 — the bloom carries the *reading*, not only the verb:
-            // one glyph, then the state word and the latency the dock just measured, so the centre
-            // style is the only one where the answer is inside the button the reader pressed.
-            AnimatedContent(
-                targetState = open,
-                transitionSpec = {
-                    (scaleIn(initialScale = 0.78f) + fadeIn()) togetherWith
-                        (scaleOut(targetScale = 0.78f) + fadeOut())
-                },
-                label = "centerTriggerGlyph"
-            ) { bloom ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    modifier = if (bloom) {
-                        Modifier.padding(horizontal = 12.dp)
-                    } else {
-                        Modifier
+                    .size(knobSize)
+                    .graphicsLayer {
+                        // A switch follows the reading direction; a 1dp drift on the live state is
+                        // the whole movement, and it settles back the moment the tunnel drops.
+                        translationX = (if (rtl) -1f else 1f) * knobDrift.toPx()
                     }
-                ) {
-                    MarbleGlyphIcon(
-                        glyph = when {
-                            state.connected -> MarbleGlyph.STOP
-                            else -> MarbleGlyph.POWER
-                        },
-                        color = ink,
-                        weight = 1.15f,
-                        modifier = Modifier.size(glyph)
+                    // One contact shadow and one tinted ambient bloom — the three-layer stack of
+                    // V259 read as a sticker standing on glass.
+                    .shadow(elevation = 3.dp, shape = knobShape)
+                    .shadow(
+                        elevation = 12.dp,
+                        shape = knobShape,
+                        ambientColor = knob.copy(alpha = 0.55f),
+                        spotColor = knob.copy(alpha = 0.65f)
                     )
-                    if (bloom) {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(0.dp)
-                        ) {
-                            Text(
-                                text = trx(
-                                    when {
-                                        state.working -> "Working\u2026"
-                                        state.connected -> "Connected"
-                                        else -> "Ready"
-                                    }
-                                ),
-                                color = ink,
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                maxLines = 1
+                    .clip(knobShape)
+                    .background(knob)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.22f),
+                                Color.White.copy(alpha = 0.04f),
+                                Color.Transparent
                             )
-                            Text(
-                                text = if (state.probing) {
-                                    faDigits(DockStudio.batchLabel(state.probeDone, state.probeTotal))
-                                } else {
-                                    faDigits(state.latencyLabel)
-                                },
-                                color = ink.copy(alpha = 0.82f),
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Medium,
-                                    fontFamily = FontFamily.Monospace
-                                ),
-                                maxLines = 1
-                            )
-                        }
-                    }
+                        )
+                    )
+                    .border(width = 1.dp, color = Color.White.copy(alpha = 0.26f), shape = knobShape),
+                contentAlignment = Alignment.Center
+            ) {
+                MarbleGlyphIcon(
+                    glyph = if (state.connected) MarbleGlyph.STOP else MarbleGlyph.POWER,
+                    color = ink,
+                    weight = 1.15f,
+                    modifier = Modifier.size(glyph)
+                )
+            }
+
+            // The word and the measurement. Idle they sit in the groove's quieter ink; live they
+            // take the success tone, so the sentence and the knob agree. The reading is *always*
+            // drawn — a switch that only says how fast it is after you press it is a switch you
+            // have to press twice.
+            Column(
+                modifier = Modifier.padding(start = 8.dp, end = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp)
+            ) {
+                AnimatedContent(
+                    targetState = stateWord,
+                    transitionSpec = {
+                        (fadeIn() + scaleIn(initialScale = 0.9f)) togetherWith
+                            (fadeOut() + scaleOut(targetScale = 0.9f))
+                    },
+                    label = "centerStateWord"
+                ) { word ->
+                    Text(
+                        text = word,
+                        color = if (state.connected) colors.success else colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold
+                        ),
+                        maxLines = 1
+                    )
                 }
+                Text(
+                    text = reading,
+                    color = colors.onSurfaceVariant.copy(alpha = 0.82f),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Medium,
+                        fontFamily = FontFamily.Monospace
+                    ),
+                    maxLines = 1
+                )
             }
         }
     }
