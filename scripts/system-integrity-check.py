@@ -549,10 +549,17 @@ files = {
     # MARBLE_PLAIN_VOICE_V246 — the ghost text behind the ping (the swipe reveal drawn through a
     # selected row) and the plain-language pass over Settings: the rule, its test and the chapter.
     "plainVoice": read("app/src/main/java/com/marbleng/app/model/PlainVoice.kt"),
-    # MARBLE_HOME_QUIET_V259 — Home's calm furniture: the stage, the quiet card, the warm-up row and
-    # the studio's preview strip. One file, so "where is the stage drawn" has one answer.
+    # MARBLE_HOME_QUIET_V259 — Home's calm furniture: the stage, the warm-up row and the studio's
+    # preview strip. One file, so "where is the stage drawn" has one answer.
     "homeStudioUi": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
     "homeQuiet": read("app/src/main/java/com/marbleng/app/model/HomeQuiet.kt"),
+    # MARBLE_SERVER_PLAN_CARDS_V260 — the plan arithmetic (quota, calendar days, Jalali date, tones),
+    # the plate the Servers card draws from it, and About in its reviewed shape.
+    "planStatus": read("app/src/main/java/com/marbleng/app/model/PlanStatus.kt"),
+    "planCards": read("app/src/main/java/com/marbleng/app/ui/MarblePlanCards.kt"),
+    "planTest": read("app/src/test/java/com/marbleng/app/model/PlanStatusV260Test.kt"),
+    "planUiTest": read("app/src/test/java/com/marbleng/app/ui/DesignPassV260Test.kt"),
+    "about": read("app/src/main/java/com/marbleng/app/ui/AboutScreen.kt"),
     "plainVoiceTest": read("app/src/test/java/com/marbleng/app/model/PlainVoiceV246Test.kt"),
     "plainVoiceDoc": read("docs/PLAIN_VOICE_V246.md"),
 }
@@ -5619,9 +5626,15 @@ check(
     and "DockStudio.centerTriggerSizeDp(size).dp" in v259_wings
     and "DockStudio.centerBloomedWidthDp(size).dp" in v259_wings
     and "dock-center-halo" in v259_wings
-    and "elevation = 22.dp" in v259_wings
-    and "Color.White.copy(alpha = 0.30f)" in v259_wings
     and "DockStudio.centerGlyphDp(size).dp" in v259_wings
+    # MARBLE_CENTER_TRIGGER_V260 — the object was rebuilt as a groove with a knob in it, so the
+    # *material* assertions moved with it: what V259 promised (a bigger trigger, its own rim, a
+    # halo while live) is still here, and the three stacked shadows and the flat white rim are the
+    # two things the second review retired.
+    and "DockStudio.centerKnobSizeDp(size).dp" in v259_wings
+    and "RoundedCornerShape(DockStudio.innerRadiusDp(size))" in v259_wings
+    and "Color.White.copy(alpha = 0.26f)" in v259_wings
+    and "elevation = 22.dp" not in v259_wings
     and "class DockStudioCenterMorphV259Test" in v259_model_test
     and "fun theCentreDockIsTallerAndItsTriggerOutgrowsEveryTab()" in v259_model_test
     and "fun theCentreClearanceCoversTheTallerCapsuleAtEveryGapAndRung()" in v259_model_test
@@ -5655,13 +5668,14 @@ check(
     in v259_quiet
     and 'prefs.getString("homeSectionOrder", HomeQuiet.calmOrder())' in v259_store
     and 'prefs.getString("homeHiddenSections", HomeQuiet.CALM_HIDDEN)' in v259_store
-    # Home draws the quiet card and the warm-up, and Home can restore the full page in one tap.
-    and "MarbleQuietCard(" in v259_home
+    # Home draws the warm-up while the library is empty. MARBLE_HOME_DECLUTTER_V260 — the quiet
+    # card that V259 added here (the `3/6` counter and its two verbs) was reported and deleted; the
+    # arithmetic it printed stays in the model, because Settings' studio still reads it.
     and "MarbleWarmupRow(" in v259_home
-    and "HomeQuiet.everythingOrder()" in v259_home
-    and 'item(key = "home-quiet-card")' in v259_home
-    and "fun homeShowsQuietCard(" in v259_home_ui
     and "fun homeShowsWarmup(" in v259_home_ui
+    and "MarbleQuietCard(" not in v259_home
+    and 'item(key = "home-quiet-card")' not in v259_home
+    and "fun homeShowsQuietCard(" not in v259_home_ui
     # The studio is back, one named switch per section, over a live preview of the order.
     and 'item(key = "home-section-switches")' in v259_appearance
     and "HomeQuiet.toggle(" in v259_appearance
@@ -5672,7 +5686,9 @@ check(
     and "private fun HomeDockedStage(" in v259_home
     and "fun aFirstRunIsTheCalmLayoutAndNotTheFullOne()" in v259_model_test
     and "fun theLegacyFloorCannotMakeASwitchLookBroken()" in v259_model_test
-    and "theQuietCardSaysWhatIsHiddenAndDispatchesItsTwoVerbs" in v259_ui_test
+    # MARBLE_HOME_DECLUTTER_V260 retired the card's test with the card, and replaced it with the test
+    # that asserts the deletion; the stage's test is unchanged.
+    and "theQuietCardIsGoneAndThePageNoLongerExplainsItsOwnModesty" in v259_ui_test
     and "theCalmStagePrintsItsOneNumberAndItsRoute" in v259_ui_test,
 )
 
@@ -5687,9 +5703,128 @@ check(
     and "## ۵. جدول اجرا" in v259_doc
     and "## ۶. آنچه عمداً انجام نشد" in v259_doc
     and "## ۷. تست" in v259_doc
+    # MARBLE_DESIGN_COUNCIL_V260 — the crown moves with each pass; what must never move is the link.
     and "CENTER_MORPH_AND_QUIET_HOME_V259.md" in files["readme"]
-    and "CENTER_MORPH_AND_QUIET_HOME_V259.md` is the newest chapter" in files["readme"]
+    and "CENTER_MORPH_AND_QUIET_HOME_V259.md` is the chapter before it" in files["readme"]
     and "FLOATING_DOCK_AND_ABOUT_V258.md" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_DOCK_RADII_V260 / MARBLE_CENTER_TRIGGER_V260 /
+# MARBLE_SERVER_PLAN_CARDS_V260 / MARBLE_HOME_DECLUTTER_V260 / MARBLE_ABOUT_REVIEW_V260
+# — the design council's pass: one corner rule for the dock and everything in it,
+# a centre control that is a switch rather than a disc, a Servers card that
+# answers "how much and until when", a Home without its own repeats, and About
+# rebuilt around the one thing it is for.
+# ---------------------------------------------------------------------------
+v260_doc = read("docs/DESIGN_COUNCIL_V260.md")
+v260_studio = read("app/src/main/java/com/marbleng/app/model/DockStudio.kt")
+v260_dock = read("app/src/main/java/com/marbleng/app/ui/MarbleLumenDock.kt")
+
+check(
+    "V260 the bar and everything inside it read one corner rule",
+    # "The bar should be round and its buttons should be round to the same degree as it." One ratio
+    # and one inset, and neither the capsule nor a tab is a stadium any more.
+    "const val CORNER_RATIO: Float = 0.44f" in v260_studio
+    and "fun cornerRadiusDp(size: DockSize): Float =" in v260_studio
+    and "heightDp(size) / 2f" not in v260_studio
+    and "const val INNER_CORNER_INSET_DP: Int = 6" in v260_studio
+    and "fun innerRadiusDp(size: DockSize): Float =" in v260_studio
+    and "fun centerTriggerRadiusDp(size: DockSize): Float = innerRadiusDp(size)" in v260_studio
+    # The dock and the wings read the rule; nothing draws a stadium of its own any more.
+    and "val shape = RoundedCornerShape(corner)" in v260_dock
+    and "val tabShape = RoundedCornerShape(DockStudio.innerRadiusDp(size))" in v260_dock
+    and "RoundedCornerShape(DockStudio.innerRadiusDp(size))" in v259_wings
+    and ".clip(RoundedCornerShape(percent = 50))\n            .background(container)" not in v259_wings
+    and "theBarAndEverythingInItReadOneCornerRule" in files["planUiTest"],
+)
+
+check(
+    "V260 the centre control is a groove with a knob, not a disc standing on three shadows",
+    "const val CENTER_GROOVE_INSET_DP: Int = 4" in v260_studio
+    and "fun centerKnobSizeDp(size: DockSize): Int =" in v260_studio
+    and "DockStudio.centerKnobSizeDp(size).dp" in v259_wings
+    and "DockStudio.CENTER_GROOVE_INSET_DP.dp" in v259_wings
+    # One contact shadow and one tinted ambient: the three-layer stack is retired.
+    and "elevation = 22.dp" not in v259_wings
+    and "elevation = 12.dp" in v259_wings
+    # The state word and the measurement are printed without a tap, and the groove is the target.
+    and "centerStateWord" in v259_wings
+    and 'text = reading,' in v259_wings
+    and "RoundedCornerShape(DockStudio.innerRadiusDp(size))" in v259_wings
+    and "theCentreTriggerIsAGrooveWithAKnobAndTheWholeGroovePresses" in files["planUiTest"]
+    and "aLiveCentreTriggerSaysConnectedAndKeepsItsHalo" in files["planUiTest"],
+)
+
+check(
+    "V260 a subscription card answers how much is left and when it stops",
+    # The arithmetic is a pure model with its own test, and the card draws it rather than repeating
+    # the rules: a bar only when there is a ceiling, one tone for the bar and the chip, calendar days
+    # for the expiry, and the day itself in the calendar the reader thinks in.
+    "MARBLE_SERVER_PLAN_CARDS_V260" in files["planStatus"]
+    and "fun of(" in files["planStatus"]
+    and "fun daysBetween(" in files["planStatus"]
+    and "fun toneOf(" in files["planStatus"]
+    and "fun expiryDate(" in files["planStatus"]
+    and "object JalaliCalendar" in files["planStatus"]
+    and "internal fun MarblePlanPlate(" in files["planCards"]
+    and "internal fun MarbleSourceStripe(" in files["planCards"]
+    and "internal fun sourceCardGround(" in files["planCards"]
+    and "MarblePlanPlate(status = plan, persian = Tr.now.language == MarbleLanguage.FA)"
+    in files["serversScreen"]
+    and "MarbleSourceStripe(id = card.id, selected = selected)" in files["serversScreen"]
+    and "alternate = index % 2 == 1" in files["serversScreen"]
+    # Tests: the model's calendar and tones, and the inflated card's plate.
+    and "fun aPlanWithNoCeilingDrawsNoBarAndSaysSoInWords()" in files["planUiTest"]
+    and "fun expiryIsCountedInCalendarDaysNotInHours()" in files["planTest"]
+    and "fun theExpiryDayIsPrintedInTheCalendarTheReaderThinksIn()" in files["planTest"]
+    and "fun aProviderThatReportsMoreTrafficThanTheCeilingNeverDrawsABarBackwards()"
+    in files["planTest"],
+)
+
+check(
+    "V260 Home lost its repeats and no longer explains its own modesty",
+    # The quiet card, the fourth quick tile, the QR button in the header, the section label above the
+    # route card and the two rows of duplicated throughput tiles are all gone — each one named here
+    # so a later pass cannot quietly put them back.
+    "MarbleQuietCard(" not in files["homeStudioUi"]
+    and "homeShowsQuietCard" not in files["homeStudioUi"]
+    and "quiet-card" not in files["homeScreen"]
+    and 'title = trx("Add manually")' not in files["homeStudioUi"]
+    and "MarbleGlyph.QR" not in files["homeScreen"]
+    and "MarbleSectionHeader(title = trx(\"Active Route\"))" not in files["homeScreen"]
+    and "HomeStatTile(" not in files["homeScreen"]
+    and "private fun HomeReading(" in files["homeScreen"]
+    and "theQuietCardIsGoneAndThePageNoLongerExplainsItsOwnModesty" in v259_ui_test
+    and "theWarmupRowIsTwoKeysAndEachOneDispatches" in v259_ui_test,
+)
+
+check(
+    "V260 About says what the build is, once",
+    # One identity band, one monospaced build line, four cores, and each verb exactly once.
+    "about-build-line" in files["about"]
+    and "MarbleFactPill" not in files["about"]
+    and "AboutFactPill" not in files["about"]
+    and 'title = trx("Built on")' in files["about"]
+    and 'badge = faDigits("4")' in files["about"]
+    and 'id = "app",' not in files["about"]
+    and "MarbleButton(" not in files["about"]
+    and "marbleAsymmetricShape(prominent = true)" in files["about"]
+    and "MarbleAboutOrbitButton(" in files["about"],
+)
+
+check(
+    "V260 the chapter is written down and linked as the newest one",
+    "MARBLE_DESIGN_COUNCIL_V260" in v260_doc
+    and "## ۱. نوار تب: یک قاعدهٔ گردی برای خودش و هرچه درونش است" in v260_doc
+    and "## ۲. دکمهٔ اتصال وسط: از دیسک تا کلید" in v260_doc
+    and "## ۳. صفحهٔ اصلی: حذف تکرار، نه حذف امکانات" in v260_doc
+    and "## ۴. صفحهٔ سرورها: هر ساب یک رنگ، و یک پلاک برنامه" in v260_doc
+    and "## ۵. درباره: چیزی که این نسخه هست، یک‌بار" in v260_doc
+    and "## ۶. شورای طراحی و جدول اجرا" in v260_doc
+    and "## ۷. تست" in v260_doc
+    and "DESIGN_COUNCIL_V260.md" in files["readme"]
+    and "DESIGN_COUNCIL_V260.md` is the newest chapter" in files["readme"],
 )
 
 failed = [name for name, passed in checks if not passed]

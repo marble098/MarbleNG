@@ -242,7 +242,9 @@ internal fun MarbleLumenDock(
                         Modifier.border(
                             width = 1.dp,
                             color = colors.primary.copy(alpha = 0.18f),
-                            shape = RoundedCornerShape(corner - 4f)
+                            // MARBLE_DOCK_RADII_V260 — the inner rim reads the same pulled-in curve
+                            // every nested object reads, instead of an ad-hoc `corner - 4`.
+                            shape = RoundedCornerShape(DockStudio.innerRadiusDp(size))
                         )
                     } else {
                         Modifier
@@ -358,12 +360,14 @@ private fun LumenDockTab(
         label = "lumenTabWeight"
     )
     val glyphSize = DockStudio.iconSizeDp(size).dp
+    // MARBLE_DOCK_RADII_V260 — a tab curves with the bar it sits in, not with its own height.
+    val tabShape = RoundedCornerShape(DockStudio.innerRadiusDp(size))
 
     Box(
         modifier = modifier
             .fillMaxHeight()
             .padding(vertical = DockStudio.pillPaddingDp(size).dp)
-            .clip(RoundedCornerShape(percent = 50))
+            .clip(tabShape)
             .background(container)
             .selectable(
                 selected = selected,

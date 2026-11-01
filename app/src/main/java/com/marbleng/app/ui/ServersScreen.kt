@@ -33,7 +33,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -104,6 +103,7 @@ import com.marbleng.app.core.pingReadout
 import com.marbleng.app.core.protocolChip
 import com.marbleng.app.model.BenchmarkResult
 import com.marbleng.app.model.NodeSortMode
+import com.marbleng.app.model.PlanStatus
 import com.marbleng.app.model.ProbeState
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.ServerHealth
@@ -1579,13 +1579,19 @@ private fun ServersLibrarySheet(
             style = MaterialTheme.typography.bodySmall
         )
 
+        // MARBLE_SERVER_PLAN_CARDS_V260 — one clock for the whole sheet, so two cards can never
+        // disagree about whether "today" has passed, and an alternating tone step so neighbouring
+        // subscriptions are visibly different objects.
+        val nowMs = remember { System.currentTimeMillis() }
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            cards.forEach { card ->
+            cards.forEachIndexed { index, card ->
                 SourceLibraryCard(
                     card = card,
                     selected = card.id == selectedId,
                     onSelect = { onSelect(card.id) },
-                    onManage = onManageSubscription
+                    onManage = onManageSubscription,
+                    alternate = index % 2 == 1,
+                    nowMs = nowMs
                 )
             }
         }
@@ -1612,20 +1618,56 @@ internal fun SourceLibraryCard(
     card: ServersLibraryCard,
     selected: Boolean,
     onSelect: () -> Unit,
-    onManage: (Subscription) -> Unit
+    onManage: (Subscription) -> Unit,
+    /**
+     * MARBLE_SERVER_PLAN_CARDS_V260 — the card's place in the sheet, which decides the *tone step*
+     * it sits on. Two neighbours are always one elevation apart, which is the "slightly different"
+     * the report asked for without turning a picker into a palette test.
+     */
+    alternate: Boolean = false,
+    /**
+     * The clock the plan plate measures its expiry against. Passed in rather than read here, so the
+     * whole sheet redraws against one instant and a test can hand it a fixed one.
+     */
+    nowMs: Long = System.currentTimeMillis()
 ) {
     val colors = MaterialTheme.colorScheme
     val haptics = LocalHapticFeedback.current
     var menuOpen by remember { mutableStateOf(false) }
-    val container = if (selected) colors.primaryContainer else colors.surfaceContainerLow
+    val stripe = stripeTone(card.id)
+    val container = sourceCardGround(
+        stripeIndex = stripe,
+        alternate = alternate,
+        selected = selected
+    )
     val titleColor = if (selected) colors.onPrimaryContainer else colors.onSurface
     val metaColor = if (selected) colors.onPrimaryContainer.copy(alpha = 0.78f) else colors.onSurfaceVariant
     val subtitle = libraryCardSubtitle(card)
+    val plan = planOf(card.subscription, nowMs)
+
+    // One sentence for the screen reader, so the plate is not four unlabelled numbers. Read here, in
+    // the composition: a semantics lambda is not a composable context.
+    val planDescription = buildString {
+        if (plan.hasQuota) {
+            append(trx("Quota"))
+            append(" ")
+            append(PlanStatus.usagePercentLabel(plan.usageFraction, plan.usedBytes))
+            append(" ")
+            append(PlanStatus.quotaPairLabel(plan.usedBytes, plan.totalBytes))
+        }
+        if (plan.hasExpiry) {
+            if (isNotEmpty()) append(" · ")
+            append(trx(if (plan.expired) "Expired" else "Expires"))
+            append(" ")
+            append(PlanStatus.expiryLabel(plan.remainingDays))
+        }
+    }
+    val cardDescription = if (planDescription.isBlank()) card.title else card.title + " · " + planDescription
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("server-source-${card.id}")
+            .testTag("server-source-" + card.id)
             .heightIn(min = 76.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(container)
@@ -1633,91 +1675,125 @@ internal fun SourceLibraryCard(
                 haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                 onSelect()
             }
-            .semantics { this.selected = selected }
-            .padding(start = 14.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Box(
-            modifier = Modifier.size(width = 56.dp, height = 36.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            FlagCluster(
-                codes = card.flags,
-                size = ServersAtlas.LIBRARY_FLAG_SIZE_DP.dp,
-                overlap = ServersAtlas.LIBRARY_FLAG_OVERLAP_DP.dp,
-                ring = container
-            )
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .size(18.dp)
-                        .clip(CircleShape)
-                        .background(colors.primary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MarbleGlyphIcon(
-                        glyph = MarbleGlyph.CHECK,
-                        color = colors.onPrimary,
-                        modifier = Modifier.size(12.dp),
-                        weight = 1.25f
-                    )
-                }
+            .semantics {
+                this.selected = selected
+                contentDescription = cardDescription
             }
-        }
+            .padding(start = 10.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // MARBLE_SERVER_PLAN_CARDS_V260 — the identity stripe: a 4dp tone on the reading edge,
+        // derived from the subscription's own id, so four libraries are told apart by a colour that
+        // never moves under the reader. A selected card drops the stripe, because the fill is
+        // already saying the louder thing.
+        MarbleSourceStripe(id = card.id, selected = selected)
+
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = card.title,
-                color = titleColor,
-                style = MaterialTheme.typography.titleSmallEmphasized,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = subtitle,
-                color = metaColor,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        MarbleActionColumn(tag = "server-source-action-${card.id}") {
-            val sub = card.subscription
-            if (sub != null) {
-                Box {
-                    MarbleIconButton(
-                        glyph = MarbleGlyph.MORE,
-                        tint = colors.onSurfaceVariant,
-                        contentDescription = "${trx("Manage subscription")}: ${card.title}",
-                        onClick = { menuOpen = true },
-                        modifier = Modifier.testTag("server-source-more-${card.id}")
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier.size(width = 56.dp, height = 36.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    FlagCluster(
+                        codes = card.flags,
+                        size = ServersAtlas.LIBRARY_FLAG_SIZE_DP.dp,
+                        overlap = ServersAtlas.LIBRARY_FLAG_OVERLAP_DP.dp,
+                        ring = container
                     )
-                    DropdownMenu(
-                        expanded = menuOpen,
-                        onDismissRequest = { menuOpen = false },
-                        containerColor = colors.surfaceContainerHigh
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(trx("Edit subscription"), style = MaterialTheme.typography.bodyMedium) },
-                            leadingIcon = {
-                                MarbleGlyphIcon(
-                                    glyph = MarbleGlyph.PENCIL,
-                                    color = colors.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
+                    if (selected) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .background(colors.primary),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            MarbleGlyphIcon(
+                                glyph = MarbleGlyph.CHECK,
+                                color = colors.onPrimary,
+                                modifier = Modifier.size(12.dp),
+                                weight = 1.25f
+                            )
+                        }
+                    }
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = card.title,
+                        color = titleColor,
+                        style = MaterialTheme.typography.titleSmallEmphasized,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = subtitle,
+                        color = metaColor,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                // A 48dp target beside a plate that can be three lines tall: without the top
+                // alignment the ⋯ floats in the middle of the card and loses its row.
+                MarbleActionColumn(
+                    tag = "server-source-action-" + card.id,
+                    modifier = Modifier.align(Alignment.Top)
+                ) {
+                    val sub = card.subscription
+                    if (sub != null) {
+                        Box {
+                            MarbleIconButton(
+                                glyph = MarbleGlyph.MORE,
+                                tint = colors.onSurfaceVariant,
+                                contentDescription = "${trx("Manage subscription")}: ${card.title}",
+                                onClick = { menuOpen = true },
+                                modifier = Modifier.testTag("server-source-more-" + card.id)
+                            )
+                            DropdownMenu(
+                                expanded = menuOpen,
+                                onDismissRequest = { menuOpen = false },
+                                containerColor = colors.surfaceContainerHigh
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            trx("Edit subscription"),
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        MarbleGlyphIcon(
+                                            glyph = MarbleGlyph.PENCIL,
+                                            color = colors.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        menuOpen = false
+                                        onManage(sub)
+                                    }
                                 )
-                            },
-                            onClick = {
-                                menuOpen = false
-                                onManage(sub)
                             }
-                        )
+                        }
                     }
                 }
             }
+
+            // The plan plate: the bar, the pair it is drawn from, and the day the plan stops — the
+            // three facts the old one-line subtitle could not hold. A card with no subscription
+            // ("All sources", the manual bucket) draws no plate at all.
+            MarblePlanPlate(status = plan, persian = Tr.now.language == MarbleLanguage.FA)
         }
     }
 }

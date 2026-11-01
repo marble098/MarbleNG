@@ -132,39 +132,30 @@ class HomeQuietAndCentreMorphV259Test {
     }
 
     @Test
-    fun theQuietCardSaysWhatIsHiddenAndDispatchesItsTwoVerbs() {
-        var showedEverything = 0
-        var choseSections = 0
-        compose.setContent {
-            ProvideMarbleLanguage("en") {
-                MarbleExpressiveTheme(dynamicColor = false) {
-                    ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
-                        Box(Modifier.width(360.dp)) {
-                            MarbleQuietCard(
-                                shownCount = 3,
-                                totalCount = 6,
-                                onShowEverything = { showedEverything++ },
-                                onChooseSections = { choseSections++ }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        compose.onNodeWithTag("home-quiet-card").assertExists()
-        compose.onNodeWithText("3/6").assertExists()
-        compose.onNodeWithText("Show everything").performClick()
-        compose.onNodeWithText("Choose sections").performClick()
-        assertEquals(1, showedEverything)
-        assertEquals(1, choseSections)
+    fun theQuietCardIsGoneAndThePageNoLongerExplainsItsOwnModesty() {
+        // MARBLE_HOME_DECLUTTER_V260 — the reported card ("A quiet Home / Only what you need is
+        // here / 3 of 6 / Show everything / Choose sections") was deleted from the page, not hidden.
+        // The composable went with it, so this asserts the tree rather than a runtime flag: a page
+        // cannot draw a card that does not exist, and `HomeQuiet` still owns the layout arithmetic
+        // the Settings studio reads.
+        val sources = java.io.File("src/main/java/com/marbleng/app/ui")
+            .walkTopDown()
+            .filter { it.isFile && it.name.endsWith(".kt") }
+            .joinToString("\n") { it.readText() }
+        assertTrue("the quiet card must not come back", !sources.contains("MarbleQuietCard("))
+        assertTrue("its two verbs must not come back", !sources.contains("Choose sections"))
+        // …and Home does not import the layout model at all any more: the switches live in Settings.
+        val home = java.io.File("src/main/java/com/marbleng/app/ui/HomeScreen.kt").readText()
+        assertTrue("Home must not draw the quiet card", !home.contains("home-quiet-card"))
     }
 
     @Test
-    fun theWarmupRowIsThreeKeysAndEachOneDispatches() {
+    fun theWarmupRowIsTwoKeysAndEachOneDispatches() {
+        // MARBLE_HOME_DECLUTTER_V260 — "Add manually" was the header's own + sheet, one row deep, on
+        // the same screen. The warm-up keeps the two doors the page cannot otherwise offer: the
+        // clipboard it already holds, and the code it can read.
         var paste = 0
         var scan = 0
-        var add = 0
         compose.setContent {
             ProvideMarbleLanguage("en") {
                 MarbleExpressiveTheme(dynamicColor = false) {
@@ -172,8 +163,7 @@ class HomeQuietAndCentreMorphV259Test {
                         Box(Modifier.width(360.dp)) {
                             MarbleWarmupRow(
                                 onPaste = { paste++ },
-                                onScan = { scan++ },
-                                onAdd = { add++ }
+                                onScan = { scan++ }
                             )
                         }
                     }
@@ -184,10 +174,10 @@ class HomeQuietAndCentreMorphV259Test {
         compose.onNodeWithTag("home-warmup").assertExists()
         compose.onNodeWithText("Paste a link").performClick()
         compose.onNodeWithText("Scan a QR").performClick()
-        compose.onNodeWithText("Add manually").performClick()
         assertEquals(1, paste)
         assertEquals(1, scan)
-        assertEquals(1, add)
+        // The retired third door is not on the page.
+        compose.onNodeWithText("Add manually").assertDoesNotExist()
     }
 
     @Test

@@ -41,8 +41,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -56,7 +54,7 @@ import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.successContainer
 
 /**
- * MARBLE_HOME_QUIET_V259 — Home's new furniture: the calm stage, the calm menu card, and the two
+ * MARBLE_HOME_QUIET_V259 / MARBLE_HOME_DECLUTTER_V260 — Home's furniture: the calm stage and the
  * warm-up actions a first run actually needs.
  *
  * The layout problem the previous Home had was not that it drew the wrong cards; it was that it drew
@@ -67,11 +65,12 @@ import com.marbleng.app.ui.theme.successContainer
  *  - [MarbleCalmStage] is the one loud surface — a full-width Expressive asymmetrical stage whose
  *    colour *is* the state, whose orbit lens turns behind the title, and whose readout zone swaps
  *    between a latency gauge and the protected clock. Everything else on Home is quieter than it.
- *  - [MarbleQuietCard] is the "Home is quiet" card: it says what is hidden, and offers the two
- *    things a reader who wants more would ask for — show everything, or open the studio.
- *  - [MarbleWarmupAction] is first-run furniture: three tonal keys that fill an empty library. They
- *    exist because a quiet Home with no server is a dead end, and the old page answered that with a
+ *  - [MarbleWarmupAction] is first-run furniture: tonal keys that fill an empty library. They exist
+ *    because a quiet Home with no server is a dead end, and the old page answered that with a
  *    dashboard of features the reader could not use yet.
+ *  - V260 removed the third piece — the "A quiet Home" card with its `3/6` counter and its two verbs.
+ *    A page that explains how modest it is has stopped being modest; the switches live in Settings,
+ *    where a reader who wants them is already looking.
  *
  * Nothing here reads a repository: the pages own the state and hand it over, which is what keeps
  * this file drawable in a preview and testable without a device.
@@ -315,148 +314,21 @@ internal fun MarbleCalmStage(
 }
 
 /**
- * MARBLE_HOME_QUIET_V259 — the card that says Home is quiet, and offers the way out of it.
- *
- * A page that hides three of its six sections has to *say so*, otherwise the quiet default reads as
- * a missing feature rather than a choice. Two verbs, deliberately different sizes: "Show everything"
- * is one tap that restores the full designed page, and "Choose sections" opens the studio where each
- * block is a row with its own switch. The count is printed because a reader who has already turned
- * one thing on needs to know what is left.
- */
-@Composable
-internal fun MarbleQuietCard(
-    shownCount: Int,
-    totalCount: Int,
-    onShowEverything: () -> Unit,
-    onChooseSections: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val colors = MaterialTheme.colorScheme
-    val tones = marbleExpressiveTones()
-    val haptics = LocalHapticFeedback.current
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(marbleAsymmetricShape(prominent = false))
-            .background(tones.lavender.container)
-            .testTag("home-quiet-card")
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(marbleExpressiveShape(MarbleExpressiveMotif.COOKIE))
-                    .background(tones.lavender.badge.copy(alpha = 0.18f)),
-                contentAlignment = Alignment.Center
-            ) {
-                MarbleGlyphIcon(
-                    glyph = MarbleGlyph.LAYERS,
-                    color = tones.lavender.badge,
-                    modifier = Modifier.size(20.dp),
-                    weight = 1.12f
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = trx("A quiet Home"),
-                    color = tones.lavender.content,
-                    style = MaterialTheme.typography.titleSmallEmphasized,
-                    maxLines = 1
-                )
-                Text(
-                    text = trx("Only what you need is here. Add the rest whenever you want it."),
-                    color = tones.lavender.content.copy(alpha = 0.78f),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Text(
-                text = faDigits("$shownCount/$totalCount"),
-                color = tones.lavender.content.copy(alpha = 0.62f),
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                maxLines = 1
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            MarbleQuietVerb(
-                label = trx("Show everything"),
-                filled = true,
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                    onShowEverything()
-                },
-                modifier = Modifier.weight(1f)
-            )
-            MarbleQuietVerb(
-                label = trx("Choose sections"),
-                filled = false,
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                    onChooseSections()
-                },
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
-}
-
-@Composable
-private fun MarbleQuietVerb(
-    label: String,
-    filled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        modifier = modifier
-            .heightIn(min = 44.dp)
-            .clip(RoundedCornerShape(percent = 50))
-            .background(
-                if (filled) colors.primary else colors.primary.copy(alpha = 0.10f)
-            )
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = label,
-            color = if (filled) colors.onPrimary else colors.primary,
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-/**
- * MARBLE_HOME_QUIET_V259 — the first-run warm-up: three tonal keys that fill an empty library.
+ * MARBLE_HOME_QUIET_V259 / MARBLE_HOME_DECLUTTER_V260 — the first-run warm-up: two tonal keys.
  *
  * Shown only while the library is empty, and deliberately the same size and weight as each other so
- * they read as one choice with three doors rather than three features. Each one is a verb, not a
- * noun ("Paste a link", "Scan a QR", "Add manually"), because the reader's question at this point is
- * "how do I get one server in here?" and not "what is a subscription?".
+ * they read as one choice with two doors. Each one is a verb, not a noun ("Paste a link", "Scan a
+ * QR"), because the reader's question at this point is "how do I get one server in here?".
+ *
+ * V260 removed the third key. "Add manually" opened the same Add sheet the header's `+` opens, and
+ * that sheet's first row is the manual form — three paths to one form on a page that is supposed to
+ * be the quiet one. The two keys that stay are the two the page cannot otherwise offer for free: the
+ * clipboard it already holds, and the code it can read.
  */
 @Composable
 internal fun MarbleWarmupRow(
     onPaste: () -> Unit,
     onScan: () -> Unit,
-    onAdd: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -479,14 +351,6 @@ internal fun MarbleWarmupRow(
             motif = MarbleExpressiveMotif.DIAMOND,
             tint = MaterialTheme.colorScheme.secondary,
             onClick = onScan,
-            modifier = Modifier.weight(1f)
-        )
-        MarbleWarmupAction(
-            title = trx("Add manually"),
-            glyph = MarbleGlyph.PLUS,
-            motif = MarbleExpressiveMotif.SUNNY,
-            tint = MaterialTheme.colorScheme.tertiary,
-            onClick = onAdd,
             modifier = Modifier.weight(1f)
         )
     }
@@ -615,6 +479,3 @@ internal fun homeQuietShownLabel(shown: Int, total: Int = HomeSection.entries.si
 /** The warm-up's own visibility rule, named once: only while there is nothing to connect to. */
 internal fun homeShowsWarmup(profileCount: Int): Boolean = profileCount <= 0
 
-/** Whether Home should offer the quiet card: only while something is actually hidden. */
-internal fun homeShowsQuietCard(shown: Int, total: Int = HomeSection.entries.size): Boolean =
-    shown < total

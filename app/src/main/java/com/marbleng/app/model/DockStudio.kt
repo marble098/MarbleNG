@@ -168,8 +168,61 @@ object DockStudio {
      */
     fun showsCaptionsAlways(size: DockSize): Boolean = size == DockSize.LARGE
 
-    /** A stadium, at every rung: the corner radius is exactly half the height. */
-    fun cornerRadiusDp(size: DockSize): Float = heightDp(size) / 2f
+    /**
+     * MARBLE_DOCK_RADII_V260 — the capsule's corner, and the reason it is no longer a stadium.
+     *
+     * The report was exact: *"the bar should be round, and its buttons should be round to the same
+     * degree as it"*. A stadium (`height / 2`) answers the first half and not the second, because a
+     * button inscribed in a stadium cannot share its curvature and still read as a button — half of
+     * its own height as radius makes it a circle, and a circle in a stadium is a different object,
+     * not a rounder one.
+     *
+     * The dock is therefore a large-radius capsule whose radius is derived from the rung, and every
+     * object inside it reads [innerRadiusDp] — the same curve pulled in by the rim it sits behind.
+     *
+     * ```
+     * capsule corner = round(height × 0.44)   →  25 / 30 / 36 dp at 56 / 68 / 82
+     * inner radius   = capsule corner − 6dp   →  19 / 24 / 30 dp
+     * ```
+     *
+     * The 0.44 is the Expressive ratio: a *very* rounded rectangle is 40-50 % of its short side, and
+     * a full 50 % is the stadium the reader asked to move away from. The 6dp pull keeps a nested
+     * object visually concentric with the surface that contains it — the rule Material uses for
+     * every inset container — so a selected tab's pill curves with the bar instead of cutting its
+     * rim at a different angle.
+     */
+    fun cornerRadiusDp(size: DockSize): Float =
+        kotlin.math.round(heightDp(size) * CORNER_RATIO).toFloat()
+
+    /** The capsule's corner as the whole dp value the inner objects subtract from. */
+    fun cornerRadiusIntDp(size: DockSize): Int = cornerRadiusDp(size).toInt()
+
+    /** How far inside the capsule's own curve a nested object's curve is pulled. */
+    const val INNER_CORNER_INSET_DP: Int = 6
+
+    /**
+     * The corner every object *inside* the capsule reads: a selected tab's pill, the island capsule,
+     * the bloomed centre trigger and the chrome drawn over the dock. One number, so "round like the
+     * bar" is a rule rather than a judgement.
+     */
+    fun innerRadiusDp(size: DockSize): Float =
+        (cornerRadiusIntDp(size) - INNER_CORNER_INSET_DP).coerceAtLeast(INNER_CORNER_INSET_DP).toFloat()
+
+    /** The air between the centre groove's rim and the knob it holds. */
+    const val CENTER_GROOVE_INSET_DP: Int = 4
+
+    /** The knob: the groove minus the rim it sits inside, so the two are visibly one object. */
+    fun centerKnobSizeDp(size: DockSize): Int =
+        (centerTriggerSizeDp(size) - CENTER_GROOVE_INSET_DP * 2).coerceAtLeast(24)
+
+    /**
+     * The radius the centre knob reads — the *same* inner curve a tab reads, so "as round as the
+     * bar" is one rule for the whole product rather than a per-object decision.
+     */
+    fun centerTriggerRadiusDp(size: DockSize): Float = innerRadiusDp(size)
+
+    /** The ratio: 44 % of the short side — very round, and never a stadium. */
+    const val CORNER_RATIO: Float = 0.44f
 
     /**
      * Width of a tab while its word is showing: the resting circle plus the word's own room.
