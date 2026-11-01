@@ -13,6 +13,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -44,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -53,7 +55,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.DockStudio
 import com.marbleng.app.model.LiquidDockSpec
@@ -105,9 +109,12 @@ internal fun MarbleLumenDock(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
     size: DockSize = DockSize.MEDIUM,
-    floating: Boolean = true,
-    showIcons: Boolean = true,
-    showLabels: Boolean = false,
+    /**
+     * MARBLE_FLOATING_DOCK_V258 — the air under the capsule, in dp, chosen by the user. It is a
+     * parameter rather than a constant because it is a *setting*: the dock floats, and how far
+     * above the gesture bar is the reader's answer, not this file's.
+     */
+    bottomGap: Dp = DockStudio.DEFAULT_BOTTOM_GAP_DP.dp,
     leading: (@Composable RowScope.() -> Unit)? = null,
     center: (@Composable () -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null
@@ -142,23 +149,20 @@ internal fun MarbleLumenDock(
         stiffness = if (motion.still) Spring.StiffnessHigh else Spring.StiffnessMediumLow
     )
 
-    val container = if (floating) {
-        Modifier
-            .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .windowInsetsPadding(
-                WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
-            )
-            .padding(
-                start = DockStudio.HORIZONTAL_MARGIN_DP.dp,
-                end = DockStudio.HORIZONTAL_MARGIN_DP.dp,
-                bottom = DockStudio.BOTTOM_MARGIN_DP.dp
-            )
-    } else {
-        Modifier
-            .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.navigationBars)
-    }
+    // MARBLE_FLOATING_DOCK_V258 — one presentation, always floating. The `attached` branch that
+    // laid a full-bleed strip on the gesture bar was the oldest-looking surface in the product and
+    // it is gone: the capsule floats, and only its distance from the bottom is configurable.
+    val container = Modifier
+        .fillMaxWidth()
+        .windowInsetsPadding(WindowInsets.navigationBars)
+        .windowInsetsPadding(
+            WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
+        )
+        .padding(
+            start = DockStudio.HORIZONTAL_MARGIN_DP.dp,
+            end = DockStudio.HORIZONTAL_MARGIN_DP.dp,
+            bottom = bottomGap
+        )
 
     Box(
         modifier = modifier
@@ -172,9 +176,34 @@ internal fun MarbleLumenDock(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height.dp)
-                .shadow(elevation = 16.dp, shape = shape)
+                // MARBLE_FLOATING_DOCK_V258 — the material: a lifted capsule, not a grey strip.
+                // Three passes make it read as an object — a soft elevation shadow, a vertical
+                // tonal gradient (bright rim on top, body underneath) and a primary-tinted sheen
+                // that picks up whatever palette the user chose.
+                .shadow(elevation = 18.dp, shape = shape)
                 .clip(shape)
-                .background(colors.surfaceContainerHigh.copy(alpha = 0.97f))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            colors.surfaceContainerHighest,
+                            colors.surfaceContainerHigh
+                        )
+                    )
+                )
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            colors.primary.copy(alpha = 0.12f),
+                            Color.Transparent,
+                            colors.tertiary.copy(alpha = 0.07f)
+                        )
+                    )
+                )
+                .border(
+                    width = 1.dp,
+                    color = colors.outlineVariant.copy(alpha = 0.55f),
+                    shape = shape
+                )
         )
         Row(
             modifier = Modifier
@@ -199,7 +228,12 @@ internal fun MarbleLumenDock(
                         ) { trigger() }
                     }
                 }
-                val opening = index == selection && (labelOpen || showLabels)
+                // MARBLE_FLOATING_DOCK_V258 — the rung decides the caption. V256's two switches
+                // let an icon-only dock sit next to a labelled one at the same size; the ladder
+                // answers that question now, so the biggest capsule keeps its word and the other
+                // two stay icon-led.
+                val opening = index == selection &&
+                    (labelOpen || DockStudio.showsCaptionsAlways(size))
                 // The opening slot takes more of the row than its neighbours, and that ratio is a
                 // spring-animated Float: a `weight` that moves *is* a capsule that grows, with no
                 // second animation object to keep in step with it.
@@ -215,7 +249,10 @@ internal fun MarbleLumenDock(
                     size = size,
                     floatSpec = floatSpec,
                     colorSpec = colorSpec,
-                    showIcons = showIcons,
+                    // MARBLE_FLOATING_DOCK_V258 — the dock always draws its glyphs: the switch
+                    // that could hide them left Settings, and a row of unlabelled dots is not a
+                    // navigation bar.
+                    showIcons = true,
                     onClick = { onSelect(index) },
                     modifier = Modifier.weight(slotWeight)
                 )
@@ -320,7 +357,10 @@ private fun LumenDockTab(
                         text = tab.label,
                         color = content,
                         style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            // MARBLE_FLOATING_DOCK_V258 — the word grows with the rung, so a
+                            // Grand capsule is not a Slim one with a bigger glyph only.
+                            fontSize = DockStudio.labelSp(size).sp
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

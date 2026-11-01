@@ -65,7 +65,6 @@ class LumenDockV256Test {
                                 selectedIndex = 0,
                                 onSelect = { picked = it },
                                 size = DockSize.MEDIUM,
-                                showLabels = false,
                                 leading = {
                                     MarbleConnectionIslandCapsule(
                                         state = DockConnectionState(connected = true, latencyMs = 48),
@@ -106,6 +105,38 @@ class LumenDockV256Test {
                 MarbleExpressiveTheme(dynamicColor = false) {
                     ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
                         Box(Modifier.width(360.dp)) {
+                            // MARBLE_FLOATING_DOCK_V258 — the transient caption is the *middle*
+                            // rung's behaviour; the largest one keeps its word drawn.
+                            MarbleLumenDock(
+                                tabs = tabs(),
+                                selectedIndex = 0,
+                                onSelect = {},
+                                size = DockSize.MEDIUM
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        compose.mainClock.advanceTimeBy(80)
+        compose.onNodeWithText("Home").assertExists()
+
+        // Two seconds of hold, then the collapse animation has to finish too.
+        compose.mainClock.advanceTimeBy(3_200)
+        compose.onNodeWithText("Home").assertDoesNotExist()
+    }
+
+    @Test
+    fun theGrandRungKeepsTheSelectedWordDrawn() {
+        // MARBLE_FLOATING_DOCK_V258 — the third difference between the rungs: at 82dp the word
+        // under the selection does not time out, so a Grand capsule is legible without tapping.
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            ProvideMarbleLanguage("en") {
+                MarbleExpressiveTheme(dynamicColor = false) {
+                    ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
+                        Box(Modifier.width(360.dp)) {
                             MarbleLumenDock(
                                 tabs = tabs(),
                                 selectedIndex = 0,
@@ -121,9 +152,8 @@ class LumenDockV256Test {
         compose.mainClock.advanceTimeBy(80)
         compose.onNodeWithText("Home").assertExists()
 
-        // Two seconds of hold, then the collapse animation has to finish too.
-        compose.mainClock.advanceTimeBy(3_200)
-        compose.onNodeWithText("Home").assertDoesNotExist()
+        compose.mainClock.advanceTimeBy(5_000)
+        compose.onNodeWithText("Home").assertExists()
     }
 
     @Test

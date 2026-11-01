@@ -56,18 +56,15 @@ class ModularLayoutAndDockPolicyTest {
     }
 
     @Test
-    fun aDockWithNeitherIconsNorLabelsFallsBackToIcons() {
-        assertTrue(dockShowsIcons(showIcons = false, showLabels = false))
-        assertFalse(dockShowsLabels(showIcons = false, showLabels = false))
-    }
-
-    @Test
-    fun eachSingleChoiceIsHonouredExactly() {
-        assertTrue(dockShowsIcons(showIcons = true, showLabels = false))
-        assertFalse(dockShowsLabels(showIcons = true, showLabels = false))
-        assertFalse(dockShowsIcons(showIcons = false, showLabels = true))
-        assertTrue(dockShowsLabels(showIcons = false, showLabels = true))
-        assertTrue(dockShowsIcons(showIcons = true, showLabels = true))
-        assertTrue(dockShowsLabels(showIcons = true, showLabels = true))
+    fun theCaptionIsTheRungsDecisionAndTheDockAlwaysDrawsItsGlyphs() {
+        // MARBLE_FLOATING_DOCK_V258 — V255's two switches are gone from the model and from
+        // Settings. What replaces them is one derived answer: the capsule always draws glyphs,
+        // and only the largest rung keeps a word on screen.
+        assertTrue(DockStudio.showsCaptionsAlways(DockSize.LARGE))
+        assertFalse(DockStudio.showsCaptionsAlways(DockSize.MEDIUM))
+        assertFalse(DockStudio.showsCaptionsAlways(DockSize.SMALL))
+        DockSize.entries.forEach { size ->
+            assertTrue("${size.id} must keep its glyphs", DockStudio.iconSizeDp(size) > 0)
+        }
     }
 }

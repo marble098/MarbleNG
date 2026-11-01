@@ -1,6 +1,16 @@
 package com.marbleng.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import com.marbleng.app.model.MarblePalette
+import com.marbleng.app.model.parseMarblePalette
+import com.marbleng.app.ui.theme.marblePaletteSignature
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -32,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.model.AppFont
 import com.marbleng.app.model.AppLanguage
-import com.marbleng.app.model.DockPresentation
 import com.marbleng.app.model.ConnectionWidgetStyle
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.DockStudio
@@ -44,12 +53,9 @@ import com.marbleng.app.model.FlatAccent
 import com.marbleng.app.model.HomeSection
 import com.marbleng.app.model.HomeStudio
 import com.marbleng.app.model.TextScale
-import com.marbleng.app.model.dockShowsIcons
-import com.marbleng.app.model.dockShowsLabels
 import com.marbleng.app.model.parseAppFont
 import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.encodeDockPreference
-import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSize
 import com.marbleng.app.model.parseDockSlotAccent
 import com.marbleng.app.model.parseFlatAccent
@@ -220,6 +226,89 @@ fun SettingsAppearancePage(
                 }
             }
         }
+        // MARBLE_PALETTE_STUDIO_V258 — whole-scheme colour themes, above the accent swatches
+        // because they outrank them: a palette replaces primary, secondary, tertiary, the container
+        // tones and the surface ladder at once, while an accent only seeds primary.
+        item(key = "palette-studio") {
+            val activePalette = parseMarblePalette(s.themePalette)
+            val paletteDark = resolveMarbleDarkMode(s.theme, isSystemInDarkTheme())
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleSectionHeader(
+                    title = trx("Colour themes"),
+                    badge = trx(activePalette.label)
+                )
+                MarbleCard {
+                    MarblePalette.entries.forEachIndexed { index, palette ->
+                        if (index > 0) MarbleDivider()
+                        val chosen = palette == activePalette
+                        val signature = marblePaletteSignature(palette, paletteDark)
+                        val paletteDescription = trx(palette.label)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics { contentDescription = paletteDescription }
+                                .clickable(role = Role.Button) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                    repo.updateSettings(
+                                        s.copy(
+                                            appBehavior = s.appBehavior.copy(themePalette = palette.id)
+                                        )
+                                    )
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .testTag("palette-${palette.id}"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Brush.linearGradient(signature))
+                                    .then(
+                                        if (chosen) {
+                                            Modifier.border(2.dp, colors.onSurface, RoundedCornerShape(16.dp))
+                                        } else {
+                                            Modifier.border(1.dp, colors.outlineVariant, RoundedCornerShape(16.dp))
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (chosen) {
+                                    MarbleGlyphIcon(
+                                        glyph = MarbleGlyph.CHECK,
+                                        color = Color.White,
+                                        modifier = Modifier.size(20.dp),
+                                        weight = 1.25f
+                                    )
+                                }
+                            }
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = trx(palette.label),
+                                    color = colors.onSurface,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    text = trx(palette.hint),
+                                    color = colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+                }
+                MarbleSectionFooter(
+                    text = trx(
+                        "A palette repaints every surface, card and control in the app. It outranks the accent swatch and the wallpaper palette; Marble Classic hands both back."
+                    )
+                )
+            }
+        }
+
         item(key = "dynamic-color") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(title = trx("Wallpaper Colors"))
@@ -382,10 +471,8 @@ fun SettingsTabBarPage(
     val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val dockSize = parseDockSize(s.dockSize)
-    val dockPresentation = parseDockPresentation(s.dockSize)
+    val gap = DockStudio.bottomGapDp(s.dockBottomGapDp)
     val slotAccent = parseDockSlotAccent(s.dockSlotAccent)
-    val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
-    val showIcons = dockShowsIcons(s.dockShowIcons, s.dockShowLabels)
     // Resolved in the composition: an onClick lambda is not a composable context.
     val openIpPageNotice = trx("Tap the fourth tab to open the IP page")
 
@@ -393,78 +480,161 @@ fun SettingsTabBarPage(
         glyph = MarbleGlyph.DOCK,
         tint = colors.tertiary,
         title = trx("Bottom bar & fourth tab"),
+        subtitle = trx("One floating capsule: its size, its distance from the bottom, and the IP tab"),
         onBack = onBack
     ) {
-        item(key = "tabbar-chrome") {
+        // MARBLE_FLOATING_DOCK_V258 — the page is rebuilt around the two decisions that survive.
+        //
+        // The old page offered four controls and three of them were chores: attached-versus-floating
+        // (the attached presentation is retired), show-icons (a dock without icons is a row of
+        // unlabelled dots) and show-labels (which the rung now decides, because text inside a 56dp
+        // capsule is a different design, not a toggle). What is left is the size ladder — now three
+        // visibly different capsules — and how far the capsule floats above the gesture bar.
+        item(key = "dock-ladder") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MarbleSectionHeader(title = trx("Tab Bar Appearance"))
-                // MARBLE_LUMEN_DOCK_V256 — the ladder now names its own heights, and the third
-                // rung is "Comfortable" because that is what 64dp is: the same bar with more air,
-                // not a bigger bar with bigger words. The numbers are printed under the control so
-                // the setting is a measurement rather than a mood.
-                MarbleSegmentedControl(
-                    options = DockSize.entries.map { it to trx(DockStudio.ladderTitle(it)) },
-                    selected = dockSize,
-                    onSelect = {
-                        repo.updateSettings(
-                            s.copy(dockSize = encodeDockPreference(it, parseDockPresentation(s.dockSize)))
-                        )
-                    }
+                MarbleSectionHeader(
+                    title = trx("Capsule size"),
+                    badge = trx(DockStudio.ladderTitle(dockSize))
                 )
-                // `joinToString` is not inline, so the rungs are translated before it is asked for
-                // a string: a composable call inside its lambda would be a compile error, not a
-                // crash, but the error is in the wrong file to look for the bug.
-                val rungLabels = DockSize.entries.map { size ->
-                    "${trx(DockStudio.ladderTitle(size))} ${faDigits(DockStudio.ladderHeightLabel(size))}"
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        MarbleSegmentedControl(
+                            options = DockSize.entries.map { it to trx(DockStudio.ladderTitle(it)) },
+                            selected = dockSize,
+                            onSelect = { picked ->
+                                repo.updateSettings(
+                                    s.copy(
+                                        dockSize = encodeDockPreference(picked)
+                                    )
+                                )
+                            }
+                        )
+                        // Each rung states what actually changes — height, glyph and caption
+                        // behaviour — instead of a bare number the reader has to imagine.
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DockSize.entries.forEach { rung ->
+                                val active = rung == dockSize
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(
+                                            if (active) {
+                                                colors.primary.copy(alpha = 0.12f)
+                                            } else {
+                                                Color.Transparent
+                                            }
+                                        )
+                                        .clickable(role = Role.Button) {
+                                            repo.updateSettings(
+                                                s.copy(
+                                                    dockSize = encodeDockPreference(rung)
+                                                )
+                                            )
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 34.dp, height = DockStudio.heightDp(rung).dp / 2)
+                                            .clip(RoundedCornerShape(percent = 50))
+                                            .background(
+                                                if (active) colors.primary else colors.surfaceContainerHighest
+                                            )
+                                    )
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                                    ) {
+                                        Text(
+                                            text = trx(DockStudio.ladderTitle(rung)),
+                                            color = if (active) colors.primary else colors.onSurface,
+                                            style = MaterialTheme.typography.titleSmall
+                                        )
+                                        Text(
+                                            text = trx(DockStudio.ladderHint(rung)),
+                                            color = colors.onSurfaceVariant,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                    MarbleBadge(
+                                        text = faDigits(DockStudio.ladderHeightLabel(rung)),
+                                        color = if (active) colors.primary else colors.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
                 MarbleSectionFooter(
-                    text = "${trx("Pill height")} · " + rungLabels.joinToString(" · ")
+                    text = trx(
+                        "Slim keeps glyphs only, Classic opens the selected word for a moment, Grand keeps it open."
+                    )
                 )
-                MarbleSectionHeader(title = trx("Bottom Bar Position"))
-                MarbleSegmentedControl(
-                    options = listOf(
-                        DockPresentation.ATTACHED to trx("Attached to bottom"),
-                        DockPresentation.FLOATING to trx("Floating above bottom")
-                    ),
-                    selected = dockPresentation,
-                    onSelect = {
-                        repo.updateSettings(
-                            s.copy(dockSize = encodeDockPreference(dockSize, it))
+            }
+        }
+
+        item(key = "dock-gap") {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                MarbleSectionHeader(
+                    title = trx("Distance from the bottom"),
+                    badge = faDigits("$gap dp")
+                )
+                MarbleCard(contentPadding = PaddingValues(16.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // Live preview: the capsule at the chosen rung, floating at the chosen gap,
+                        // so the slider is a measurement the reader can see instead of a number.
+                        DockFloatPreview(
+                            insetDp = DockStudio.HORIZONTAL_MARGIN_DP,
+                            heightDp = DockStudio.heightDp(dockSize),
+                            gapDp = gap,
+                            glyph = MarbleGlyph.DOCK,
+                            tint = colors.tertiary,
+                            gapLabel = faDigits("$gap dp")
                         )
+                        Slider(
+                            value = gap.toFloat(),
+                            onValueChange = { raw ->
+                                repo.updateSettings(
+                                    s.copy(dockBottomGapDp = DockStudio.bottomGapDp(raw.roundToInt())),
+                                    coalesceWrite = true
+                                )
+                            },
+                            valueRange = DockStudio.MIN_BOTTOM_GAP_DP.toFloat()..
+                                DockStudio.MAX_BOTTOM_GAP_DP.toFloat(),
+                            steps = (
+                                (DockStudio.MAX_BOTTOM_GAP_DP - DockStudio.MIN_BOTTOM_GAP_DP) /
+                                    DockStudio.BOTTOM_GAP_STEP_DP
+                                ) - 1,
+                            colors = SliderDefaults.colors(
+                                thumbColor = colors.tertiary,
+                                activeTrackColor = colors.tertiary,
+                                inactiveTrackColor = colors.outlineVariant
+                            )
+                        )
+                        MarbleChipStrip {
+                            listOf(
+                                DockStudio.MIN_BOTTOM_GAP_DP,
+                                DockStudio.DEFAULT_BOTTOM_GAP_DP,
+                                DockStudio.MAX_BOTTOM_GAP_DP
+                            ).forEach { preset ->
+                                MarblePillChip(
+                                    label = faDigits("$preset dp"),
+                                    selected = gap == preset,
+                                    accent = colors.tertiary,
+                                    onClick = { repo.updateSettings(s.copy(dockBottomGapDp = preset)) }
+                                )
+                            }
+                        }
                     }
-                )
-                MarbleCard {
-                    // Lead with the default visual mode (icons); captions are an optional extra.
-                    MarbleSwitchRow(
-                        title = trx("Show Tab Icons"),
-                        checked = showIcons,
-                        glyph = MarbleGlyph.DOCK,
-                        iconTint = colors.primary,
-                        onCheckedChange = { enabled ->
-                            repo.updateSettings(
-                                s.copy(
-                                    dockShowIcons = enabled,
-                                    dockShowLabels = if (!enabled) true else s.dockShowLabels
-                                )
-                            )
-                        }
-                    )
-                    MarbleDivider()
-                    MarbleSwitchRow(
-                        title = trx("Show Tab Labels"),
-                        checked = showLabels,
-                        glyph = MarbleGlyph.FONT,
-                        iconTint = colors.secondary,
-                        onCheckedChange = { enabled ->
-                            repo.updateSettings(
-                                s.copy(
-                                    dockShowLabels = enabled,
-                                    dockShowIcons = if (!enabled) true else s.dockShowIcons
-                                )
-                            )
-                        }
-                    )
                 }
+                MarbleSectionFooter(
+                    text = trx(
+                        "Pages reserve scroll room from this value, so raising it never hides the last row behind the capsule."
+                    )
+                )
             }
         }
 
@@ -534,6 +704,71 @@ fun SettingsTabBarPage(
     }
 }
 
+/**
+ * MARBLE_FLOATING_DOCK_V258 — the preview inside the "distance from the bottom" card.
+ *
+ * It is drawn from the same numbers the real dock reads ([DockStudio]), at a third of the height,
+ * so the slider is a measurement the reader can see: raise the value and the capsule lifts inside
+ * this box by exactly the amount the real one will.
+ */
+@Composable
+private fun DockFloatPreview(
+    insetDp: Int,
+    heightDp: Int,
+    gapDp: Int,
+    glyph: MarbleGlyph,
+    tint: Color,
+    gapLabel: String
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(percent = 50)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(132.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        colors.surfaceContainerHigh,
+                        colors.surfaceContainerLow
+                    )
+                )
+            )
+            .padding(horizontal = insetDp.dp)
+            .testTag("dock-gap-preview"),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(bottom = gapDp.dp)
+                .fillMaxWidth()
+                .height(heightDp.dp / 2)
+                .shadow(8.dp, shape)
+                .clip(shape)
+                .background(colors.surfaceContainerHighest)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(tint.copy(alpha = 0.16f), Color.Transparent)
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MarbleGlyphIcon(glyph = glyph, color = tint, modifier = Modifier.size(16.dp))
+                Text(
+                    text = gapLabel,
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun SettingsHomeLayoutPage(
     repo: AppRepository,
@@ -541,11 +776,13 @@ fun SettingsHomeLayoutPage(
 ) {
     val colors = MaterialTheme.colorScheme
     val s = repo.settings
+    val style = s.homeLayout.widgetStyle
 
     MarbleExpressivePageScaffold(
         glyph = MarbleGlyph.HOME,
         tint = colors.warning,
         title = Tr.now.homeStyleTitle,
+        subtitle = trx("Where the connect control lives on Home"),
         onBack = onBack
     ) {
         item(key = "home-connect-style") {
@@ -557,7 +794,11 @@ fun SettingsHomeLayoutPage(
                     // one status chip on Home; this page describes that instead of offering a
                     // setting that no longer changes anything.
                     Text(
-                        text = trx("One pill connects and disconnects. The chip under it picks Smart, Full TUN or Local proxy. The slide track was removed: a swipe that had to land in the right half was a second thing to learn for one action."),
+                        text = trx(
+                            "One pill connects and disconnects. The chip under it picks Smart, Full TUN or Local proxy. " +
+                                "The slide track was removed: a swipe that had to land in the right half was a second " +
+                                "thing to learn for one action."
+                        ),
                         color = colors.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -565,53 +806,23 @@ fun SettingsHomeLayoutPage(
             }
         }
 
-        // MARBLE_HOME_WIDGETS_V256 — "Home Settings": where the connect control lives, and which
-        // of the four Home blocks exist. Both answers are one write each, and both are read by the
-        // Home page's `AnimatedVisibility` gates, so the page really does rebuild itself.
+        // MARBLE_FLOATING_DOCK_V258 — the section studio and the widget switches are gone.
+        //
+        // They let a reader reorder Home's blocks, hide them, or delete them one at a time, and the
+        // page became a second, worse Home editor: a list of six rows whose only feedback was a
+        // page rebuilt behind an animation. Home is now a page with a fixed, designed order, and the
+        // one decision this page keeps is where the connect control lives — a placement, not a
+        // deletion.
         item(key = "home-widget-settings") {
-            val style = s.homeLayout.widgetStyle
-            val visibleWidgets = HomeWidgets.visibleCount(
-                showRouteCard = s.homeLayout.showRouteCard,
-                showPresets = s.homeLayout.showPresets,
-                showSpeedGraph = s.homeLayout.showSpeedGraph,
-                showIpBox = s.homeLayout.showIpBox
-            )
-
-            fun setWidget(widget: HomeWidget, visible: Boolean) {
-                val layout = s.homeLayout
-                repo.updateSettings(
-                    s.copy(
-                        homeLayout = when (widget) {
-                            HomeWidget.ROUTE_CARD -> layout.copy(showRouteCard = visible)
-                            HomeWidget.PRESETS -> layout.copy(showPresets = visible)
-                            HomeWidget.SPEED_GRAPH -> layout.copy(showSpeedGraph = visible)
-                            HomeWidget.IP_BOX -> layout.copy(showIpBox = visible)
-                        }
-                    )
-                )
-            }
-
-            fun isOn(widget: HomeWidget): Boolean = HomeWidgets.isVisible(
-                widget = widget,
-                showRouteCard = s.homeLayout.showRouteCard,
-                showPresets = s.homeLayout.showPresets,
-                showSpeedGraph = s.homeLayout.showSpeedGraph,
-                showIpBox = s.homeLayout.showIpBox
-            )
-
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(
-                    title = trx("Home Settings"),
-                    badge = faDigits("$visibleWidgets/${HomeWidget.entries.size}"),
-                    badgeColor = if (visibleWidgets == HomeWidget.entries.size) colors.success else colors.warning
-                )
+                MarbleSectionHeader(title = trx("Connection widget"))
                 MarbleCard(contentPadding = PaddingValues(bottom = 8.dp)) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = trx("Connection widget"),
+                            text = trx(style.title),
                             color = colors.onSurface,
                             style = MaterialTheme.typography.titleSmall
                         )
@@ -638,183 +849,10 @@ fun SettingsHomeLayoutPage(
                         },
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
-                    MarbleDivider()
-                    HomeWidget.entries.forEachIndexed { index, widget ->
-                        if (index > 0) MarbleDivider()
-                        MarbleSwitchRow(
-                            title = trx(widget.title),
-                            subtitle = trx(widget.hint),
-                            checked = isOn(widget),
-                            onCheckedChange = { setWidget(widget, it) }
-                        )
-                    }
                 }
                 MarbleSectionFooter(
-                    text = trx(
-                        "These switches rebuild Home immediately. A block that is off is not drawn at all."
-                    )
+                    text = trx("Home always draws every block in the order it was designed in.")
                 )
-            }
-        }
-
-        // MARBLE_HOME_STUDIO_V249 — every section Home draws, with a switch and two move buttons.
-        //
-        // Three switches became six sections plus an order, because "hide the speed card" was never
-        // really the ask: the ask was that Home is a layout the user owns. Two things this list has
-        // to be honest about, and both are why it looks the way it does:
-        //
-        //   * A section that is off still shows its row. A switch that removes itself cannot be
-        //     turned back on, so the row stays and dims instead.
-        //   * Turning everything off is allowed, and the page says so out loud. An empty Home is a
-        //     choice somebody might actually make (a pill and nothing else), and a product that
-        //     quietly refuses it is a product that knows better than its user.
-        item(key = "home-sections-studio") {
-            val order = HomeStudio.order(s.homeLayout.sectionOrder)
-            val hiddenCount = HomeStudio.hiddenCount(
-                hiddenRaw = s.homeLayout.hiddenSections,
-                legacyStatsVisible = s.modularShowStats,
-                legacyShortcutsVisible = s.modularShowShortcuts
-            )
-            val bare = HomeStudio.isBare(
-                orderRaw = s.homeLayout.sectionOrder,
-                hiddenRaw = s.homeLayout.hiddenSections,
-                legacyStatsVisible = s.modularShowStats,
-                legacyShortcutsVisible = s.modularShowShortcuts
-            )
-
-            fun sectionGlyph(section: HomeSection): MarbleGlyph = when (section) {
-                HomeSection.HEADER -> MarbleGlyph.HOME
-                HomeSection.CONNECT -> MarbleGlyph.POWER
-                HomeSection.PRESETS -> MarbleGlyph.SPARK
-                HomeSection.ROUTE -> MarbleGlyph.ROUTE
-                HomeSection.STATS -> MarbleGlyph.GAUGE
-                HomeSection.SHORTCUTS -> MarbleGlyph.MENU
-            }
-
-            // One write per change, and the two legacy switches are written with it: the studio's
-            // record and the record an older build reads must never disagree about the same section.
-            fun setSectionVisible(section: HomeSection, visible: Boolean) {
-                val hidden = HomeStudio.hiddenIds(s.homeLayout.hiddenSections).toMutableSet()
-                if (visible) hidden -= section.id else hidden += section.id
-                repo.updateSettings(
-                    s.copy(
-                        homeLayout = s.homeLayout.copy(hiddenSections = HomeStudio.serializeHidden(hidden)),
-                        modularShowStats = if (section == HomeSection.STATS) {
-                            visible
-                        } else {
-                            s.modularShowStats
-                        },
-                        modularShowShortcuts = if (section == HomeSection.SHORTCUTS) {
-                            visible
-                        } else {
-                            s.modularShowShortcuts
-                        }
-                    )
-                )
-            }
-
-            fun moveSection(section: HomeSection, steps: Int) {
-                val moved = HomeStudio.move(s.homeLayout.sectionOrder, section, steps) ?: return
-                repo.updateSettings(s.copy(homeLayout = s.homeLayout.copy(sectionOrder = moved)))
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(
-                    title = trx("Home sections"),
-                    badge = faDigits("${order.size - hiddenCount}/${order.size}"),
-                    badgeColor = if (hiddenCount == 0) colors.success else colors.warning
-                )
-                MarbleCard {
-                    order.forEachIndexed { index, section ->
-                        if (index > 0) MarbleDivider()
-                        val hidden = HomeStudio.isHidden(
-                            section = section,
-                            hiddenRaw = s.homeLayout.hiddenSections,
-                            legacyStatsVisible = s.modularShowStats,
-                            legacyShortcutsVisible = s.modularShowShortcuts
-                        )
-                        val upLabel = trx("Move up")
-                        val downLabel = trx("Move down")
-                        MarbleListItem(
-                            title = trx(section.title),
-                            subtitle = trx(section.hint),
-                            glyph = sectionGlyph(section),
-                            iconTint = if (hidden) colors.onSurfaceVariant else colors.primary,
-                            titleColor = if (hidden) colors.onSurfaceVariant else colors.onSurface,
-                            showChevron = false,
-                            onClick = { setSectionVisible(section, hidden) },
-                            trailing = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    MarbleIconButton(
-                                        glyph = MarbleGlyph.CHEVRON_DOWN,
-                                        onClick = { moveSection(section, -1) },
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .rotate(180f),
-                                        tint = colors.onSurfaceVariant,
-                                        enabled = HomeStudio.canMove(s.homeLayout.sectionOrder, section, -1),
-                                        contentDescription = upLabel
-                                    )
-                                    MarbleIconButton(
-                                        glyph = MarbleGlyph.CHEVRON_DOWN,
-                                        onClick = { moveSection(section, 1) },
-                                        modifier = Modifier.size(32.dp),
-                                        tint = colors.onSurfaceVariant,
-                                        enabled = HomeStudio.canMove(s.homeLayout.sectionOrder, section, 1),
-                                        contentDescription = downLabel
-                                    )
-                                    MarbleSwitch(
-                                        checked = !hidden,
-                                        onCheckedChange = { setSectionVisible(section, it) }
-                                    )
-                                }
-                            }
-                        )
-                    }
-                }
-                if (bare) {
-                    MarbleSectionFooter(
-                        text = trx("Home is empty right now. Turn one section back on, or keep it as a single pill.")
-                    )
-                }
-                MarbleButton(
-                    label = trx("Reset Home layout"),
-                    style = MarbleButtonStyle.SECONDARY,
-                    onClick = {
-                        repo.updateSettings(
-                            s.copy(
-                                homeLayout = s.homeLayout.copy(
-                                    sectionOrder = HomeStudio.resetOrder(),
-                                    hiddenSections = HomeStudio.resetHidden()
-                                ),
-                                modularShowStats = true,
-                                modularShowShortcuts = true
-                            )
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        item(key = "home-cards-visibility") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Inside the sections"))
-                MarbleCard {
-                    // The SOCKS5 row is a line *inside* the speed section, not a section of its own,
-                    // so it keeps its own switch here instead of a row in the list above.
-                    MarbleSwitchRow(
-                        title = trx("Local SOCKS5 Row"),
-                        subtitle = trx("Always display the loopback SOCKS5 address on Home"),
-                        checked = s.modularShowSocks,
-                        glyph = MarbleGlyph.LINK,
-                        iconTint = colors.secondary,
-                        onCheckedChange = { repo.updateSettings(s.copy(modularShowSocks = it)) }
-                    )
-                }
             }
         }
     }

@@ -73,7 +73,17 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-`docs/ROUTING_ASSET_PIN_V257.md` is the newest chapter: why the release build went red on
+`docs/FLOATING_DOCK_AND_ABOUT_V258.md` is the newest chapter: the attached bottom bar deleted
+rather than hidden (the preference is the rung, and a legacy `medium|attached` migrates to `medium`
+on read), the capsule's distance from the bottom turned into a clamped setting (8–44dp, default 22)
+whose scroll clearance is derived so no page can clip behind it, a rebuilt 56/68/82dp ladder that
+differs in glyph, padding *and* caption behaviour, the icon and caption switches removed with the
+helpers they needed, Home's section studio removed so the feed has one designed order, the version
+footer deleted, About promoted to a full-screen route reached by a Settings corner button that *is*
+the turning Material 3 Expressive polygon, the Settings "All" tab collapsed into one uniform bento,
+the IP page given a palette-washed hero and a tap-to-copy address strip, and four whole-scheme
+palettes (Classic, Aurora, Ember, Neon Prism) that repaint every surface in light and dark.
+`docs/ROUTING_ASSET_PIN_V257.md` is the chapter before it: why the release build went red on
 2026-11-01 with a bare `exit 1` at "Bundle verified Iran routing assets" — the step read a
 force-pushed branch twice, so a publish landing between two requests could compare one snapshot's
 `geoip.dat` against the next snapshot's `.sha256sum` — and the fix: resolve the branch to one commit,

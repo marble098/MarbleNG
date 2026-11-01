@@ -481,9 +481,6 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Default order" to "ترتیب پیش‌فرض",
 
     // MARBLE_MERIDIAN_V221 — the flat chapter speaks Persian too.
-    "Bottom Bar Position" to "جای نوار پایین",
-    "Attached to bottom" to "چسبیده به پایین",
-    "Floating above bottom" to "شناور بالای نوار پایین گوشی",
     "The bottom bar of the app: what it shows and how much room it takes." to
         "نوار پایین برنامه را مطابق سلیقه‌تان بچینید و اندازه‌اش را انتخاب کنید.",
     "Interface" to "رابط کاربری",
@@ -2807,6 +2804,70 @@ private val FaLexicon: Map<String, String> = mapOf(
     // MARBLE_SETTINGS_SUBSCRIPTION_V257 — copying a subscription's address from its editor.
     "Copy the HTTPS subscription address to the clipboard" to
         "آدرس اشتراک HTTPS رو به کلیپ‌بورد کپی کن",
+
+    // MARBLE_FLOATING_DOCK_V258 / MARBLE_PALETTE_STUDIO_V258 — the third pass over the dock, the
+    // four colour themes and the About page that left Settings for a route of its own. The three
+    // rungs are named for what they look like rather than for a size letter, so the words had to
+    // arrive with the ladder.
+    "Slim" to "باریک",
+    "Grand" to "بزرگ",
+    "Icons only, tightest capsule" to "فقط نشانه، تنگ‌ترین کپسول",
+    "Bigger glyphs, the selected word opens for a moment" to
+        "نشانه‌های بزرگ‌تر، واژهٔ انتخاب‌شده لحظه‌ای باز می‌شود",
+    "Largest glyphs, the selected word never closes" to
+        "بزرگ‌ترین نشانه‌ها، واژهٔ انتخاب‌شده هرگز بسته نمی‌شود",
+    "Slim keeps glyphs only, Classic opens the selected word for a moment, Grand keeps it open." to
+        "باریک فقط نشانه‌ها را نگه می‌دارد، کلاسیک واژهٔ انتخاب‌شده را لحظه‌ای باز می‌کند، بزرگ آن را باز نگه می‌دارد.",
+    "Capsule size" to "اندازهٔ کپسول",
+    "Distance from the bottom" to "فاصله از پایین",
+    "distance from the bottom" to "فاصله از پایین",
+    "Pages reserve scroll room from this value, so raising it never hides the last row behind the capsule." to
+        "صفحه‌ها فضای اسکرول را از همین مقدار کنار می‌گذارند، پس زیادکردنش هرگز آخرین سطر را پشت کپسول پنهان نمی‌کند.",
+    "One floating capsule: its size, its distance from the bottom, and the IP tab" to
+        "یک کپسول شناور: اندازه‌اش، فاصله‌اش از پایین، و تب IP",
+    "Where the connect control lives" to "جای کنترل اتصال",
+    "Where the connect control lives on Home" to "جای کنترل اتصال در خانه",
+    "Home always draws every block in the order it was designed in." to
+        "خانه همیشه همهٔ بخش‌ها را با همان ترتیبی که طراحی شده‌اند می‌کشد.",
+
+    // The four palettes. `Marble Classic` keeps the accent-seeded scheme, so its hint has to say
+    // what the accent is still allowed to do.
+    "Colour themes" to "تم‌های رنگی",
+    "Marble Classic" to "ماربل کلاسیک",
+    "Your accent colour on the neutral surface ladder" to
+        "رنگ تأکید تو روی نردبان سطح‌های خنثی",
+    "Aurora" to "شفق",
+    "Arctic teal melting into violet — cool, luminous, quiet" to
+        "فیروزه‌ای قطبی که در بنفش آب می‌شود — سرد، درخشان، آرام",
+    "Ember" to "اخگر",
+    "Sunset coral and deep plum — warm, confident, dramatic" to
+        "مرجان غروب و آلوچهٔ تیره — گرم، مطمئن، نمایشی",
+    "Neon Prism" to "منشور نئون",
+    "Electric magenta and acid lime on near-black glass" to
+        "سرخابی برقی و لیمویی تند روی شیشهٔ تقریباً سیاه",
+    "A palette repaints every surface, card and control in the app. It outranks the accent swatch and the wallpaper palette; Marble Classic hands both back." to
+        "هر پالت همهٔ سطح‌ها، کارت‌ها و کنترل‌های برنامه را رنگ می‌زند. از رنگ تأکید و پالت کاغذدیواری جلوتر است؛ ماربل کلاسیک هر دو را برمی‌گرداند.",
+
+    // MARBLE_ABOUT_PAGE_V258 — the standalone About route.
+    "A tunnel you can read." to "تونلی که می‌توانی بخوانی.",
+    "The whole build, in one place" to "همهٔ این بیلد، در یک جا",
+    "Built in the open. No account, no tracking, no telemetry." to
+        "در دید همه ساخته شده. نه حساب، نه ردیابی، نه تلمتری.",
+    "Version" to "نسخه",
+    "Build" to "بیلد",
+    "Xray" to "هستهٔ Xray",
+    "sing-box extended" to "sing-box گسترده",
+    "HEV tunnel core" to "هستهٔ تونل HEV",
+    "MarbleNG app" to "برنامهٔ MarbleNG",
+    "Check for updates" to "بررسی به‌روزرسانی",
+    "Open the GitHub repository" to "بازکردن مخزن گیت‌هاب",
+
+    // MARBLE_IP_STACK_V258 — the three-tile address strip.
+    "Tap to copy" to "برای رونوشت بزن",
+    "No IPv4" to "بدون IPv4",
+    "No IPv6" to "بدون IPv6",
+    "Route" to "مسیر",
+    "Moving" to "در حال جابه‌جایی",
 )
 
 

@@ -61,17 +61,13 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.NotificationRoute
 import com.marbleng.app.model.DockIndicatorSpec
-import com.marbleng.app.model.DockPresentation
 import com.marbleng.app.model.LiquidDockNotices
 import com.marbleng.app.model.ProxyProfile
-import com.marbleng.app.model.dockShowsIcons
-import com.marbleng.app.model.dockShowsLabels
 import com.marbleng.app.model.DockSlotKind
 import com.marbleng.app.model.dockSlotDefaultCaption
 import com.marbleng.app.model.dockSlotIndex
 import com.marbleng.app.model.dockSlots
 import com.marbleng.app.model.parseDockSize
-import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSlotAccent
 import kotlinx.coroutines.delay
 import androidx.compose.animation.AnimatedContent
@@ -124,7 +120,10 @@ fun MarbleApp(
                 accentId = repo.settings.accentTheme,
                 fontId = repo.settings.fontFamily,
                 flatSurfaces = repo.settings.flatInterface,
-                dynamicColor = repo.settings.dynamicColor
+                dynamicColor = repo.settings.dynamicColor,
+                // MARBLE_PALETTE_STUDIO_V258 — one whole-scheme colour theme above every screen,
+                // so a palette reaches the dock, the cards, the IP hero and the About page at once.
+                paletteId = repo.settings.themePalette
             ) {
                 // MARBLE_MAP_MOTION_V249 — one motion style, ambient, under the theme that owns the
                 // colour. It sits here rather than being threaded as a parameter because every
@@ -171,6 +170,9 @@ private fun MarbleRootShell(
     // reading a long server list never happens through a strip of chrome. The pages already
     // report their scroll state; this shell is the one place that acts on it.
     var contentScrolling by remember { mutableStateOf(false) }
+    // MARBLE_ABOUT_PAGE_V258 — About is its own page now, not a Settings sub-topic: it is opened
+    // from the hub's top-right corner and it draws full-screen, above the tab it was opened from.
+    var showAbout by rememberSaveable { mutableStateOf(false) }
 
     val visibleTabs = dockSlots(
         all = MarbleRootTab.entries,
@@ -199,12 +201,14 @@ private fun MarbleRootShell(
     val motion = marbleMotion()
     val readingRightToLeft = LocalLayoutDirection.current == LayoutDirection.Rtl
 
-    val canNavigateBack = detailProfile != null ||
+    val canNavigateBack = showAbout ||
+        detailProfile != null ||
         (activeTab == MarbleRootTab.SETTINGS && activeSettingsPage != null) ||
         activeTab != MarbleRootTab.HOME
 
     BackHandler(enabled = canNavigateBack) {
         when {
+            showAbout -> showAbout = false
             detailProfile != null -> {
                 inspectingProfileId = ""
                 inspectingProfileSource = ""
@@ -265,13 +269,19 @@ private fun MarbleRootShell(
     val openSettingsDest: (SettingsDestination) -> Unit = { dest ->
         inspectingProfileId = ""
         inspectingProfileSource = ""
-        activeSettingsPage = dest
-        rememberedTab = MarbleRootTab.SETTINGS
+        if (dest == SettingsDestination.ABOUT) {
+            // The independent About page: same destination id, its own full-screen route.
+            showAbout = true
+        } else {
+            activeSettingsPage = dest
+            rememberedTab = MarbleRootTab.SETTINGS
+        }
     }
 
     val selectTab: (MarbleRootTab) -> Unit = { chosen ->
         inspectingProfileId = ""
         inspectingProfileSource = ""
+        showAbout = false
         if (chosen == MarbleRootTab.SETTINGS && activeTab == MarbleRootTab.SETTINGS) {
             activeSettingsPage = null
         }
@@ -290,9 +300,17 @@ private fun MarbleRootShell(
         // capped reading column; phones keep the overlay dock. The clearance the
         // screens and the Servers FAB float above follows the chrome.
         val wide = maxWidth >= MarbleSpec.WIDE_RAIL_MIN_WIDTH_DP.dp
+        // MARBLE_FLOATING_DOCK_V258 — the clearance the pages reserve is derived from the dock the
+        // user actually configured: the rung's own height plus the gap they chose under it, with
+        // `MarbleSpec.BOTTOM_BAR_CLEARANCE_DP` as the floor. Raising "distance from the bottom" can
+        // therefore never push the last row of a list under the capsule.
+        val dockClearance = com.marbleng.app.model.DockStudio.clearanceDp(
+            size = com.marbleng.app.model.parseDockSize(settings.dockSize),
+            gapDp = settings.dockBottomGapDp
+        )
         CompositionLocalProvider(
             LocalBottomClearance provides
-                (if (wide) MarbleSpec.RAIL_CLEARANCE_DP else MarbleSpec.BOTTOM_BAR_CLEARANCE_DP).dp
+                (if (wide) MarbleSpec.RAIL_CLEARANCE_DP else dockClearance).dp
         ) {
             Row(modifier = Modifier.fillMaxSize()) {
                 if (wide) {
@@ -468,6 +486,27 @@ private fun MarbleRootShell(
                         }
                     }
 
+        // MARBLE_ABOUT_PAGE_V258 — the independent About page, mounted above the whole tab map so
+        // it belongs to no tab: it arrives from the Settings hub's top-right corner, covers the
+        // content area, and leaves on back or on any tab press.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showAbout,
+            enter = fadeIn(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)) + slideInVertically(
+                animationSpec = motion.panSpec(MARBLE_CHROME_FLIGHT_MS)
+            ) { height -> height / 6 },
+            exit = fadeOut(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)) + slideOutVertically(
+                animationSpec = motion.panSpec(MARBLE_CHROME_FLIGHT_MS)
+            ) { height -> height / 3 },
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(modifier = Modifier.fillMaxSize().background(colors.surface)) {
+                AboutScreen(
+                    repo = repo,
+                    onBack = { showAbout = false }
+                )
+            }
+        }
+
         // Fully qualified: inside the rail Row the RowScope overload would win resolution.
         // MARBLE_LUMEN_DOCK_V256 — a running batch is not an announcement. The island's own counter
         // (`12/79 pinging…`) is the report, so the wide banner stays out of the way while
@@ -572,7 +611,9 @@ private fun MarbleNavigationRail(
     val strings = Tr.now
     val haptics = LocalHapticFeedback.current
     val s = repo.settings
-    val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
+    // MARBLE_FLOATING_DOCK_V258 — the rail is a labelled list on a wide screen whatever the dock
+    // rung is: it is not a capsule, and its rows have room for a word at every size.
+    val showLabels = true
     // MARBLE_IP_IDENTITY_V251 — the fourth tab has a fixed name and glyph now: it is the IP page,
     // not a shortcut whose identity the user picks. The slot's own colour still applies, because
     // that is appearance, not meaning.
@@ -678,9 +719,10 @@ private fun MarbleBottomTabBar(
     val strings = Tr.now
     val s = repo.settings
     val size = parseDockSize(s.dockSize)
-    val floating = parseDockPresentation(s.dockSize) == DockPresentation.FLOATING
-    val showIcons = dockShowsIcons(s.dockShowIcons, s.dockShowLabels)
-    val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
+    // MARBLE_FLOATING_DOCK_V258 — the attached presentation is retired, and the icon/caption
+    // switches left Settings with it. The dock draws glyphs always, and its captions follow the
+    // rung (`DockStudio.showsCaptionsAlways`), decided inside the capsule: one decision instead of
+    // three that could disagree.
     val ipLabel = trx(dockSlotDefaultCaption(DockSlotKind.IP, ""))
     val ipGlyph = MarbleGlyph.GLOBE
     val slotColor = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
@@ -797,9 +839,7 @@ private fun MarbleBottomTabBar(
         onSelect = { index -> tabs.getOrNull(index)?.let(onSelect) },
         modifier = modifier,
         size = size,
-        showIcons = showIcons,
-        showLabels = showLabels,
-        floating = floating,
+        bottomGap = com.marbleng.app.model.DockStudio.bottomGapDp(s.dockBottomGapDp).dp,
         leading = island,
         center = trigger,
         trailing = power

@@ -18,6 +18,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +53,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -201,6 +203,20 @@ fun IpIdentityScreen(
                 )
             }
 
+            // MARBLE_IP_EXPRESSIVE_V258 — the page opens on three expressive tiles before the
+            // ledger: which families this phone holds and whether the route is a tunnel. The hero
+            // says *where*; these say *with what*, in the colour language of the rest of the app.
+            item(key = "ip-stack") {
+                IpStackStrip(
+                    report = report,
+                    connected = connected,
+                    onCopy = { literal ->
+                        clipboard.setText(AnnotatedString(literal))
+                        repo.setRuntimeMessage(copiedNotice)
+                    }
+                )
+            }
+
             item(key = "ip-internet") {
                 IpInternetCard(
                     report = report,
@@ -313,16 +329,21 @@ private fun IpPassportHero(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(32.dp))
+            .clip(RoundedCornerShape(36.dp))
             .background(colors.surfaceContainerLow)
             .background(
                 Brush.linearGradient(
                     listOf(
-                        tone.copy(alpha = 0.18f),
+                        tone.copy(alpha = 0.24f),
                         colors.surfaceContainerLow.copy(alpha = 0.02f),
-                        tone.copy(alpha = 0.07f)
+                        colors.tertiary.copy(alpha = 0.14f)
                     )
                 )
+            )
+            .border(
+                width = 1.dp,
+                color = tone.copy(alpha = 0.22f),
+                shape = RoundedCornerShape(36.dp)
             )
             .clickable(
                 role = Role.Button,
@@ -336,6 +357,24 @@ private fun IpPassportHero(
             .testTag("ip-exit-hero")
             .padding(20.dp)
     ) {
+        // MARBLE_IP_EXPRESSIVE_V258 — the passport's watermark: a Material 3 Expressive polygon
+        // turning slowly behind the facts, tinted by the live state. It is drawn in the draw phase
+        // (MarbleMorphingMark caches its path), so the orbit costs no recomposition.
+        MarbleMorphingMark(
+            motif = MarbleExpressiveMotif.CLOVER,
+            targetMotif = MarbleExpressiveMotif.FLOWER,
+            color = tone.copy(alpha = 0.10f),
+            progress = { if (motion.loops) (stillness - 0.94f) * 2.2f else 0.4f },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .size(196.dp)
+                .graphicsLayer {
+                    translationX = 46.dp.toPx()
+                    translationY = 54.dp.toPx()
+                    rotationZ = if (motion.loops) 360f * ((stillness - 0.94f) * 2.2f) else 0f
+                }
+        )
+
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // The passport face: the flag large, the place under it, the state pill beside it.
             Row(
@@ -996,4 +1035,168 @@ private fun IpSkeletonLine(widthFraction: Float, height: Int) {
                 }
             )
     )
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// MARBLE_IP_EXPRESSIVE_V258 — the three tiles under the hero.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Three expressive tiles: IPv4, IPv6 and the route.
+ *
+ * The page already lists every fact, but a list is a ledger: it answers a question you have to know
+ * to ask. This strip answers the first three questions a person opening the tab actually has — *do
+ * I have v4, do I have v6, and is the exit a tunnel* — in the app's own Material 3 Expressive
+ * language: a different `MaterialShapes` polygon per family, a tonal wash per state, and the
+ * literal itself in tabular monospace so two addresses can be compared by eye.
+ */
+@Composable
+private fun IpStackStrip(
+    report: IpStackReport,
+    connected: Boolean,
+    onCopy: (String) -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val exit = report.exit
+    val deviceV4 = report.primaryDeviceAddress?.takeIf { it.kind == IpKind.IPV4 }?.address.orEmpty()
+    val deviceV6 = report.ipv6Addresses.firstOrNull { it.scope != IpScope.UNSPECIFIED }?.address.orEmpty()
+    val v4 = report.publicV4?.address?.takeIf { it.isNotBlank() } ?: deviceV4
+    val v6 = report.publicV6?.address?.takeIf { it.isNotBlank() } ?: deviceV6
+    val tunnelUp = report.tunnelActive && connected
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        IpStackTile(
+            label = "IPv4",
+            value = v4,
+            emptyLabel = trx("No IPv4"),
+            glyph = MarbleGlyph.GLOBE,
+            motif = MarbleExpressiveMotif.CLOVER,
+            tint = colors.primary,
+            onCopy = onCopy,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+        )
+        IpStackTile(
+            label = "IPv6",
+            value = v6,
+            emptyLabel = trx("No IPv6"),
+            glyph = MarbleGlyph.LAYERS,
+            motif = MarbleExpressiveMotif.PENTAGON,
+            tint = colors.tertiary,
+            onCopy = onCopy,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+        )
+        IpStackTile(
+            label = trx("Route"),
+            value = if (tunnelUp) trx("Tunnel") else if (connected) trx("Moving") else trx("Direct"),
+            emptyLabel = trx("Unknown"),
+            glyph = if (tunnelUp) MarbleGlyph.SHIELD else MarbleGlyph.ROUTE,
+            motif = MarbleExpressiveMotif.ARCH,
+            tint = if (tunnelUp) colors.success else colors.warning,
+            footer = exit?.countryCode?.takeIf { it.isNotBlank() }?.uppercase().orEmpty(),
+            onCopy = null,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+        )
+    }
+}
+
+@Composable
+private fun IpStackTile(
+    label: String,
+    value: String,
+    emptyLabel: String,
+    glyph: MarbleGlyph,
+    motif: MarbleExpressiveMotif,
+    tint: Color,
+    modifier: Modifier = Modifier,
+    footer: String = "",
+    onCopy: ((String) -> Unit)?
+) {
+    val colors = MaterialTheme.colorScheme
+    val motion = marbleMotion()
+    val haptics = LocalHapticFeedback.current
+    val shown = value.takeIf { it.isNotBlank() } ?: emptyLabel
+    val copyable = onCopy != null && value.isNotBlank()
+
+    Column(
+        modifier = modifier
+            .clip(marbleExpressiveShape(motif))
+            .background(colors.surfaceContainerLow)
+            .background(tint.copy(alpha = 0.10f))
+            .then(
+                if (copyable) {
+                    Modifier.clickable(role = Role.Button) {
+                        haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                        onCopy?.invoke(value)
+                    }
+                } else {
+                    Modifier
+                }
+            )
+            .testTag("ip-stack-tile")
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(marbleExpressiveShape(motif))
+                    .background(tint.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                MarbleGlyphIcon(
+                    glyph = glyph,
+                    color = tint,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
+            Text(
+                text = label,
+                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Text(
+            text = shown,
+            color = if (value.isBlank()) colors.onSurfaceVariant else colors.onSurface,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            ),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (footer.isNotBlank()) {
+            Text(
+                text = footer,
+                color = tint,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1
+            )
+        } else if (copyable && motion.loops) {
+            Text(
+                text = trx("Tap to copy"),
+                color = colors.onSurfaceVariant.copy(alpha = 0.8f),
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1
+            )
+        }
+    }
 }

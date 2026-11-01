@@ -22,7 +22,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.marbleng.app.model.FlatAccent
+import com.marbleng.app.model.MarblePalette
 import com.marbleng.app.model.parseFlatAccent
+import com.marbleng.app.model.parseMarblePalette
 import com.marbleng.app.ui.MarbleLanguage
 import com.marbleng.app.ui.Tr
 
@@ -111,9 +113,16 @@ fun marbleColorScheme(
     dark: Boolean,
     dynamicColor: Boolean,
     context: Context,
-    trueBlack: Boolean = false
+    trueBlack: Boolean = false,
+    palette: MarblePalette = MarblePalette.DEFAULT
 ): ColorScheme {
     val scheme = when {
+        // MARBLE_PALETTE_STUDIO_V258 — a chosen palette outranks both the wallpaper and the accent.
+        // A person who just picked Aurora is not asking the wallpaper to overrule them, and a
+        // palette that lost to dynamic colour on Android 12+ would be a setting that does nothing
+        // on the phones most people own.
+        palette != MarblePalette.CLASSIC -> marblePaletteScheme(palette, dark)
+
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
@@ -159,17 +168,20 @@ fun MarbleExpressiveTheme(
     fontId: String = com.marbleng.app.model.AppFont.DEFAULT.id,
     flatSurfaces: Boolean = false,
     dynamicColor: Boolean = true,
+    paletteId: String = MarblePalette.CLASSIC.id,
     content: @Composable () -> Unit
 ) {
     val systemDark = isSystemInDarkTheme()
     val dark = resolveMarbleDarkMode(themeId, systemDark)
     val accent = parseFlatAccent(accentId)
+    val palette = parseMarblePalette(paletteId)
     val context = LocalContext.current
     val scheme = marbleColorScheme(
         accent = accent,
         dark = dark,
         dynamicColor = dynamicColor,
         context = context,
+        palette = palette,
         // MARBLE_HOME_STUDIO_V249 — `amoled` was already a theme id this app accepted and could not
         // draw. Reading it here means no new parameter, no new call site and no way for the theme
         // and the resolver to disagree about what "the darkest option" is.
