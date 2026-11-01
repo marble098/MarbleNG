@@ -5476,6 +5476,71 @@ check(
     and '"Home Settings" to "' in files["persianLexicon"],
 )
 
+
+# ---------------------------------------------------------------------------
+# MARBLE_ROUTING_ASSET_PIN_V257 — the release build's routing assets come from
+# one commit, and the incident that proved why is written down.
+# ---------------------------------------------------------------------------
+v257_fetch = read("scripts/bundle-routing-assets.sh")
+v257_fixture = read("scripts/test-routing-asset-pin.sh")
+v257_build = files["buildWorkflow"]
+v257_verify = workflow("verify.yml")
+v257_doc = read("docs/ROUTING_ASSET_PIN_V257.md")
+
+check(
+    "V257 the routing assets are fetched from one commit, not from the branch",
+    # The 2026-11-01 failure: `geoip.dat` and `geoip.dat.sha256sum` fetched separately by branch
+    # path from a source that force-pushes a whole new snapshot on every publish. Two requests, two
+    # snapshots, one failed comparison, no message. Branch paths may not be fetched at all now.
+    "MARBLE_ROUTING_ASSET_PIN_V257" in v257_fetch
+    and "repos/$REPO/branches/$REF" in v257_fetch
+    and '"$RAW_BASE/$REPO/$sha/$name"' in v257_fetch
+    and '"$RAW_BASE/$REPO/$sha/$name.sha256sum"' in v257_fetch
+    and "$RAW_BASE/$REPO/$REF/" not in v257_fetch
+    and "$CDN_BASE/$REPO@$REF/" not in v257_fetch
+    and "MARBLE_ROUTING_ATTEMPTS" in v257_fetch
+    # Retry the snapshot, never the torn request: the digest and the binary have to come from the
+    # same commit, so a second attempt resolves a fresh one.
+    and "resolve_sha" in v257_fetch
+    and "did not verify" in v257_fetch
+    # Say which digest disagreed, then install nothing at all.
+    and "expected $expected, got $actual" in v257_fetch
+    and "no verified routing snapshot" in v257_fetch
+    and 'install -m 0644' in v257_fetch
+    and "GITHUB_STEP_SUMMARY" in v257_fetch,
+)
+
+check(
+    "V257 the build step calls that script and the fixtures run on every pull request",
+    "Bundle verified Iran routing assets" in v257_build
+    and "bash scripts/bundle-routing-assets.sh" in v257_build
+    and "GITHUB_TOKEN: ${{ github.token }}" in v257_build
+    # The inline, branch-path fetch is gone from the workflow: one implementation, one place to fix.
+    and "Iran-v2ray-rules/release/geoip.dat" not in v257_build
+    and "expected_geoip" not in v257_build
+    and "./scripts/test-routing-asset-pin.sh" in v257_verify
+    and "Routing asset pin fixtures" in v257_verify
+    # The three fixtures: a clean install, the production race, and a run that must install nothing.
+    and "clean snapshot installs the published pair" in v257_fixture
+    and "did not verify" in v257_fixture
+    and "installs nothing and says why" in v257_fixture
+    and "queue.json" in v257_fixture,
+)
+
+check(
+    "V257 the incident, its cause and its fix are recorded in the chapter chain",
+    "MARBLE_ROUTING_ASSET_PIN_V257" in v257_doc
+    and "## ۲. چه چیزی آن را کشت" in v257_doc
+    and "## ۴. جدول اجرا" in v257_doc
+    and "## ۶. آنچه عمداً انجام نشد" in v257_doc
+    and "## ۷. تست" in v257_doc
+    and "2026-11-01" in v257_doc
+    and "force-push" in v257_doc
+    and "ROUTING_ASSET_PIN_V257.md" in files["readme"]
+    and "is the newest chapter" in files["readme"]
+    and "LUMEN_DOCK_AND_INTAKE_GRID_V256.md" in files["readme"],
+)
+
 failed = [name for name, passed in checks if not passed]
 
 print("=== MarbleNG SYSTEM INTEGRITY ===")
