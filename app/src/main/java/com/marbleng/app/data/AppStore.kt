@@ -714,14 +714,11 @@ class AppStore(context: Context) {
 
         darkOutlineStyle = parseDarkOutlineStyle(prefs.getString("darkOutlineStyle", DarkOutlineStyle.SUBTLE.id) ?: DarkOutlineStyle.SUBTLE.id).id,
 
-        dockShowLabels = prefs.getBoolean("dockShowLabels", false),
-        dockShowIcons = prefs.getBoolean("dockShowIcons", true),
+        // MARBLE_FLOATING_DOCK_V258 — the presentation is no longer part of the preference (and
+        // no longer a choice). `parseDockSize` reads a legacy `medium|attached` by keeping the part
+        // before the separator, and the next save rewrites it as a bare rung id.
         dockSize = encodeDockPreference(
-            parseDockSize(prefs.getString("dockSize", DockSize.MEDIUM.id) ?: DockSize.MEDIUM.id),
-            // MARBLE_FLOATING_DOCK_V258 — the presentation is no longer a choice. A stored
-            // `attached` value is migrated to `floating` on the next write, so every install ends
-            // up on the one presentation the product now has.
-            DockPresentation.FLOATING
+            parseDockSize(prefs.getString("dockSize", DockSize.MEDIUM.id) ?: DockSize.MEDIUM.id)
         ),
         dockBottomGapDp = DockStudio.bottomGapDp(
             prefs.getInt("dockBottomGapDp", DockStudio.DEFAULT_BOTTOM_GAP_DP)
@@ -995,14 +992,9 @@ class AppStore(context: Context) {
         .putBoolean("modularHideCustomizerButton", s.modularHideCustomizerButton)
         .putString("connectButtonStyle", parseConnectButtonStyle(s.connectButtonStyle).id)
         .putString("darkOutlineStyle", parseDarkOutlineStyle(s.darkOutlineStyle).id)
-        .putBoolean("dockShowLabels", s.dockShowLabels)
-        .putBoolean("dockShowIcons", s.dockShowIcons)
-        .putString(
-            "dockSize",
-            // MARBLE_FLOATING_DOCK_V258 — always floating; the stored half is written back so an
-            // install that once chose `attached` is migrated by the next save.
-            encodeDockPreference(parseDockSize(s.dockSize), DockPresentation.FLOATING)
-        )
+        // MARBLE_FLOATING_DOCK_V258 — one rung, no presentation: an install that once chose
+        // `attached` is migrated by this write.
+        .putString("dockSize", encodeDockPreference(parseDockSize(s.dockSize)))
         .putInt("dockBottomGapDp", DockStudio.bottomGapDp(s.dockBottomGapDp))
         .putBoolean("dockSlotEnabled", s.dockSlotEnabled)
         .putString("dockSlotKind", parseDockSlotKind(s.dockSlotKind).id)

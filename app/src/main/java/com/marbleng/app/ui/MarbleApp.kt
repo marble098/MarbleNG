@@ -61,17 +61,13 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.NotificationRoute
 import com.marbleng.app.model.DockIndicatorSpec
-import com.marbleng.app.model.DockPresentation
 import com.marbleng.app.model.LiquidDockNotices
 import com.marbleng.app.model.ProxyProfile
-import com.marbleng.app.model.dockShowsIcons
-import com.marbleng.app.model.dockShowsLabels
 import com.marbleng.app.model.DockSlotKind
 import com.marbleng.app.model.dockSlotDefaultCaption
 import com.marbleng.app.model.dockSlotIndex
 import com.marbleng.app.model.dockSlots
 import com.marbleng.app.model.parseDockSize
-import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSlotAccent
 import kotlinx.coroutines.delay
 import androidx.compose.animation.AnimatedContent
@@ -615,7 +611,9 @@ private fun MarbleNavigationRail(
     val strings = Tr.now
     val haptics = LocalHapticFeedback.current
     val s = repo.settings
-    val showLabels = dockShowsLabels(s.dockShowIcons, s.dockShowLabels)
+    // MARBLE_FLOATING_DOCK_V258 — the rail is a labelled list on a wide screen whatever the dock
+    // rung is: it is not a capsule, and its rows have room for a word at every size.
+    val showLabels = true
     // MARBLE_IP_IDENTITY_V251 — the fourth tab has a fixed name and glyph now: it is the IP page,
     // not a shortcut whose identity the user picks. The slot's own colour still applies, because
     // that is appearance, not meaning.
@@ -723,9 +721,8 @@ private fun MarbleBottomTabBar(
     val size = parseDockSize(s.dockSize)
     // MARBLE_FLOATING_DOCK_V258 — the attached presentation is retired, and the icon/caption
     // switches left Settings with it. The dock draws glyphs always, and its captions follow the
-    // rung (`DockStudio.showsCaptionsAlways`): one decision instead of three that could disagree.
-    val showIcons = true
-    val showLabels = com.marbleng.app.model.DockStudio.showsCaptionsAlways(size)
+    // rung (`DockStudio.showsCaptionsAlways`), decided inside the capsule: one decision instead of
+    // three that could disagree.
     val ipLabel = trx(dockSlotDefaultCaption(DockSlotKind.IP, ""))
     val ipGlyph = MarbleGlyph.GLOBE
     val slotColor = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
@@ -842,8 +839,6 @@ private fun MarbleBottomTabBar(
         onSelect = { index -> tabs.getOrNull(index)?.let(onSelect) },
         modifier = modifier,
         size = size,
-        showIcons = showIcons,
-        showLabels = showLabels,
         bottomGap = com.marbleng.app.model.DockStudio.bottomGapDp(s.dockBottomGapDp).dp,
         leading = island,
         center = trigger,

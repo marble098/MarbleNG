@@ -907,19 +907,16 @@ fun AppSettings.pingWorkers(cores: Int, memoryMb: Long, method: ProbeMethod = pr
 fun AppSettings.pingSampleSpacingMs(): Long =
     (PingBudget.SAMPLE_SPACING_MS / pingSpeedFactor()).roundToLong().coerceIn(20L, 300L)
 
-enum class DockPresentation(val id: String) {
-    ATTACHED("attached"),
-    FLOATING("floating")
-}
-
-fun parseDockPresentation(raw: String): DockPresentation {
-    val encoded = raw.substringAfter('|', DockPresentation.ATTACHED.id).trim()
-    return DockPresentation.entries.firstOrNull { it.id.equals(encoded, ignoreCase = true) }
-        ?: DockPresentation.ATTACHED
-}
-
-fun encodeDockPreference(size: DockSize, presentation: DockPresentation): String =
-    "${size.id}|${presentation.id}"
+/**
+ * MARBLE_FLOATING_DOCK_V258 — the dock has one presentation, so it is no longer a preference.
+ *
+ * V232 stored `<size>|<presentation>` and let the dock editor flip that second word between
+ * attached and floating. The attached bar is gone, and with it the setting: the preference is now
+ * the rung alone. A string written by an older build still parses, because [parseDockSize] takes
+ * everything before the separator and ignores the rest — the size survives, the retired word does
+ * not.
+ */
+fun encodeDockPreference(size: DockSize): String = size.id
 
 enum class DockSize(val id: String) {
     SMALL("small"),
@@ -1036,11 +1033,6 @@ fun <T> dockSlotIndex(slots: List<T>, remembered: T): Int {
     if (slots.isEmpty()) return 0
     return slots.indexOf(remembered).coerceIn(0, slots.lastIndex)
 }
-
-fun dockShowsIcons(showIcons: Boolean, showLabels: Boolean): Boolean = showIcons || !showLabels
-
-@Suppress("UNUSED_PARAMETER")
-fun dockShowsLabels(showIcons: Boolean, showLabels: Boolean): Boolean = showLabels
 
 object ModularLayout {
     const val STATUS = "STATUS"
@@ -1636,8 +1628,6 @@ data class AppSettings(
 
     // MARBLE_DOCK_ICON_FIRST_V255 — the compact bottom navigation defaults to the visual-first
     // Android pattern: icons on, captions off. The preferences page still lets users enable labels.
-    val dockShowLabels: Boolean = false,
-    val dockShowIcons: Boolean = true,
     val dockSize: String = DockSize.MEDIUM.id,
     /**
      * MARBLE_FLOATING_DOCK_V258 — how far the floating capsule sits above the bottom edge.

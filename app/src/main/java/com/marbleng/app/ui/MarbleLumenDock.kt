@@ -109,8 +109,6 @@ internal fun MarbleLumenDock(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
     size: DockSize = DockSize.MEDIUM,
-    showIcons: Boolean = true,
-    showLabels: Boolean = false,
     /**
      * MARBLE_FLOATING_DOCK_V258 — the air under the capsule, in dp, chosen by the user. It is a
      * parameter rather than a constant because it is a *setting*: the dock floats, and how far
@@ -230,7 +228,12 @@ internal fun MarbleLumenDock(
                         ) { trigger() }
                     }
                 }
-                val opening = index == selection && (labelOpen || showLabels)
+                // MARBLE_FLOATING_DOCK_V258 — the rung decides the caption. V256's two switches
+                // let an icon-only dock sit next to a labelled one at the same size; the ladder
+                // answers that question now, so the biggest capsule keeps its word and the other
+                // two stay icon-led.
+                val opening = index == selection &&
+                    (labelOpen || DockStudio.showsCaptionsAlways(size))
                 // The opening slot takes more of the row than its neighbours, and that ratio is a
                 // spring-animated Float: a `weight` that moves *is* a capsule that grows, with no
                 // second animation object to keep in step with it.

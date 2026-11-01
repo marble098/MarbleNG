@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.model.AppFont
 import com.marbleng.app.model.AppLanguage
-import com.marbleng.app.model.DockPresentation
 import com.marbleng.app.model.ConnectionWidgetStyle
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.DockStudio
@@ -54,12 +53,9 @@ import com.marbleng.app.model.FlatAccent
 import com.marbleng.app.model.HomeSection
 import com.marbleng.app.model.HomeStudio
 import com.marbleng.app.model.TextScale
-import com.marbleng.app.model.dockShowsIcons
-import com.marbleng.app.model.dockShowsLabels
 import com.marbleng.app.model.parseAppFont
 import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.encodeDockPreference
-import com.marbleng.app.model.parseDockPresentation
 import com.marbleng.app.model.parseDockSize
 import com.marbleng.app.model.parseDockSlotAccent
 import com.marbleng.app.model.parseFlatAccent
@@ -508,7 +504,7 @@ fun SettingsTabBarPage(
                             onSelect = { picked ->
                                 repo.updateSettings(
                                     s.copy(
-                                        dockSize = encodeDockPreference(picked, DockPresentation.FLOATING)
+                                        dockSize = encodeDockPreference(picked)
                                     )
                                 )
                             }
@@ -532,10 +528,7 @@ fun SettingsTabBarPage(
                                         .clickable(role = Role.Button) {
                                             repo.updateSettings(
                                                 s.copy(
-                                                    dockSize = encodeDockPreference(
-                                                        rung,
-                                                        DockPresentation.FLOATING
-                                                    )
+                                                    dockSize = encodeDockPreference(rung)
                                                 )
                                             )
                                         }
@@ -594,7 +587,7 @@ fun SettingsTabBarPage(
                         // Live preview: the capsule at the chosen rung, floating at the chosen gap,
                         // so the slider is a measurement the reader can see instead of a number.
                         DockFloatPreview(
-                            widthDp = DockStudio.HORIZONTAL_MARGIN_DP,
+                            insetDp = DockStudio.HORIZONTAL_MARGIN_DP,
                             heightDp = DockStudio.heightDp(dockSize),
                             gapDp = gap,
                             glyph = MarbleGlyph.DOCK,
@@ -720,7 +713,7 @@ fun SettingsTabBarPage(
  */
 @Composable
 private fun DockFloatPreview(
-    widthDp: Int,
+    insetDp: Int,
     heightDp: Int,
     gapDp: Int,
     glyph: MarbleGlyph,
@@ -742,7 +735,7 @@ private fun DockFloatPreview(
                     )
                 )
             )
-            .padding(horizontal = widthDp.dp)
+            .padding(horizontal = insetDp.dp)
             .testTag("dock-gap-preview"),
         contentAlignment = Alignment.BottomCenter
     ) {

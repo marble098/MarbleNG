@@ -346,7 +346,7 @@ files = {
     "dockModel": read("app/src/main/java/com/marbleng/app/model/Models.kt"),
     "dockStore": read("app/src/main/java/com/marbleng/app/data/AppStore.kt"),
     "dockSettings": read("app/src/main/java/com/marbleng/app/ui/SettingsAppearancePages.kt"),
-    "dockTest": read("app/src/test/java/com/marbleng/app/model/DockPresentationV232Test.kt"),
+    "dockTest": read("app/src/test/java/com/marbleng/app/model/DockRetirementV258Test.kt"),
     "persianTest": read("app/src/test/java/com/marbleng/app/ui/PersianLocalizationV232Test.kt"),
     "dockCouncilDoc": read("docs/PERSIAN_DOCK_AND_SHADE_COUNCIL_V232.md"),
     "receiver": read("app/src/main/java/com/marbleng/app/MarblePackageReplacedReceiver.kt"),
@@ -3256,7 +3256,7 @@ check(
 )
 
 check(
-    "SettingsScreen dispatches all 20 modular iOS sub-pages",
+    "SettingsScreen dispatches every modular sub-page, About included",
     all(
         page in files["settingsScreen"]
         for page in (
@@ -3279,7 +3279,9 @@ check(
             "SettingsBackupRestorePage",
             "SettingsNotificationsPage",
             "SettingsDiagnosticsPage",
-            "SettingsAboutPage",
+            # MARBLE_ABOUT_PAGE_V258 — About is a route of its own now, and the hub's corner
+            # button opens it; what this invariant still asks is that Settings *dispatches* it.
+            "AboutScreen(",
         )
     ),
 )
@@ -3470,15 +3472,22 @@ check(
 )
 
 check(
-    "V232 the bottom dock is selectable, persisted and defaults to attached",
-    "enum class DockPresentation" in files["dockModel"]
-    and "fun encodeDockPreference(size: DockSize, presentation: DockPresentation)" in files["dockModel"]
+    "V258 the dock is one floating capsule, and the air under it is the only thing left to choose",
+    # The attached bar is deleted, not hidden: the enum, its parser and the second half of the
+    # preference string are gone, and nothing in production can name a presentation again.
+    "enum class DockPresentation" not in files["dockModel"]
+    and "parseDockPresentation" not in files["dockModel"]
+    and "fun encodeDockPreference(size: DockSize): String = size.id" in files["dockModel"]
+    and "DockPresentation" not in files["marbleApp"]
+    and "DockPresentation" not in files["dockStore"]
+    and "DockPresentation" not in files["dockSettings"]
     and "encodeDockPreference(parseDockSize(" in files["dockStore"]
-    and '"dockSize",' in files["dockStore"]
-    and "parseDockPresentation(s.dockSize)" in files["marbleApp"]
-    and "DockPresentation.FLOATING" in files["marbleApp"]
-    and "Bottom Bar Position" in files["dockSettings"]
-    and "sizeAndPresentationShareTheExistingPreferenceWithoutLoss" in files["dockTest"],
+    and '"dockSize"' in files["dockStore"]
+    # The editor lost the position row and the two switches at the same time.
+    and "Bottom Bar Position" not in files["dockSettings"]
+    and "dockShowIcons" not in files["dockSettings"]
+    and "dockShowLabels" not in files["dockSettings"]
+    and "aPreferenceWrittenBeforeV258KeepsItsSizeAndLosesItsRetiredWord" in files["dockTest"],
 )
 
 check(
@@ -3501,7 +3510,9 @@ check(
 check(
     "V232 the five-role review, Persian copy and regression tests are documented",
     "class PersianLocalizationV232Test" in files["persianTest"]
-    and "class DockPresentationV232Test" in files["dockTest"]
+    # MARBLE_FLOATING_DOCK_V258 renamed this file: it now pins the *retirement* of the
+    # presentation preference, not the preference.
+    and "class DockRetirementV258Test" in files["dockTest"]
     and "| نرگس |" in files["dockCouncilDoc"]
     and "رأی: **۵ از ۵**" in files["dockCouncilDoc"]
     and "PERSIAN_DOCK_AND_SHADE_COUNCIL_V232.md" in files["readme"],
@@ -5022,7 +5033,7 @@ v249_home_studio = read("app/src/main/java/com/marbleng/app/model/HomeStudio.kt"
 v249_home_test = read("app/src/test/java/com/marbleng/app/model/HomeStudioV249Test.kt")
 
 check(
-    "V249 Home is a layout the user owns and the legacy switches are a floor under it",
+    "V249 Home has one designed order and the legacy switches are a floor under it",
     "enum class HomeSection" in v249_home_studio
     and "MARBLE_HOME_STUDIO_V249" in v249_home_studio
     and "fun order(raw: String): List<HomeSection>" in v249_home_studio
@@ -5042,8 +5053,12 @@ check(
     and "s.homeLayout.sectionOrder" in files["store"]
     and "legacyStatsVisible = settings.modularShowStats" in files["homeScreen"]
     and "homeSections.forEach { section ->" in files["homeScreen"]
-    and 'item(key = "home-sections-studio")' in files["settingsAppearance"]
-    and "HomeStudio.canMove(" in files["settingsAppearance"]
+    # MARBLE_FLOATING_DOCK_V258 — the studio left Settings. Home has one designed order, and no
+    # page reorders, hides or deletes its blocks any more, so the two symbols that made the page a
+    # Home editor must not come back into it. The model stays: it is still what reads the stored
+    # records and what keeps the two legacy switches a floor.
+    and "home-sections-studio" not in files["settingsAppearance"]
+    and "HomeStudio.canMove(" not in files["settingsAppearance"]
     and "class HomeStudioV249Test" in v249_home_test
     and "fun `the two legacy switches are a floor, not a record the studio replaces`()"
     in v249_home_test
@@ -5200,7 +5215,9 @@ check(
             ("SettingsAppearancePages.kt", 4),
             ("SettingsConnectionPages.kt", 4),
             ("SettingsRoutingPages.kt", 4),
-            ("SettingsSystemPages.kt", 5),
+            # MARBLE_ABOUT_PAGE_V258 — About moved out of SettingsSystemPages into AboutScreen,
+            # which draws a full-screen product page rather than a settings sub-page.
+            ("SettingsSystemPages.kt", 4),
             ("SettingsTestingPages.kt", 3),
             ("SettingsJitterPages.kt", 1),
             ("SettingsNetworkCouncilPages.kt", 1),
@@ -5329,15 +5346,29 @@ check(
     # explain why it is *not* used next to `navigationBars`.
     and ".safeDrawingPadding()" not in v256_dock
     and "DockStudio.BOTTOM_MARGIN_DP" in v256_dock
-    and "const val BOTTOM_MARGIN_DP: Int = 16" in v256_studio,
+    # MARBLE_FLOATING_DOCK_V258 — the 16dp constant became the default of an adjustable gap, so
+    # the invariant now pins the setting: a floor, a ceiling, and the clamp that owns both.
+    and "const val BOTTOM_MARGIN_DP: Int = DEFAULT_BOTTOM_GAP_DP" in v256_studio
+    and "const val DEFAULT_BOTTOM_GAP_DP: Int = 22" in v256_studio
+    and "const val MIN_BOTTOM_GAP_DP: Int = 8" in v256_studio
+    and "const val MAX_BOTTOM_GAP_DP: Int = 44" in v256_studio
+    and "fun bottomGapDp(gapDp: Int): Int = gapDp.coerceIn(MIN_BOTTOM_GAP_DP, MAX_BOTTOM_GAP_DP)"
+    in v256_studio,
 )
 
 check(
-    "V256 the ladder is 48/56/64 and every rung fits the clearance the screens reserve",
+    "V258 the ladder is 56/68/82 and every rung fits the clearance the screens reserve",
     "const val EXPANDED_HOLD_MS: Long = 2_000L" in v256_studio
-    and "DockSize.SMALL -> 48" in v256_studio
-    and "DockSize.MEDIUM -> 56" in v256_studio
-    and "DockSize.LARGE -> 64" in v256_studio
+    # MARBLE_FLOATING_DOCK_V258 — eight dp between rungs was inside the noise of a screenshot, so
+    # the ladder was rebuilt with a glyph, a padding and a caption that grow with it.
+    and "DockSize.SMALL -> 56" in v256_studio
+    and "DockSize.MEDIUM -> 68" in v256_studio
+    and "DockSize.LARGE -> 82" in v256_studio
+    and "DockSize.SMALL -> 20" in v256_studio
+    and "DockSize.MEDIUM -> 24" in v256_studio
+    and "DockSize.LARGE -> 28" in v256_studio
+    and "fun showsCaptionsAlways(size: DockSize): Boolean = size == DockSize.LARGE" in v256_studio
+    and "fun clearanceDp(size: DockSize, gapDp: Int = DEFAULT_BOTTOM_GAP_DP): Int" in v256_studio
     and "fun fitsClearance(" in v256_studio
     and "fun ladderFits(" in v256_studio
     and "DampingRatioMediumBouncy" in v256_studio
@@ -5350,6 +5381,7 @@ check(
     and "Spring.StiffnessMediumLow" in v256_dock
     and "class DockStudioV256Test" in v256_model_test
     and "fun everyRungFitsTheClearanceTheScreensActuallyReserve()" in v256_model_test
+    and "fun theClearanceEveryPageReservesGrowsWithTheChosenGap()" in v256_model_test
     and "fun theCaptionOpensWithTheSelectionAndClosesOnItsOwnTimer()" in v256_ui_test,
 )
 
@@ -5373,7 +5405,7 @@ check(
 )
 
 check(
-    "V256 Home Settings owns four widget switches and the style, and Home honours them",
+    "V258 Home honours its widgets, and no Settings page switches them off",
     "enum class HomeWidget" in v256_studio
     and "object HomeWidgets" in v256_studio
     and "val showRouteCard: Boolean = true" in files["models"]
@@ -5381,8 +5413,11 @@ check(
     and "val connectionStyle: String = ConnectionWidgetStyle.DEFAULT.id" in files["models"]
     and 'prefs.getBoolean("homeShowRouteCard", true)' in files["store"]
     and 'putString("homeConnectionStyle"' in files["store"]
-    and 'title = trx("Home Settings")' in files["settingsAppearance"]
-    and "HomeWidget.entries.forEachIndexed" in files["settingsAppearance"]
+    # MARBLE_FLOATING_DOCK_V258 — the four switches were removed from Settings: Home draws the
+    # blocks it was designed with, and the stored record stays only so an old install keeps
+    # reading its own defaults.
+    and "HomeWidget.entries.forEachIndexed" not in files["settingsAppearance"]
+    and "Home Settings" not in files["settingsAppearance"]
     and "widgets.showRouteCard || widgets.showIpBox" in v256_home
     and "visible = widgets.showPresets" in v256_home
     and "visible = widgets.showSpeedGraph" in v256_home

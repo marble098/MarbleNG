@@ -143,11 +143,11 @@ class PaletteStudioV258Test {
             DockStudio.MAX_BOTTOM_GAP_DP,
             AppSettings(dockBottomGapDp = 5_000).dockBottomGapDp.let(DockStudio::bottomGapDp)
         )
-        // The attached presentation is gone: every stored value reads back as floating.
+        // The attached presentation is gone: the preference is the rung, and a legacy
+        // `<size>|attached` reads back as its rung alone.
         DockSize.entries.forEach { size ->
-            val encoded = encodeDockPreference(size, DockPresentation.FLOATING)
-            assertEquals(size, parseDockSize(encoded))
-            assertEquals(DockPresentation.FLOATING, parseDockPresentation(encoded))
+            assertEquals(size, parseDockSize(encodeDockPreference(size)))
+            assertEquals(size, parseDockSize("${size.id}|attached"))
         }
     }
 }

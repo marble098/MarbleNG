@@ -13,10 +13,16 @@ class PersianLocalizationV232Test {
     }
 
     @Test
-    fun bottomBarChoicesHaveNaturalPersianLabels() {
-        assertEquals("جای نوار پایین", faTranslate("Bottom Bar Position"))
-        assertEquals("چسبیده به پایین", faTranslate("Attached to bottom"))
-        assertEquals("شناور بالای نوار پایین گوشی", faTranslate("Floating above bottom"))
+    fun theFloatingDockHasNaturalPersianLabels() {
+        // MARBLE_FLOATING_DOCK_V258 — V232's two presentation choices are gone, so the test that
+        // pinned their words now pins the words that replaced them: the three rungs, the gap and
+        // the palette the whole app is repainted with.
+        assertEquals("اندازهٔ کپسول", faTranslate("Capsule size"))
+        assertEquals("فاصله از پایین", faTranslate("Distance from the bottom"))
+        assertEquals("باریک", faTranslate("Slim"))
+        assertEquals("بزرگ", faTranslate("Grand"))
+        assertEquals("ماربل کلاسیک", faTranslate("Marble Classic"))
+        assertEquals("شفق", faTranslate("Aurora"))
         assertEquals(
             "نوار پایین برنامه را مطابق سلیقه‌تان بچینید و اندازه‌اش را انتخاب کنید.",
             faTranslate("The bottom bar of the app: what it shows and how much room it takes.")
@@ -25,6 +31,6 @@ class PersianLocalizationV232Test {
 
     @Test
     fun callerWhitespaceIsPreservedAroundARealTranslation() {
-        assertEquals("  چسبیده به پایین  ", faTranslate("  Attached to bottom  "))
+        assertEquals("  فاصله از پایین  ", faTranslate("  Distance from the bottom  "))
     }
 }
