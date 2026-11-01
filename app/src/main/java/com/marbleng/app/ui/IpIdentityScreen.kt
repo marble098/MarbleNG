@@ -37,6 +37,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -596,16 +600,14 @@ private fun IpInternetCard(
             badge = exit?.countryCode?.takeIf { it.isNotBlank() }?.uppercase().orEmpty(),
             badgeColor = colors.success
         )
-        MarbleCard {
-            rows.forEachIndexed { index, (label, value, visual) ->
-                if (index > 0) MarbleDivider(insetStart = 50.dp)
-                IpFactRow(
-                    label = label,
-                    value = value,
-                    glyph = visual.glyph,
-                    tint = visual.tint,
-                    onCopy = onCopy
-                )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            rows.chunked(2).forEach { pair ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    pair.forEach { (label, value, _) ->
+                        IpFactRow(label, value, onCopy, Modifier.weight(1f))
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
             }
         }
     }
@@ -618,43 +620,49 @@ private data class IpFactVisual(val glyph: MarbleGlyph, val tint: Color)
 private fun IpFactRow(
     label: String,
     value: String,
-    glyph: MarbleGlyph,
-    tint: Color,
-    onCopy: (String) -> Unit
+    onCopy: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
     val haptics = LocalHapticFeedback.current
+    var copied by remember(value) { mutableStateOf(false) }
+    var copyGeneration by remember(value) { mutableStateOf(0) }
+    LaunchedEffect(copyGeneration) {
+        if (copyGeneration > 0) { delay(1500); copied = false }
+    }
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(colors.surfaceContainerLow)
             .clickable(role = Role.Button) {
                 haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                 onCopy(value)
+                copied = true
+                copyGeneration++
             }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        MarbleRowIcon(glyph = glyph, tint = tint, size = 36.dp, glyphSize = 18.dp)
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = label,
                 color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.bodySmall,
                 maxLines = 1
             )
             Text(
                 text = value,
                 color = colors.onSurface,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
         MarbleGlyphIcon(
-            glyph = MarbleGlyph.COPY,
-            color = colors.onSurfaceVariant.copy(alpha = 0.55f),
-            modifier = Modifier.size(15.dp)
+            glyph = if (copied) MarbleGlyph.CHECK else MarbleGlyph.COPY,
+            color = if (copied) colors.primary else colors.onSurfaceVariant,
+            modifier = Modifier.size(18.dp)
         )
     }
 }

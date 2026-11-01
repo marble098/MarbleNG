@@ -142,8 +142,8 @@ internal data class ServerGroupBucket(
  * 2. the live route as a single strip (flag, name, live ping, one stop target) while a tunnel is
  *    up or connecting — never a full-width Disconnect competing with Home;
  * 3. one search line, with a sort menu and the filter sheet one tap apart;
- * 4. the **sources rail**: every subscription as a card with its plan, its node count and its
- *    measured flag cluster, one tap to switch, one sheet to manage;
+ * 4. a compact source-management button beside search, preserving source selection without
+ *    placing a large rail above the server list;
  * 5. quiet section labels (flag, name, count, one overflow) only when the page really has more
  *    than one section, and only when a section is not folded;
  * 6. compact rows that wear their **measured flag** (or the protocol monogram before the sweep
@@ -177,7 +177,6 @@ fun ServersScreen(
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var filterSheetOpen by remember { mutableStateOf(false) }
-    var actionTarget by remember { mutableStateOf<ProxyProfile?>(null) }
     var renameTarget by remember { mutableStateOf<ProxyProfile?>(null) }
     var renameDraft by remember { mutableStateOf("") }
     var moveTarget by remember { mutableStateOf<ProxyProfile?>(null) }
@@ -447,12 +446,11 @@ fun ServersScreen(
                         // between them. Sorting stays where it was complete (the sheet, section
                         // "Sort Order"); the vacancy is a measurement instead: one tap ranks the
                         // library and connects to the route that wins.
-                        MarbleButton(
-                            label = if (repo.probeActive) trx("Stop") else trx("Fastest"),
+                        MarbleIconButton(
                             glyph = if (repo.probeActive) MarbleGlyph.STOP else MarbleGlyph.SPARK,
-                            style = MarbleButtonStyle.TINTED,
-                            compact = true,
-                            enabled = !repo.busy,
+                            tint = colors.primary,
+                            contentDescription = if (repo.probeActive) trx("Stop") else trx("Fastest"),
+                            enabled = !repo.busy || repo.probeActive || repo.probeCancelling,
                             onClick = {
                                 if (repo.probeActive || repo.probeCancelling) {
                                     repo.cancelProbes()
@@ -460,6 +458,12 @@ fun ServersScreen(
                                     repo.smart { best -> onConnect(best) }
                                 }
                             }
+                        )
+                        MarbleIconButton(
+                            glyph = MarbleGlyph.FOLDER,
+                            tint = colors.onSurfaceVariant,
+                            contentDescription = trx("Manage sources"),
+                            onClick = { librarySheetOpen = true }
                         )
                         MarbleIconButton(
                             glyph = MarbleGlyph.FILTER,
@@ -498,20 +502,6 @@ fun ServersScreen(
                                 }
                             )
                         }
-                    }
-                }
-
-                // V244 — the sources rail. One tap chooses a library; the sheet behind the ⋯
-                // manages it. This replaces the chip strip that used to hide behind a filter
-                // sheet three taps away from the question "which subscription am I looking at?".
-                if (allProfiles.isNotEmpty()) {
-                    item(key = "servers-sources") {
-                        ServersLibraryRail(
-                            cards = sourceCards,
-                            selectedId = repo.librarySourceFilter,
-                            onSelect = { id -> repo.selectLibrarySource(id) },
-                            onManage = { librarySheetOpen = true }
-                        )
                     }
                 }
 
@@ -690,7 +680,17 @@ fun ServersScreen(
                                     selectionMode = selection.isNotEmpty(),
                                     checked = profile.id in selection,
                                     onClick = { selectOrConnect(profile) },
-                                    onMore = { actionTarget = profile },
+                                    onMore = {},
+                                    actionMenu = { expanded, dismiss ->
+                                        ServerQuickActionsMenu(
+                                            repo = repo, profile = profile, expanded = expanded, onDismiss = dismiss,
+                                            onInspect = { dismiss(); onOpenDetail(profile) },
+                                            onShareQr = { dismiss(); qrShareTarget = profile },
+                                            onRename = { dismiss(); renameDraft = cleanServerName(profile.name); renameTarget = profile },
+                                            onMove = { dismiss(); moveTarget = profile },
+                                            onDelete = { dismiss(); deleteTarget = profile }
+                                        )
+                                    },
                                     onLongPress = {
                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                         selection = ServersSelection.toggle(selection, profile.id)
@@ -787,39 +787,6 @@ fun ServersScreen(
                 onOpenAddSheet()
             },
             onDismiss = { librarySheetOpen = false }
-        )
-    }
-
-    actionTarget?.let { profile ->
-        ServerQuickActionsSheet(
-            repo = repo,
-            profile = profile,
-            onConnect = {
-                actionTarget = null
-                onConnect(profile)
-            },
-            onInspect = {
-                actionTarget = null
-                onOpenDetail(profile)
-            },
-            onShareQr = {
-                actionTarget = null
-                qrShareTarget = profile
-            },
-            onRename = {
-                actionTarget = null
-                renameDraft = cleanServerName(profile.name)
-                renameTarget = profile
-            },
-            onMove = {
-                actionTarget = null
-                moveTarget = profile
-            },
-            onDelete = {
-                actionTarget = null
-                deleteTarget = profile
-            },
-            onDismiss = { actionTarget = null }
         )
     }
 
@@ -1834,6 +1801,7 @@ private fun ServerRowItem(
     checked: Boolean,
     onClick: () -> Unit,
     onMore: () -> Unit,
+    actionMenu: @Composable (Boolean, () -> Unit) -> Unit,
     onLongPress: () -> Unit,
     onSwipeDelete: () -> Unit
 ) {
@@ -1913,6 +1881,7 @@ private fun ServerRowItem(
                 probeState = probeState,
                 onClick = onClick,
                 onMore = onMore,
+                actionMenu = actionMenu,
                 selectionMode = selectionMode,
                 checked = checked,
                 onLongPress = onLongPress
@@ -1949,6 +1918,7 @@ internal fun ServerRowContent(
     probeState: ProbeState,
     onClick: () -> Unit,
     onMore: () -> Unit,
+    actionMenu: (@Composable (Boolean, () -> Unit) -> Unit)? = null,
     selectionMode: Boolean = false,
     checked: Boolean = false,
     onLongPress: (() -> Unit)? = null
@@ -2088,15 +2058,17 @@ internal fun ServerRowContent(
                 .testTag("server-row-ping-${profile.id}")
         )
 
-        MarbleIconButton(
-            glyph = MarbleGlyph.MORE,
-            onClick = onMore,
-            tint = colors.onSurfaceVariant,
-            contentDescription = "${trx("Server actions")}: $title",
-            modifier = Modifier
-                .size(48.dp)
-                .testTag("server-row-more-${profile.id}")
-        )
+        var menuOpen by remember { mutableStateOf(false) }
+        Box {
+            MarbleIconButton(
+                glyph = MarbleGlyph.MORE,
+                onClick = { if (actionMenu == null) onMore() else menuOpen = true },
+                tint = colors.onSurfaceVariant,
+                contentDescription = "${trx("Server actions")}: $title",
+                modifier = Modifier.size(48.dp).testTag("server-row-more-${profile.id}")
+            )
+            actionMenu?.invoke(menuOpen) { menuOpen = false }
+        }
     }
 }
 
@@ -2371,108 +2343,37 @@ private fun ServersFilterSheet(
 }
 
 @Composable
-private fun ServerQuickActionsSheet(
+private fun ServerQuickActionsMenu(
     repo: AppRepository,
     profile: ProxyProfile,
-    onConnect: () -> Unit,
+    expanded: Boolean,
+    onDismiss: () -> Unit,
     onInspect: () -> Unit,
     onShareQr: () -> Unit,
     onRename: () -> Unit,
     onMove: () -> Unit,
-    onDelete: () -> Unit,
-    onDismiss: () -> Unit
+    onDelete: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val clipboard = LocalClipboardManager.current
-
-    MarbleBottomSheet(
-        title = cleanServerName(profile.name),
-        subtitle = "${protocolShortLabel(profile)} · " +
-            "\u2068${profile.host}\u2069:${profile.port}",
-        onDismiss = onDismiss,
-        scrollable = true
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        containerColor = colors.surfaceContainerHigh,
+        tonalElevation = 6.dp
     ) {
-        MarbleCard {
-            MarbleListItem(
-                title = Tr.now.connect,
-                subtitle = trx("Connect immediately through this server"),
-                glyph = MarbleGlyph.POWER,
-                iconTint = colors.success,
-                onClick = onConnect
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Test Route Latency"),
-                subtitle = trx("Run a full tunnel & delay test on this server"),
-                glyph = MarbleGlyph.GAUGE,
-                iconTint = colors.primary,
-                onClick = {
-                    onDismiss()
-                    repo.fullTest(profile)
-                }
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Server Details & JSON"),
-                subtitle = trx("Inspect security, IPv4/IPv6 reachability and outbound JSON"),
-                glyph = MarbleGlyph.TUNERS,
-                iconTint = colors.secondary,
-                onClick = onInspect
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Share QR Code"),
-                subtitle = trx("Display scannable QR code or copy link"),
-                glyph = MarbleGlyph.QR,
-                iconTint = colors.secondary,
-                onClick = onShareQr
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Copy Share Link / Config"),
-                subtitle = trx("Copy URI or outbound JSON to clipboard"),
-                glyph = MarbleGlyph.COPY,
-                iconTint = colors.tertiary,
-                onClick = {
-                    val payload = profile.raw.ifBlank { profile.configJson }
-                    clipboard.setText(AnnotatedString(payload))
-                    repo.setRuntimeMessage("Config copied")
-                    onDismiss()
-                }
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Rename"),
-                glyph = MarbleGlyph.PENCIL,
-                iconTint = colors.warning,
-                onClick = onRename
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Duplicate"),
-                glyph = MarbleGlyph.LAYERS,
-                iconTint = colors.tertiary,
-                onClick = {
-                    repo.duplicateProfile(profile.id, profile.subscriptionId)
-                    onDismiss()
-                }
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Move to Group"),
-                glyph = MarbleGlyph.FOLDER,
-                iconTint = colors.primary,
-                onClick = onMove
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Delete Server"),
-                titleColor = colors.error,
-                glyph = MarbleGlyph.TRASH,
-                iconTint = colors.error,
-                onClick = onDelete
-            )
-        }
+        DropdownMenuItem(text = { Text(trx("Edit")) }, onClick = onInspect, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp))
+        DropdownMenuItem(text = { Text(trx("Ping")) }, onClick = { onDismiss(); repo.fullTest(profile) }, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp))
+        DropdownMenuItem(text = { Text(trx("Copy Link")) }, onClick = {
+            clipboard.setText(AnnotatedString(profile.raw.ifBlank { profile.configJson }))
+            repo.setRuntimeMessage("Config copied")
+            onDismiss()
+        }, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp))
+        DropdownMenuItem(text = { Text(trx("Export QR Code")) }, onClick = onShareQr, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp))
+        DropdownMenuItem(text = { Text(trx("Rename")) }, onClick = onRename, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp))
+        DropdownMenuItem(text = { Text(trx("Move to Group")) }, onClick = onMove, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp))
+        DropdownMenuItem(text = { Text(trx("Delete"), color = colors.error) }, onClick = onDelete, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp))
     }
 }
 

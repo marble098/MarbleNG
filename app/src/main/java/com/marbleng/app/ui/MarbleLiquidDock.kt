@@ -83,7 +83,7 @@ internal fun MarbleLiquidDock(
         modifier = modifier,
         barHeight = LiquidGlassLensSpec.barHeightDp(size).dp,
         horizontalMargin = if (floating) LiquidGlassLensSpec.HORIZONTAL_MARGIN_DP.dp else 0.dp,
-        bottomMargin = if (floating) LiquidGlassLensSpec.BOTTOM_MARGIN_DP.dp else 0.dp,
+        bottomMargin = if (floating) 16.dp else 0.dp,
         showIcons = showIcons,
         showLabels = showLabels,
         badgeLabel = { count -> faDigits(LiquidDockSpec.badgeLabel(count)) },

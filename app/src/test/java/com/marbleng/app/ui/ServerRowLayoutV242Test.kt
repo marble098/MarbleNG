@@ -3,11 +3,17 @@ package com.marbleng.app.ui
 import android.app.Application
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -82,6 +88,30 @@ class ServerRowLayoutV242Test {
             }
         }
         compose.waitForIdle()
+    }
+
+    @Test
+    fun overflowOpensAndDismissesTheRowAnchoredActionSlot() {
+        compose.setContent {
+            ProvideMarbleLanguage("en") {
+                MarbleExpressiveTheme(themeId = "light", dynamicColor = false) {
+                    Box(Modifier.width(320.dp)) {
+                        ServerRowContent(
+                            profile = profile, countryCode = "DE", active = false,
+                            selected = false, result = null, probeState = ProbeState.IDLE,
+                            onClick = {}, onMore = {},
+                            actionMenu = { expanded, dismiss ->
+                                if (expanded) Text("Close actions", Modifier.clickable { dismiss() })
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("Close actions").assertDoesNotExist()
+        compose.onNodeWithTag("server-row-more-row-1", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("Close actions", useUnmergedTree = true).assertExists().performClick()
+        compose.onNodeWithText("Close actions").assertDoesNotExist()
     }
 
     @Test
