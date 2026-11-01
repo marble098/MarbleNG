@@ -258,8 +258,8 @@ class DockStudioCenterMorphV259Test {
             "Sections on Home",
             "A quiet Home",
             "Only what you need is here. Add the rest whenever you want it.",
-            "Show everything",
-            "Choose sections",
+            // MARBLE_HOME_DECLUTTER_V260 — the quiet card's two verbs ("Show everything" and the
+            // section picker) left with the card itself, so they are no longer keys to translate.
             "Home starts quiet: the heading, the connect control and the route it will use.",
             "The order is designed, not dragged: the heading, the decision, the modes, " +
                 "the route, the live speed and the shortcuts.",
