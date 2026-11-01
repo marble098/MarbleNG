@@ -44,6 +44,18 @@ jobs:
           set -euo pipefail
           ./scripts/test-core-lock-rule.sh
 
+      # MARBLE_ROUTING_ASSET_PIN_V257 — the release build's "Bundle verified Iran routing assets"
+      # step died on 2026-11-01 with a bare exit 1: it read a force-pushed branch twice, so it could
+      # straddle a publish and compare one snapshot's binary against the next snapshot's digest. The
+      # fetcher is now commit-pinned and retried; these fixtures prove it offline — a clean snapshot
+      # installs, a torn one is retried and replaced, an unverifiable one installs nothing and says
+      # why.
+      - name: Routing asset pin fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/test-routing-asset-pin.sh
+
       # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — what the newest published version of every
       # component this build is made of actually is, printed on every source verification. The
       # resolver is the same file the scheduled updater writes `gradle/toolchain.properties`

@@ -64,11 +64,22 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
   relaxes it, and carries the connection control wherever the reader wants it: a status island (with
   inline ping and a silent `12/79 pinging…` counter) plus a power button on its right edge, one
   morphing spring button in its centre, or the flattened hero card still on Home.
+- **Routing data pinned to a commit, not to a branch** — the release build's verified-asset step now
+  resolves `Iran-v2ray-rules` once and fetches `geoip.dat`, `geosite.dat` and both digests from that
+  one commit, retrying the whole snapshot instead of the torn request, so an upstream publish that
+  lands mid-fetch can no longer fail a release (and a reader is told which digest disagreed if the
+  source itself is inconsistent).
 - **Material 3 Expressive Home and seven-hub Settings** — twenty-three scattered Settings tiles are consolidated into seven cohesive broader Bento hubs (`Appearance & interface`, `Connection & core`, `Routing & bypass`, `Ping & smart auto`, `DNS & privacy`, `Subscriptions & backup`, `System & diagnostics`) with an inline morphing sub-topic switcher (`SettingsUmbrellaTopicBar`) and full-depth search, while Home replaces every non-Expressive border, circle halo and spreadsheet grid line with official `MaterialShapes` polygons, `Morph` transitions, asymmetric Bento telemetry and Google's Expressive `LoadingIndicator`.
 
 ## The expressive shell: one control, one decision
 
-`docs/LUMEN_DOCK_AND_INTAKE_GRID_V256.md` is the newest chapter: the navigation dock inset before it
+`docs/ROUTING_ASSET_PIN_V257.md` is the newest chapter: why the release build went red on
+2026-11-01 with a bare `exit 1` at "Bundle verified Iran routing assets" — the step read a
+force-pushed branch twice, so a publish landing between two requests could compare one snapshot's
+`geoip.dat` against the next snapshot's `.sha256sum` — and the fix: resolve the branch to one commit,
+fetch every file by that commit, retry the whole snapshot if it does not verify, install nothing
+until it does, and print the expected/actual pair when it does not.
+`docs/LUMEN_DOCK_AND_INTAKE_GRID_V256.md` is the chapter before it: the navigation dock inset before it
 is measured (so it cannot clip on a gesture bar, a three-button bar or a notch), a 48/56/64dp size
 ladder with a two-second transient caption, three selectable connection shapes (island in the dock,
 one spring button in its centre, or the calm hero card on Home), Home Settings for the four blocks
