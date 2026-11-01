@@ -148,7 +148,8 @@ class LumenDockV256Test {
         }
 
         compose.onNodeWithText("12/79 pinging…").assertExists()
-        compose.onNodeWithTag("dock-island-progress").assertExists()
+        // The capsule is a single merged semantics node; the micro bar is one of its children.
+        compose.onNodeWithTag("dock-island-progress", useUnmergedTree = true).assertExists()
     }
 
     @Test

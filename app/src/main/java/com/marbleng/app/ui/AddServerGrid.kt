@@ -112,7 +112,14 @@ private fun MarbleAddServerCell(
         action.hint
     }
 
+    // The clickable overload, not a `clickable` on the inner column: a card whose only tap target is
+    // its content is a card with dead corners, and `fillMaxSize()` inside a `heightIn` card asks for
+    // the whole screen's height — two rows of that push the second row off the window.
     Card(
+        onClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        },
         modifier = modifier
             .heightIn(min = 108.dp)
             .testTag("add-server-cell-${action.id}"),
@@ -125,11 +132,7 @@ private fun MarbleAddServerCell(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .clickable(role = Role.Button) {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onClick()
-                }
+                .fillMaxWidth()
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
