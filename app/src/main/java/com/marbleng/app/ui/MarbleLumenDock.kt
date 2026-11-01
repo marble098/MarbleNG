@@ -135,11 +135,11 @@ internal fun MarbleLumenDock(
     // still app does not spring, it arrives.
     val floatSpec: FiniteAnimationSpec<Float> = spring(
         dampingRatio = if (motion.still) Spring.DampingRatioNoBouncy else Spring.DampingRatioMediumBouncy,
-        stiffness = if (motion.still) Spring.StiffnessVeryHigh else Spring.StiffnessMediumLow
+        stiffness = if (motion.still) Spring.StiffnessHigh else Spring.StiffnessMediumLow
     )
     val colorSpec: FiniteAnimationSpec<Color> = spring(
         dampingRatio = Spring.DampingRatioNoBouncy,
-        stiffness = if (motion.still) Spring.StiffnessVeryHigh else Spring.StiffnessMediumLow
+        stiffness = if (motion.still) Spring.StiffnessHigh else Spring.StiffnessMediumLow
     )
 
     val container = if (floating) {
@@ -172,7 +172,7 @@ internal fun MarbleLumenDock(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height.dp)
-                .shadow(elevation = 16.dp, shape = shape, ambientColor = colors.shadow, spotColor = colors.shadow)
+                .shadow(elevation = 16.dp, shape = shape)
                 .clip(shape)
                 .background(colors.surfaceContainerHigh.copy(alpha = 0.97f))
         )

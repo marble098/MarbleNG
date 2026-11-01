@@ -21,7 +21,6 @@ import com.marbleng.app.model.AddServerAction
 import com.marbleng.app.ui.theme.MarbleExpressiveTheme
 import com.marbleng.app.ui.theme.ProvideMarbleMotion
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -202,26 +201,22 @@ class LumenDockV256Test {
 
     @Test
     fun theClipboardPillOnlyAppearsWhenSomethingWasRecognised() {
-        compose.setContent {
-            ProvideMarbleLanguage("en") {
-                MarbleExpressiveTheme(dynamicColor = false) {
-                    MarbleClipboardNotePill(kind = IntakeKind.OTHER, onClick = {})
-                }
-            }
-        }
-        compose.onNodeWithTag("add-server-clipboard-note").assertDoesNotExist()
-
+        // One composition per test: `setContent` may be called once per rule, so the "nothing was
+        // recognised" case is a state the same tree moves through, which is also how the sheet does it.
+        var kind by mutableStateOf(IntakeKind.OTHER)
         var tapped = false
         compose.setContent {
             ProvideMarbleLanguage("en") {
                 MarbleExpressiveTheme(dynamicColor = false) {
-                    MarbleClipboardNotePill(
-                        kind = IntakeKind.SUBSCRIPTION,
-                        onClick = { tapped = true }
-                    )
+                    MarbleClipboardNotePill(kind = kind, onClick = { tapped = true })
                 }
             }
         }
+
+        compose.onNodeWithTag("add-server-clipboard-note").assertDoesNotExist()
+
+        kind = IntakeKind.SUBSCRIPTION
+        compose.waitForIdle()
         compose.onNodeWithTag("add-server-clipboard-note").assertExists()
         compose.onNodeWithTag("add-server-clipboard-note").performClick()
         assertEquals(true, tapped)
@@ -248,6 +243,5 @@ class LumenDockV256Test {
         compose.onNodeWithTag("server-action-edit").assertExists()
         compose.onNodeWithTag("server-action-delete").performClick()
         assertEquals(ServerMenuAction.DELETE, action)
-        assertNull(null)
     }
 }

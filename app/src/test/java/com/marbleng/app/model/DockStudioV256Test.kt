@@ -214,8 +214,10 @@ class DockStudioV256Test {
             IntakeKind.SUBSCRIPTION,
             IntakeClassifier.kindOf("https://example.com/sub?token=abc")
         )
+        // A mixed clipboard is not a clean source (there is no single subscription URL to offer),
+        // but it is still a share link: the importer imports the links it recognises.
         assertEquals(
-            IntakeKind.OTHER,
+            IntakeKind.SHARE_LINK,
             IntakeClassifier.kindOf("vless://uuid@host:443\nhttps://example.com/sub")
         )
         assertEquals(IntakeKind.OTHER, IntakeClassifier.kindOf("example.com:443"))
@@ -261,7 +263,7 @@ class DockStudioV256Test {
             listOf("edit", "ping", "copy_link", "export_qr", "move_to_group", "delete"),
             ServerMenuAction.order.map { it.id }
         )
-        assertEquals(ServerMenuAction.EXPORT_QR, ServerMenuAction.fromId("EXPORT_QR"))
+        assertEquals(ServerMenuAction.EXPORT_QR, ServerMenuAction.fromId("export_qr"))
         assertNull(ServerMenuAction.fromId("nope"))
     }
 

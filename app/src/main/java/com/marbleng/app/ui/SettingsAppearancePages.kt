@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -410,10 +411,14 @@ fun SettingsTabBarPage(
                         )
                     }
                 )
+                // `joinToString` is not inline, so the rungs are translated before it is asked for
+                // a string: a composable call inside its lambda would be a compile error, not a
+                // crash, but the error is in the wrong file to look for the bug.
+                val rungLabels = DockSize.entries.map { size ->
+                    "${trx(DockStudio.ladderTitle(size))} ${faDigits(DockStudio.ladderHeightLabel(size))}"
+                }
                 MarbleSectionFooter(
-                    text = "${trx("Pill height")} · " + DockSize.entries.joinToString(" · ") { size ->
-                        "${trx(DockStudio.ladderTitle(size))} ${faDigits(DockStudio.ladderHeightLabel(size))}"
-                    }
+                    text = "${trx("Pill height")} · " + rungLabels.joinToString(" · ")
                 )
                 MarbleSectionHeader(title = trx("Bottom Bar Position"))
                 MarbleSegmentedControl(

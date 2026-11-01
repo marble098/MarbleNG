@@ -5428,7 +5428,8 @@ check(
     and "fun subscriptionUrl(text: String?): String?" in v256_intake
     and "Subscription detected in clipboard: Tap to import" in v256_intake
     and "internal fun MarbleAddServerGrid(" in v256_grid
-    and "CardDefaults.filledCardColors(" in v256_grid
+    # `filledCardColors` belongs to the newest card API; this M3 line only has `cardColors`.
+    and "CardDefaults.cardColors(" in v256_grid
     and "RoundedCornerShape(16.dp)" in v256_grid
     and "MarbleAddServerGrid(" in files["serverForms"]
     and "MarbleClipboardNotePill(" in files["serverForms"]

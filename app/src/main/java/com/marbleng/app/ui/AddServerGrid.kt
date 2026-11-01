@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.AddServerAction
 import com.marbleng.app.model.IntakeKind
 import com.marbleng.app.model.IntakeClassifier
+import com.marbleng.app.ui.theme.warning
 
 /**
  * MARBLE_INTAKE_GRID_V256 — the 2×2.
@@ -116,7 +117,7 @@ private fun MarbleAddServerCell(
             .heightIn(min = 108.dp)
             .testTag("add-server-cell-${action.id}"),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.filledCardColors(
+        colors = CardDefaults.cardColors(
             containerColor = if (detected) colors.primaryContainer else colors.surfaceContainerHigh,
             contentColor = if (detected) colors.onPrimaryContainer else colors.onSurface
         ),
