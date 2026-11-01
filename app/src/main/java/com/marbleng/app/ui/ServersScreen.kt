@@ -2309,6 +2309,10 @@ private fun SubscriptionManageSheet(
     val colors = MaterialTheme.colorScheme
     val clipboard = LocalClipboardManager.current
     val failedCount = repo.failedSubscriptionNodeCount(subscription.id, "TUNNEL")
+    // Resolved in the composition: onClick is not a composable scope.
+    val copySubscriptionUrlLabel = trx("Copy subscription URL")
+    val copySubscriptionUrlSubtitle = trx("Copy the HTTPS subscription address to the clipboard")
+    val subscriptionUrlCopiedNotice = trx("Subscription URL copied")
 
     MarbleBottomSheet(
         title = subscription.name,
@@ -2346,6 +2350,20 @@ private fun SubscriptionManageSheet(
                         repo.setRuntimeMessage("Subscription links copied")
                     }
                     onDismiss()
+                }
+            )
+            MarbleDivider()
+            MarbleListItem(
+                title = copySubscriptionUrlLabel,
+                subtitle = copySubscriptionUrlSubtitle,
+                glyph = MarbleGlyph.LINK,
+                iconTint = colors.primary,
+                onClick = {
+                    val link = urlDraft.trim().takeIf { it.isNotBlank() } ?: subscription.url
+                    if (link.isNotBlank()) {
+                        clipboard.setText(AnnotatedString(link))
+                        repo.setRuntimeMessage(subscriptionUrlCopiedNotice)
+                    }
                 }
             )
             if (failedCount > 0) {

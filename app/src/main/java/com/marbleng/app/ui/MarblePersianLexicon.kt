@@ -2803,6 +2803,10 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Tap the status emblem or the big Connect half; the small half changes route" to
         "روی نشان وضعیت یا نیمه بزرگ اتصال بزن؛ نیمه کوچک مسیر را عوض میکند",
     "True-dark surfaces, kind to OLED screens" to "سطح‌های کاملاً تیره، مهربان با صفحه‌های OLED",
+
+    // MARBLE_SETTINGS_SUBSCRIPTION_V257 — copying a subscription's address from its editor.
+    "Copy the HTTPS subscription address to the clipboard" to
+        "آدرس اشتراک HTTPS رو به کلیپ‌بورد کپی کن",
 )
 
 

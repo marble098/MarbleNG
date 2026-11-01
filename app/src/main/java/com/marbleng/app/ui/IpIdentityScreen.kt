@@ -68,7 +68,6 @@ import androidx.compose.ui.unit.sp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.model.IpAddressBook
 import com.marbleng.app.model.IpTileCopy
-import com.marbleng.app.model.IpAddressEntry
 import com.marbleng.app.model.IpEgress
 import com.marbleng.app.model.IpKind
 import com.marbleng.app.model.IpScope
@@ -96,8 +95,7 @@ import com.marbleng.app.ui.theme.warning
  * 2. **the facts a leak-check site shows** — country, region, city, provider, ASN, time zone,
  *    network and resolvers, each only when it was actually measured ([browserleaks.com/ip]'s set,
  *    minus the ones a phone cannot answer);
- * 3. **this device** — the handful of local addresses worth naming, not the whole kernel table;
- * 4. **one privacy verdict** — is the real address hidden or not, and the two doors that act on it.
+ * 3. **one privacy verdict** — is the real address hidden or not, and the two doors that act on it.
  *
  * The arithmetic behind every value is still [IpAddressBook]; the sweep is still
  * `repo.refreshIpStack()`, run on arrival in every state. This file is only the drawing — and the
@@ -205,16 +203,6 @@ fun IpIdentityScreen(
 
             item(key = "ip-internet") {
                 IpInternetCard(
-                    report = report,
-                    onCopy = { literal ->
-                        clipboard.setText(AnnotatedString(literal))
-                        repo.setRuntimeMessage(copiedNotice)
-                    }
-                )
-            }
-
-            item(key = "ip-device") {
-                IpDeviceCard(
                     report = report,
                     onCopy = { literal ->
                         clipboard.setText(AnnotatedString(literal))
@@ -860,110 +848,6 @@ private fun networkLabel(report: IpStackReport): String {
         else -> ""
     }
     return if (report.metered && base.isNotBlank()) "$base · " + trx("metered") else base
-}
-
-// ---------------------------------------------------------------------------------------------
-// This device: the few local addresses worth naming.
-// ---------------------------------------------------------------------------------------------
-
-/**
- * The device half, trimmed to what a person can act on: the working IPv4 and IPv6 of the network
- * underneath, and the address the tunnel lends when one is up. Loopback, link-local, multicast
- * and the rest of the kernel's table are facts for `ip addr`, not for this page.
- */
-@Composable
-private fun IpDeviceCard(
-    report: IpStackReport,
-    onCopy: (String) -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val interesting = report.addresses
-        .filter { entry ->
-            entry.scope != IpScope.LOOPBACK &&
-                entry.scope != IpScope.UNSPECIFIED &&
-                entry.scope != IpScope.MULTICAST &&
-                entry.scope != IpScope.LINK_LOCAL &&
-                entry.scope != IpScope.DOCUMENTATION
-        }
-        .take(IpAddressBook.MAX_LISTED_ADDRESSES.coerceAtMost(4))
-
-    if (interesting.isEmpty()) return
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        MarbleSectionHeader(
-            title = trx("This device"),
-            badge = faDigits("${interesting.size}"),
-            badgeColor = colors.tertiary
-        )
-        MarbleCard {
-            interesting.forEachIndexed { index, entry ->
-                if (index > 0) MarbleDivider(insetStart = 50.dp)
-                IpDeviceRow(entry = entry, onCopy = onCopy)
-            }
-        }
-    }
-}
-
-@Composable
-private fun IpDeviceRow(
-    entry: IpAddressEntry,
-    onCopy: (String) -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val haptics = LocalHapticFeedback.current
-    val tone = when {
-        entry.scope == IpScope.PUBLIC -> colors.success
-        entry.tunnel -> colors.primary
-        entry.scope == IpScope.PRIVATE ||
-            entry.scope == IpScope.UNIQUE_LOCAL ||
-            entry.scope == IpScope.CGNAT -> colors.warning
-        else -> colors.secondary
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(role = Role.Button) {
-                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                onCopy(IpAddressBook.shorten(entry.address))
-            }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(tone.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = if (entry.kind == IpKind.IPV6) "6" else "4",
-                color = tone,
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-            )
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = IpAddressBook.shorten(entry.address),
-                color = colors.onSurface,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = entry.interfaceName.ifBlank { trx("unknown interface") } +
-                    " · " + trx(entry.scope.id.replace('_', ' ')),
-                color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (entry.tunnel) {
-            MarbleBadge(text = trx("through the tunnel"), color = colors.primary)
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------------------------
