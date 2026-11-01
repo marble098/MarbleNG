@@ -210,15 +210,20 @@ class DesignPassV260Test {
             }
         }
 
-        compose.onNodeWithTag("server-plan-plate").assertExists()
-        compose.onNodeWithTag("server-plan-bar").assertExists()
-        compose.onNodeWithTag("server-plan-expiry").assertExists()
+        // The card is one clickable, so Compose *merges* its descendants into a single node: the
+        // plate's own tags only exist in the unmerged tree. Reading them there is also the more
+        // honest assertion — it proves the plate is a separate object inside the card, not that the
+        // card happens to say the same words.
+        compose.onNodeWithTag("server-plan-plate", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("server-plan-bar", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("server-plan-expiry", useUnmergedTree = true).assertExists()
         // 14 of 50 GiB is 28 %.
         compose.onNodeWithText("28%").assertExists()
-        // The pair the bar is drawn from, in the product's units.
-        compose.onNodeWithText("14.00 GB / 50.00 GB").assertExists()
+        // The pair the bar is drawn from, in the product's units. `substring = true` because the plate
+        // prints it beside "N left" in one row, and Compose folds that row into one text node.
+        compose.onNodeWithText("14.00 GB / 50.00 GB", substring = true).assertExists()
         // The distance in words and the day itself, on one line.
-        compose.onNodeWithText("Expires · in 6 days").assertExists()
+        compose.onNodeWithText("Expires · in 6 days", substring = true).assertExists()
     }
 
     @Test
@@ -255,12 +260,12 @@ class DesignPassV260Test {
         }
 
         // A plan that simply has no quota must not draw a 0 % bar: that would be a false statement.
-        compose.onNodeWithTag("server-plan-plate").assertExists()
-        compose.onNodeWithTag("server-plan-bar").assertDoesNotExist()
-        compose.onNodeWithTag("server-plan-percent").assertDoesNotExist()
+        compose.onNodeWithTag("server-plan-plate", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("server-plan-bar", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("server-plan-percent", useUnmergedTree = true).assertDoesNotExist()
         // …and the expiry is still printed, because that is the fact it does have.
-        compose.onNodeWithTag("server-plan-expiry").assertExists()
-        compose.onNodeWithText("Expires · in 40 days").assertExists()
+        compose.onNodeWithTag("server-plan-expiry", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Expires · in 40 days", substring = true).assertExists()
     }
 
     @Test
@@ -290,7 +295,7 @@ class DesignPassV260Test {
         }
 
         compose.onNodeWithTag("server-source-all").assertExists()
-        compose.onNodeWithTag("server-plan-plate").assertDoesNotExist()
+        compose.onNodeWithTag("server-plan-plate", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test
@@ -309,7 +314,7 @@ class DesignPassV260Test {
                 }
             }
         }
-        compose.onNodeWithTag("server-source-stripe-s1").assertExists()
+        compose.onNodeWithTag("server-source-stripe-s1", useUnmergedTree = true).assertExists()
         // The wheel itself is pure and stable, which is what keeps a subscription's colour still
         // across restarts, refreshes and reorders.
         assertEquals(stripeTone("s1"), stripeTone("s1"))

@@ -189,12 +189,12 @@ fun HomeScreen(
 
     // MARBLE_HOME_DECLUTTER_V260 — the warm-up is the page's only "what am I drawing" answer.
     //
-    // V259 also drew a *quiet card* here: a 3/6 counter, "Only what you need is here", and two
-    // buttons ("Show everything", "Choose sections"). It was reported and it was right — the page
-    // that is supposed to be the calm one ended with a card explaining its own modesty, and a counter
-    // is the last thing a reader needs on a screen with three objects on it. The way back is the
-    // Settings page that already owns the switches, so the card is gone and Home no longer imports
-    // the layout model at all.
+    // V259 also drew a *quiet card* here: a 3/6 counter, a line about only what you need, and a pair
+    // of buttons that expanded the page or opened the section switches. It was reported and it was
+    // right — the page that is supposed to be the calm one ended with a card explaining its own
+    // modesty, and a counter is the last thing a reader needs on a screen with three objects on it.
+    // The way back is the Settings page that already owns the switches, so the card, its copy and
+    // its two verbs are gone, and Home no longer imports the layout model at all.
     val showWarmup = homeShowsWarmup(repo.profiles.size)
 
     // MARBLE_HOME_WIDGETS_V256 — Home Settings. `HomeStudio` owns *which sections exist*; these four

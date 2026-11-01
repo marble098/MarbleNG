@@ -3276,8 +3276,6 @@ private val FaFriendlyVoice: Map<String, String> = mapOf(
     "A quiet Home" to "یه خونهٔ آروم",
     "Only what you need is here. Add the rest whenever you want it." to
         "فقط چیزهایی که لازم داری اینجاست. بقیه‌ش رو هر وقت خواستی اضافه کن.",
-    "Show everything" to "همه‌ش رو نشون بده",
-    "Choose sections" to "انتخاب بخش‌ها",
     "Home starts quiet: the heading, the connect control and the route it will use." to
         "صفحه اصلی آروم شروع می‌شه: عنوان، دکمهٔ اتصال و مسیری که قراره استفاده کنه.",
     "The order is designed, not dragged: the heading, the decision, the modes, " +

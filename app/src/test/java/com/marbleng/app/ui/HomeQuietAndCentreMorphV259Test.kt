@@ -143,7 +143,10 @@ class HomeQuietAndCentreMorphV259Test {
             .filter { it.isFile && it.name.endsWith(".kt") }
             .joinToString("\n") { it.readText() }
         assertTrue("the quiet card must not come back", !sources.contains("MarbleQuietCard("))
+        // The two verbs went with the card: the lexicon no longer carries them, and no screen asks
+        // for a sentence it cannot draw.
         assertTrue("its two verbs must not come back", !sources.contains("Choose sections"))
+        assertTrue("its other verb must not come back", !sources.contains("Show everything"))
         // …and Home does not import the layout model at all any more: the switches live in Settings.
         val home = java.io.File("src/main/java/com/marbleng/app/ui/HomeScreen.kt").readText()
         assertTrue("Home must not draw the quiet card", !home.contains("home-quiet-card"))
