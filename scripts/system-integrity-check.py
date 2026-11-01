@@ -2026,48 +2026,18 @@ check(
 build_release = files["build"]
 
 check(
-    "release publishing is immutable, verified and collision-resilient",
-    "draft:true" in build_release
+    "release uses a manually selected immutable version",
+    "workflow_dispatch:" in build_release
+    and "version_name:" in build_release
+    and "version_code:" in build_release
+    and "bash scripts/release-version.sh" in build_release
+    and "gh api --method POST \"repos/$repo/git/refs\"" in build_release
+    and "draft:true" in build_release
     and "target_commitish:$target" in build_release
-    and "release_upload_url" in build_release
-    and "https://uploads.github.com/" in build_release
-    and "for attempt in 1 2 3 4 5 6; do" in build_release
-    and "repos/$repo/releases/assets/$existing_id" in build_release
-    and "Remote asset count mismatch." in build_release
     and "Remote release verification failed: $name" in build_release
-    and "cleanup_failed_release" in build_release
-    and "version_taken()" in build_release
-    and "git fetch --tags --force origin" in build_release
-    and "repos/$repo/git/refs/tags/v$v" in build_release
-    and 'gh release view "v$v"' in build_release
-    and "SMART COLLISION-RESOLUTION ALGORITHM" in build_release
-    and "Could not find a free version after 500 attempts" in build_release
-    and "SELF-HEALING GUARD" in build_release
-    and "Release $tag is already published; refusing to touch it." in build_release
-    and 'gh release upload "$tag"' not in build_release
-    and 'git push origin "$tag"' not in build_release,
-)
-
-check(
-    "release version discovery checks GitHub drafts and remote tags",
-    "version_taken()" in build_release
-    and "repos/$repo/git/refs/tags/v$v" in build_release
-    and 'gh release view "v$v"' in build_release
-    and "git fetch --tags --force origin" in build_release,
-)
-
-check(
-    "release collision algorithm advances rather than hard-failing",
-    'while version_taken "$CANDIDATE"; do' in build_release
-    and 'CANDIDATE="$(bump_patch "$CANDIDATE" 1)"' in build_release
-    and "ATTEMPTS > 500" in build_release,
-)
-
-check(
-    "stale unpublished draft releases are self-healed safely",
-    "Removing stale unpublished draft for $tag." in build_release
-    and "existing_published" in build_release
-    and "Release $tag is already published; refusing to touch it." in build_release,
+    and "Expected exactly five APKs" in build_release
+    and "SMART COLLISION-RESOLUTION ALGORITHM" not in build_release
+    and "Removing stale unpublished draft" not in build_release,
 )
 
 check(

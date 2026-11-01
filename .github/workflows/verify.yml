@@ -34,6 +34,10 @@ jobs:
           set -euo pipefail
           bash -n scripts/*.sh
 
+      - name: Manual release version fixtures
+        shell: bash
+        run: bash scripts/test-release-version.sh
+
       # MARBLE_LATEST_VERSION_RULE_V235 — the one update rule (newest *published* version wins,
       # beta or release) proven offline against recorded release lists: a stable published after
       # a beta wins, a beta after a stable wins, a draft never wins, same-instant ties break by
@@ -686,11 +690,10 @@ jobs:
                   and "target_commitish:$target" in build
               ),
               "assets": '"${assets[@]}"' in build,
-              "tag guard": (
-                  'git rev-parse -q --verify "refs/tags/$tag"' in build
-              ),
-              "release guard": (
-                  'gh release view "v$v"' in build
+              "collision guard": 'bash scripts/release-version.sh' in build,
+              "atomic tag creation": 'gh api --method POST "repos/$repo/git/refs"' in build,
+              "manual version inputs": (
+                  "version_name:" in build and "version_code:" in build
               ),
               "no tag push": 'git push origin "$tag"' not in build,
               "no inline notes": (

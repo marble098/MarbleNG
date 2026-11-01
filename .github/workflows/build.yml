@@ -2,17 +2,23 @@
 name: Build signed Android APKs
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'App version and tag (e.g. 11.5.1; tag will be v11.5.1)'
+        required: true
+        type: string
+      version_code:
+        description: 'Android versionCode (integer greater than previous releases)'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: marbleng-release-${{ github.ref }}
-  cancel-in-progress: true
+  group: marbleng-release
+  cancel-in-progress: false
 
 env:
   # Xray's own go.mod decides the actual Go toolchain.
@@ -33,6 +39,17 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Validate chosen version and check for collisions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          bash scripts/release-version.sh
+          printf 'VERSION_NAME=%s\nVERSION_CODE=%s\n' "$VERSION_NAME" "$VERSION_CODE" >> "$GITHUB_ENV"
 
       - name: Marble system integrity preflight
         shell: bash
@@ -328,226 +345,6 @@ jobs:
             head -n 8 || true
 
       # ========================================================================
-      # Version  (SMART, COLLISION-PROOF SEMANTIC VERSIONING)
-      # ========================================================================
-
-      - name: Generate smart semantic version
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          repo="${GITHUB_REPOSITORY}"
-
-          # Fetch all tags AND all remote tags/releases so local git state
-          # can never drift from what actually exists on GitHub. This is the
-          # root fix for "tag/release already exists" failures: previously
-          # the workflow only trusted local git tags, which can lag behind
-          # remote releases (e.g. a draft release created without a matching
-          # local tag fetch, or a tag pushed by a different run).
-          git fetch --tags --force origin >/dev/null 2>&1 || true
-
-          LAST_TAG="$(
-            git tag --list |
-              awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/' |
-              sort -V |
-              tail -n 1
-          )"
-          LAST_VERSION="${LAST_TAG#v}"
-
-          version_lt() {
-            local a="$1" b="$2"
-            [[ "$a" != "$b" ]] &&
-              [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -n1)" == "$a" ]]
-          }
-
-          normalize_policy() {
-            local major="$1" minor="$2" patch="$3"
-            if (( minor >= 9 )); then
-              major=$((major + 1))
-              minor=0
-              patch=0
-            fi
-            printf '%d.%d.%d\n' "$major" "$minor" "$patch"
-          }
-
-          bump_patch() {
-            local version="$1" steps="$2"
-            local major minor patch i
-            IFS=. read -r major minor patch <<< "$version"
-            for ((i=0; i<steps; i++)); do
-              patch=$((patch + 1))
-              if (( patch > 9 )); then
-                patch=0
-                minor=$((minor + 1))
-              fi
-              if (( minor >= 9 )); then
-                major=$((major + 1))
-                minor=0
-                patch=0
-              fi
-            done
-            normalize_policy "$major" "$minor" "$patch"
-          }
-
-          bump_minor() {
-            local major minor patch
-            IFS=. read -r major minor patch <<< "$1"
-            minor=$((minor + 1))
-            normalize_policy "$major" "$minor" 0
-          }
-
-          bump_major() {
-            local major minor patch
-            IFS=. read -r major minor patch <<< "$1"
-            printf '%d.0.0\n' "$((major + 1))"
-          }
-
-          # --------------------------------------------------------------
-          # Smart existence check: a version is "taken" if EITHER a local/
-          # remote git tag OR a GitHub Release (draft or published) for it
-          # exists. This eliminates every class of "already exists" error,
-          # including stale drafts left behind by cancelled/failed runs.
-          # --------------------------------------------------------------
-          version_taken() {
-            local v="$1"
-            if git rev-parse -q --verify "refs/tags/v$v" >/dev/null 2>&1; then
-              return 0
-            fi
-            if gh api "repos/$repo/git/refs/tags/v$v" >/dev/null 2>&1; then
-              return 0
-            fi
-            if gh release view "v$v" >/dev/null 2>&1; then
-              return 0
-            fi
-            return 1
-          }
-
-          if [[ -z "$LAST_VERSION" ]] || version_lt "$LAST_VERSION" "1.0.2"; then
-            CANDIDATE="1.0.2"
-            VERSION_BUMP_KIND="bootstrap"
-            VERSION_CHANGE_FILES=0
-            VERSION_CHANGE_LINES=0
-          else
-            HEAD_MESSAGE="$(git log -1 --pretty=%B "$GITHUB_SHA")"
-            if ! git rev-parse --verify --quiet "${LAST_TAG}^{commit}" >/dev/null; then
-              echo "::error::Semantic release base $LAST_TAG is not a valid commit tag."
-              exit 1
-            fi
-
-            if ! git rev-parse --verify --quiet "${GITHUB_SHA}^{commit}" >/dev/null; then
-              echo "::error::Workflow commit $GITHUB_SHA is not available in checkout."
-              exit 1
-            fi
-
-            VERSION_RANGE="${LAST_TAG}...${GITHUB_SHA}"
-
-            if ! git merge-base "$LAST_TAG" "$GITHUB_SHA" >/dev/null 2>&1; then
-              echo "::error::No merge base between $LAST_TAG and $GITHUB_SHA."
-              exit 1
-            fi
-
-            VERSION_CHANGE_FILES="$(
-              git diff --name-only "$VERSION_RANGE" -- |
-                awk 'NF' |
-                wc -l |
-                tr -d ' '
-            )"
-            VERSION_CHANGE_LINES="$(
-              git diff --numstat "$VERSION_RANGE" -- |
-                awk '
-                  $1 ~ /^[0-9]+$/ { a += $1 }
-                  $2 ~ /^[0-9]+$/ { d += $2 }
-                  END { print a + d + 0 }
-                '
-            )"
-
-            VERSION_BUMP_KIND=""
-            PATCH_STEPS=0
-
-            if grep -Eqi '\[version:major\]' <<< "$HEAD_MESSAGE"; then
-              VERSION_BUMP_KIND="major"
-            elif grep -Eqi '\[version:minor\]' <<< "$HEAD_MESSAGE"; then
-              VERSION_BUMP_KIND="minor"
-            elif grep -Eqi '\[version:patch\+[1-8]\]' <<< "$HEAD_MESSAGE"; then
-              VERSION_BUMP_KIND="patch"
-              PATCH_STEPS="$(sed -nE 's/.*\[version:patch\+([1-8])\].*/\1/ip' <<< "$HEAD_MESSAGE" | head -n1)"
-            elif grep -Eqi '\[version:patch\]' <<< "$HEAD_MESSAGE"; then
-              VERSION_BUMP_KIND="patch"
-              PATCH_STEPS=1
-            fi
-
-            if [[ -z "$VERSION_BUMP_KIND" ]]; then
-              if (( VERSION_CHANGE_FILES >= 25 || VERSION_CHANGE_LINES >= 3000 )); then
-                VERSION_BUMP_KIND="major"
-              elif (( VERSION_CHANGE_FILES >= 12 || VERSION_CHANGE_LINES >= 1000 )); then
-                VERSION_BUMP_KIND="minor"
-              elif (( VERSION_CHANGE_FILES >= 6 || VERSION_CHANGE_LINES >= 300 )); then
-                VERSION_BUMP_KIND="patch"
-                PATCH_STEPS=2
-              else
-                VERSION_BUMP_KIND="patch"
-                PATCH_STEPS=1
-              fi
-            fi
-
-            case "$VERSION_BUMP_KIND" in
-              major) CANDIDATE="$(bump_major "$LAST_VERSION")" ;;
-              minor) CANDIDATE="$(bump_minor "$LAST_VERSION")" ;;
-              patch) CANDIDATE="$(bump_patch "$LAST_VERSION" "${PATCH_STEPS:-1}")" ;;
-              *) echo "::error::Unknown version bump class"; exit 1 ;;
-            esac
-          fi
-
-          # --------------------------------------------------------------
-          # SMART COLLISION-RESOLUTION ALGORITHM
-          # If the computed candidate is already taken (tag OR release,
-          # local OR remote), keep advancing by one patch step until a
-          # completely free version is found. Bounded to 500 attempts as
-          # a sane safety valve against infinite loops.
-          # --------------------------------------------------------------
-          ATTEMPTS=0
-          ORIGINAL_CANDIDATE="$CANDIDATE"
-          while version_taken "$CANDIDATE"; do
-            ATTEMPTS=$((ATTEMPTS + 1))
-            if (( ATTEMPTS > 500 )); then
-              echo "::error::Could not find a free version after 500 attempts starting from $ORIGINAL_CANDIDATE."
-              exit 1
-            fi
-            echo "::warning::Version v$CANDIDATE already exists (tag or release). Auto-advancing..."
-            CANDIDATE="$(bump_patch "$CANDIDATE" 1)"
-          done
-
-          if (( ATTEMPTS > 0 )); then
-            echo "Resolved version collision: $ORIGINAL_CANDIDATE -> $CANDIDATE (skipped $ATTEMPTS taken version(s))."
-          fi
-
-          VERSION_NAME="$CANDIDATE"
-          VERSION_CODE="$(date -u +%s)"
-
-          if (( VERSION_CODE <= 0 || VERSION_CODE > 2100000000 )); then
-            echo "::error::Android versionCode is outside accepted range: $VERSION_CODE"
-            exit 1
-          fi
-
-          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
-          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
-          echo "VERSION_BUMP_KIND=$VERSION_BUMP_KIND" >> "$GITHUB_ENV"
-          echo "VERSION_CHANGE_FILES=${VERSION_CHANGE_FILES:-0}" >> "$GITHUB_ENV"
-          echo "VERSION_CHANGE_LINES=${VERSION_CHANGE_LINES:-0}" >> "$GITHUB_ENV"
-
-          echo "Previous semantic release: ${LAST_VERSION:-legacy/none}"
-          if [[ -n "${LAST_TAG:-}" ]]; then
-            echo "Version diff range: ${VERSION_RANGE:-bootstrap}"
-          fi
-          echo "Version bump: $VERSION_BUMP_KIND"
-          echo "Changed files: ${VERSION_CHANGE_FILES:-0}"
-          echo "Changed lines: ${VERSION_CHANGE_LINES:-0}"
-          echo "Version name: $VERSION_NAME"
-          echo "Android versionCode: $VERSION_CODE"
-
-      # ========================================================================
       # Android release
       # ========================================================================
 
@@ -718,6 +515,15 @@ jobs:
             echo "::error::No APK found for the install-contract gate."
             exit 1
           }
+
+          # Require every expected split as well as the universal APK; a partial
+          # build must not be mistaken for an all-architectures release.
+          (( ${#apks[@]} == 5 )) || { echo "::error::Expected exactly five APKs, got ${#apks[@]}."; exit 1; }
+          for abi in arm64-v8a armeabi-v7a x86_64 x86 universal; do
+            test -s "dist/MarbleNG-${VERSION_NAME}-${abi}-release.apk" || {
+              echo "::error::Missing APK for $abi."; exit 1;
+            }
+          done
 
           release_certificate=""
 
@@ -958,30 +764,9 @@ jobs:
           test -s dist/SHA256SUMS.txt
           test -s dist/SIGNING-CERTS.txt
 
-          # --------------------------------------------------------------
-          # SELF-HEALING GUARD: because the version step already resolved
-          # any tag/release collision with a smart auto-advancing
-          # algorithm, this tag should be free. However, if a *stale
-          # incomplete draft* exists for it (e.g. left over from a
-          # different concurrent workflow instance), we detect it here
-          # and clean it up automatically instead of hard-failing the
-          # whole pipeline forever.
-          # --------------------------------------------------------------
-          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null || \
-             gh api "repos/$repo/git/refs/tags/$tag" >/dev/null 2>&1; then
-            echo "::warning::Tag $tag unexpectedly exists at publish time. Attempting self-heal."
-            existing_release_id="$(gh api "repos/$repo/releases" --paginate 2>/dev/null | jq -r --arg t "$tag" '[.[] | select(.tag_name == $t)][0].id // empty')"
-            if [[ -n "$existing_release_id" ]]; then
-              existing_published="$(gh api "repos/$repo/releases/$existing_release_id" 2>/dev/null | jq -r '.draft == false')"
-              if [[ "$existing_published" == "true" ]]; then
-                echo "::error::Release $tag is already published; refusing to touch it. Re-run the workflow to get a fresh version."
-                exit 1
-              fi
-              echo "::warning::Removing stale unpublished draft for $tag."
-              gh api --method DELETE "repos/$repo/releases/$existing_release_id" >/dev/null 2>&1 || true
-            fi
-            gh api --method DELETE "repos/$repo/git/refs/tags/$tag" >/dev/null 2>&1 || true
-          fi
+          # Recheck after the build. Never advance, overwrite, or delete a
+          # pre-existing tag or release, including an unpublished draft.
+          bash scripts/release-version.sh
 
           XRAY_VERSION="$(jq -r '.xray.tag' core-lock.json)"
           HEV_VERSION="$(jq -r '.hev.tag' core-lock.json)"
@@ -1018,6 +803,12 @@ jobs:
             '{tag_name:$tag,target_commitish:$target,name:$name,body:$body,draft:true,prerelease:false}' \
             > "$create_json"
 
+          # Creating the ref is atomic: a competing run cannot make us publish
+          # against an existing tag between the collision check and release creation.
+          gh api --method POST "repos/$repo/git/refs" \
+            -f "ref=refs/tags/$tag" -f "sha=$GITHUB_SHA" >/dev/null
+          echo "Created $tag at $GITHUB_SHA. If publishing fails, inspect and remove the tag/draft manually before retrying."
+
           release_json="$(gh api --method POST "repos/$repo/releases" --input "$create_json")"
           release_id="$(jq -r '.id // empty' <<< "$release_json")"
           release_upload_url="$(jq -r '.upload_url // empty' <<< "$release_json")"
@@ -1031,19 +822,6 @@ jobs:
             echo "::error::Invalid draft upload URL."
             exit 1
           }
-
-          published=0
-          cleanup_failed_release() {
-            local rc=$?
-            trap - ERR INT TERM
-            if (( published == 0 )); then
-              echo "::warning::Cleaning incomplete draft release $release_id"
-              gh api --method DELETE "repos/$repo/releases/$release_id" >/dev/null 2>&1 || true
-              gh api --method DELETE "repos/$repo/git/refs/tags/$tag" >/dev/null 2>&1 || true
-            fi
-            exit "$rc"
-          }
-          trap cleanup_failed_release ERR INT TERM
 
           remote_asset_json() {
             local name="$1"
@@ -1145,9 +923,5 @@ jobs:
               exit 1
             }
           done
-
-          # تنظیم این متغیر مانع از پاک شدن draft توسط اسکریپت cleanup می‌شود
-          published=1
-          trap - ERR INT TERM
 
           echo "Draft release successfully created and assets uploaded. Waiting for your manual approval to publish."
