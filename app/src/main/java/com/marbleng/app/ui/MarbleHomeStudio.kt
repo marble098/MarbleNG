@@ -133,6 +133,9 @@ internal fun MarbleCalmStage(
         working -> colors.onTertiaryContainer
         else -> colors.onPrimaryContainer
     }
+    // The status palette is a `@Composable` extension on `ColorScheme`, so it is read here, in the
+    // composition, rather than inside the draw scope below.
+    val stateLight = if (connected) colors.success else colors.primary
     val morph by animateFloatAsState(
         targetValue = when {
             connected -> 1f
@@ -155,7 +158,7 @@ internal fun MarbleCalmStage(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        if (connected) colors.success.copy(alpha = 0.30f) else colors.primary.copy(alpha = 0.22f),
+                        stateLight.copy(alpha = if (connected) 0.30f else 0.22f),
                         Color.Transparent
                     ),
                     center = Offset(size.width * 0.86f, size.height * 0.10f),
