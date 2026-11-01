@@ -178,7 +178,7 @@ internal fun MarbleExpressivePageScaffold(
             contentPadding = PaddingValues(
                 start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
                 end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-                top = 4.dp,
+                top = 0.dp,
                 bottom = bottomClearance
             ),
             verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
@@ -365,7 +365,7 @@ private fun ExpressivePageHero(
                     )
                 )
             )
-            .padding(18.dp)
+            .padding(vertical = 10.dp, horizontal = 18.dp)
     ) {
         MarbleOrbitLens(
             tint = tint,

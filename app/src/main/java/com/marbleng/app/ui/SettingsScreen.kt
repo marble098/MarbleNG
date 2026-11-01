@@ -615,6 +615,14 @@ private fun SettingsMenuPage(
                             motif = MarbleExpressiveMotif.FLOWER,
                             targetMotif = MarbleExpressiveMotif.SUNNY
                         )
+                        // MARBLE_SETTINGS_ABOUT_V257 — About is one tap away from the hub's top
+                        // corner instead of hiding inside a category tile.
+                        MarbleIconButton(
+                            glyph = MarbleGlyph.INFO,
+                            tint = colors.primary,
+                            contentDescription = strings.informationTitle,
+                            onClick = { onOpenDestination(SettingsDestination.ABOUT) }
+                        )
                     }
                     MarbleSearchField(
                         value = search,
