@@ -1,5 +1,6 @@
 package com.marbleng.app.model
 
+import com.marbleng.app.ui.formatBytes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
