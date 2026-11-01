@@ -52,6 +52,65 @@ private fun faTranslateRaw(text: String): String {
 
 private val FaLexicon: Map<String, String> = mapOf(
 
+    // ─── MARBLE_LUMEN_DOCK_V256 / MARBLE_HOME_WIDGETS_V256 ───────────────────────────────────
+    // The dock's ladder, the three connection styles and the four Home switches. Warm, second
+    // person, the same voice the rest of the dictionary speaks.
+    "Pill height" to "ارتفاع نوار",
+    "Dock island" to "جزیرهٔ داک",
+    "Status capsule on the left, power button on the right, inside the navigation dock" to
+        "کپسول وضعیت سمت چپ، دکمهٔ روشن و خاموش سمت راست، داخل نوار پایین",
+    "Center morph" to "دکمهٔ میانی",
+    "One spring button in the middle of the dock, with its latency in a tooltip" to
+        "یه دکمهٔ فنری وسط نوار، با پینگش روی حباب راهنما",
+    "Hero card" to "کارت بزرگ",
+    "The large connect card stays on Home, flattened and calm" to
+        "همون کارت بزرگ اتصال توی خونه می‌مونه، تخت و آروم",
+    "Ping the active route" to "پینگ مسیر فعال",
+    "Stop measuring" to "توقف سنجش",
+    "Measure the library and connect to the fastest" to
+        "کل کتابخانه رو بسنج و به سریع‌ترین وصل شو",
+    "Home Settings" to "تنظیمات خانه",
+    "Connection widget" to "ابزار اتصال",
+    "Connection style" to "سبک اتصال",
+    "These switches rebuild Home immediately. A block that is off is not drawn at all." to
+        "این کلیدها خانه رو همون لحظه بازسازی می‌کنن. بخشی که خاموشه اصلاً کشیده نمی‌شه.",
+    "Active Route Card" to "کارت مسیر فعال",
+    "The live server, its flag and its measured ping" to
+        "سرور فعال، پرچمش و پینگ اندازه‌گیری‌شده‌ش",
+    "Tuned for You presets" to "پریست‌های تنظیم‌شده برای تو",
+    "Gaming, streaming and blocked-network one-tap modes" to
+        "حالت‌های یک‌ضربه‌ای بازی، استریم و شبکهٔ بسته",
+    "Live speed graph" to "نمودار زندهٔ سرعت",
+    "Download and upload throughput as they happen" to
+        "سرعت دانلود و آپلود همون‌طور که اتفاق می‌افته",
+    "Detailed IP & classification" to "IP و دسته‌بندی با جزئیات",
+    "The exit address, its family and how the internet sees it" to
+        "آدرس خروجی، خانواده‌ش و اینکه اینترنت چطور می‌بینه‌ت",
+
+    // ─── MARBLE_INTAKE_GRID_V256 ──────────────────────────────────────────────────────────────
+    "Clipboard" to "کلیپ‌بورد",
+    "One tap for whatever you have" to "یه ضربه برای هرچی که داری",
+    "Detects JSON, VLESS, VMess, Trojan and HTTPS subscriptions" to
+        "JSON، VLESS، VMess، Trojan و اشتراک HTTPS رو تشخیص می‌ده",
+    "Read a code from the camera or a gallery image" to "کد رو از دوربین یا عکس گالری بخون",
+    "Load a .txt or .json configuration" to "یه فایل .txt یا .json رو بارگذاری کن",
+    "Build one node by hand, protocol by protocol" to "یه نود رو دستی بساز، پروتکل به پروتکل",
+    "A source, added as a subscription" to "یه منبع، به‌عنوان اشتراک اضافه می‌شه",
+    "A node, added to the manual group" to "یه نود، به گروه دستی اضافه می‌شه",
+    "An outbound, imported as one node" to "یه اوت‌باند، به‌عنوان یک نود وارد می‌شه",
+    "Detects links, JSON and HTTPS subscriptions" to
+        "لینک‌ها، JSON و اشتراک‌های HTTPS رو تشخیص می‌ده",
+    "Subscription detected in clipboard: Tap to import" to
+        "اشتراک توی کلیپ‌بورد پیدا شد: برای وارد کردن بزن",
+    "Server link detected in clipboard: Tap to import" to
+        "لینک سرور توی کلیپ‌بورد پیدا شد: برای وارد کردن بزن",
+    "Configuration detected in clipboard: Tap to import" to
+        "پیکربندی توی کلیپ‌بورد پیدا شد: برای وارد کردن بزن",
+    "Manual configuration" to "پیکربندی دستی",
+    "Chain builder" to "سازندهٔ زنجیره",
+    "Paste links by hand" to "لینک‌ها رو دستی بچسبون",
+    "Hide the text field" to "پنهان کردن کادر متن",
+
     "Off" to "خاموش",
     "On" to "روشن",
     "Nothing to download" to "چیزی برای دانلود نیست",

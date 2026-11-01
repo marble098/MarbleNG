@@ -107,6 +107,7 @@ import com.marbleng.app.model.NodeSortMode
 import com.marbleng.app.model.ProbeState
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.ServerHealth
+import com.marbleng.app.model.ServerMenuAction
 import com.marbleng.app.model.Subscription
 import com.marbleng.app.model.serverHealthOf
 import com.marbleng.app.ui.theme.MarbleSpec
@@ -177,7 +178,9 @@ fun ServersScreen(
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var filterSheetOpen by remember { mutableStateOf(false) }
-    var actionTarget by remember { mutableStateOf<ProxyProfile?>(null) }
+    // MARBLE_SERVER_BUBBLE_V256 — which row's bubble is open, by id. A sheet needed the profile
+    // itself; a bubble anchored in the row needs only to know which row asked.
+    var actionMenuId by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<ProxyProfile?>(null) }
     var renameDraft by remember { mutableStateOf("") }
     var moveTarget by remember { mutableStateOf<ProxyProfile?>(null) }
@@ -295,6 +298,33 @@ fun ServersScreen(
         }
     }
 
+    // MARBLE_SERVER_BUBBLE_V256 — the six verbs, in one place. Every branch closes the bubble
+    // first, because a menu that is still open behind the dialog it just asked for is a menu the
+    // reader has to dismiss twice.
+    val copiedConfigNotice = trx("Config copied")
+    fun runServerMenu(profile: ProxyProfile, action: ServerMenuAction) {
+        actionMenuId = ""
+        when (action) {
+            ServerMenuAction.EDIT -> {
+                renameDraft = cleanServerName(profile.name)
+                renameTarget = profile
+            }
+            ServerMenuAction.PING -> repo.pingProfiles(
+                profiles = listOf(profile),
+                scopeLabel = cleanServerName(profile.name),
+                scopeId = profile.subscriptionId
+            )
+            ServerMenuAction.COPY_LINK -> {
+                val payload = profile.raw.ifBlank { profile.configJson }
+                clipboard.setText(AnnotatedString(payload))
+                repo.setRuntimeMessage(copiedConfigNotice)
+            }
+            ServerMenuAction.EXPORT_QR -> qrShareTarget = profile
+            ServerMenuAction.MOVE_TO_GROUP -> moveTarget = profile
+            ServerMenuAction.DELETE -> deleteTarget = profile
+        }
+    }
+
     // Copy resolved once, in the composition, so the coroutine below never needs a composable
     // call from a non-composable context.
     val undoLabel = trx("Undo")
@@ -396,6 +426,15 @@ fun ServersScreen(
                             firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
                         )
                     ) {
+                        // MARBLE_SERVERS_DECLUTTER_V256 — the sources rail is gone from the page,
+                        // so its one useful verb (choose which library you are looking at) moves
+                        // here, beside the other header actions, one tap away and 0dp tall.
+                        MarbleIconButton(
+                            glyph = MarbleGlyph.LAYERS,
+                            tint = colors.onSurfaceVariant,
+                            contentDescription = trx("Manage sources"),
+                            onClick = { librarySheetOpen = true }
+                        )
                         MarbleIconButton(
                             glyph = if (repo.probeActive) MarbleGlyph.STOP else MarbleGlyph.GAUGE,
                             tint = if (repo.probeActive) colors.error else colors.success,
@@ -441,17 +480,12 @@ fun ServersScreen(
                             placeholder = strings.searchServersHint,
                             modifier = Modifier.weight(1f)
                         )
-                        // MARBLE_IP_IDENTITY_V251 — this slot used to hold a sort menu. It answered
-                        // the same question the filter sheet one tap to its right answers, from a
-                        // narrower list, and two controls that do one job make the reader choose
-                        // between them. Sorting stays where it was complete (the sheet, section
-                        // "Sort Order"); the vacancy is a measurement instead: one tap ranks the
-                        // library and connects to the route that wins.
-                        MarbleButton(
-                            label = if (repo.probeActive) trx("Stop") else trx("Fastest"),
-                            glyph = if (repo.probeActive) MarbleGlyph.STOP else MarbleGlyph.SPARK,
-                            style = MarbleButtonStyle.TINTED,
-                            compact = true,
+                        // MARBLE_SERVERS_DECLUTTER_V256 — one circular Auto-Select, in the slot
+                        // that used to be a text button. It is the page's *measurement*: rank the
+                        // visible library and connect to the route that wins (or stop the sweep
+                        // while one is running), in 48dp, beside the filter it belongs with.
+                        ServerAutoSelectButton(
+                            probing = repo.probeActive || repo.probeCancelling,
                             enabled = !repo.busy,
                             onClick = {
                                 if (repo.probeActive || repo.probeCancelling) {
@@ -501,21 +535,23 @@ fun ServersScreen(
                     }
                 }
 
-                // V244 — the sources rail. One tap chooses a library; the sheet behind the ⋯
-                // manages it. This replaces the chip strip that used to hide behind a filter
-                // sheet three taps away from the question "which subscription am I looking at?".
-                if (allProfiles.isNotEmpty()) {
-                    item(key = "servers-sources") {
-                        ServersLibraryRail(
-                            cards = sourceCards,
-                            selectedId = repo.librarySourceFilter,
-                            onSelect = { id -> repo.selectLibrarySource(id) },
-                            onManage = { librarySheetOpen = true }
-                        )
-                    }
-                }
-
-                if (repo.probeActive || repo.probeCancelling) {
+                // MARBLE_SERVERS_DECLUTTER_V256 — the horizontal Sources rail is retired.
+                //
+                // It was four "cards" (All sources, Manual, and one per subscription) drawn above
+                // the list, roughly a third of a phone's viewport deep, and it answered a question
+                // the list already answers: every server row carries its group header, and the
+                // header's first action opens the *sheet* of libraries when the reader really wants
+                // to switch. What replaced it is one circular target in the search row — measure
+                // the whole library and connect to the winner — which is the only thing the rail
+                // was ever in front of.
+                //
+                // MARBLE_LUMEN_DOCK_V256 — with a connection widget in the dock, a running batch is
+                // reported there (`12/79 pinging…` on the island, or in the centre trigger's
+                // tooltip). This card is the fallback for readers who kept Home's hero card, where
+                // nothing else is counting.
+                val showsDockProgress = settings.homeLayout.widgetStyle.showsDockPower ||
+                    settings.homeLayout.widgetStyle.showsCenterTrigger
+                if ((repo.probeActive || repo.probeCancelling) && !showsDockProgress) {
                     item(key = "servers-probe-progress") {
                         val total = repo.probeTotal.coerceAtLeast(1)
                         val done = repo.probeDone.coerceIn(0, total)
@@ -690,7 +726,12 @@ fun ServersScreen(
                                     selectionMode = selection.isNotEmpty(),
                                     checked = profile.id in selection,
                                     onClick = { selectOrConnect(profile) },
-                                    onMore = { actionTarget = profile },
+                                    onMore = { actionMenuId = profile.id },
+                                    menuExpanded = actionMenuId == profile.id,
+                                    onMenuExpandedChange = { open ->
+                                        if (!open) actionMenuId = ""
+                                    },
+                                    onMenuAction = { action -> runServerMenu(profile, action) },
                                     onLongPress = {
                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                         selection = ServersSelection.toggle(selection, profile.id)
@@ -787,39 +828,6 @@ fun ServersScreen(
                 onOpenAddSheet()
             },
             onDismiss = { librarySheetOpen = false }
-        )
-    }
-
-    actionTarget?.let { profile ->
-        ServerQuickActionsSheet(
-            repo = repo,
-            profile = profile,
-            onConnect = {
-                actionTarget = null
-                onConnect(profile)
-            },
-            onInspect = {
-                actionTarget = null
-                onOpenDetail(profile)
-            },
-            onShareQr = {
-                actionTarget = null
-                qrShareTarget = profile
-            },
-            onRename = {
-                actionTarget = null
-                renameDraft = cleanServerName(profile.name)
-                renameTarget = profile
-            },
-            onMove = {
-                actionTarget = null
-                moveTarget = profile
-            },
-            onDelete = {
-                actionTarget = null
-                deleteTarget = profile
-            },
-            onDismiss = { actionTarget = null }
         )
     }
 
@@ -1332,6 +1340,59 @@ private fun AddServerPill(onClick: () -> Unit) {
     }
 }
 
+/**
+ * MARBLE_SERVERS_DECLUTTER_V256 — the circular Auto-Select that replaced the Sources rail.
+ *
+ * One 48dp target in the search row: press it and the whole visible library is measured and the
+ * winner is connected; press it again while a sweep is running and the sweep stops. It is the only
+ * thing the rail was ever *in front of*, and it costs 0dp of vertical offset instead of a third of
+ * the viewport.
+ *
+ * The container is primary-toned at rest and error-toned while measuring — the same colour grammar
+ * the rest of the app uses for "this number is being taken" — and the glyph swaps from a spark to a
+ * stop through one draw, never through a spinner.
+ */
+@Composable
+private fun ServerAutoSelectButton(
+    probing: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
+    val container = when {
+        !enabled -> colors.surfaceContainerHighest
+        probing -> colors.errorContainer
+        else -> colors.primaryContainer
+    }
+    val ink = when {
+        !enabled -> colors.outline
+        probing -> colors.onErrorContainer
+        else -> colors.onPrimaryContainer
+    }
+    val spoken = if (probing) trx("Stop measuring") else trx("Measure the library and connect to the fastest")
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(container)
+            .clickable(enabled = enabled, role = Role.Button) {
+                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                onClick()
+            }
+            .semantics { contentDescription = spoken }
+            .testTag("servers-auto-select"),
+        contentAlignment = Alignment.Center
+    ) {
+        MarbleGlyphIcon(
+            glyph = if (probing) MarbleGlyph.STOP else MarbleGlyph.SPARK,
+            color = ink,
+            weight = 1.15f,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
 /** The six orderings of the page, named once so the menu and the sheet cannot drift apart. */
 @Composable
 private fun serverSortChoices(): List<Pair<NodeSortMode, String>> = listOf(
@@ -1342,164 +1403,6 @@ private fun serverSortChoices(): List<Pair<NodeSortMode, String>> = listOf(
     NodeSortMode.COUNTRY to trx("Country"),
     NodeSortMode.PROTOCOL to trx("Protocol")
 )
-
-/**
- * MARBLE_SERVERS_ATLAS_V244 — the sources rail.
- *
- * The rail answers "which library am I in?" as a picture: name, measured flag cluster and node
- * count per card. In aggregate view only the management entry remains: section headers already
- * identify the sources. Choosing a library restores the switching rail without duplicating scan
- * counters from the management sheet.
- */
-@Composable
-private fun ServersLibraryRail(
-    cards: List<ServersLibraryCard>,
-    selectedId: String,
-    onSelect: (String) -> Unit,
-    onManage: () -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val railState = rememberLazyListState()
-    LaunchedEffect(selectedId, cards.size) {
-        val index = cards.indexOfFirst { it.id == selectedId }
-        if (index > 0) railState.animateScrollToItem(index)
-    }
-
-    Column(
-        modifier = Modifier.padding(top = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            MarbleGlyphIcon(
-                glyph = MarbleGlyph.LAYERS,
-                color = colors.onSurfaceVariant,
-                modifier = Modifier.size(15.dp)
-            )
-            Text(
-                text = trx("Sources"),
-                color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                modifier = Modifier.weight(1f),
-                maxLines = 1
-            )
-            MarbleIconButton(
-                glyph = MarbleGlyph.MENU,
-                tint = colors.onSurfaceVariant,
-                contentDescription = trx("Manage sources"),
-                onClick = onManage
-            )
-        }
-        if (selectedId != "all") LazyRow(
-            state = railState,
-            horizontalArrangement = Arrangement.spacedBy(ServersAtlas.LIBRARY_RAIL_GAP_DP.dp),
-            contentPadding = PaddingValues(end = 4.dp)
-        ) {
-            items(items = cards, key = { card -> card.id }) { card ->
-                LibraryCardTile(
-                    card = card,
-                    selected = card.id == selectedId,
-                    onClick = { onSelect(card.id) }
-                )
-            }
-        }
-    }
-}
-
-/**
- * One source card: name and count on top, the country cluster and the plan bar below.
- * Selected is a tone change plus a check — never an outline, per the V241 rule.
- */
-@Composable
-private fun LibraryCardTile(
-    card: ServersLibraryCard,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val haptics = LocalHapticFeedback.current
-    val container = if (selected) colors.primaryContainer else colors.surfaceContainerLow
-    val titleColor = if (selected) colors.onPrimaryContainer else colors.onSurface
-    val metaColor = if (selected) {
-        colors.onPrimaryContainer.copy(alpha = 0.78f)
-    } else {
-        colors.onSurfaceVariant
-    }
-
-    Column(
-        modifier = Modifier
-            .width(ServersAtlas.LIBRARY_CARD_WIDTH_DP.dp)
-            .height(ServersAtlas.LIBRARY_CARD_HEIGHT_DP.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(container)
-            .clickable(role = Role.RadioButton) {
-                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                onClick()
-            }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = card.title,
-                modifier = Modifier.weight(1f),
-                color = titleColor,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (selected) {
-                MarbleGlyphIcon(
-                    glyph = MarbleGlyph.CHECK,
-                    color = colors.primary,
-                    modifier = Modifier.size(15.dp),
-                    weight = 1.2f
-                )
-            }
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FlagCluster(
-                codes = card.flags,
-                size = ServersAtlas.LIBRARY_FLAG_SIZE_DP.dp,
-                overlap = ServersAtlas.LIBRARY_FLAG_OVERLAP_DP.dp,
-                ring = container
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = faDigits("${card.count}"),
-                color = metaColor,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                maxLines = 1
-            )
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(3.dp)
-                .clip(CircleShape)
-                .background(titleColor.copy(alpha = 0.10f))
-        ) {
-            if (card.usageFraction > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(card.usageFraction)
-                        .height(3.dp)
-                        .clip(CircleShape)
-                        .background(if (selected) colors.primary else colors.secondary)
-                )
-            }
-        }
-    }
-}
 
 /**
  * The measured flags of a library, stacked like a signature. An unknown country is not drawn:
@@ -1835,7 +1738,10 @@ private fun ServerRowItem(
     onClick: () -> Unit,
     onMore: () -> Unit,
     onLongPress: () -> Unit,
-    onSwipeDelete: () -> Unit
+    onSwipeDelete: () -> Unit,
+    menuExpanded: Boolean = false,
+    onMenuExpandedChange: (Boolean) -> Unit = {},
+    onMenuAction: (ServerMenuAction) -> Unit = {}
 ) {
     val colors = MaterialTheme.colorScheme
     val dismissState = rememberSwipeToDismissBoxState()
@@ -1915,7 +1821,10 @@ private fun ServerRowItem(
                 onMore = onMore,
                 selectionMode = selectionMode,
                 checked = checked,
-                onLongPress = onLongPress
+                onLongPress = onLongPress,
+                menuExpanded = menuExpanded,
+                onMenuExpandedChange = onMenuExpandedChange,
+                onMenuAction = onMenuAction
             )
         }
     }
@@ -1951,7 +1860,13 @@ internal fun ServerRowContent(
     onMore: () -> Unit,
     selectionMode: Boolean = false,
     checked: Boolean = false,
-    onLongPress: (() -> Unit)? = null
+    onLongPress: (() -> Unit)? = null,
+    // MARBLE_SERVER_BUBBLE_V256 — the row's own bubble. Hoisted, because the page has to be able
+    // to close it when the row scrolls away or the selection changes; defaulted, because the row is
+    // also drawn on its own by the layout tests, where a bubble would be a second thing on screen.
+    menuExpanded: Boolean = false,
+    onMenuExpandedChange: (Boolean) -> Unit = {},
+    onMenuAction: (ServerMenuAction) -> Unit = {}
 ) {
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
@@ -1986,6 +1901,7 @@ internal fun ServerRowContent(
     // Read in the composition: a semantics lambda is not a composable context.
     val spokenPing = pingBadgeText(result, probeState)
     val spokenAddress = "\u2068${profile.host}\u2069".takeIf { profile.host.isNotBlank() }
+    val spokenActions = trx("Server actions")
 
     Row(
         modifier = Modifier
@@ -2088,15 +2004,23 @@ internal fun ServerRowContent(
                 .testTag("server-row-ping-${profile.id}")
         )
 
-        MarbleIconButton(
-            glyph = MarbleGlyph.MORE,
-            onClick = onMore,
-            tint = colors.onSurfaceVariant,
-            contentDescription = "${trx("Server actions")}: $title",
-            modifier = Modifier
-                .size(48.dp)
-                .testTag("server-row-more-${profile.id}")
-        )
+        // MARBLE_SERVER_BUBBLE_V256 — the overflow is the bubble's anchor, not a sheet's trigger.
+        Box {
+            MarbleIconButton(
+                glyph = MarbleGlyph.MORE,
+                onClick = onMore,
+                tint = colors.onSurfaceVariant,
+                contentDescription = "$spokenActions: $title",
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("server-row-more-${profile.id}")
+            )
+            ServerActionBubble(
+                expanded = menuExpanded,
+                onDismiss = { onMenuExpandedChange(false) },
+                onAction = onMenuAction
+            )
+        }
     }
 }
 
@@ -2365,112 +2289,6 @@ private fun ServersFilterSheet(
                 showChevron = false,
                 enabled = !repo.serverLocationScanning,
                 onClick = { repo.ensureServerLocations(force = true) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun ServerQuickActionsSheet(
-    repo: AppRepository,
-    profile: ProxyProfile,
-    onConnect: () -> Unit,
-    onInspect: () -> Unit,
-    onShareQr: () -> Unit,
-    onRename: () -> Unit,
-    onMove: () -> Unit,
-    onDelete: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val clipboard = LocalClipboardManager.current
-
-    MarbleBottomSheet(
-        title = cleanServerName(profile.name),
-        subtitle = "${protocolShortLabel(profile)} · " +
-            "\u2068${profile.host}\u2069:${profile.port}",
-        onDismiss = onDismiss,
-        scrollable = true
-    ) {
-        MarbleCard {
-            MarbleListItem(
-                title = Tr.now.connect,
-                subtitle = trx("Connect immediately through this server"),
-                glyph = MarbleGlyph.POWER,
-                iconTint = colors.success,
-                onClick = onConnect
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Test Route Latency"),
-                subtitle = trx("Run a full tunnel & delay test on this server"),
-                glyph = MarbleGlyph.GAUGE,
-                iconTint = colors.primary,
-                onClick = {
-                    onDismiss()
-                    repo.fullTest(profile)
-                }
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Server Details & JSON"),
-                subtitle = trx("Inspect security, IPv4/IPv6 reachability and outbound JSON"),
-                glyph = MarbleGlyph.TUNERS,
-                iconTint = colors.secondary,
-                onClick = onInspect
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Share QR Code"),
-                subtitle = trx("Display scannable QR code or copy link"),
-                glyph = MarbleGlyph.QR,
-                iconTint = colors.secondary,
-                onClick = onShareQr
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Copy Share Link / Config"),
-                subtitle = trx("Copy URI or outbound JSON to clipboard"),
-                glyph = MarbleGlyph.COPY,
-                iconTint = colors.tertiary,
-                onClick = {
-                    val payload = profile.raw.ifBlank { profile.configJson }
-                    clipboard.setText(AnnotatedString(payload))
-                    repo.setRuntimeMessage("Config copied")
-                    onDismiss()
-                }
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Rename"),
-                glyph = MarbleGlyph.PENCIL,
-                iconTint = colors.warning,
-                onClick = onRename
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Duplicate"),
-                glyph = MarbleGlyph.LAYERS,
-                iconTint = colors.tertiary,
-                onClick = {
-                    repo.duplicateProfile(profile.id, profile.subscriptionId)
-                    onDismiss()
-                }
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Move to Group"),
-                glyph = MarbleGlyph.FOLDER,
-                iconTint = colors.primary,
-                onClick = onMove
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = trx("Delete Server"),
-                titleColor = colors.error,
-                glyph = MarbleGlyph.TRASH,
-                iconTint = colors.error,
-                onClick = onDelete
             )
         }
     }

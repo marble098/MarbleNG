@@ -1,5 +1,6 @@
 package com.marbleng.app.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -7,7 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -17,7 +20,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -27,16 +32,11 @@ import com.marbleng.app.core.ManualConfigBuilder
 import com.marbleng.app.core.ManualConfigDraft
 import com.marbleng.app.core.ManualProtocol
 import com.marbleng.app.core.ProfileSecurityAuditor
+import com.marbleng.app.model.AddServerAction
+import com.marbleng.app.model.IntakeClassifier
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
-
-private enum class AddSheetTab {
-    IMPORT,
-    SUBSCRIPTION,
-    NODE,
-    CHAIN
-}
 
 private val SS_METHODS = listOf(
     "2022-blake3-aes-128-gcm",
@@ -52,6 +52,30 @@ private val VLESS_FLOWS = listOf("", "xtls-rprx-vision")
 private val STREAM_TRANSPORTS = listOf("raw", "websocket", "grpc", "xhttp", "httpupgrade")
 private val TLS_FINGERPRINTS = listOf("chrome", "firefox", "safari", "ios", "android", "edge", "random", "unsafe")
 
+/**
+ * MARBLE_INTAKE_GRID_V256 — Add Server, in one screen and at most two taps.
+ *
+ * The complaint was measurable: the sheet opened at about 85 % of the screen, carried four tabs
+ * (Import, Sub, Manual, Chain), and asked the reader to pick a tab before the app would even look at
+ * what they had copied. Every one of those tabs was a *verb*, and the verbs are the same four
+ * whether or not the sheet has tabs:
+ *
+ * | verb | what it consumes |
+ * |---|---|
+ * | Clipboard | whatever is on the clipboard — JSON, a share link, or an HTTPS subscription |
+ * | Scan QR | nothing; it opens the scanner |
+ * | Import file | a `.txt` / `.json` from storage |
+ * | Manual | the protocol builder |
+ *
+ * So the tabs are gone and the four verbs are a 2×2 grid of tonal keys. Two things survive that
+ * were not verbs and are still needed: *where the import lands* (the group dropdown) and *the chain
+ * builder*, which is a way of writing one node rather than a way of adding servers — it lives as a
+ * row inside the manual builder, one tap from the grid, not a tab beside it.
+ *
+ * The clipboard is read once, in the composition, and [IntakeClassifier] decides what it is. If it
+ * is something the app can import, the sheet says so in a pill under the grid instead of making the
+ * reader discover it by tapping and reading a toast.
+ */
 @Composable
 fun ServerAddSheet(
     repo: AppRepository,
@@ -59,93 +83,118 @@ fun ServerAddSheet(
     onOpenQrImport: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val clipboard = LocalClipboardManager.current
-    var activeTab by rememberSaveable { mutableStateOf(AddSheetTab.IMPORT) }
+    var mode by rememberSaveable { mutableStateOf(AddSheetMode.GRID.id) }
+    var showPaste by rememberSaveable { mutableStateOf(false) }
+    var pastedText by remember { mutableStateOf("") }
     var targetGroup by rememberSaveable {
         mutableStateOf(repo.intakeTargetOrManual(repo.librarySourceFilter))
     }
+
+    // Read once per composition; `kindOf` is pure, so this is a string test, not a clipboard poll.
+    val clipboardText = clipboard.getText()?.text
+    val clipboardKind = IntakeClassifier.kindOf(clipboardText)
 
     val groupChoices = buildList {
         add(MarbleMenuOption("manual", strings.homeManualGroup))
         repo.subscriptions.forEach { add(MarbleMenuOption(it.id, it.name)) }
     }
 
+    val importClipboard: () -> Unit = {
+        val raw = clipboardText?.trim().orEmpty()
+        if (raw.isBlank()) {
+            repo.setRuntimeMessage(strings.clipboardNothingFound)
+        } else {
+            repo.importClipboard(raw, targetGroup)
+            onDismiss()
+        }
+    }
+
     MarbleBottomSheet(
-        title = trx("Add Server or Source"),
-        subtitle = trx("Import links, add an HTTPS subscription, build a node or compose a chain"),
+        title = trx("Add Server"),
+        subtitle = trx("One tap for whatever you have"),
         onDismiss = onDismiss
     ) {
-        MarbleSegmentedControl(
-            options = listOf(
-                AddSheetTab.IMPORT to trx("Import"),
-                AddSheetTab.SUBSCRIPTION to trx("Sub"),
-                AddSheetTab.NODE to trx("Manual"),
-                AddSheetTab.CHAIN to trx("Chain")
-            ),
-            selected = activeTab,
-            onSelect = { activeTab = it }
-        )
+        when (mode) {
+            AddSheetMode.MANUAL.id -> {
+                MarbleSheetBackRow(
+                    label = trx("Manual configuration"),
+                    onBack = { mode = AddSheetMode.GRID.id }
+                )
+                MarbleManualNodeForm(
+                    repo = repo,
+                    targetGroup = targetGroup,
+                    groupChoices = groupChoices,
+                    onTargetGroupChange = { targetGroup = it },
+                    onSaved = onDismiss
+                )
+                MarbleButton(
+                    label = trx("Chain builder"),
+                    glyph = MarbleGlyph.LAYERS,
+                    style = MarbleButtonStyle.SECONDARY,
+                    onClick = { mode = AddSheetMode.CHAIN.id },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            when (activeTab) {
-                AddSheetTab.IMPORT -> {
-                    var pastedText by remember { mutableStateOf("") }
-                    MarbleCard {
-                        MarbleListItem(
-                            title = strings.addFromClipboard,
-                            subtitle = trx("Automatically detects proxy links, JSON or HTTPS subscription URLs"),
-                            glyph = MarbleGlyph.COPY,
-                            iconTint = colors.primary,
-                            onClick = {
-                                val raw = clipboard.getText()?.text?.trim().orEmpty()
-                                if (raw.isBlank()) {
-                                    repo.setRuntimeMessage(strings.clipboardNothingFound)
-                                } else {
-                                    repo.importClipboard(raw, targetGroup)
-                                    onDismiss()
-                                }
-                            }
-                        )
-                        MarbleDivider()
-                        MarbleListItem(
-                            title = trx("Scan or Pick QR Code"),
-                            subtitle = trx("Read QR code from camera or gallery image"),
-                            glyph = MarbleGlyph.QR,
-                            iconTint = colors.secondary,
-                            onClick = {
+            AddSheetMode.CHAIN.id -> {
+                MarbleSheetBackRow(
+                    label = trx("Chain builder"),
+                    onBack = { mode = AddSheetMode.GRID.id }
+                )
+                MarbleChainBuilderForm(
+                    repo = repo,
+                    targetGroup = targetGroup,
+                    groupChoices = groupChoices,
+                    onTargetGroupChange = { targetGroup = it },
+                    onSaved = onDismiss
+                )
+            }
+
+            else -> {
+                MarbleAddServerGrid(
+                    clipboardKind = clipboardKind,
+                    onAction = { action ->
+                        when (action) {
+                            AddServerAction.CLIPBOARD -> importClipboard()
+                            AddServerAction.SCAN_QR -> {
                                 onDismiss()
                                 onOpenQrImport()
                             }
-                        )
-                        MarbleDivider()
-                        MarbleListItem(
-                            title = trx("Import from File"),
-                            subtitle = trx("Load a .txt or .json file from device storage"),
-                            glyph = MarbleGlyph.FOLDER,
-                            iconTint = colors.tertiary,
-                            onClick = {
+                            AddServerAction.IMPORT_FILE -> {
                                 onDismiss()
                                 onImportFile()
                             }
-                        )
+                            AddServerAction.MANUAL -> mode = AddSheetMode.MANUAL.id
+                        }
                     }
+                )
 
-                    if (groupChoices.size > 1) {
-                        MarbleDropdownField(
-                            label = trx("Save Imported Nodes Into"),
-                            value = targetGroup,
-                            options = groupChoices,
-                            onSelect = { targetGroup = it }
-                        )
-                    }
+                MarbleClipboardNotePill(
+                    kind = clipboardKind,
+                    onClick = importClipboard
+                )
 
+                if (groupChoices.size > 1) {
+                    MarbleDropdownField(
+                        label = trx("Save Imported Nodes Into"),
+                        value = targetGroup,
+                        options = groupChoices,
+                        onSelect = { targetGroup = it }
+                    )
+                }
+
+                // The free-form field the old sheet led with is still here, folded away: the
+                // two-tap path is the grid, and hand-typing a link is the exception.
+                MarbleButton(
+                    label = if (showPaste) trx("Hide the text field") else trx("Paste links by hand"),
+                    glyph = if (showPaste) MarbleGlyph.CLOSE else MarbleGlyph.PENCIL,
+                    style = MarbleButtonStyle.SECONDARY,
+                    onClick = { showPaste = !showPaste },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (showPaste) {
                     MarbleTextField(
                         label = trx("Paste Links or JSON"),
                         value = pastedText,
@@ -167,64 +216,47 @@ fun ServerAddSheet(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-
-                AddSheetTab.SUBSCRIPTION -> {
-                    var subName by remember { mutableStateOf("") }
-                    var subUrl by remember { mutableStateOf("") }
-
-                    MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            MarbleTextField(
-                                label = trx("Subscription Name"),
-                                value = subName,
-                                onValueChange = { subName = it },
-                                placeholder = trx("My Provider")
-                            )
-                            MarbleTextField(
-                                label = trx("HTTPS Subscription URL"),
-                                value = subUrl,
-                                onValueChange = { subUrl = it },
-                                placeholder = "https://example.com/sub"
-                            )
-                            MarbleSectionFooter(
-                                text = trx("Leave URL blank to create a local-only server group.")
-                            )
-                            MarbleButton(
-                                label = trx("Save Subscription"),
-                                glyph = MarbleGlyph.PLUS,
-                                enabled = subName.trim().isNotBlank() && !repo.busy,
-                                onClick = {
-                                    repo.addSubscription(subName.trim(), subUrl.trim())
-                                    onDismiss()
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-                }
-
-                AddSheetTab.NODE -> {
-                    MarbleManualNodeForm(
-                        repo = repo,
-                        targetGroup = targetGroup,
-                        groupChoices = groupChoices,
-                        onTargetGroupChange = { targetGroup = it },
-                        onSaved = onDismiss
-                    )
-                }
-
-                AddSheetTab.CHAIN -> {
-                    MarbleChainBuilderForm(
-                        repo = repo,
-                        targetGroup = targetGroup,
-                        groupChoices = groupChoices,
-                        onTargetGroupChange = { targetGroup = it },
-                        onSaved = onDismiss
-                    )
-                }
             }
-            Spacer(Modifier.height(12.dp))
         }
+    }
+}
+
+/** The two second-level screens the grid opens: both are one tap back to the 2×2. */
+private enum class AddSheetMode(val id: String) {
+    GRID("grid"),
+    MANUAL("manual"),
+    CHAIN("chain")
+}
+
+/**
+ * The back row of a second-level sheet screen. A sheet is not a page stack, so the way back is a
+ * control rather than a gesture — and it names where it goes.
+ */
+@Composable
+private fun MarbleSheetBackRow(
+    label: String,
+    onBack: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(percent = 50))
+            .clickable(role = androidx.compose.ui.semantics.Role.Button) { onBack() }
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        MarbleGlyphIcon(
+            glyph = MarbleGlyph.CHEVRON_LEFT,
+            color = colors.onSurfaceVariant,
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            text = label,
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelLarge
+        )
     }
 }
 

@@ -4393,15 +4393,26 @@ check(
     and "fun theRowBudgetLeavesRoomForTheNameOnANarrowPhone()" in files["serversAtlasTest"],
 )
 
+# MARBLE_SERVERS_DECLUTTER_V256 — the V244 rail is retired, deliberately.
+#
+# V244 put a horizontal rail of source cards above the list because "which library am I looking at"
+# had been three taps away. It answered that question, and it cost about a third of a phone viewport
+# on every visit — for a list that already names its groups in headers. V256 removed the rail and
+# kept the *sheet*: a library is chosen in exactly one place, the sources sheet reached from the
+# header, and the slot the rail occupied is one circular Auto-Select. This invariant moved with the
+# design — it asserts that the management path survived the removal, not the widget that used to be
+# the way in.
 check(
-    "V244 the rail is the one place a library is chosen",
-    "ServersLibraryRail(" in files["serversScreen"]
-    and "LibraryCardTile(" in files["serversScreen"]
-    and "ServersLibrarySheet(" in files["serversScreen"]
+    "V256 a library is chosen in the sources sheet, and the page above the list is servers",
+    "ServersLibrarySheet(" in files["serversScreen"]
+    and "ServersLibraryRail(" not in files["serversScreen"]
+    and "LibraryCardTile(" not in files["serversScreen"]
     and "val sourceCards = libraryCards(" in files["serversScreen"]
     and "repo.selectLibrarySource(" in files["serversScreen"]
-    and "Manage sources" in files["serversScreen"]
-    and "items(items = cards, key = { card -> card.id })" in files["serversScreen"],
+    and 'contentDescription = trx("Manage sources")' in files["serversScreen"]
+    and "onClick = { librarySheetOpen = true }" in files["serversScreen"]
+    and "ServerAutoSelectButton(" in files["serversScreen"]
+    and "ServerActionBubble(" in files["serversScreen"],
 )
 
 check(
@@ -5148,10 +5159,13 @@ check(
 )
 
 check(
-    "Design council aggregate sources keep management without a duplicate card rail",
-    'if (selectedId != "all") LazyRow(' in files["serversScreen"]
+    "Design council aggregate sources keep management without a card rail",
+    # MARBLE_SERVERS_DECLUTTER_V256 — "no duplicate card rail" is now literal: there is no rail at
+    # all, and management is the header's sources entry plus the sheet behind it.
+    'if (selectedId != "all") LazyRow(' not in files["serversScreen"]
     and 'contentDescription = trx("Manage sources")' in files["serversScreen"]
-    and 'onManage = { librarySheetOpen = true }' in files["serversScreen"],
+    and "librarySheetOpen = true" in files["serversScreen"]
+    and "servers-auto-select" in files["serversScreen"],
 )
 
 # ---------------------------------------------------------------------------
@@ -5314,6 +5328,151 @@ check(
     and "fun expressiveScaffoldTopicBarSwitchesSiblingDestinationsInline()" in v252_test
     and '"Appearance & interface" to "' in files["persianLexicon"]
     and '"Connection & core" to "' in files["persianLexicon"],
+)
+
+
+# ---------------------------------------------------------------------------
+# MARBLE_LUMEN_DOCK_V256 — the dock is inset before it is measured, sized by a
+# three-rung ladder, and its caption is transient.
+# ---------------------------------------------------------------------------
+v256_dock = read("app/src/main/java/com/marbleng/app/ui/MarbleLumenDock.kt")
+v256_wings = read("app/src/main/java/com/marbleng/app/ui/MarbleDockWings.kt")
+v256_studio = read("app/src/main/java/com/marbleng/app/model/DockStudio.kt")
+v256_intake = read("app/src/main/java/com/marbleng/app/model/ServerIntakeStudio.kt")
+v256_grid = read("app/src/main/java/com/marbleng/app/ui/AddServerGrid.kt")
+v256_bubble = read("app/src/main/java/com/marbleng/app/ui/ServerActionBubble.kt")
+v256_ip = read("app/src/main/java/com/marbleng/app/ui/IpIdentityScreen.kt")
+v256_home = files["homeScreen"]
+v256_doc = read("docs/LUMEN_DOCK_AND_INTAKE_GRID_V256.md")
+v256_model_test = read("app/src/test/java/com/marbleng/app/model/DockStudioV256Test.kt")
+v256_ui_test = read("app/src/test/java/com/marbleng/app/ui/LumenDockV256Test.kt")
+
+check(
+    "V256 the dock pays for the system bar before it is measured",
+    # The reported bug: the capsule's lower third under the system bar. The fix is an inset applied
+    # to the container, and two passes instead of two overlapping ones — `safeDrawingPadding()` and
+    # `navigationBars` together pay for the bottom twice and lift the pill a bar too high.
+    "windowInsetsPadding(WindowInsets.navigationBars)" in v256_dock
+    and "WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)"
+    in v256_dock
+    # The call site, not the word: the file's own comment names `safeDrawingPadding()` in order to
+    # explain why it is *not* used next to `navigationBars`.
+    and ".safeDrawingPadding()" not in v256_dock
+    and "DockStudio.BOTTOM_MARGIN_DP" in v256_dock
+    and "const val BOTTOM_MARGIN_DP: Int = 16" in v256_studio,
+)
+
+check(
+    "V256 the ladder is 48/56/64 and every rung fits the clearance the screens reserve",
+    "const val EXPANDED_HOLD_MS: Long = 2_000L" in v256_studio
+    and "DockSize.SMALL -> 48" in v256_studio
+    and "DockSize.MEDIUM -> 56" in v256_studio
+    and "DockSize.LARGE -> 64" in v256_studio
+    and "fun fitsClearance(" in v256_studio
+    and "fun ladderFits(" in v256_studio
+    and "DampingRatioMediumBouncy" in v256_studio
+    and "StiffnessMediumLow" in v256_studio
+    and "LaunchedEffect(selection)" in v256_dock
+    and "delay(DockStudio.EXPANDED_HOLD_MS)" in v256_dock
+    and "HapticFeedbackType.TextHandleMove" in v256_dock
+    and "scaleIn(initialScale = 0.82f) + fadeIn()" in v256_dock
+    and "Spring.DampingRatioMediumBouncy" in v256_dock
+    and "Spring.StiffnessMediumLow" in v256_dock
+    and "class DockStudioV256Test" in v256_model_test
+    and "fun everyRungFitsTheClearanceTheScreensActuallyReserve()" in v256_model_test
+    and "fun theCaptionOpensWithTheSelectionAndClosesOnItsOwnTimer()" in v256_ui_test,
+)
+
+check(
+    "V256 three connection styles, one at a time, and the island is silent about batches",
+    "enum class ConnectionWidgetStyle" in v256_studio
+    and "val showsHomeHero: Boolean get() = this == HERO_CARD" in v256_studio
+    and "val showsDockPower: Boolean get() = this == DOCK_ISLAND" in v256_studio
+    and "val showsCenterTrigger: Boolean get() = this == CENTER_MORPH" in v256_studio
+    and "internal fun MarbleConnectionIslandCapsule(" in v256_wings
+    and "internal fun MarbleDockPowerButton(" in v256_wings
+    and "internal fun MarbleCenterSpringTrigger(" in v256_wings
+    and "dock-island-progress" in v256_wings
+    and "FilledIconButton(" in v256_wings
+    and "animateDpAsState(" in v256_wings
+    and "repo.message.isNotBlank() && !repo.inlineProgressActive" in files["marbleApp"]
+    and "MarbleLumenDock(" in files["marbleApp"]
+    and "MarbleConnectionIslandCapsule(" in files["marbleApp"]
+    and "MarbleDockPowerButton(" in files["marbleApp"]
+    and "MarbleCenterSpringTrigger(" in files["marbleApp"],
+)
+
+check(
+    "V256 Home Settings owns four widget switches and the style, and Home honours them",
+    "enum class HomeWidget" in v256_studio
+    and "object HomeWidgets" in v256_studio
+    and "val showRouteCard: Boolean = true" in files["models"]
+    and "val showSpeedGraph: Boolean = true" in files["models"]
+    and "val connectionStyle: String = ConnectionWidgetStyle.DEFAULT.id" in files["models"]
+    and 'prefs.getBoolean("homeShowRouteCard", true)' in files["store"]
+    and 'putString("homeConnectionStyle"' in files["store"]
+    and 'title = trx("Home Settings")' in files["settingsAppearance"]
+    and "HomeWidget.entries.forEachIndexed" in files["settingsAppearance"]
+    and "widgets.showRouteCard || widgets.showIpBox" in v256_home
+    and "visible = widgets.showPresets" in v256_home
+    and "visible = widgets.showSpeedGraph" in v256_home
+    and "widgetStyle.showsHomeHero" in v256_home
+    and "private fun HomeDockedStage(" in v256_home
+    and "MaterialTheme.shapes.extraLarge" in v256_home,
+)
+
+check(
+    "V256 Add Server is a 2x2 that reads the clipboard before it offers it",
+    "enum class AddServerAction" in v256_intake
+    and "object IntakeClassifier" in v256_intake
+    and "fun subscriptionUrl(text: String?): String?" in v256_intake
+    and "Subscription detected in clipboard: Tap to import" in v256_intake
+    and "internal fun MarbleAddServerGrid(" in v256_grid
+    and "CardDefaults.filledCardColors(" in v256_grid
+    and "RoundedCornerShape(16.dp)" in v256_grid
+    and "MarbleAddServerGrid(" in files["serverForms"]
+    and "MarbleClipboardNotePill(" in files["serverForms"]
+    and "MarbleSegmentedControl(" not in files["serverForms"]
+    and "private enum class AddSheetTab" not in files["serverForms"]
+    and "fun theGridDispatchesTheVerbThatWasTapped()" in v256_ui_test,
+)
+
+check(
+    "V256 the server overflow is a six-verb bubble anchored to its own button",
+    "enum class ServerMenuAction" in v256_intake
+    and "DELETE(\"delete\", \"Delete\", destructive = true)" in v256_intake
+    and "internal fun ServerActionBubble(" in v256_bubble
+    and "RoundedCornerShape(20.dp)" in v256_bubble
+    and "surfaceContainerHigh" in v256_bubble
+    and "ServerActionBubble(" in files["serversScreen"]
+    and "ServerQuickActionsSheet" not in files["serversScreen"]
+    and "fun sixVerbsAndExactlyOneOfThemIsDestructive()" in v256_model_test,
+)
+
+check(
+    "V256 the IP page prints a 32sp monospaced address and copies with a checkmark",
+    "fontFamily = FontFamily.Monospace" in v256_ip
+    and "fontSize = 32.sp" in v256_ip
+    and "private fun IpIdentityFactsBadge(" in v256_ip
+    and "private fun IpFactTile(" in v256_ip
+    and "IpTileCopy.COPIED_HOLD_MS" in v256_ip
+    and "MarbleGlyph.CHECK" in v256_ip
+    and "const val COPIED_HOLD_MS: Long = 1_500L" in v256_intake
+    and "titleMedium.copy(fontWeight = FontWeight.SemiBold)" in v256_ip,
+)
+
+check(
+    "V256 the chapter, the README and the Persian lexicon record the pass",
+    "MARBLE_LUMEN_DOCK_V256" in v256_doc
+    and "## ۱. نوار پایین: چرا بریده می‌شد" in v256_doc
+    and "## ۷. جدول اجرا" in v256_doc
+    and "## ۸. آنچه عمداً انجام نشد" in v256_doc
+    and "## ۹. تست‌ها" in v256_doc
+    and "LUMEN_DOCK_AND_INTAKE_GRID_V256.md" in files["readme"]
+    and "is the newest chapter" in files["readme"]
+    and '"Dock island" to "' in files["persianLexicon"]
+    and '"Clipboard" to "' in files["persianLexicon"]
+    and '"Home Settings" to "' in files["persianLexicon"],
 )
 
 failed = [name for name, passed in checks if not passed]

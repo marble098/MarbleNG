@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -468,8 +469,12 @@ private fun MarbleRootShell(
                     }
 
         // Fully qualified: inside the rail Row the RowScope overload would win resolution.
+        // MARBLE_LUMEN_DOCK_V256 — a running batch is not an announcement. The island's own counter
+        // (`12/79 pinging…`) is the report, so the wide banner stays out of the way while
+        // `inlineProgressActive` is true instead of covering the top of the page to say the same
+        // number twice.
         androidx.compose.animation.AnimatedVisibility(
-            visible = repo.message.isNotBlank(),
+            visible = repo.message.isNotBlank() && !repo.inlineProgressActive,
             enter = fadeIn(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)),
             exit = fadeOut(motion.settleSpec(MARBLE_CHROME_FLIGHT_MS)),
             modifier = Modifier
@@ -517,7 +522,8 @@ private fun MarbleRootShell(
                     repo = repo,
                     tabs = visibleTabs,
                     selected = activeTab,
-                    onSelect = selectTab
+                    onSelect = selectTab,
+                    onConnect = onConnect
                 )
             }
         }
@@ -641,15 +647,23 @@ private fun MarbleNavigationRail(
 }
 
 /**
- * MARBLE_LIQUID_DOCK_V245 / MARBLE_CRYSTAL_LENS_V248 — the bottom chrome is now
- * [MarbleLiquidDock]: one floating frosted capsule with a crystal lens travelling across it,
- * replacing the tonal bar and its measured blue line.
+ * MARBLE_LUMEN_DOCK_V256 — the bottom chrome is [MarbleLumenDock]: a floating capsule with real
+ * window insets, a three-rung height ladder and a transient expanded caption.
  *
  * This function is the *adapter*, and it is deliberately thin. Everything the settings already
  * promise still holds — dock size, floating versus attached, labels on or off, icons on or off, the
- * fourth tab's own glyph and accent, the connection light — and it is translated into one
- * [MarbleDockTab] per visible tab. The only new element is the red counter: it carries the things
- * that are genuinely waiting for a tap, an update or a scan whose result is not applied.
+ * fourth tab's own glyph and accent, the connection light, the red counter — and it is translated
+ * into one [MarbleDockTab] per visible tab.
+ *
+ * What is new is the second half of V256: the connect control. [com.marbleng.app.model
+ * .ConnectionWidgetStyle] decides which wing exists —
+ *
+ *  - `DOCK_ISLAND`: the status capsule on the left and the power button on the right;
+ *  - `CENTER_MORPH`: the spring trigger, between the leading and trailing pairs of tabs;
+ *  - `HERO_CARD`: neither, because Home still draws the large card.
+ *
+ * The dock owns the *place*, the wings own the *state*, and the state is resolved once here so all
+ * of them agree about what "connected" means.
  */
 @Composable
 private fun MarbleBottomTabBar(
@@ -657,6 +671,7 @@ private fun MarbleBottomTabBar(
     tabs: List<MarbleRootTab>,
     selected: MarbleRootTab,
     onSelect: (MarbleRootTab) -> Unit,
+    onConnect: (ProxyProfile) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
@@ -711,7 +726,72 @@ private fun MarbleBottomTabBar(
         )
     }
 
-    MarbleLiquidDock(
+    val style = s.homeLayout.widgetStyle
+    val connected = repo.state == "CONNECTED"
+    val connecting = repo.state == "CONNECTING"
+    val connection = DockConnectionState(
+        connected = connected,
+        connecting = connecting,
+        disconnecting = repo.state == "DISCONNECTING",
+        // While the tunnel is up the live RTT is the honest number; before that it is the last
+        // measurement of the route the pill would connect to.
+        latencyMs = if (connected) repo.livePingMs else repo.selectedPingMs,
+        pingState = if (connected) repo.connectionPingState else repo.selectedPingState,
+        probing = repo.probeActive,
+        probeDone = repo.probeDone,
+        probeTotal = repo.probeTotal
+    )
+
+    val toggle: () -> Unit = {
+        when {
+            connected || connecting -> repo.stopVpn()
+            repo.state != "DISCONNECTING" -> repo.reconnectLastOrAuto(onConnect)
+        }
+    }
+    // One tap on the island is one measurement of the route that is or would be carrying traffic;
+    // while a batch is already running the same tap means "stop counting".
+    val ping: () -> Unit = {
+        if (repo.probeActive || repo.probeCancelling) repo.cancelProbes() else repo.measureHomePing()
+    }
+
+    val island: (@Composable RowScope.() -> Unit)? = if (style.showsDockPower) {
+        {
+            MarbleConnectionIslandCapsule(
+                state = connection,
+                size = size,
+                onClick = ping,
+                modifier = Modifier.padding(end = 4.dp)
+            )
+        }
+    } else {
+        null
+    }
+    val power: (@Composable RowScope.() -> Unit)? = if (style.showsDockPower) {
+        {
+            MarbleDockPowerButton(
+                state = connection,
+                size = size,
+                onToggle = toggle,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
+    } else {
+        null
+    }
+    val trigger: (@Composable () -> Unit)? = if (style.showsCenterTrigger) {
+        {
+            MarbleCenterSpringTrigger(
+                state = connection,
+                size = size,
+                onToggle = toggle,
+                onPing = ping
+            )
+        }
+    } else {
+        null
+    }
+
+    MarbleLumenDock(
         tabs = dockTabs,
         selectedIndex = tabs.indexOf(selected).coerceAtLeast(0),
         onSelect = { index -> tabs.getOrNull(index)?.let(onSelect) },
@@ -719,6 +799,9 @@ private fun MarbleBottomTabBar(
         size = size,
         showIcons = showIcons,
         showLabels = showLabels,
-        floating = floating
+        floating = floating,
+        leading = island,
+        center = trigger,
+        trailing = power
     )
 }
