@@ -32,8 +32,7 @@ val signingConfigured =
     signingPropertiesFile.exists()
 
 // MARBLE_RELEASE_INSTALL_GATE_V217 — the release APK's version properties must never
-// silently fall back. build.yml always passes -PVERSION_CODE (a UTC timestamp, so every
-// release is strictly newer than the one before it) and -PVERSION_NAME; if either ever
+// silently fall back. build.yml always passes the manually selected -PVERSION_CODE and -PVERSION_NAME; if either ever
 // stopped arriving, the old fallbacks would package versionCode 10000 / versionName
 // "1.0.2" — a silent downgrade every phone already running a timestamp-coded release
 // refuses to install ("App not installed"). With signing configured this is a release

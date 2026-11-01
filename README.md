@@ -1499,15 +1499,24 @@ When a newer semantic version exists:
 
 ## Versioning
 
-MarbleNG uses semantic release names with a monotonic Android `versionCode`.
+App release versions are chosen manually; pushes and merges do not create APKs, tags,
+or releases. To build, open **Actions → Build signed Android APKs → Run workflow**,
+select the source branch (normally `main`), and enter both:
 
-Typical patch progression:
+- `version_name`: a numeric semantic version such as `11.5.1` (without `v`). The APK
+  versionName is exactly this value and the Git tag is `v11.5.1`.
+- `version_code`: a positive integer no greater than 2100000000. Pick a value strictly
+  greater than the versionCode of the published APKs already installed on devices;
+  earlier releases used Unix timestamps, so small values such as 11501 will not work
+  as updates. Check the earlier release notes or `aapt2 dump badging <apk>` first.
 
-```text
-1.0.2 → 1.0.3 → ... → 1.0.9 → 1.1.0
-```
-
-Larger changes can request minor or major jumps. Published release tags are intended to be immutable.
+The workflow checks the most recent published release APK when available and rejects a
+non-increasing versionCode. The same selected values apply to every APK. An existing tag
+or release (including a draft) causes a failure, never an automatic version change or
+deletion. On success the tag points to the selected commit and a **draft** GitHub Release
+is created; review and publish it manually. If publishing fails after tag creation, inspect
+and manually remove the incomplete tag/draft before retrying that same version. No release
+is silently replaced.
 
 ## Android ABIs
 
@@ -1539,11 +1548,11 @@ The signed build workflow:
 4. builds native dependencies;
 5. restores the persistent Android signing identity from GitHub Actions secrets;
 6. validates the keystore and private key;
-7. calculates the semantic app version;
+7. validates the manually supplied version and Android versionCode;
 8. builds signed APKs;
 9. verifies APK signatures;
 10. uploads Actions artifacts;
-11. publishes a GitHub Release.
+11. creates a matching tag and draft GitHub Release for manual publication.
 
 No signing private key is committed to the repository.
 
@@ -1582,7 +1591,7 @@ Typical local flow:
 
 ```bash
 ./scripts/prepare-native.sh
-./gradlew assembleRelease
+./gradlew assembleRelease -PVERSION_NAME=11.5.1 -PVERSION_CODE=2000000000
 ```
 
 Check the current workflow and Gradle files for the exact SDK/NDK/toolchain versions.
