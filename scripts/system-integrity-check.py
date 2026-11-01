@@ -5546,6 +5546,25 @@ check(
     and "LUMEN_DOCK_AND_INTAKE_GRID_V256.md" in files["readme"],
 )
 
+# ---------------------------------------------------------------------------
+# MARBLE_FLOATING_DOCK_V258 — the chapter, and the promise that the retired
+# presentation cannot come back through a document.
+# ---------------------------------------------------------------------------
+v258_doc = read("docs/FLOATING_DOCK_AND_ABOUT_V258.md")
+
+check(
+    "V258 the chapter is written down and linked as the newest one",
+    "MARBLE_FLOATING_DOCK_V258" in v258_doc
+    and "MARBLE_PALETTE_STUDIO_V258" in v258_doc
+    and "## ۱. حالت «چسبیده» حذف شد، نه پنهان" in v258_doc
+    and "## ۳. نردبان: سه اندازه که واقعاً سه اندازه‌اند" in v258_doc
+    and "## ۱۰. چهار پالت، نه یک رنگ" in v258_doc
+    and "## ۱۲. تست" in v258_doc
+    and "FLOATING_DOCK_AND_ABOUT_V258.md" in files["readme"]
+    and "is the newest chapter" in files["readme"]
+    and "ROUTING_ASSET_PIN_V257.md" in files["readme"],
+)
+
 failed = [name for name, passed in checks if not passed]
 
 print("=== MarbleNG SYSTEM INTEGRITY ===")

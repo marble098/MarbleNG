@@ -249,7 +249,10 @@ internal fun MarbleLumenDock(
                     size = size,
                     floatSpec = floatSpec,
                     colorSpec = colorSpec,
-                    showIcons = showIcons,
+                    // MARBLE_FLOATING_DOCK_V258 — the dock always draws its glyphs: the switch
+                    // that could hide them left Settings, and a row of unlabelled dots is not a
+                    // navigation bar.
+                    showIcons = true,
                     onClick = { onSelect(index) },
                     modifier = Modifier.weight(slotWeight)
                 )

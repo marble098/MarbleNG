@@ -28,16 +28,17 @@ object DockStudio {
     /** Air between the pill and the screen edge. The pill floats; it is never full-bleed. */
     const val HORIZONTAL_MARGIN_DP: Int = 18
 
-    /**
-     * MARBLE_FLOATING_DOCK_V258 — the air under the capsule, [DEFAULT_BOTTOM_GAP_DP] by default.
-     *
-     * Kept as [BOTTOM_MARGIN_DP] because two generations of call sites and one pinned test name it
-     * that; it is the *default* of the user's adjustable gap, not a constant the dock obeys.
-     */
-    const val BOTTOM_MARGIN_DP: Int = DEFAULT_BOTTOM_GAP_DP
-
     /** The rung the dock ships on. Larger than V256's 16dp: the capsule now visibly floats. */
     const val DEFAULT_BOTTOM_GAP_DP: Int = 22
+
+    /**
+     * MARBLE_FLOATING_DOCK_V258 — the old name for that default.
+     *
+     * Two generations of call sites, one pinned invariant and the dock's own KDoc name it, so the
+     * alias stays; it is the *default* of the user's adjustable gap now, not a constant the dock
+     * obeys.
+     */
+    const val BOTTOM_MARGIN_DP: Int = DEFAULT_BOTTOM_GAP_DP
 
     /** The adjustable range of [DEFAULT_BOTTOM_GAP_DP] — the setting's own bounds. */
     const val MIN_BOTTOM_GAP_DP: Int = 8
