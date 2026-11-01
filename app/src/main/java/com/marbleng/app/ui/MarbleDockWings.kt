@@ -9,6 +9,8 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -18,6 +20,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +47,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -51,6 +58,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -307,16 +315,30 @@ internal fun MarbleDockPowerButton(
 }
 
 /**
- * MARBLE_LUMEN_DOCK_V256 — Style B: the morphing central spring button.
+ * MARBLE_CENTER_MORPH_STUDIO_V259 — Style B: the centre trigger, rebuilt as a Material 3
+ * Expressive object instead of a fifth tab.
  *
- * A minimal 48dp circle that blooms into an expressive pill on press (`animateDpAsState` on the
- * width, clipped to a stadium, with the arrow sliding out of the glyph and a ripple travelling the
- * pill behind it). The latency and the state ride a micro tooltip **8dp above the button** and leave
- * as soon as the interaction is over — [DockStudio.CENTER_TOOLTIP_HOLD_MS] after the tap — because a
- * floating card that stays is a second nav bar.
+ * The complaint was exact: at the centre of the dock the app drew a circle the same size as a tab,
+ * with the same flat fill, so the third connection style read as a navigation slot that happened to
+ * start a tunnel. Three things make it a different object now:
  *
- * The tooltip draws above the pill, which is why the dock's surface and its content are two layers:
- * a clipped row would have cut the card in half.
+ *  1. **It is bigger.** [DockStudio.centerTriggerSizeDp] is the inner row of a capsule that is
+ *     [DockStudio.CENTER_PROUD_DP] taller than the same rung in the other two styles, so the button
+ *     outgrows every glyph beside it — and the dock's scroll clearance is derived from that height,
+ *     so nothing underneath is covered.
+ *  2. **It is made of a different material.** A solid tonal disc, a radial specular sheen, a bright
+ *     1dp inner rim, an outer rim of the capsule's own light, and a three-layer shadow (a tight
+ *     contact shadow, a mid penumbra and a wide ambient one). The tab styles use a flat two-tone
+ *     gradient; this one looks pressed out of the bar.
+ *  3. **It breathes.** While the tunnel is up the whole disc lifts and settles on a 1.6s cycle —
+ *     0.5dp of travel, a hair of scale, and a halo that opens behind it. Reduced motion holds the
+ *     frame: the halo is drawn at one radius and nothing moves.
+ *
+ * The bloom is still the interaction: a tap widens the disc into a stadium carrying the state word
+ * and the measured latency, and a micro tooltip floats 8dp above the dock for
+ * [DockStudio.CENTER_TOOLTIP_HOLD_MS] — a *tooltip*, on the Expressive "surface that leaves with
+ * the finger" rule, never a second nav bar. The tooltip is why the dock's surface and its content
+ * are two layers: a clipped row would have cut the card in half.
  */
 @Composable
 internal fun MarbleCenterSpringTrigger(
@@ -338,9 +360,9 @@ internal fun MarbleCenterSpringTrigger(
         }
     }
 
-    val resting = DockStudio.powerButtonSizeDp(size).dp
-    val bloomed = (DockStudio.powerButtonSizeDp(size) + 44).dp
-    val width by androidx.compose.animation.core.animateDpAsState(
+    val resting = DockStudio.centerTriggerSizeDp(size).dp
+    val bloomed = DockStudio.centerBloomedWidthDp(size).dp
+    val width by animateDpAsState(
         targetValue = if (open) bloomed else resting,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "centerTriggerWidth"
@@ -350,6 +372,28 @@ internal fun MarbleCenterSpringTrigger(
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "centerTriggerRipple"
     )
+    // The living state: 0 at rest, 1 while the tunnel is up. Only the *connected* disc breathes —
+    // a warning colour that pulses is an alarm, and this is a machine that is working.
+    val live by animateFloatAsState(
+        targetValue = if (state.connected) 1f else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "centerTriggerLive"
+    )
+    val breath = if (!motion.still && state.connected) {
+        val transition = rememberInfiniteTransition(label = "centerBreath")
+        val value by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1_600, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "centerBreathPhase"
+        )
+        value
+    } else {
+        0f
+    }
 
     val container by animateColorAsState(
         targetValue = when {
@@ -367,12 +411,14 @@ internal fun MarbleCenterSpringTrigger(
     }
     val description = if (state.connected) trx("Disconnect") else trx("Connect")
     val pingDescription = trx("Ping the active route")
+    val glyph = DockStudio.centerGlyphDp(size).dp
+    val height = resting
 
     Box(
         modifier = modifier.testTag("dock-center"),
         contentAlignment = Alignment.Center
     ) {
-        // The micro tooltip, 8dp above the pill's top edge. Fixed height so the offset is exact.
+        // The micro tooltip, 8dp above the capsule's top edge. Fixed height so the offset is exact.
         AnimatedVisibility(
             visible = open && !motion.still,
             enter = fadeIn() + scaleIn(initialScale = 0.86f),
@@ -425,12 +471,85 @@ internal fun MarbleCenterSpringTrigger(
             }
         }
 
+        // The halo: an Expressive "state ring" that opens behind the disc while the tunnel is up.
+        // It is a second circle, not a shadow — a glow tinted with the surface it sits on is what
+        // Material 3 Expressive uses for a live control, and a blurred shadow at this size is mud.
+        if (live > 0.01f) {
+            // Named locally so the `size` in the draw scope is unambiguous: the composable's own
+            // `size` is the *rung*, and the halo's radius must come from the canvas it is drawn on.
+            val halo = height + (breath * 8f).dp + (live * 4f).dp
+            Canvas(
+                modifier = Modifier
+                    .size(halo)
+                    .testTag("dock-center-halo")
+            ) {
+                drawCircle(
+                    color = container.copy(alpha = 0.16f * live * (1f - breath * 0.45f)),
+                    radius = this.size.minDimension / 2f
+                )
+                drawCircle(
+                    color = container.copy(alpha = 0.10f * live),
+                    radius = this.size.minDimension / 2.9f
+                )
+            }
+        }
+
         Box(
             modifier = Modifier
                 .width(width)
-                .height(DockStudio.powerButtonSizeDp(size).dp)
+                .height(height + (breath * 1f.dp))
+                .graphicsLayer {
+                    // A hair of scale on the same phase as the travel: the disc rises *and* swells,
+                    // which is the Expressive way of saying "this is alive" without a porthole.
+                    val swell = 1f + live * breath * 0.015f
+                    scaleX = swell
+                    scaleY = swell
+                }
+                // Three elevation layers: a 2dp contact shadow that glues the disc to the bar, a
+                // 10dp penumbra, and a 22dp ambient pass tinted with the disc's own colour. One
+                // shadow at 18dp read as a sticker; the stack reads as an object standing on glass.
+                .shadow(elevation = 2.dp, shape = RoundedCornerShape(percent = 50))
+                .shadow(
+                    elevation = 10.dp,
+                    shape = RoundedCornerShape(percent = 50),
+                    ambientColor = container.copy(alpha = 0.6f),
+                    spotColor = container.copy(alpha = 0.8f)
+                )
+                .shadow(
+                    elevation = 22.dp,
+                    shape = RoundedCornerShape(percent = 50),
+                    ambientColor = container.copy(alpha = 0.4f),
+                    spotColor = container.copy(alpha = 0.5f)
+                )
                 .clip(RoundedCornerShape(percent = 50))
                 .background(container)
+                // The specular sheen: light gathering at the top of the disc and falling away
+                // before the rim, so the fill is a material rather than a colour.
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.26f),
+                            Color.White.copy(alpha = 0.06f),
+                            Color.Transparent
+                        )
+                    )
+                )
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            ink.copy(alpha = 0.10f)
+                        ),
+                        center = Offset.Unspecified,
+                        radius = Float.POSITIVE_INFINITY
+                    )
+                )
+                // The bright rim, then the capsule's own light line just outside it.
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.30f),
+                    shape = RoundedCornerShape(percent = 50)
+                )
                 .clickable(role = Role.Button) {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     open = true
@@ -444,29 +563,74 @@ internal fun MarbleCenterSpringTrigger(
             Box(
                 modifier = Modifier
                     .fillMaxWidth(ripple.coerceIn(0f, 1f))
-                    .height(DockStudio.powerButtonSizeDp(size).dp)
+                    .height(height)
                     .clip(RoundedCornerShape(percent = 50))
                     .background(ink.copy(alpha = 0.10f))
             )
+
+            // MARBLE_CENTER_MORPH_STUDIO_V259 — the bloom carries the *reading*, not only the verb:
+            // one glyph, then the state word and the latency the dock just measured, so the centre
+            // style is the only one where the answer is inside the button the reader pressed.
             AnimatedContent(
                 targetState = open,
                 transitionSpec = {
-                    (scaleIn(initialScale = 0.7f) + fadeIn()) togetherWith
-                        (scaleOut(targetScale = 0.7f) + fadeOut())
+                    (scaleIn(initialScale = 0.78f) + fadeIn()) togetherWith
+                        (scaleOut(targetScale = 0.78f) + fadeOut())
                 },
                 label = "centerTriggerGlyph"
             ) { bloom ->
-                MarbleGlyphIcon(
-                    glyph = when {
-                        bloom && state.connected -> MarbleGlyph.STOP
-                        bloom -> MarbleGlyph.POWER
-                        state.connected -> MarbleGlyph.STOP
-                        else -> MarbleGlyph.POWER
-                    },
-                    color = ink,
-                    weight = 1.1f,
-                    modifier = Modifier.size(22.dp)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    modifier = if (bloom) {
+                        Modifier.padding(horizontal = 12.dp)
+                    } else {
+                        Modifier
+                    }
+                ) {
+                    MarbleGlyphIcon(
+                        glyph = when {
+                            state.connected -> MarbleGlyph.STOP
+                            else -> MarbleGlyph.POWER
+                        },
+                        color = ink,
+                        weight = 1.15f,
+                        modifier = Modifier.size(glyph)
+                    )
+                    if (bloom) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(0.dp)
+                        ) {
+                            Text(
+                                text = trx(
+                                    when {
+                                        state.working -> "Working\u2026"
+                                        state.connected -> "Connected"
+                                        else -> "Ready"
+                                    }
+                                ),
+                                color = ink,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                maxLines = 1
+                            )
+                            Text(
+                                text = if (state.probing) {
+                                    faDigits(DockStudio.batchLabel(state.probeDone, state.probeTotal))
+                                } else {
+                                    faDigits(state.latencyLabel)
+                                },
+                                color = ink.copy(alpha = 0.82f),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Medium,
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
             }
         }
     }

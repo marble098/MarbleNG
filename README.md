@@ -73,7 +73,17 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-`docs/FLOATING_DOCK_AND_ABOUT_V258.md` is the newest chapter: the attached bottom bar deleted
+`docs/CENTER_MORPH_AND_QUIET_HOME_V259.md` is the newest chapter: the centre connection style
+rebuilt as a Material 3 Expressive object rather than a fifth tab — the capsule grows 8dp, the trigger
+outgrows every glyph beside it, three elevation layers and a specular rim replace the flat circle, a
+live halo breathes while the tunnel is up, and the bloom carries the state word and the measured
+latency — with the scroll clearance derived from that taller capsule so nothing is buried; Settings
+inner pages swapping the 112dp `MediumTopAppBar` for a 64dp `SmallTopAppBar` so a page's title box no
+longer floats a band below the top of the app; and a Home that ships quiet, drawing only the heading,
+the connect control and the route it will use until the reader adds the rest from a studio of named
+switches with a live preview, from the card Home itself offers at the bottom of the page, or from the
+first-run warm-up row that exists only while the library is empty.
+`docs/FLOATING_DOCK_AND_ABOUT_V258.md` is the chapter before it: the attached bottom bar deleted
 rather than hidden (the preference is the rung, and a legacy `medium|attached` migrates to `medium`
 on read), the capsule's distance from the bottom turned into a clamped setting (8–44dp, default 22)
 whose scroll clearance is derived so no page can clip behind it, a rebuilt 56/68/82dp ladder that
