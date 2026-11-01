@@ -83,7 +83,7 @@ import kotlinx.coroutines.delay
  * side — the bottom would be paid for twice and the pill would float a navigation-bar too high on
  * every gesture phone.
  *
- * **2. It had one size.** The ladder is 48 / 56 / 64 dp ([DockStudio.heightDp]), and the padding,
+ * **2. It had one size.** The ladder is 56 / 68 / 82 dp ([DockStudio.heightDp]), and the padding,
  * the glyph and the width of an open capsule are derived from the rung instead of restated per call
  * site.
  *
@@ -98,9 +98,14 @@ import kotlinx.coroutines.delay
  * calm-motion switch and Android's own *remove animations* still win — [marbleMotion] clamps the
  * travel and a still motion settles without overshoot.
  *
- * The wings are slots, not this file's business: [leading] carries the connection island, [trailing]
- * the power button, [center] the morphing trigger. Which of them exists is
- * [com.marbleng.app.model.ConnectionWidgetStyle]'s decision, taken by the shell.
+ * MARBLE_CENTER_MORPH_STUDIO_V259 — **5. The third style was a fifth tab.** `CENTER_MORPH` used to
+ * draw a circle of exactly `restingTabSizeDp` in the middle of the bar: the same object as a tab, at
+ * the same height, in the place a tab would be. The brief asks for a bar that is *different* there —
+ * a little larger, and made of the newer Expressive material rather than the capsule's flat
+ * gradient. So when [centerProud] is set the whole capsule grows by [DockStudio.CENTER_PROUD_DP],
+ * the tabs sit in the row as before, and the trigger fills the taller row: a solid tonal disc with a
+ * specular rim and a stack of three elevation shadows. It is the only object in the product that is
+ * deliberately bigger than the chrome it lives in.
  */
 @Composable
 internal fun MarbleLumenDock(
@@ -115,6 +120,14 @@ internal fun MarbleLumenDock(
      * above the gesture bar is the reader's answer, not this file's.
      */
     bottomGap: Dp = DockStudio.DEFAULT_BOTTOM_GAP_DP.dp,
+    /**
+     * MARBLE_CENTER_MORPH_STUDIO_V259 — true while a centre trigger is going to be drawn.
+     *
+     * The capsule grows by [DockStudio.CENTER_PROUD_DP] and the rung's own material gives way to the
+     * Expressive one. It is a parameter rather than `center != null` only because the dock is also
+     * drawn in tests and previews without a wing, and those must stay at the shipped height.
+     */
+    centerProud: Boolean = false,
     leading: (@Composable RowScope.() -> Unit)? = null,
     center: (@Composable () -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null
@@ -123,7 +136,11 @@ internal fun MarbleLumenDock(
 
     val colors = MaterialTheme.colorScheme
     val motion = marbleMotion()
-    val height = DockStudio.heightDp(size)
+    val height = if (centerProud && center != null) {
+        DockStudio.centerDockHeightDp(size)
+    } else {
+        DockStudio.heightDp(size)
+    }
     val pillPadding = DockStudio.pillPaddingDp(size)
     val corner = DockStudio.cornerRadiusDp(size)
     val shape = RoundedCornerShape(corner)
@@ -191,18 +208,45 @@ internal fun MarbleLumenDock(
                     )
                 )
                 .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            colors.primary.copy(alpha = 0.12f),
-                            Color.Transparent,
-                            colors.tertiary.copy(alpha = 0.07f)
+                    if (centerProud && center != null) {
+                        // MARBLE_CENTER_MORPH_STUDIO_V259 — the centre style's own material: a
+                        // warmer, wider sheen than the two-tone strip the tab styles use, so the bar
+                        // is recognisably the same object made of a newer material rather than the
+                        // same object with a button dropped into it.
+                        Brush.radialGradient(
+                            colors = listOf(
+                                colors.primary.copy(alpha = 0.20f),
+                                colors.tertiary.copy(alpha = 0.10f),
+                                Color.Transparent
+                            )
                         )
-                    )
+                    } else {
+                        Brush.verticalGradient(
+                            listOf(
+                                colors.primary.copy(alpha = 0.12f),
+                                Color.Transparent,
+                                colors.tertiary.copy(alpha = 0.07f)
+                            )
+                        )
+                    }
                 )
                 .border(
                     width = 1.dp,
                     color = colors.outlineVariant.copy(alpha = 0.55f),
                     shape = shape
+                )
+                .then(
+                    // The centre style also grows a second, inner rim: the Expressive "double
+                    // outline" that marks a surface a reader is meant to press.
+                    if (centerProud && center != null) {
+                        Modifier.border(
+                            width = 1.dp,
+                            color = colors.primary.copy(alpha = 0.18f),
+                            shape = RoundedCornerShape(corner - 4f)
+                        )
+                    } else {
+                        Modifier
+                    }
                 )
         )
         Row(
@@ -210,6 +254,13 @@ internal fun MarbleLumenDock(
                 .fillMaxWidth()
                 .height(height.dp)
                 .padding(horizontal = pillPadding.dp)
+                .then(
+                    if (centerProud && center != null) {
+                        Modifier.padding(horizontal = 2.dp)
+                    } else {
+                        Modifier
+                    }
+                )
                 .selectableGroup(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp)

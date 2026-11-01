@@ -3269,6 +3269,25 @@ private val FaFriendlyVoice: Map<String, String> = mapOf(
     "Fix blocked" to "رفع فیلتر",
     "Iran mode lab" to "آزمایشگاه ایران",
     "Tap a row to change it" to "روی هر بخش بزن تا باز و تنظیم بشه",
+    // MARBLE_HOME_QUIET_V259 — the quiet-Home pass. The warm voice is the right layer for these:
+    // they are sentences about *this* page ("A quiet Home"), not names of features, and the calm
+    // default is a promise the app makes on its first run.
+    "Sections on Home" to "بخش‌های صفحه اصلی",
+    "A quiet Home" to "یه خونهٔ آروم",
+    "Only what you need is here. Add the rest whenever you want it." to
+        "فقط چیزهایی که لازم داری اینجاست. بقیه‌ش رو هر وقت خواستی اضافه کن.",
+    "Show everything" to "همه‌ش رو نشون بده",
+    "Choose sections" to "انتخاب بخش‌ها",
+    "Home starts quiet: the heading, the connect control and the route it will use." to
+        "صفحه اصلی آروم شروع می‌شه: عنوان، دکمهٔ اتصال و مسیری که قراره استفاده کنه.",
+    "The order is designed, not dragged: the heading, the decision, the modes, " +
+        "the route, the live speed and the shortcuts." to
+        "چیدمان طراحی شده و کشیدنی نیست: عنوان، تصمیم، حالت‌ها، مسیر، سرعت زنده و کارهای سریع.",
+    "Protected uptime" to "مدت اتصال امن",
+    "Tap to pick a server" to "بزن تا سرور انتخاب کنی",
+    "Home shows everything again" to "صفحه اصلی دوباره همه‌چیز رو نشون می‌ده",
+    "Working\u2026" to "دارم انجامش می‌دم\u2026",
+    "Scan a QR" to "یه QR اسکن کن",
 )
 
 /** The dictionary the whole product reads: base entries with the warm voice on top. */

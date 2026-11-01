@@ -549,6 +549,10 @@ files = {
     # MARBLE_PLAIN_VOICE_V246 — the ghost text behind the ping (the swipe reveal drawn through a
     # selected row) and the plain-language pass over Settings: the rule, its test and the chapter.
     "plainVoice": read("app/src/main/java/com/marbleng/app/model/PlainVoice.kt"),
+    # MARBLE_HOME_QUIET_V259 — Home's calm furniture: the stage, the quiet card, the warm-up row and
+    # the studio's preview strip. One file, so "where is the stage drawn" has one answer.
+    "homeStudioUi": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
+    "homeQuiet": read("app/src/main/java/com/marbleng/app/model/HomeQuiet.kt"),
     "plainVoiceTest": read("app/src/test/java/com/marbleng/app/model/PlainVoiceV246Test.kt"),
     "plainVoiceDoc": read("docs/PLAIN_VOICE_V246.md"),
 }
@@ -5186,10 +5190,14 @@ check(
 
 check(
     "V250 Home keeps one connect control inside an expressive stage",
-    'label = "homeConnectionStage"' in files["homeScreen"]
+    # MARBLE_HOME_QUIET_V259 — the two stages became one. The shape, the petal mark and the state
+    # colour live in `MarbleCalmStage` (MarbleHomeStudio) now, and Home hands it either the pill
+    # (hero style) or the mode row (dock styles): still exactly one connect control per page.
+    'label = "homeCalmStage"' in files["homeStudioUi"]
+    and "MarbleCalmStage(" in files["homeScreen"]
     and "MarbleConnectPill(" in files["homeScreen"]
     and "MarbleExpressiveTile(" in files["homeScreen"]
-    and "MarblePetalMark(" in files["homeScreen"]
+    and "MarblePetalMark(" in files["homeStudioUi"]
     and "val ticker = if (connected) faDigits(uptime) else \"\"" in files["homeScreen"],
 )
 
@@ -5423,7 +5431,10 @@ check(
     and "visible = widgets.showSpeedGraph" in v256_home
     and "widgetStyle.showsHomeHero" in v256_home
     and "private fun HomeDockedStage(" in v256_home
-    and "MaterialTheme.shapes.extraLarge" in v256_home,
+    # MARBLE_HOME_QUIET_V259 — both stages are the one Expressive surface now, so the hero is no
+    # longer a squircle of its own (`shapes.extraLarge`): it is the asymmetric stage.
+    and "marbleAsymmetricShape(prominent = true)" in files["homeStudioUi"]
+    and "MarbleCalmStage(" in v256_home,
 )
 
 check(
@@ -5561,8 +5572,124 @@ check(
     and "## ۱۰. چهار پالت، نه یک رنگ" in v258_doc
     and "## ۱۲. تست" in v258_doc
     and "FLOATING_DOCK_AND_ABOUT_V258.md" in files["readme"]
-    and "is the newest chapter" in files["readme"]
+    # MARBLE_CENTER_MORPH_STUDIO_V259 — the chapter chain moved on, so V258's link is asserted on
+    # its own text rather than by borrowing the newest-chapter phrase V259 now owns.
+    and "FLOATING_DOCK_AND_ABOUT_V258.md` is the chapter before it" in files["readme"]
     and "ROUTING_ASSET_PIN_V257.md" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_CENTER_MORPH_STUDIO_V259 / MARBLE_SETTINGS_TOP_AIR_V259 /
+# MARBLE_HOME_QUIET_V259 — the centre trigger as an Expressive object, the
+# Settings title box back at the top, and a Home that ships quiet.
+# ---------------------------------------------------------------------------
+v259_doc = read("docs/CENTER_MORPH_AND_QUIET_HOME_V259.md")
+v259_studio = read("app/src/main/java/com/marbleng/app/model/DockStudio.kt")
+v259_wings = read("app/src/main/java/com/marbleng/app/ui/MarbleDockWings.kt")
+v259_dock = read("app/src/main/java/com/marbleng/app/ui/MarbleLumenDock.kt")
+v259_pages = read("app/src/main/java/com/marbleng/app/ui/MarbleExpressivePages.kt")
+v259_home = files["homeScreen"]
+v259_home_ui = files["homeStudioUi"]
+v259_quiet = files["homeQuiet"]
+v259_store = files["store"]
+v259_appearance = files["settingsAppearance"]
+v259_model_test = read("app/src/test/java/com/marbleng/app/model/DockStudioCenterMorphV259Test.kt")
+v259_ui_test = read("app/src/test/java/com/marbleng/app/ui/HomeQuietAndCentreMorphV259Test.kt")
+
+check(
+    "V259 the centre style is a bigger capsule and a bigger trigger, and the clearance follows it",
+    # One constant, three consequences: the capsule grows, the circle outgrows a tab's, and the
+    # scroll clearance every page reserves is derived from the taller capsule.
+    "const val CENTER_PROUD_DP: Int = 8" in v259_studio
+    and "fun centerDockHeightDp(size: DockSize): Int = heightDp(size) + CENTER_PROUD_DP"
+    in v259_studio
+    and "fun centerTriggerSizeDp(size: DockSize): Int" in v259_studio
+    and "fun centerBloomedWidthDp(size: DockSize): Int" in v259_studio
+    and "fun centerClearanceDp(size: DockSize, gapDp: Int = DEFAULT_BOTTOM_GAP_DP): Int" in v259_studio
+    # The ladder V258 locked is untouched: the centre style is a step *above* it, not a new ladder.
+    and "DockSize.SMALL -> 56" in v259_studio
+    and "DockSize.MEDIUM -> 68" in v259_studio
+    and "DockSize.LARGE -> 82" in v259_studio
+    and "DockStudio.centerDockHeightDp(size)" in v259_dock
+    and "centerProud: Boolean = false" in v259_dock
+    and "DockStudio.centerClearanceDp(" in files["marbleApp"]
+    and "settings.homeLayout.widgetStyle.showsCenterTrigger" in files["marbleApp"]
+    # The trigger's new material: three elevation layers, a specular rim, a live halo and a bloom
+    # that carries the reading instead of only the verb.
+    and "DockStudio.centerTriggerSizeDp(size).dp" in v259_wings
+    and "DockStudio.centerBloomedWidthDp(size).dp" in v259_wings
+    and "dock-center-halo" in v259_wings
+    and "elevation = 22.dp" in v259_wings
+    and "Color.White.copy(alpha = 0.30f)" in v259_wings
+    and "DockStudio.centerGlyphDp(size).dp" in v259_wings
+    and "class DockStudioCenterMorphV259Test" in v259_model_test
+    and "fun theCentreDockIsTallerAndItsTriggerOutgrowsEveryTab()" in v259_model_test
+    and "fun theCentreClearanceCoversTheTallerCapsuleAtEveryGapAndRung()" in v259_model_test
+    and "theCentreStyleDrawsItsProudTriggerAndKeepsAllFourTabs" in v259_ui_test,
+)
+
+check(
+    "V259 a Settings inner page's title box sits at the top of the app",
+    # 112dp of reserved title area was spent on nothing: the page's own heading is drawn in the
+    # hero, 24dp below. One 64dp row instead, with the same scroll behaviour. The row itself, not
+    # the word: the file's own comment names `MediumTopAppBar` to explain why the 112dp reservation
+    # was the gap, so the call site is what is pinned.
+    "\n            TopAppBar(" in v259_pages
+    and "TopAppBarDefaults.topAppBarColors(" in v259_pages
+    and "exitUntilCollapsedScrollBehavior" in v259_pages
+    and "MARBLE_SETTINGS_TOP_AIR_V259" in v259_pages,
+)
+
+check(
+    "V259 a first run is the quiet Home, and the sections a reader adds are switches",
+    # The quiet default is three sections, and it reaches only a preference that has never been
+    # written: every save writes both keys.
+    "val CALM_SECTIONS: List<HomeSection> = listOf(" in v259_quiet
+    and "HomeSection.HEADER," in v259_quiet
+    and "HomeSection.CONNECT," in v259_quiet
+    and "HomeSection.ROUTE" in v259_quiet
+    and "fun calmOrder(): String = HomeStudio.serialize(CALM_SECTIONS)" in v259_quiet
+    and "fun calmHidden(): String" in v259_quiet
+    and "fun toggle(" in v259_quiet
+    and "legacyStatsVisible = if (section == HomeSection.STATS) !wasVisible else legacyStatsVisible"
+    in v259_quiet
+    and 'prefs.getString("homeSectionOrder", HomeQuiet.calmOrder())' in v259_store
+    and 'prefs.getString("homeHiddenSections", HomeQuiet.CALM_HIDDEN)' in v259_store
+    # Home draws the quiet card and the warm-up, and Home can restore the full page in one tap.
+    and "MarbleQuietCard(" in v259_home
+    and "MarbleWarmupRow(" in v259_home
+    and "HomeQuiet.everythingOrder()" in v259_home
+    and 'item(key = "home-quiet-card")' in v259_home
+    and "fun homeShowsQuietCard(" in v259_home_ui
+    and "fun homeShowsWarmup(" in v259_home_ui
+    # The studio is back, one named switch per section, over a live preview of the order.
+    and 'item(key = "home-section-switches")' in v259_appearance
+    and "HomeQuiet.toggle(" in v259_appearance
+    and "MarbleHomeSectionPreview(" in v259_appearance
+    and 'testTag("home-section-switch-${section.id}")' in v259_appearance
+    # The one designed surface both stages share.
+    and "internal fun MarbleCalmStage(" in v259_home_ui
+    and "private fun HomeDockedStage(" in v259_home
+    and "fun aFirstRunIsTheCalmLayoutAndNotTheFullOne()" in v259_model_test
+    and "fun theLegacyFloorCannotMakeASwitchLookBroken()" in v259_model_test
+    and "theQuietCardSaysWhatIsHiddenAndDispatchesItsTwoVerbs" in v259_ui_test
+    and "theCalmStagePrintsItsOneNumberAndItsRoute" in v259_ui_test,
+)
+
+check(
+    "V259 the chapter is written down and linked as the newest one",
+    "MARBLE_CENTER_MORPH_STUDIO_V259" in v259_doc
+    and "MARBLE_SETTINGS_TOP_AIR_V259" in v259_doc
+    and "MARBLE_HOME_QUIET_V259" in v259_doc
+    and "## ۱. مرکز نوار: یک دکمهٔ بزرگ‌تر، از جنس متریال تازه" in v259_doc
+    and "## ۲. تنظیمات: باکس عنوان دیگر از بالای اپ فاصله ندارد" in v259_doc
+    and "## ۳. صفحهٔ اصلی: نصب تازه در خلوت‌ترین حالت شروع می‌شود" in v259_doc
+    and "## ۵. جدول اجرا" in v259_doc
+    and "## ۶. آنچه عمداً انجام نشد" in v259_doc
+    and "## ۷. تست" in v259_doc
+    and "CENTER_MORPH_AND_QUIET_HOME_V259.md" in files["readme"]
+    and "CENTER_MORPH_AND_QUIET_HOME_V259.md` is the newest chapter" in files["readme"]
+    and "FLOATING_DOCK_AND_ABOUT_V258.md" in files["readme"],
 )
 
 failed = [name for name, passed in checks if not passed]

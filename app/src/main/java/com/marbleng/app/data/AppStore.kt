@@ -687,8 +687,13 @@ class AppStore(context: Context) {
         // on the way in, so a section added by a future build appears in the order (at the end)
         // instead of being silently dropped, and a section retired by one disappears from it.
         homeLayout = HomeLayout.of(
-            sectionOrder = prefs.getString("homeSectionOrder", HomeStudio.DEFAULT_ORDER),
-            hiddenSections = prefs.getString("homeHiddenSections", HomeStudio.DEFAULT_HIDDEN),
+            // MARBLE_HOME_QUIET_V259 — a *first run* is the quiet Home: heading, the one decision
+            // and the route it will use. These two fallbacks are read only when the preference has
+            // never been written, and every save writes both keys, so an install that has ever kept
+            // a layout never sees them. `HomeStudio.DEFAULT_ORDER` stays the full list, so "show
+            // everything" in Settings still has one canonical answer to restore.
+            sectionOrder = prefs.getString("homeSectionOrder", HomeQuiet.calmOrder()),
+            hiddenSections = prefs.getString("homeHiddenSections", HomeQuiet.CALM_HIDDEN),
             // MARBLE_HOME_WIDGETS_V256 — four switches and one dropdown, all defaulted to what the
             // app already drew, so an upgrade changes nobody's Home until somebody asks.
             showRouteCard = prefs.getBoolean("homeShowRouteCard", true),

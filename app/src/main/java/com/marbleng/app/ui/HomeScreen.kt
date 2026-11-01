@@ -4,7 +4,6 @@ package com.marbleng.app.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -66,6 +65,7 @@ import com.marbleng.app.model.ConnectModeChip
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.HomePingAction
+import com.marbleng.app.model.HomeQuiet
 import com.marbleng.app.model.HomeSection
 import com.marbleng.app.model.HomeStudio
 import com.marbleng.app.model.IpAddressBook
@@ -77,15 +77,12 @@ import com.marbleng.app.model.connectModeChipOf
 import com.marbleng.app.model.parseHomePingAction
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
-import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
 import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
 import com.marbleng.app.ui.theme.MARBLE_CHROME_FLIGHT_MS
 import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.panSpec
 import com.marbleng.app.ui.theme.settleSpec
-import com.marbleng.app.ui.theme.onSuccessContainer
 import com.marbleng.app.ui.theme.success
-import com.marbleng.app.ui.theme.successContainer
 import com.marbleng.app.ui.theme.warning
 
 /**
@@ -193,6 +190,31 @@ fun HomeScreen(
         legacyShortcutsVisible = settings.modularShowShortcuts
     )
 
+    // MARBLE_HOME_QUIET_V259 — Home's own loudness, resolved once.
+    //
+    // `homeSections` above is *what is drawn*. These three values are the page's answer to "how much
+    // am I drawing", and they are the same arithmetic the studio in Settings uses: the quiet card is
+    // shown while anything is still hidden, and the warm-up is shown while the library is empty. A
+    // page that hides sections has to say so, otherwise the quiet default reads as a missing feature.
+    val shownSectionCount = homeSections.size
+    val totalSectionCount = HomeSection.entries.size
+    val showQuietCard = homeShowsQuietCard(shownSectionCount, totalSectionCount)
+    val showWarmup = homeShowsWarmup(repo.profiles.size)
+
+    val showEverything: () -> Unit = {
+        repo.updateSettings(
+            settings.copy(
+                modularShowStats = true,
+                modularShowShortcuts = true,
+                homeLayout = settings.homeLayout.copy(
+                    sectionOrder = HomeQuiet.everythingOrder(),
+                    hiddenSections = HomeQuiet.nothingHidden()
+                )
+            )
+        )
+        repo.setRuntimeMessage("Home shows everything again")
+    }
+
     // MARBLE_HOME_WIDGETS_V256 — Home Settings. `HomeStudio` owns *which sections exist*; these four
     // switches own *what is inside the ones that stay*, and both are honoured in the same place so
     // the page cannot end up half-built.
@@ -257,6 +279,22 @@ fun HomeScreen(
                 }
 
                 HomeSection.CONNECT -> item(key = "home-hero") {
+                    // MARBLE_HOME_QUIET_V259 — while the library is empty, the page's first job is
+                    // "get one server in here", not "read a dashboard". Three tonal keys, directly
+                    // under the heading and above the stage, for as long as the library is empty.
+                    if (showWarmup) {
+                        Column(
+                            modifier = Modifier.padding(bottom = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            MarbleWarmupRow(
+                                onPaste = pasteFromClipboard,
+                                onScan = onOpenQrImport,
+                                onAdd = onOpenAddSheet
+                            )
+                        }
+                    }
+
                     if (widgetStyle.showsHomeHero) {
                         // Style C — the refined hero card: no border, one shape, two type sizes.
                         HomeHero(
@@ -284,6 +322,20 @@ fun HomeScreen(
                             stateLabel = headlineFor(connected, connecting, disconnecting),
                             modeChip = modeChip,
                             onSelectMode = selectModeChip,
+                            // MARBLE_HOME_QUIET_V259 — the stage's one big number: the latency it
+                            // measured, or the clock it has been protecting for. The mode chip and
+                            // the logs capsule travel underneath it as the stage's own actions, so
+                            // the page still has exactly one connect control (the dock's).
+                            readout = if (connected) {
+                                faDigits(uptime)
+                            } else {
+                                faDigits(pingStageLabel(repo, connected))
+                            },
+                            readoutCaption = if (connected) trx("Protected uptime") else trx("Latency"),
+                            readoutLoading = repo.probeActive || repo.state == "CONNECTING" ||
+                                (if (connected) repo.connectionPingState else repo.selectedPingState) ==
+                                ConnectionPingState.MEASURING,
+                            routeCountryCode = activeRoute?.let { repo.serverLocation(it).code },
                             onOpenServers = onOpenServers,
                             onOpenLogs = { showQuickLogs = true }
                         )
@@ -419,6 +471,22 @@ fun HomeScreen(
                 }
             }
         }
+
+        // MARBLE_HOME_QUIET_V259 — the last row of the page is what the page says about itself.
+        //
+        // The card is not one of the six sections: it is the sentence "this is Home on purpose, and
+        // here is everything else", so it is drawn after whatever the layout resolved to, and only
+        // while something is still hidden. On a full Home it is a row that does not exist.
+        if (showQuietCard) {
+            item(key = "home-quiet-card") {
+                MarbleQuietCard(
+                    shownCount = shownSectionCount,
+                    totalCount = totalSectionCount,
+                    onShowEverything = showEverything,
+                    onChooseSections = { onOpenSettingsPage(SettingsDestination.HOME_LAYOUT) }
+                )
+            }
+        }
     }
 
     if (showQuickLogs) {
@@ -430,15 +498,21 @@ fun HomeScreen(
 }
 
 /**
- * MARBLE_WEIGHT_LADDER_V235 + MARBLE_EXPRESSIVE_STUDIO_V252 — Home's asymmetric Material 3
- * Expressive connection stage.
- */
-/**
- * MARBLE_HOME_WIDGETS_V256 — Home while the dock carries the power button (styles A and B).
+ * MARBLE_HOME_QUIET_V259 — Home while the dock carries the connection control (styles A and B).
  *
- * One control, one decision: the connect verb is in the dock, so Home must not draw a second
- * button for it — that was the whole point of moving it. What Home keeps is the *reading*: the
- * state, the protected clock, the route and the mode chip, in the calmer of the two stage shapes.
+ * One control, one decision: the verb is in the dock, so Home must not draw a second button for it.
+ * What Home draws is the *reading*, and the whole redesign is about how much of it a reader can see
+ * at a glance:
+ *
+ *  - [MarbleCalmStage] is the page's only loud surface. Its colour is the state, its lens turns
+ *    behind the title, and its trailing column prints exactly one number in display type — the
+ *    latency it measured, or the clock it has been protecting for. The previous stage printed the
+ *    state, the clock, the route, the mode and a logs capsule at four different weights, which is
+ *    why nothing on it read as the answer.
+ *  - The mode chip and the logs capsule are the stage's *actions*, in one row under the readout,
+ *    where a hand already is. They used to be a row of their own plus a floating chip in the corner.
+ *  - The mode label is no longer a sentence: `FULL TUN` / `LOCAL :1080` is a fact about the tunnel,
+ *    and the stage's click already opens the logs that explain it.
  */
 @Composable
 private fun HomeDockedStage(
@@ -450,101 +524,83 @@ private fun HomeDockedStage(
     stateLabel: String,
     modeChip: ConnectModeChip,
     onSelectMode: (ConnectModeChip) -> Unit,
+    readout: String,
+    readoutCaption: String,
+    readoutLoading: Boolean,
+    routeCountryCode: String?,
     onOpenServers: () -> Unit,
     onOpenLogs: () -> Unit
 ) {
-    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val working = connecting || disconnecting
-
-    val stageColor by animateColorAsState(
-        targetValue = when {
-            connected -> colors.successContainer
-            working -> colors.tertiaryContainer
-            else -> colors.primaryContainer
-        },
-        animationSpec = marbleDefaultEffectsSpec(),
-        label = "homeDockedStage"
-    )
-    val onStage = when {
-        connected -> colors.onSuccessContainer
-        working -> colors.onTertiaryContainer
-        else -> colors.onPrimaryContainer
+    val routeName = if (activeRoute != null) {
+        cleanServerName(activeRoute.name).ifBlank { activeRoute.host }
+    } else {
+        strings.chooseRoute
+    }
+    val routeDetail = if (activeRoute != null) {
+        listOf(protocolShortLabel(activeRoute), activeRoute.subscriptionName)
+            .filter { it.isNotBlank() }
+            .joinToString(" · ")
+    } else {
+        trx("Tap to pick a server")
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.extraLarge)
-            .background(stageColor)
-            .clickable(role = Role.Button, onClick = onOpenLogs)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+    MarbleCalmStage(
+        connected = connected,
+        working = working,
+        stateLabel = stateLabel,
+        overline = trx("Connection"),
+        readout = readout,
+        readoutCaption = readoutCaption,
+        readoutLoading = readoutLoading,
+        routeProfile = activeRoute,
+        routeCountryCode = routeCountryCode,
+        routeName = routeName,
+        routeDetail = routeDetail,
+        motif = MarbleExpressiveMotif.CLOVER,
+        primaryAction = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = trx("Connection"),
-                    color = onStage.copy(alpha = 0.76f),
-                    style = MaterialTheme.typography.labelMedium
+                MarbleModeMenuChip(
+                    selected = modeChip,
+                    onSelect = onSelectMode,
+                    enabled = !disconnecting
                 )
-                AnimatedContent(targetState = stateLabel, label = "homeDockedState") { label ->
-                    Text(
-                        text = trx(label),
-                        color = onStage,
-                        style = MaterialTheme.typography.headlineSmallEmphasized,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (connected && uptime.isNotBlank()) {
-                    Text(
-                        text = "${faDigits(uptime)} · ${strings.uptime}",
-                        color = onStage.copy(alpha = 0.80f),
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
+                // The logs capsule is the second half of the same row: the two things a reader
+                // reaches for while looking at a state are "what mode am I in" and "what is it
+                // doing", and both belong under the number rather than in the page's corner.
+                HomeStatusChip(
+                    connected = connected,
+                    working = working,
+                    label = if (connected) {
+                        strings.statusProtected
+                    } else if (working) {
+                        strings.securingRoute
+                    } else {
+                        strings.readyToConnect
+                    },
+                    onClick = onOpenLogs,
+                    modifier = Modifier.weight(1f)
+                )
             }
-            HomeStatusChip(
-                connected = connected,
-                working = working,
-                label = if (connected) {
-                    strings.statusProtected
-                } else if (working) {
-                    strings.securingRoute
-                } else {
-                    strings.readyToConnect
-                },
-                onClick = onOpenLogs
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            MarbleModeMenuChip(
-                selected = modeChip,
-                onSelect = onSelectMode,
-                enabled = !disconnecting
-            )
-            HomeStageRoutePill(
-                activeRoute = activeRoute,
-                onClick = onOpenServers,
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
+        },
+        onClick = onOpenLogs
+    )
 }
 
+/**
+ * MARBLE_HOME_QUIET_V259 — Style C, the hero card, on the same stage as the docked styles.
+ *
+ * The old hero was a fourth design: a squircle with its own emblem, its own type ladder and its own
+ * three-row layout — and it only differed from the docked stage by the fact that the pill lived
+ * inside it. That is a *placement* decision (where the connect control is), not a design one, so the
+ * two now share [MarbleCalmStage] and differ in exactly that: this one passes the pill as the
+ * stage's primary action, and the docked one passes the mode row.
+ */
 @Composable
 private fun HomeHero(
     connected: Boolean,
@@ -559,11 +615,8 @@ private fun HomeHero(
     onOpenServers: () -> Unit,
     onOpenLogs: () -> Unit
 ) {
-    val colors = MaterialTheme.colorScheme
     val strings = Tr.now
-    val motion = marbleMotion()
     val working = connecting || disconnecting
-
     val subline = when {
         connected -> "${trx(stateLabel)} · ${strings.uptime}"
         working -> trx(stateLabel)
@@ -571,93 +624,26 @@ private fun HomeHero(
         else -> strings.chooseRoute
     }
     val ticker = if (connected) faDigits(uptime) else ""
-
-    val stageColor by animateColorAsState(
-        targetValue = when {
-            connected -> colors.successContainer
-            working -> colors.tertiaryContainer
-            else -> colors.primaryContainer
-        },
-        animationSpec = marbleDefaultEffectsSpec(),
-        label = "homeConnectionStage"
-    )
-    val onStage = when {
-        connected -> colors.onSuccessContainer
-        working -> colors.onTertiaryContainer
-        else -> colors.onPrimaryContainer
+    val routeName = if (activeRoute != null) {
+        cleanServerName(activeRoute.name).ifBlank { activeRoute.host }
+    } else {
+        strings.chooseRoute
     }
-    val stageMorph by animateFloatAsState(
-        targetValue = when {
-            connected -> 1f
-            working -> 0.5f
-            else -> 0f
-        },
-        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
-        label = "homeStagePetalMorph"
-    )
 
-    // MARBLE_HOME_WIDGETS_V256 — Style C, refined: one squircle
-    // (`MaterialTheme.shapes.extraLarge`), no border, no second container, and two type sizes doing
-    // all the work — `labelMedium` for the overline, `headlineSmall` for the answer.
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.extraLarge)
-            .background(stageColor)
-    ) {
-        MarblePetalMark(
-            color = onStage.copy(alpha = if (connected || working) 0.14f else 0.08f),
-            size = 152.dp,
-            motif = MarbleExpressiveMotif.CLOVER,
-            targetMotif = MarbleExpressiveMotif.FLOWER,
-            morphProgress = stageMorph,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .graphicsLayer {
-                    translationX = 32.dp.toPx()
-                    translationY = (-24).dp.toPx()
-                }
-        )
-
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text(
-                        text = trx("Connection"),
-                        color = onStage.copy(alpha = 0.76f),
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                    AnimatedContent(
-                        targetState = stateLabel,
-                        label = "homeConnectionState"
-                    ) { label ->
-                        Text(
-                            text = trx(label),
-                            color = onStage,
-                            style = MaterialTheme.typography.headlineSmallEmphasized,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-                HomeStatusChip(
-                    connected = connected,
-                    working = working,
-                    label = if (connected) strings.statusProtected else if (working) strings.securingRoute else strings.readyToConnect,
-                    onClick = onOpenLogs
-                )
-            }
-
+    MarbleCalmStage(
+        connected = connected,
+        working = working,
+        stateLabel = stateLabel,
+        overline = trx("Connection"),
+        readout = ticker.ifBlank { "\u2014" },
+        readoutCaption = if (connected) trx("Protected uptime") else "",
+        readoutLoading = working,
+        routeProfile = activeRoute,
+        routeCountryCode = null,
+        routeName = routeName,
+        routeDetail = subline,
+        motif = MarbleExpressiveMotif.CLOVER,
+        primaryAction = {
             MarbleConnectPill(
                 connected = connected,
                 connecting = connecting,
@@ -667,24 +653,31 @@ private fun HomeHero(
                 onToggle = onToggle,
                 ticker = ticker
             )
+        },
+        onClick = onOpenLogs,
+        tag = "home-hero-stage"
+    )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                MarbleModeMenuChip(
-                    selected = modeChip,
-                    onSelect = onSelectMode,
-                    enabled = !disconnecting
-                )
-                HomeStageRoutePill(
-                    activeRoute = activeRoute,
-                    onClick = onOpenServers,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
+    // The mode chip sits under the stage rather than inside it in this style: the pill already owns
+    // the stage's bottom edge, and two rows of controls inside one surface is the crowding the
+    // redesign is removing.
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        MarbleModeMenuChip(
+            selected = modeChip,
+            onSelect = onSelectMode,
+            enabled = !disconnecting
+        )
+        HomeStageRoutePill(
+            activeRoute = activeRoute,
+            onClick = onOpenServers,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
@@ -751,7 +744,8 @@ private fun HomeStatusChip(
     connected: Boolean,
     working: Boolean,
     label: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
     val health = when {
@@ -765,7 +759,7 @@ private fun HomeStatusChip(
         selectedDp = 26.dp
     )
     Row(
-        modifier = Modifier
+        modifier = modifier
             .heightIn(min = 44.dp)
             .clip(shape)
             .background(colors.surfaceContainerHigh)
@@ -782,6 +776,27 @@ private fun HomeStatusChip(
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
             maxLines = 1
         )
+    }
+}
+
+/**
+ * MARBLE_HOME_QUIET_V259 — the stage's one number, as a string.
+ *
+ * Four states, in the order a reader cares about them: a live measurement, a failure that has a
+ * reason, a measurement that is running, and "nothing measured yet". The previous stage spread these
+ * four across a chip, a subtitle and a caption and never said which one was the answer.
+ */
+private fun pingStageLabel(repo: AppRepository, connected: Boolean): String {
+    val state = if (connected) repo.connectionPingState else repo.selectedPingState
+    val latency = if (connected) repo.connectionPingMs else repo.selectedPingMs
+    val failure = if (connected) repo.connectionPingFailure else repo.selectedPingFailure
+    val live = if (connected) repo.livePingMs else 0
+    return when {
+        repo.probeActive || state == ConnectionPingState.MEASURING -> "\u2026"
+        state == ConnectionPingState.FAILED -> failure.ifBlank { "\u2014" }
+        latency > 0 -> "$latency ms"
+        live > 0 -> "$live ms"
+        else -> "\u2014"
     }
 }
 

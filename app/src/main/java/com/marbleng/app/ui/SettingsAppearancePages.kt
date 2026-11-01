@@ -8,6 +8,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import com.marbleng.app.model.MarblePalette
 import com.marbleng.app.model.parseMarblePalette
 import com.marbleng.app.ui.theme.marblePaletteSignature
@@ -26,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -51,6 +53,7 @@ import com.marbleng.app.model.DockSlotAccent
 import com.marbleng.app.model.DockSlotKind
 import com.marbleng.app.model.FlatAccent
 import com.marbleng.app.model.HomeSection
+import com.marbleng.app.model.HomeQuiet
 import com.marbleng.app.model.HomeStudio
 import com.marbleng.app.model.TextScale
 import com.marbleng.app.model.parseAppFont
@@ -769,6 +772,21 @@ private fun DockFloatPreview(
     }
 }
 
+/**
+ * MARBLE_HOME_QUIET_V259 — the glyph a section wears in the studio.
+ *
+ * One mapping, next to the page that draws it: a section is not allowed to look like one thing in
+ * Settings and another on Home, and the studio's rows are the only place the mapping is needed.
+ */
+private fun sectionGlyph(section: HomeSection): MarbleGlyph = when (section) {
+    HomeSection.HEADER -> MarbleGlyph.HOME
+    HomeSection.CONNECT -> MarbleGlyph.POWER
+    HomeSection.PRESETS -> MarbleGlyph.SPARK
+    HomeSection.ROUTE -> MarbleGlyph.ROUTE
+    HomeSection.STATS -> MarbleGlyph.GAUGE
+    HomeSection.SHORTCUTS -> MarbleGlyph.PLUS
+}
+
 @Composable
 fun SettingsHomeLayoutPage(
     repo: AppRepository,
@@ -803,6 +821,163 @@ fun SettingsHomeLayoutPage(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+            }
+        }
+
+        // MARBLE_HOME_QUIET_V259 — the page Home needed back: one switch per section.
+        //
+        // V258 removed the studio because a list of six rows whose only feedback was a page
+        // rebuilding behind an animation was a worse Home than a designed one. The right answer is
+        // neither extreme: Home *ships* quiet (heading, the one decision, its route), and this page
+        // is where the rest is added, one named block at a time, with a live preview of the result
+        // directly under the title. Three differences from the retired studio:
+        //
+        //  - Order is no longer something the reader drags. The six sections have one designed
+        //    order and the page draws them in it; what the reader owns is *presence*.
+        //  - Every switch states what it turns on, in the same words Home uses.
+        //  - The preview is drawn from the real rules (`HomeStudio.isHidden`), not from a second
+        //    opinion about them, so the strip cannot disagree with the page it describes.
+        item(key = "home-section-switches") {
+            val layout = s.homeLayout
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleSectionHeader(
+                    title = trx("Sections on Home"),
+                    badge = homeQuietShownLabel(
+                        shown = HomeStudio.visible(
+                            orderRaw = layout.sectionOrder,
+                            hiddenRaw = layout.hiddenSections,
+                            legacyStatsVisible = s.modularShowStats,
+                            legacyShortcutsVisible = s.modularShowShortcuts
+                        ).size
+                    )
+                )
+                MarbleCard(contentPadding = PaddingValues(bottom = 6.dp)) {
+                    MarbleHomeSectionPreview(
+                        order = HomeStudio.order(layout.sectionOrder),
+                        hiddenRaw = layout.hiddenSections,
+                        legacyStatsVisible = s.modularShowStats,
+                        legacyShortcutsVisible = s.modularShowShortcuts,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                    MarbleSectionFooter(
+                        text = trx("Home starts quiet: the heading, the connect control and the route it will use."),
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                    HomeSection.entries.forEach { section ->
+                        val visible = !HomeStudio.isHidden(
+                            section = section,
+                            hiddenRaw = layout.hiddenSections,
+                            legacyStatsVisible = s.modularShowStats,
+                            legacyShortcutsVisible = s.modularShowShortcuts
+                        )
+                        // The heading is the page's name; hiding it would leave a feed with no title,
+                        // so it is the one row that is always on and says why.
+                        val locked = section == HomeSection.HEADER
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !locked, role = Role.Switch) {
+                                    if (!locked) {
+                                        val toggle = HomeQuiet.toggle(
+                                            orderRaw = layout.sectionOrder,
+                                            hiddenRaw = layout.hiddenSections,
+                                            section = section,
+                                            legacyStatsVisible = s.modularShowStats,
+                                            legacyShortcutsVisible = s.modularShowShortcuts
+                                        )
+                                        repo.updateSettings(
+                                            s.copy(
+                                                modularShowStats = toggle.legacyStatsVisible,
+                                                modularShowShortcuts = toggle.legacyShortcutsVisible,
+                                                homeLayout = layout.copy(
+                                                    sectionOrder = toggle.order,
+                                                    hiddenSections = toggle.hidden
+                                                )
+                                            )
+                                        )
+                                    }
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .testTag("home-section-${section.id}"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(marbleExpressiveShape(MarbleExpressiveMotif.forGlyph(sectionGlyph(section))))
+                                    .background(
+                                        if (visible) {
+                                            colors.primary.copy(alpha = 0.16f)
+                                        } else {
+                                            colors.surfaceContainerHighest
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                MarbleGlyphIcon(
+                                    glyph = sectionGlyph(section),
+                                    color = if (visible) colors.primary else colors.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                    weight = 1.12f
+                                )
+                            }
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                Text(
+                                    text = trx(section.title),
+                                    color = colors.onSurface,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = trx(section.hint),
+                                    color = colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Switch(
+                                checked = visible,
+                                onCheckedChange = { on ->
+                                    if (!locked) {
+                                        val toggle = HomeQuiet.toggle(
+                                            orderRaw = layout.sectionOrder,
+                                            hiddenRaw = layout.hiddenSections,
+                                            section = section,
+                                            legacyStatsVisible = s.modularShowStats,
+                                            legacyShortcutsVisible = s.modularShowShortcuts
+                                        )
+                                        if (toggle.nowVisible != on) {
+                                            repo.updateSettings(
+                                                s.copy(
+                                                    modularShowStats = toggle.legacyStatsVisible,
+                                                    modularShowShortcuts = toggle.legacyShortcutsVisible,
+                                                    homeLayout = layout.copy(
+                                                        sectionOrder = toggle.order,
+                                                        hiddenSections = toggle.hidden
+                                                    )
+                                                )
+                                            )
+                                        }
+                                    }
+                                },
+                                enabled = !locked,
+                                modifier = Modifier.testTag("home-section-switch-${section.id}")
+                            )
+                        }
+                    }
+                }
+                MarbleSectionFooter(
+                    text = trx(
+                        "The order is designed, not dragged: the heading, the decision, the modes, " +
+                            "the route, the live speed and the shortcuts."
+                    )
+                )
             }
         }
 

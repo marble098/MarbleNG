@@ -304,10 +304,21 @@ private fun MarbleRootShell(
         // user actually configured: the rung's own height plus the gap they chose under it, with
         // `MarbleSpec.BOTTOM_BAR_CLEARANCE_DP` as the floor. Raising "distance from the bottom" can
         // therefore never push the last row of a list under the capsule.
-        val dockClearance = com.marbleng.app.model.DockStudio.clearanceDp(
-            size = com.marbleng.app.model.parseDockSize(settings.dockSize),
-            gapDp = settings.dockBottomGapDp
-        )
+        // MARBLE_CENTER_MORPH_STUDIO_V259 — the centre style draws a capsule that is taller than
+        // the rung, so the clearance is asked of the style-aware function. Same arithmetic, one
+        // taller operand: switching to the centre trigger can never bury a list's last row.
+        val dockRung = com.marbleng.app.model.parseDockSize(settings.dockSize)
+        val dockClearance = if (settings.homeLayout.widgetStyle.showsCenterTrigger) {
+            com.marbleng.app.model.DockStudio.centerClearanceDp(
+                size = dockRung,
+                gapDp = settings.dockBottomGapDp
+            )
+        } else {
+            com.marbleng.app.model.DockStudio.clearanceDp(
+                size = dockRung,
+                gapDp = settings.dockBottomGapDp
+            )
+        }
         CompositionLocalProvider(
             LocalBottomClearance provides
                 (if (wide) MarbleSpec.RAIL_CLEARANCE_DP else dockClearance).dp
@@ -840,6 +851,9 @@ private fun MarbleBottomTabBar(
         modifier = modifier,
         size = size,
         bottomGap = com.marbleng.app.model.DockStudio.bottomGapDp(s.dockBottomGapDp).dp,
+        // MARBLE_CENTER_MORPH_STUDIO_V259 — the centre style's capsule is the taller one; the other
+        // two keep the rung they have always drawn.
+        centerProud = style.showsCenterTrigger,
         leading = island,
         center = trigger,
         trailing = power

@@ -54,6 +54,54 @@ object DockStudio {
     /** How long a newly selected tab shows its word before it relaxes back to its glyph. */
     const val EXPANDED_HOLD_MS: Long = 2_000L
 
+    // ── MARBLE_CENTER_MORPH_STUDIO_V259 ─────────────────────────────────────────────────────────
+    //
+    // The centre trigger used to be a circle of exactly `restingTabSizeDp` — the same circle as a
+    // tab — so the third connection style drew a fifth tab in the middle of the bar. The brief asks
+    // for the opposite: at the centre it is a *different* object, slightly larger than everything
+    // beside it, with Google's newer Expressive material. The numbers below are that object, and
+    // they are here rather than in the composable so `DockStudioCenterMorphV259Test` can pin them.
+
+    /**
+     * How much taller the centre dock is than the same dock in another style.
+     *
+     * The trigger is not a fifth tab: the whole bar grows by 8dp while a centre trigger is drawn,
+     * and the trigger fills that taller row. Two things follow from one constant — the capsule the
+     * reader sees is bigger, and the circle inside it is bigger than the tab circles beside it.
+     */
+    const val CENTER_PROUD_DP: Int = 8
+
+    /** The dock capsule while a centre trigger is drawn: the rung's height plus [CENTER_PROUD_DP]. */
+    fun centerDockHeightDp(size: DockSize): Int = heightDp(size) + CENTER_PROUD_DP
+
+    /**
+     * The centre trigger at rest: the inner row of the taller capsule, which is exactly
+     * [CENTER_PROUD_DP] wider than the resting circle of a tab at the same rung.
+     */
+    fun centerTriggerSizeDp(size: DockSize): Int =
+        centerDockHeightDp(size) - pillPaddingDp(size) * 2
+
+    /**
+     * The scroll clearance a page must reserve while the centre style is chosen.
+     *
+     * The taller capsule replaces the rung's own height in the same arithmetic `clearanceDp` uses:
+     * the dock's height, the air the reader chose under it, and the breathing room above the last
+     * row. Without it, switching to the centre style would push the last row of every list under
+     * the bar — the same clipping the V256 pass fixed, from the other side.
+     */
+    fun centerClearanceDp(size: DockSize, gapDp: Int = DEFAULT_BOTTOM_GAP_DP): Int =
+        maxOf(BASE_CLEARANCE_DP, centerDockHeightDp(size) + bottomGapDp(gapDp) + CLEARANCE_BREATHING_DP)
+
+    /**
+     * How wide the trigger blooms while it is open: room for one glyph, the state word and the
+     * latency, capped so the bloomed pill can never swallow the tabs on a 360dp phone.
+     */
+    fun centerBloomedWidthDp(size: DockSize): Int =
+        (centerTriggerSizeDp(size) + 78).coerceAtMost(196)
+
+    /** The glyph inside the trigger: one step above the tab glyph at every rung. */
+    fun centerGlyphDp(size: DockSize): Int = iconSizeDp(size) + 2
+
     /**
      * How long the centre trigger's tooltip stays after a tap.
      *
