@@ -1,7 +1,5 @@
 package com.marbleng.app.ui
 
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
@@ -16,6 +14,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -27,6 +26,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -40,7 +40,7 @@ import com.marbleng.app.model.LiquidLens
  *
  * | layer | what it is | why it is drawn |
  * |---|---|---|
- * | backdrop | the capsule's **own material**, replayed at the lens's position and blurred at `RenderEffect.createBlurEffect(12f, 12f, CLAMP)` | a lens has to show the surface it is sitting on, not a flat tint: this is the "frosted" half of the material. API 31+ only; below it the glass falls back to a soft radial frost, because the alternative is a solid disc pretending to be clear |
+ * | backdrop | the capsule's **own material**, replayed at the lens's position and blurred at `RenderEffect.createBlurEffect(12f, 12f, CLAMP)` (through Compose's `Modifier.blur`) | a lens has to show the surface it is sitting on, not a flat tint: this is the "frosted" half of the material. API 31+ only; below it the glass falls back to a soft radial frost, because the alternative is a solid disc pretending to be clear |
  * | accent wash | the selected tab's colour at [LiquidLens.GLASS_ACCENT_ALPHA] | says *which* tab without tinting the glyph that will be drawn over it |
  * | pane | white at [LiquidLens.GLASS_ALPHA_LIGHT] (0.55), or 0.22 on a dark page | the body of the glass; the row's ink is printed **over** this, never under it |
  * | caustic | radial, transparent at the axis, bright at the perimeter | light refracted through a curved rim lands on the rim |
@@ -123,26 +123,18 @@ internal fun GlassLensIndicator(
         travel.animateTo(targetLeftPx, settleSpec)
     }
 
-    // The backdrop effect, built **once**. `RenderEffect` is API 31+; below it — and on the
-    // degraded graphics stacks where the framework refuses the effect — the glass is still glass
-    // (the pane, the rim and the caustic never depended on the blur) and the fallback frost below
-    // does the depth instead. Creating it in composition rather than inside `graphicsLayer` also
-    // keeps the per-frame layer update free of allocation: that block runs on every frame of a
-    // throw, and an object per frame is a garbage collector pause in a navigation bar.
-    val frost = remember(Build.VERSION.SDK_INT) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            null
-        } else {
-            runCatching {
-                RenderEffect.createBlurEffect(
-                    LiquidLens.GLASS_BLUR_RADIUS_PX,
-                    LiquidLens.GLASS_BLUR_RADIUS_PX,
-                    Shader.TileMode.CLAMP
-                )
-            }.getOrNull()
-        }
-    }
-    val blurSupported = frost != null
+    // The backdrop effect, applied as Compose's own blur — the same
+    // `RenderEffect.createBlurEffect(radius, radius, CLAMP)` the brief names, built by the
+    // framework under the modifier instead of by hand, so the effect travels with the Compose
+    // version the app is compiled against rather than with a cast at every call site.
+    //
+    // `Modifier.blur` is a documented no-op below API 31. Below it — and on the degraded graphics
+    // stacks where the effect never lands — the glass is still glass: the pane, the rim and the
+    // caustic never depended on the blur, and the fallback frost below supplies the depth. The
+    // radius is stated in the model in *pixels* (12f, as the brief writes it) and converted once
+    // here, so the composable carries no number of its own.
+    val blurSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val blurRadius = with(LocalDensity.current) { LiquidLens.GLASS_BLUR_RADIUS_PX.toDp() }
     val paneAlpha = if (dark) LiquidLens.GLASS_ALPHA_DARK else LiquidLens.GLASS_ALPHA_LIGHT
 
     Box(
@@ -166,7 +158,7 @@ internal fun GlassLensIndicator(
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .graphicsLayer { renderEffect = frost }
+                .then(if (blurSupported) Modifier.blur(blurRadius) else Modifier)
                 .drawWithContent {
                     // `backdrop` is a `DrawScope.(Float) -> Unit`, i.e. a Function2: calling it with
                     // the draw scope explicitly is the same call the extension syntax would make.

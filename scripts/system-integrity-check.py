@@ -6024,9 +6024,12 @@ check(
     and "LiquidLens.lensLeftPx(" in v262_bar
     and "detectHorizontalDragGestures" in v262_bar
     # The lens is glass: a blurred sample of the bar, a caustic, a graded rim, a band, an arc.
-    and "RenderEffect.createBlurEffect(" in v262_lens_ui
-    and "Shader.TileMode.CLAMP" in v262_lens_ui
-    and "LiquidLens.GLASS_BLUR_RADIUS_PX" in v262_lens_ui
+    # The blur is Compose's own effect (the same `RenderEffect.createBlurEffect` the brief names,
+    # built by the framework under `Modifier.blur`), and its radius is the model's pixel value
+    # converted once — never a second number written into the composable.
+    and "Modifier.blur(blurRadius)" in v262_lens_ui
+    and "LiquidLens.GLASS_BLUR_RADIUS_PX.toDp()" in v262_lens_ui
+    and "Build.VERSION_CODES.S" in v262_lens_ui
     and "LiquidLens.GLASS_ACCENT_ALPHA" in v262_lens_ui
     and "LiquidLens.GLASS_CAUSTIC_ALPHA" in v262_lens_ui
     and "LiquidLens.GLASS_RIM_START_ALPHA" in v262_lens_ui
