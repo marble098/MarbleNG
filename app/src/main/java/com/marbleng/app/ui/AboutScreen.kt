@@ -483,9 +483,7 @@ private fun AboutHero(
                         Text(
                             text = trx("A tunnel you can read."),
                             color = colors.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            style = MaterialTheme.typography.bodyMedium
                         )
                     }
                 }
@@ -513,7 +511,9 @@ private fun AboutHero(
                         fontFamily = if (persian) FontFamily.Default else FontFamily.Monospace,
                         fontWeight = FontWeight.Medium
                     ),
-                    maxLines = 2,
+                    // MARBLE_READABLE_SURFACES_V263 — the one line a reader opens About for. It
+                    // wraps instead of being cut at two lines; a long core tag is still printed in
+                    // full.
                     modifier = Modifier.testTag("about-build-line")
                 )
             }
@@ -552,6 +552,12 @@ private fun AboutHero(
  *
  * It is deliberately *not* a button: these are facts about the binary, and a tile that accepts a
  * tap and does nothing teaches the reader that taps on this page are decoration.
+ *
+ * MARBLE_READABLE_SURFACES_V263 — the tile used to be clipped to the same polygon as its badge.
+ * A `MaterialShapes` polygon has concave lobes, so scaling it over a wide two-column tile cut the
+ * corners off the name and the version tag. The container is now a rounded reading surface
+ * ([MarbleReadingShape]); the polygon is the 38dp badge, where it cannot touch a letter, and the
+ * watermark behind the text. The name and the tag wrap instead of being elided.
  */
 @Composable
 private fun AboutCoreTile(
@@ -563,7 +569,8 @@ private fun AboutCoreTile(
     val tint = core.tint()
     Box(
         modifier = modifier
-            .clip(marbleExpressiveShape(core.motif))
+            // MARBLE_READABLE_SURFACES_V263 — a polygon is a badge, never a reading container.
+            .clip(MarbleReadingShape)
             .background(colors.surfaceContainerLow)
             .background(tint.copy(alpha = 0.08f))
             .testTag("about-core-${core.id}")
@@ -600,16 +607,14 @@ private fun AboutCoreTile(
             Text(
                 text = trx(core.title),
                 color = colors.onSurface,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                style = MaterialTheme.typography.titleSmall
             )
+            // The pinned tag is the fact this tile exists to print: never cut it. A long tag wraps
+            // to a second line, and the grid's IntrinsicSize.Min grows the whole row with it.
             Text(
                 text = core.tag,
                 color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
             )
         }
     }

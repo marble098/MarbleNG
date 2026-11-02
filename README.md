@@ -73,6 +73,15 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
+The newest corrections to this shell are recorded in `docs/QUIET_TABS_AND_READABLE_SURFACES_V263.md`:
+**a tap on the bottom bar no longer opens the tab's name beside its glyph** — the two-second caption,
+the spring-animated slot weight and the largest rung's permanent word are all gone, every tab keeps a
+fixed `weight(1f)`, and the name lives on the slot's `contentDescription` for a screen reader — and
+**a Material 3 Expressive polygon is now a badge, never the clip of a container that holds text**:
+the IP stack tiles and the About core tiles use one rounded reading shape (`MarbleReadingShape`) so
+their concave lobes cannot cut the ends off an IPv6 address or a core tag, while long facts wrap in
+full instead of being ellipsized.
+
 `docs/LIQUID_LENS_NAV_V262.md` is the newest chapter: the bottom bar's selection rebuilt as a **convex
 lens** instead of a tinted highlight — one puck of glass that samples the capsule's own material through Compose's `Modifier.blur` —
 `RenderEffect.createBlurEffect(12f, 12f, CLAMP)` under the hood — (and a soft frost on the platforms

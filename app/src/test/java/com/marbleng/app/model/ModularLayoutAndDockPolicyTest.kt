@@ -56,15 +56,16 @@ class ModularLayoutAndDockPolicyTest {
     }
 
     @Test
-    fun theCaptionIsTheRungsDecisionAndTheDockAlwaysDrawsItsGlyphs() {
-        // MARBLE_FLOATING_DOCK_V258 — V255's two switches are gone from the model and from
-        // Settings. What replaces them is one derived answer: the capsule always draws glyphs,
-        // and only the largest rung keeps a word on screen.
-        assertTrue(DockStudio.showsCaptionsAlways(DockSize.LARGE))
-        assertFalse(DockStudio.showsCaptionsAlways(DockSize.MEDIUM))
-        assertFalse(DockStudio.showsCaptionsAlways(DockSize.SMALL))
+    fun theDockAlwaysDrawsItsGlyphsAndNeverDrawsACaption() {
+        // MARBLE_QUIET_TABS_V263 — V255's two switches and V258's per-rung caption decision are
+        // both gone. One answer remains, in the composable itself: every rung draws one glyph per
+        // tab and no rung ever composes the tab's name beside it.
         DockSize.entries.forEach { size ->
             assertTrue("${size.id} must keep its glyphs", DockStudio.iconSizeDp(size) > 0)
+            assertTrue("${size.id} must describe its own size", DockStudio.ladderHint(size).isNotBlank())
         }
+        val item = java.io.File("src/main/java/com/marbleng/app/ui/NavigationItemView.kt").readText()
+        assertFalse("a tab caption came back", "AnimatedContent(" in item)
+        assertTrue("the label belongs to a screen reader", "contentDescription = tab.label" in item)
     }
 }

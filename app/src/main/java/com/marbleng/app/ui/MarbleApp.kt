@@ -700,12 +700,12 @@ private fun MarbleNavigationRail(
 
 /**
  * MARBLE_LUMEN_DOCK_V256 — the bottom chrome is [MarbleLumenDock]: a floating capsule with real
- * window insets, a three-rung height ladder and a transient expanded caption.
+ * window insets and a three-rung height ladder. MARBLE_QUIET_TABS_V263 retired the expanded
+ * caption; the bar is icon-only at every rung and each tab's name is its `contentDescription`.
  *
  * This function is the *adapter*, and it is deliberately thin. Everything the settings already
- * promise still holds — dock size, floating versus attached, labels on or off, icons on or off, the
- * fourth tab's own glyph and accent, the connection light, the red counter — and it is translated
- * into one [MarbleDockTab] per visible tab.
+ * promise still holds — dock size, the floating gap, the fourth tab's own glyph and accent, the
+ * connection light, the red counter — and it is translated into one [MarbleDockTab] per visible tab.
  *
  * What is new is the second half of V256: the connect control. [com.marbleng.app.model
  * .ConnectionWidgetStyle] decides which wing exists —
@@ -730,10 +730,9 @@ private fun MarbleBottomTabBar(
     val strings = Tr.now
     val s = repo.settings
     val size = parseDockSize(s.dockSize)
-    // MARBLE_FLOATING_DOCK_V258 — the attached presentation is retired, and the icon/caption
-    // switches left Settings with it. The dock draws glyphs always, and its captions follow the
-    // rung (`DockStudio.showsCaptionsAlways`), decided inside the capsule: one decision instead of
-    // three that could disagree.
+    // MARBLE_QUIET_TABS_V263 — the attached presentation, the icon/caption switches and the
+    // caption itself are all retired. The dock draws one glyph per tab, always; the label below is
+    // the tab's accessible name, not a word that opens beside the icon on a tap.
     val ipLabel = trx(dockSlotDefaultCaption(DockSlotKind.IP, ""))
     val ipGlyph = MarbleGlyph.GLOBE
     val slotColor = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))

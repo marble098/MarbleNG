@@ -1626,8 +1626,9 @@ data class AppSettings(
 
     val darkOutlineStyle: String = DarkOutlineStyle.SUBTLE.id,
 
-    // MARBLE_DOCK_ICON_FIRST_V255 — the compact bottom navigation defaults to the visual-first
-    // Android pattern: icons on, captions off. The preferences page still lets users enable labels.
+    // MARBLE_DOCK_ICON_FIRST_V255 / MARBLE_QUIET_TABS_V263 — the bottom navigation is the
+    // visual-first Android pattern: icons on, captions off, with the name on each tab's
+    // contentDescription. There is no label switch: a tap never opens a word beside the glyph.
     val dockSize: String = DockSize.MEDIUM.id,
     /**
      * MARBLE_FLOATING_DOCK_V258 — how far the floating capsule sits above the bottom edge.

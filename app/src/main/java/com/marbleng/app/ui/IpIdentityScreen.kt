@@ -436,17 +436,21 @@ private fun IpPassportHero(
                 // one: `headlineMedium` (32sp) in a monospaced face, because a person reading an IP
                 // aloud is matching characters, not words, and tabular digits are how you compare
                 // two addresses without reading them twice.
+                //
+                // MARBLE_READABLE_SURFACES_V263 — a full IPv6 address is thirty-nine characters. At
+                // 32sp two lines cannot hold it and the old `TextOverflow.Ellipsis` cut the tail
+                // off the one fact this page exists to print. Long literals step down to 20sp and
+                // wrap as far as they need; no address is ever elided.
+                val longAddress = shown.length > 18
                 Text(
                     text = if (shown.isBlank()) trx("Not measured") else shown,
                     color = colors.onSurface,
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 32.sp,
-                        lineHeight = 38.sp
+                        fontSize = if (longAddress) 20.sp else 32.sp,
+                        lineHeight = if (longAddress) 26.sp else 38.sp
                     ),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.testTag("ip-exit-literal")
                 )
             }
@@ -809,12 +813,13 @@ private fun IpFactTile(
                 }
             }
         }
+        // MARBLE_READABLE_SURFACES_V263 — a measured fact is printed in full. A DNS pair or two
+        // addresses joined by a separator used to be cut at three lines; the tile's grid row is
+        // IntrinsicSize.Min, so it grows to hold every character instead.
         Text(
             text = value,
             color = colors.onSurface,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
         )
     }
 }
@@ -1036,8 +1041,13 @@ private fun IpSkeletonLine(widthFraction: Float, height: Int) {
  * The page already lists every fact, but a list is a ledger: it answers a question you have to know
  * to ask. This strip answers the first three questions a person opening the tab actually has — *do
  * I have v4, do I have v6, and is the exit a tunnel* — in the app's own Material 3 Expressive
- * language: a different `MaterialShapes` polygon per family, a tonal wash per state, and the
- * literal itself in tabular monospace so two addresses can be compared by eye.
+ * language: a different `MaterialShapes` polygon per family on each *badge*, a tonal wash per
+ * state, and the literal itself in tabular monospace so two addresses can be compared by eye.
+ *
+ * MARBLE_READABLE_SURFACES_V263 — the tile itself is no longer clipped to that polygon. Its lobes
+ * cut the corners off the rectangle, and the corners are where the first and last characters of an
+ * address live. The tile is a rounded reading surface now ([MarbleReadingShape]); the polygon is
+ * the 26dp badge where it cannot touch a letter, and the value wraps instead of being elided.
  */
 @Composable
 private fun IpStackStrip(
@@ -1119,7 +1129,8 @@ private fun IpStackTile(
 
     Column(
         modifier = modifier
-            .clip(marbleExpressiveShape(motif))
+            // MARBLE_READABLE_SURFACES_V263 — a polygon is a badge, never a reading container.
+            .clip(MarbleReadingShape)
             .background(colors.surfaceContainerLow)
             .background(tint.copy(alpha = 0.10f))
             .then(
@@ -1156,27 +1167,25 @@ private fun IpStackTile(
             Text(
                 text = label,
                 color = colors.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
             )
         }
+        // No maxLines and no ellipsis: a full IPv6 address is thirty-nine characters and this tile
+        // is a third of a phone screen wide. It wraps to as many lines as it needs, and the row's
+        // IntrinsicSize.Min keeps all three tiles the same height while it does.
         Text(
             text = shown,
             color = if (value.isBlank()) colors.onSurfaceVariant else colors.onSurface,
             style = MaterialTheme.typography.labelMedium.copy(
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace
-            ),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
+            )
         )
         if (footer.isNotBlank()) {
             Text(
                 text = footer,
                 color = tint,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                maxLines = 1
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
             )
         } else if (copyable && motion.loops) {
             Text(

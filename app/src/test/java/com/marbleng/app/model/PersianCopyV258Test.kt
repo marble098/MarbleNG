@@ -25,9 +25,9 @@ class PersianCopyV258Test {
     private val dockKeys = listOf(
         "Slim", "Grand",
         "Icons only, tightest capsule",
-        "Bigger glyphs, the selected word opens for a moment",
-        "Largest glyphs, the selected word never closes",
-        "Slim keeps glyphs only, Classic opens the selected word for a moment, Grand keeps it open.",
+        "Bigger glyphs, a roomier capsule",
+        "Largest glyphs, the widest capsule",
+        "Every size is icon-only; tapping a tab never opens its name beside the glyph.",
         "Capsule size",
         "Distance from the bottom",
         "Pages reserve scroll room from this value, so raising it never hides the last row behind the capsule.",
@@ -81,11 +81,16 @@ class PersianCopyV258Test {
 
     @Test
     fun theRungsNameWhatTheReaderSees() {
-        // The ladder is not "small/medium/large" in Persian either: each rung is described, and
-        // the third one promises the behaviour that makes it different.
+        // The ladder is not "small/medium/large" in Persian either: each rung is described by
+        // what actually changes. MARBLE_QUIET_TABS_V263 — the third one no longer promises a
+        // word that opens; it names the widest capsule, and the footer says the bar is icon-only.
         assertEquals("باریک", faTranslate("Slim"))
         assertEquals("بزرگ", faTranslate("Grand"))
-        assertTrue(faTranslate("Largest glyphs, the selected word never closes").contains("نشانه"))
+        assertTrue(faTranslate("Largest glyphs, the widest capsule").contains("نشانه"))
+        assertTrue(
+            faTranslate("Every size is icon-only; tapping a tab never opens its name beside the glyph.")
+                .contains("نشانه")
+        )
     }
 
     @Test

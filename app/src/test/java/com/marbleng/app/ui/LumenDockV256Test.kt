@@ -32,8 +32,8 @@ import org.robolectric.annotation.GraphicsMode
  * MARBLE_LUMEN_DOCK_V256 — the composables of the V256 pass, inflated on Robolectric.
  *
  * The model test (`DockStudioV256Test`) proves the arithmetic; this one proves the three things a
- * number cannot: that the dock's wings are actually drawn, that the transient caption opens on
- * selection and closes on its own two-second timer, and that the 2×2 grid and the row bubble
+ * number cannot: that the dock's wings are actually drawn, that MARBLE_QUIET_TABS_V263 leaves no
+ * caption at any rung (not even for a frame after a tap), and that the 2×2 grid and the row bubble
  * dispatch the verb that was tapped.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -98,19 +98,23 @@ class LumenDockV256Test {
     }
 
     @Test
-    fun theCaptionOpensWithTheSelectionAndClosesOnItsOwnTimer() {
+    fun aTapNeverOpensATabCaptionAtAnyRung() {
+        // MARBLE_QUIET_TABS_V263 — the old dock composed the selected tab's word beside its glyph,
+        // held it for two seconds and let the largest rung keep it forever. A tap now changes the
+        // page and nothing else: no caption at rest, none during the tap and none after the timer
+        // the dock no longer has. The word is still on the slot's contentDescription for a screen
+        // reader, which onNodeWithText deliberately does not match.
         compose.mainClock.autoAdvance = false
+        var selected by mutableStateOf(0)
         compose.setContent {
             ProvideMarbleLanguage("en") {
                 MarbleExpressiveTheme(dynamicColor = false) {
                     ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
                         Box(Modifier.width(360.dp)) {
-                            // MARBLE_FLOATING_DOCK_V258 — the transient caption is the *middle*
-                            // rung's behaviour; the largest one keeps its word drawn.
                             MarbleLumenDock(
                                 tabs = tabs(),
-                                selectedIndex = 0,
-                                onSelect = {},
+                                selectedIndex = selected,
+                                onSelect = { selected = it },
                                 size = DockSize.MEDIUM
                             )
                         }
@@ -120,17 +124,22 @@ class LumenDockV256Test {
         }
 
         compose.mainClock.advanceTimeBy(80)
-        compose.onNodeWithText("Home").assertExists()
+        tabs().forEach { tab ->
+            compose.onNodeWithText(tab.label).assertDoesNotExist()
+        }
 
-        // Two seconds of hold, then the collapse animation has to finish too.
+        compose.onNodeWithTag("lumen-tab-SERVERS").performClick()
         compose.mainClock.advanceTimeBy(3_200)
-        compose.onNodeWithText("Home").assertDoesNotExist()
+        tabs().forEach { tab ->
+            compose.onNodeWithText(tab.label).assertDoesNotExist()
+        }
+        assertEquals(1, selected)
     }
 
     @Test
-    fun theGrandRungKeepsTheSelectedWordDrawn() {
-        // MARBLE_FLOATING_DOCK_V258 — the third difference between the rungs: at 82dp the word
-        // under the selection does not time out, so a Grand capsule is legible without tapping.
+    fun theGrandRungIsIconOnlyToo() {
+        // The largest rung used to keep the selected word drawn for as long as it was selected.
+        // Its difference now is only height, inner air and glyph size.
         compose.mainClock.autoAdvance = false
         compose.setContent {
             ProvideMarbleLanguage("en") {
@@ -150,10 +159,10 @@ class LumenDockV256Test {
         }
 
         compose.mainClock.advanceTimeBy(80)
-        compose.onNodeWithText("Home").assertExists()
-
+        compose.onNodeWithText("Home").assertDoesNotExist()
         compose.mainClock.advanceTimeBy(5_000)
-        compose.onNodeWithText("Home").assertExists()
+        compose.onNodeWithText("Home").assertDoesNotExist()
+        compose.onNodeWithTag("lumen-tab-HOME").assertExists()
     }
 
     @Test

@@ -512,8 +512,8 @@ fun SettingsTabBarPage(
                                 )
                             }
                         )
-                        // Each rung states what actually changes — height, glyph and caption
-                        // behaviour — instead of a bare number the reader has to imagine.
+                        // Each rung states what actually changes — height, inner air and glyph
+                        // size — instead of a bare number the reader has to imagine.
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             DockSize.entries.forEach { rung ->
                                 val active = rung == dockSize
@@ -573,7 +573,7 @@ fun SettingsTabBarPage(
                 }
                 MarbleSectionFooter(
                     text = trx(
-                        "Slim keeps glyphs only, Classic opens the selected word for a moment, Grand keeps it open."
+                        "Every size is icon-only; tapping a tab never opens its name beside the glyph."
                     )
                 )
             }

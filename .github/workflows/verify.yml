@@ -252,9 +252,29 @@ jobs:
           cache: false
 
       - name: sing-box pinned-source smoke (inject, regression tests, host link)
+        # MARBLE_VERIFY_PROXY_RESILIENCE_V263 — the pinned core has ~200 Go modules. On a bad
+        # egress path proxy.golang.org answers a module zip with an HTTP/2 `INTERNAL_ERROR` stream
+        # reset, which is a network error and not a broken core. Force HTTP/1.1 for the module
+        # downloads and retry each Go command a bounded three times, so a transient proxy failure
+        # cannot turn a green verification red. A real compile/link/test failure still fails the
+        # step on the third attempt.
+        env:
+          GODEBUG: http2client=0
         shell: bash
         run: |
           set -euo pipefail
+
+          # The retry is around the *whole* command, never around a single result: a module zip
+          # that failed mid-download must be fetched again with its own `go` process.
+          marble_go() {
+            for attempt in 1 2 3; do
+              if "$@"; then return 0; fi
+              echo "::warning::Go command failed (attempt ${attempt}/3): $*"
+              sleep 10
+            done
+            echo "::error::Go command still failing after three attempts: $*"
+            return 1
+          }
 
           SB_TMP="$RUNNER_TEMP/singbox-link-smoke"
 
@@ -305,7 +325,7 @@ jobs:
             python3 "$GITHUB_WORKSPACE/scripts/inject-singbox-go127-fix.py" "$SB_TMP" | grep -E 'already patched|already verified'
 
             # The injected crash regression tests (nil interface monitor).
-            env GOTOOLCHAIN=auto CGO_ENABLED=0 go test ./protocol/direct ./route ./dns/transport/dhcp
+            marble_go env GOTOOLCHAIN=auto CGO_ENABLED=0 go test ./protocol/direct ./route ./dns/transport/dhcp
 
             # The MARBLE_SINGBOX_GO127_FORCE_CLOSE_V161 link pin: compiles AND links
             # the force-close variant the running toolchain selects, with the same
@@ -313,7 +333,7 @@ jobs:
             # live in the fork's common/force_close package, so it is pinned too.
             FORCE_CLOSE_PKGS=(./transport/v2rayxhttp)
             if [[ -d common/force_close ]]; then FORCE_CLOSE_PKGS+=(./common/force_close); fi
-            env GOTOOLCHAIN=auto CGO_ENABLED=0 go test \
+            marble_go env GOTOOLCHAIN=auto CGO_ENABLED=0 go test \
               -tags badlinkname -ldflags "-checklinkname=0" \
               "${FORCE_CLOSE_PKGS[@]}"
           )
@@ -331,7 +351,7 @@ jobs:
 
           (
             cd "$SB_TMP"
-            env \
+            marble_go env \
               GOTOOLCHAIN=auto \
               CGO_ENABLED=0 \
               GOOS=linux \
