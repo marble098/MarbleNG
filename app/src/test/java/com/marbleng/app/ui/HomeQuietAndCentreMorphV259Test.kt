@@ -12,8 +12,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.DockSize
+import com.marbleng.app.model.HomeHeroSnapshot
+import com.marbleng.app.model.HomeHeroStudio
 import com.marbleng.app.model.HomeQuiet
 import com.marbleng.app.model.HomeSection
 import com.marbleng.app.ui.theme.MarbleExpressiveTheme
@@ -185,27 +188,37 @@ class HomeQuietAndCentreMorphV259Test {
 
     @Test
     fun theCalmStagePrintsItsOneNumberAndItsRoute() {
+        // MARBLE_HOME_HERO_V261 — the stage is now the hero panel: the same tag, the same route
+        // strip, and instead of one centered readout it prints the four metrics the brief asked for.
+        // The uptime cell still prints the clock the caller handed in, and the route strip is still
+        // the surface's one destination.
         var opened = 0
         compose.setContent {
             ProvideMarbleLanguage("en") {
                 MarbleExpressiveTheme(dynamicColor = false) {
                     ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
                         Box(Modifier.width(360.dp)) {
-                            MarbleCalmStage(
-                                connected = true,
-                                working = false,
-                                stateLabel = "Protected",
-                                overline = "Connection",
-                                readout = "00:10:01",
-                                readoutCaption = "Protected uptime",
-                                readoutLoading = false,
-                                routeProfile = null,
-                                routeCountryCode = "DE",
-                                routeName = "Berlin 01",
-                                routeDetail = "VLESS · Main",
+                            MarbleHeroPanel(
+                                snapshot = HomeHeroSnapshot(
+                                    stateLabel = "Protected",
+                                    overline = "Connection",
+                                    routeName = "Berlin 01",
+                                    routeDetail = "VLESS · Main",
+                                    countryCode = "DE",
+                                    metrics = HomeHeroStudio.metrics(
+                                        connected = true,
+                                        working = false,
+                                        pingMs = 48,
+                                        jitterMs = 7,
+                                        uptimeLabel = "00:10:01",
+                                        exitAddress = "203.0.113.9",
+                                        hasRoute = true
+                                    ),
+                                    working = false
+                                ),
                                 motif = MarbleExpressiveMotif.CLOVER,
-                                primaryAction = {},
-                                onClick = { opened++ }
+                                onMetricClick = { opened++ },
+                                modifier = Modifier.testTag("home-calm-stage")
                             )
                         }
                     }
@@ -216,7 +229,12 @@ class HomeQuietAndCentreMorphV259Test {
         compose.onNodeWithTag("home-calm-stage").assertExists()
         compose.onNodeWithText("00:10:01").assertExists()
         compose.onNodeWithText("Berlin 01").assertExists()
-        compose.onNodeWithTag("home-calm-stage-route").performClick()
+        // The four cells are the panel's own grid, and each one is its own target.
+        compose.onNodeWithTag("home-hero-metric-ping").assertExists()
+        compose.onNodeWithTag("home-hero-metric-jitter").assertExists()
+        compose.onNodeWithTag("home-hero-metric-uptime").assertExists()
+        compose.onNodeWithTag("home-hero-metric-exit").assertExists()
+        compose.onNodeWithTag("home-hero-route").performClick()
         assertEquals(1, opened)
     }
 

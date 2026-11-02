@@ -552,6 +552,7 @@ files = {
     # MARBLE_HOME_QUIET_V259 — Home's calm furniture: the stage, the warm-up row and the studio's
     # preview strip. One file, so "where is the stage drawn" has one answer.
     "homeStudioUi": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeStudio.kt"),
+    "homeHeroUi": read("app/src/main/java/com/marbleng/app/ui/MarbleHomeHero.kt"),
     "homeQuiet": read("app/src/main/java/com/marbleng/app/model/HomeQuiet.kt"),
     # MARBLE_SERVER_PLAN_CARDS_V260 — the plan arithmetic (quota, calendar days, Jalali date, tones),
     # the plate the Servers card draws from it, and About in its reviewed shape.
@@ -4981,7 +4982,11 @@ check(
     and "clearAndSetSemantics" in v249_ticker_ui
     and 'ticker: String = ""' in files["shellUi"]
     and "MarbleRollingClock(" in files["shellUi"]
+    # MARBLE_HOME_HERO_V261 — the clock moved from the pill's argument into the hero's snapshot, so
+    # the pinned pair is the same value in its new home: the snapshot is built from it, and the pill
+    # still receives it unchanged.
     and "val ticker = if (connected) faDigits(uptime) else \"\"" in files["homeScreen"]
+    and "val heroUptime = ticker" in files["homeScreen"]
     and "ticker = ticker" in files["homeScreen"]
     and "class UptimeTickerV249Test" in v249_ticker_test
     and "fun `only the digit that changed rolls`()" in v249_ticker_test
@@ -5200,11 +5205,16 @@ check(
     # MARBLE_HOME_QUIET_V259 — the two stages became one. The shape, the petal mark and the state
     # colour live in `MarbleCalmStage` (MarbleHomeStudio) now, and Home hands it either the pill
     # (hero style) or the mode row (dock styles): still exactly one connect control per page.
-    'label = "homeCalmStage"' in files["homeStudioUi"]
-    and "MarbleCalmStage(" in files["homeScreen"]
+    # MARBLE_HOME_HERO_V261 — the surface, its petal mark and its state-colour animation now live in
+    # `MarbleHomeHero.kt` (`MarbleHeroPanel`), and `MarbleCalmStage` in the studio is the named adapter
+    # onto it that Home and its test still call. The pin follows the code rather than the other way
+    # round: the stage is drawn, it has one connect control, and the mark is in it.
+    'label = "heroPanelStage"' in files["homeHeroUi"]
+    and "MarbleHeroPanel(" in files["homeScreen"]
     and "MarbleConnectPill(" in files["homeScreen"]
     and "MarbleExpressiveTile(" in files["homeScreen"]
-    and "MarblePetalMark(" in files["homeStudioUi"]
+    and "MarblePetalMark(" in files["homeHeroUi"]
+    and "internal fun MarbleHeroPanel(" in files["homeHeroUi"]
     and "val ticker = if (connected) faDigits(uptime) else \"\"" in files["homeScreen"],
 )
 
@@ -5437,11 +5447,15 @@ check(
     and "visible = widgets.showPresets" in v256_home
     and "visible = widgets.showSpeedGraph" in v256_home
     and "widgetStyle.showsHomeHero" in v256_home
-    and "private fun HomeDockedStage(" in v256_home
+    # MARBLE_HOME_HERO_V261 — one hero for every style. `HomeDockedStage` and `HomeHero` were the same
+    # panel differing in one boolean; the boolean is now `connectInPanel`, passed to one composable, so
+    # the pin is that the single stage is reached and that the boolean is the style.
+    and "private fun HomeHeroStage(" in v256_home
+    and "connectInPanel = widgetStyle.showsHomeHero" in v256_home
     # MARBLE_HOME_QUIET_V259 — both stages are the one Expressive surface now, so the hero is no
     # longer a squircle of its own (`shapes.extraLarge`): it is the asymmetric stage.
-    and "marbleAsymmetricShape(prominent = true)" in files["homeStudioUi"]
-    and "MarbleCalmStage(" in v256_home,
+    and "marbleAsymmetricShape(prominent = true)" in files["homeHeroUi"]
+    and "MarbleHeroPanel(" in v256_home,
 )
 
 check(
@@ -5597,6 +5611,7 @@ v259_dock = read("app/src/main/java/com/marbleng/app/ui/MarbleLumenDock.kt")
 v259_pages = read("app/src/main/java/com/marbleng/app/ui/MarbleExpressivePages.kt")
 v259_home = files["homeScreen"]
 v259_home_ui = files["homeStudioUi"]
+v259_home_hero = files["homeHeroUi"]
 v259_quiet = files["homeQuiet"]
 v259_store = files["store"]
 v259_appearance = files["settingsAppearance"]
@@ -5682,8 +5697,8 @@ check(
     and "MarbleHomeSectionPreview(" in v259_appearance
     and 'testTag("home-section-switch-${section.id}")' in v259_appearance
     # The one designed surface both stages share.
-    and "internal fun MarbleCalmStage(" in v259_home_ui
-    and "private fun HomeDockedStage(" in v259_home
+    and "internal fun MarbleHeroPanel(" in v259_home_hero
+    and "private fun HomeHeroStage(" in v259_home
     and "fun aFirstRunIsTheCalmLayoutAndNotTheFullOne()" in v259_model_test
     and "fun theLegacyFloorCannotMakeASwitchLookBroken()" in v259_model_test
     # MARBLE_HOME_DECLUTTER_V260 retired the card's test with the card, and replaced it with the test
@@ -5724,8 +5739,10 @@ v260_dock = read("app/src/main/java/com/marbleng/app/ui/MarbleLumenDock.kt")
 check(
     "V260 the bar and everything inside it read one corner rule",
     # "The bar should be round and its buttons should be round to the same degree as it." One ratio
-    # and one inset, and neither the capsule nor a tab is a stadium any more.
-    "const val CORNER_RATIO: Float = 0.44f" in v260_studio
+    # and one inset. MARBLE_GLASS_DOCK_V261 moved the ratio to 0.5 — a stadium — because the reader
+    # reversed V260's *other* half of that judgement on a second look; the rule itself (one ratio, one
+    # 6dp pull, nothing nested inventing its own curve) is what this invariant is about and it holds.
+    "const val CORNER_RATIO: Float = 0.5f" in v260_studio
     and "fun cornerRadiusDp(size: DockSize): Float =" in v260_studio
     and "heightDp(size) / 2f" not in v260_studio
     and "const val INNER_CORNER_INSET_DP: Int = 6" in v260_studio
@@ -5823,8 +5840,112 @@ check(
     and "## ۵. درباره: چیزی که این نسخه هست، یک‌بار" in v260_doc
     and "## ۶. شورای طراحی و جدول اجرا" in v260_doc
     and "## ۷. تست" in v260_doc
+    # MARBLE_GLASS_DOCK_V261 — the README's "newest chapter" crown moves with each pass; what must
+    # never move is the link to this one.
     and "DESIGN_COUNCIL_V260.md" in files["readme"]
-    and "DESIGN_COUNCIL_V260.md` is the newest chapter" in files["readme"],
+    and "DESIGN_COUNCIL_V260.md` is the chapter before it" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_GLASS_DOCK_V261 — one glass capsule with a travelling lens, one honest hero, and one verb
+# per action across the product.
+# ---------------------------------------------------------------------------
+v261_glass = read("app/src/main/java/com/marbleng/app/model/GlassDock.kt")
+v261_hero = read("app/src/main/java/com/marbleng/app/model/HomeHero.kt")
+v261_dock_ui = read("app/src/main/java/com/marbleng/app/ui/MarbleLumenDock.kt")
+v261_hero_ui = read("app/src/main/java/com/marbleng/app/ui/MarbleHomeHero.kt")
+v261_doc = read("docs/GLASS_DOCK_AND_HERO_V261.md")
+v261_glass_test = read("app/src/test/java/com/marbleng/app/model/GlassDockV261Test.kt")
+v261_hero_test = read("app/src/test/java/com/marbleng/app/model/HomeHeroV261Test.kt")
+v261_dock_test = read("app/src/test/java/com/marbleng/app/ui/GlassDockV261UiTest.kt")
+
+check(
+    "V261 the dock is a narrower, rounder glass capsule with one travelling lens",
+    # The capsule is deliberately not full-bleed, and it does not stretch on a tablet.
+    "const val HORIZONTAL_MARGIN_DP: Int = 30" in v260_studio
+    and "const val MAX_WIDTH_DP: Int = 520" in v260_studio
+    and "const val CORNER_RATIO: Float = 0.5f" in v260_studio
+    # One aperture, placed from measurements rather than from an evenly divided row.
+    and "const val MARKER: String = \"MARBLE_GLASS_DOCK_V261\"" in v261_glass
+    and "fun apertureLeftPx(" in v261_glass
+    and "fun lensRadiusDp(" in v261_glass
+    and "GlassDock.apertureLeftPx(" in v261_dock_ui
+    and "GlassLens(" in v261_dock_ui
+    and 'testTag("lumen-glass-lens")' in v261_dock_ui
+    # The material is a rim and a wash, never an outlineVariant frame.
+    and ".glassCapsule(" in v261_dock_ui
+    and "GlassDock.SURFACE_ALPHA" in v261_dock_ui
+    and "GlassDock.RIM_ALPHA" in v261_dock_ui
+    and "GlassDock.FLOOR_ALPHA" in v261_dock_ui
+    and "colors.outlineVariant" not in v261_dock_ui
+    # A selected tab paints no pill: the lens is the selection.
+    and ".background(container)" not in v261_dock_ui
+    and "secondaryContainer" not in v261_dock_ui
+    and "detectHorizontalDragGestures" in v261_dock_ui
+    and "class GlassDockV261Test" in v261_glass_test
+    and "class GlassDockV261UiTest" in v261_dock_test
+    # The draw scope reads no theme and no translation, which is what makes the material testable.
+    and "MaterialTheme" not in v261_glass,
+)
+
+check(
+    "V261 Home's hero carries ping, jitter, uptime, the server and the exit address on one surface",
+    "const val MARKER: String = \"MARBLE_HOME_HERO_V261\"" in v261_hero
+    and "const val ABSENT: String" in v261_hero
+    and "enum class HeroTone" in v261_hero
+    and "data class HeroMetric(" in v261_hero
+    and "data class HomeHeroSnapshot(" in v261_hero
+    and "fun pingTone(pingMs: Int): HeroTone?" in v261_hero
+    and "fun jitterTone(jitterMs: Int): HeroTone?" in v261_hero
+    and "HeroMetricKind.JITTER" in v261_hero
+    and "HeroMetricKind.UPTIME" in v261_hero
+    and "HeroMetricKind.EXIT" in v261_hero
+    # One panel, drawn by one composable, used by one call site for every connection style.
+    and "internal fun MarbleHeroPanel(" in v261_hero_ui
+    and "internal fun HeroMetricGrid(" in v261_hero_ui
+    and 'testTag("home-hero-metrics")' in v261_hero_ui
+    and 'testTag("home-hero-metric-${metric.kind.id}")' in v261_hero_ui
+    and "HomeHeroStudio.metrics(" in files["homeScreen"]
+    and "HomeHeroSnapshot(" in files["homeScreen"]
+    # The two old stages are gone, not left beside the new one.
+    and "private fun HomeDockedStage(" not in v256_home
+    and "private fun HomeHero(" not in v256_home
+    and "class HomeHeroV261Test" in v261_hero_test,
+)
+
+check(
+    "V261 one verb per action, across the pages that had two",
+    # Servers: one reset, one scope, and sorting is not a filter.
+    "fun clearedFilters(" in read("app/src/main/java/com/marbleng/app/core/ServersQuery.kt")
+    and "fun narrows(" in read("app/src/main/java/com/marbleng/app/core/ServersQuery.kt")
+    and "private fun resetServersFilters(" in read("app/src/main/java/com/marbleng/app/ui/ServersScreen.kt")
+    and read("app/src/main/java/com/marbleng/app/ui/ServersScreen.kt").count("resetServersFilters(") == 4
+    # The IP page: one refresh (the header's, the only one that can also stop a sweep) and one copy.
+    and read("app/src/main/java/com/marbleng/app/ui/IpIdentityScreen.kt").count("repo.refreshIpStack(force = true)") == 2
+    and "onRefresh" not in read("app/src/main/java/com/marbleng/app/ui/IpIdentityScreen.kt")
+    # Settings: the two apply buttons became one and a footer.
+    and read("app/src/main/java/com/marbleng/app/ui/SettingsNetworkCouncilPages.kt").count(
+        "repo.applyNetworkCouncilPlan()"
+    ) == 1
+    # Settings: the hub's top-right corner holds one object, not a decoration beside a door.
+    and "MarblePetalMark(" not in files["settingsScreen"]
+    and "MarbleAboutOrbitButton(" in files["settingsScreen"]
+    # Settings: the heading no longer repeats the row under it.
+    and 'MarbleSectionHeader(title = trx("Identity Guard"))' not in
+        read("app/src/main/java/com/marbleng/app/ui/SettingsTestingPages.kt"),
+)
+
+check(
+    "V261 the chapter is written down and linked as the newest one",
+    "MARBLE_GLASS_DOCK_V261" in v261_doc
+    and "## ۱. نوار تب: یک کپسول شیشه‌ای با یک لنزِ مسافر" in v261_doc
+    and "## ۲. قهرمانِ صفحهٔ اصلی: چهار عدد، یک سطح" in v261_doc
+    and "## ۳. کنترل‌های تکراری که حذف شدند" in v261_doc
+    and "## ۴. جدول اجرا" in v261_doc
+    and "## ۵. آنچه عمداً انجام نشد" in v261_doc
+    and "## ۶. تست" in v261_doc
+    and "GLASS_DOCK_AND_HERO_V261.md" in files["readme"]
+    and "GLASS_DOCK_AND_HERO_V261.md` is the newest chapter" in files["readme"],
 )
 
 failed = [name for name, passed in checks if not passed]

@@ -33,6 +33,45 @@ object ServersQuery {
 
     val MAX_PING_CHOICES: List<Int> = listOf(MAX_PING_OFF, 100, 200, 500)
 
+    /**
+     * MARBLE_ONE_RESET_V261 — the list's *narrowing*, cleared in one place.
+     *
+     * The page had three "Reset Filters" closures and each of them reset a different scope: the chip
+     * strip cleared the protocol, the reachability gate, the ping ceiling, the sort direction *and*
+     * the source; the filtered-empty state did the same minus nothing; the filter sheet cleared the
+     * first three but left the sort and the source alone. Three verbs with one label that do three
+     * different things is the worst kind of duplication — a reader learns the label once and it
+     * lies to them twice.
+     *
+     * So the scope is decided here, once: **a filter is anything that hides a server the reader
+     * owns.** The source is a filter (a server outside the chosen source is hidden), the protocol is
+     * a filter, the reachability gate is a filter, the ping ceiling is a filter, the search text is a
+     * filter. **Sort is not** — reversing a list reorders it and hides nothing — so `nodeSortReverse`
+     * and `nodeSortMode` are deliberately *not* touched by [clearedFilters], and the chip strip's
+     * reset stops clearing them.
+     *
+     * [resetQuery] exists for the two callers that own a text field: the query is page state and not
+     * a setting, so the model cannot clear it, and the caller passes whether it did.
+     */
+    fun clearedFilters(settings: com.marbleng.app.model.AppSettings): com.marbleng.app.model.AppSettings =
+        settings.copy(
+            serversProtocolFilter = ALL_PROTOCOLS,
+            serversOnlyReachable = false,
+            serversMaxPingMs = MAX_PING_OFF
+        )
+
+    /**
+     * True when [settings] hides at least one server: what a "Reset Filters" verb is *for*.
+     *
+     * The source is page state rather than a setting (`repo.librarySourceFilter`), so a caller that
+     * wants the whole answer passes [sourcesNarrow] as well.
+     */
+    fun narrows(settings: com.marbleng.app.model.AppSettings, sourcesNarrow: Boolean = false): Boolean =
+        settings.serversProtocolFilter.isNotBlank() ||
+            settings.serversOnlyReachable ||
+            settings.serversMaxPingMs > MAX_PING_OFF ||
+            sourcesNarrow
+
     fun protocolKey(profile: ProxyProfile): String =
         profile.scheme.trim().uppercase().ifBlank { "PROXY" }
 

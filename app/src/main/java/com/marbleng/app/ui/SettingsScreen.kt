@@ -639,15 +639,19 @@ private fun SettingsMenuPage(
                             firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
                         )
                     ) {
-                        MarblePetalMark(
-                            color = colors.primary.copy(alpha = 0.22f),
-                            size = 36.dp,
-                            motif = MarbleExpressiveMotif.FLOWER,
-                            targetMotif = MarbleExpressiveMotif.SUNNY
-                        )
-                        // MARBLE_ABOUT_PAGE_V258 — the hub's top-right corner is the door to the
-                        // independent About page, and the door is the app's own turning Material
-                        // shape: the decorative polygon and the INFO button became one object.
+                        // MARBLE_SETTINGS_CORNER_V261 — one object in this corner, not two.
+                        //
+                        // The report was exact: "two shapes sitting next to each other in the
+                        // top-right corner of Settings". The decorative `MarblePetalMark` was a
+                        // 36dp polygon that *did nothing* — a second, smaller, pointless sibling of
+                        // the About door beside it. V258's own comment claimed the polygon and the
+                        // INFO button had "become one object"; they had not, they had become two,
+                        // one of which was ornament. A corner that holds one thing is a corner; a
+                        // corner that holds a thing and its shadow is the blemish that was reported.
+                        //
+                        // The About door stays, because it is the only way to the About page, and it
+                        // already *is* the app's turning Material shape — the ornament was a copy of
+                        // its silhouette, drawn beside it.
                         MarbleAboutOrbitButton(
                             contentDescription = strings.informationTitle,
                             onClick = { onOpenDestination(SettingsDestination.ABOUT) }

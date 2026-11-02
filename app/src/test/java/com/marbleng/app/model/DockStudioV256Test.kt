@@ -107,16 +107,27 @@ class DockStudioV256Test {
             assertTrue("glyph is taller than the row", DockStudio.iconSizeDp(size) <= DockStudio.restingTabSizeDp(size))
             assertTrue("power button is taller than the capsule", DockStudio.powerButtonSizeDp(size) <= height)
             assertEquals("the island must not be taller than its row", height - padding * 2, DockStudio.islandHeightDp(size))
-            // MARBLE_DOCK_RADII_V260 — this used to assert `height / 2f`, a stadium. The reader asked
-            // for a bar that is still very round but no longer a stadium, so the pinned rule is the
-            // shipped ratio *and* the inequality: 44 % of the short side, strictly under half.
+            // MARBLE_DOCK_RADII_V260 pinned 44 % of the short side and an explicit "not a stadium".
+            // MARBLE_GLASS_DOCK_V261 reversed that half of the judgement — the bar read as a
+            // rectangle with soft ends next to the floating glass reference the brief named — so the
+            // pinned rule is the shipped ratio *and* the inequality in the other direction: the
+            // capsule's ends are two half-circles, exactly.
             assertEquals(
-                "44 % of the short side at every rung",
+                "half the short side at every rung",
                 kotlin.math.round(height * DockStudio.CORNER_RATIO),
                 DockStudio.cornerRadiusDp(size),
                 0.001f
             )
-            assertTrue("a stadium is what V260 removed", DockStudio.cornerRadiusDp(size) < height / 2f)
+            assertTrue(
+                "the capsule is a stadium, so its ends are two half-circles",
+                DockStudio.cornerRadiusDp(size) >= height / 2f - 0.5f
+            )
+            // …and everything nested in it still reads *one* inset less round, at every rung.
+            assertEquals(
+                DockStudio.cornerRadiusIntDp(size) - DockStudio.INNER_CORNER_INSET_DP.toFloat(),
+                DockStudio.innerRadiusDp(size),
+                0.001f
+            )
         }
     }
 

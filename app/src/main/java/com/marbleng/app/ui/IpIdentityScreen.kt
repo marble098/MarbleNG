@@ -195,7 +195,6 @@ fun IpIdentityScreen(
                     connected = connected,
                     connecting = connecting,
                     scanning = scanning,
-                    onRefresh = { repo.refreshIpStack(force = true) },
                     onCopy = { literal ->
                         clipboard.setText(AnnotatedString(literal))
                         repo.setRuntimeMessage(copiedNotice)
@@ -286,7 +285,6 @@ private fun IpPassportHero(
     connected: Boolean,
     connecting: Boolean,
     scanning: Boolean,
-    onRefresh: () -> Unit,
     onCopy: (String) -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
@@ -305,9 +303,7 @@ private fun IpPassportHero(
         connected && report.tunnelActive -> trx("Address the internet sees")
         else -> trx("Your address right now")
     }
-    // Resolved in the composition: the button labels live inside clickable scopes below.
-    val refreshLabel = trx("Refresh")
-    val readingLabel = trx("Reading…")
+    // Resolved in the composition: the button label lives inside a clickable scope below.
     val copyLabel = trx("Copy")
     val place = listOf(exit?.city.orEmpty(), exit?.country.orEmpty())
         .filter { it.isNotBlank() }
@@ -345,15 +341,11 @@ private fun IpPassportHero(
                 color = tone.copy(alpha = 0.22f),
                 shape = RoundedCornerShape(36.dp)
             )
-            .clickable(
-                role = Role.Button,
-                enabled = literal.isNotBlank()
-            ) {
-                if (literal.isNotBlank()) {
-                    haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                    onCopy(literal)
-                }
-            }
+            // MARBLE_SETTINGS_CORNER_V261 (the duplicate-control sweep) — this surface used to be
+            // clickable-to-copy *and* carry a Copy button under it: the same verb, twice, one of
+            // them invisible. The band is a *reading* now, and the Copy button is the one way to
+            // copy. A tap on a passport that silently copied an address also contradicted the
+            // page's other rule, that a surface which looks like a card is not a button.
             .testTag("ip-exit-hero")
             .padding(20.dp)
     ) {
@@ -465,15 +457,11 @@ private fun IpPassportHero(
                     .padding(top = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                MarbleButton(
-                    label = if (scanning) readingLabel else refreshLabel,
-                    glyph = MarbleGlyph.REFRESH,
-                    style = MarbleButtonStyle.TINTED,
-                    compact = true,
-                    enabled = !scanning,
-                    onClick = onRefresh,
-                    modifier = Modifier.weight(1f)
-                )
+                // MARBLE_SETTINGS_CORNER_V261 — one refresh control per page. This row used to
+                // hold a second "Refresh" beside the Copy verb, and the header's own refresh
+                // button was ten dp above it: two affordances for one action, and the brief's
+                // rule is one. The header's button wins because it is the one that can also
+                // *stop* a running sweep (it swaps to STOP), which this label never could.
                 MarbleButton(
                     label = copyLabel,
                     glyph = MarbleGlyph.COPY,
