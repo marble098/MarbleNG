@@ -70,9 +70,9 @@ import kotlinx.coroutines.delay
  * **4. The motion was a tween.** Every movement here is a spring — the weight of the opening tab,
  * the weight of the glyph, the travel of the glass. V258 shipped
  * `spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow)`; V262 moved the pair into
- * [LiquidLens.SPRING_DAMPING_RATIO] / [LiquidLens.SPRING_STIFFNESS] (0.75 / 400, with the
- * difference from the framework's medium-bouncy token written down there and pinned by
- * `LiquidLensV262Test`). The app's
+ * [LiquidLens.SPRING_DAMPING_RATIO] / [LiquidLens.SPRING_STIFFNESS] (0.75 / 400 — the brief's
+ * number rather than the medium-bouncy token it names, which is 0.5; the reasoning lives on the
+ * constant and is pinned by `LiquidLensV262Test`). The app's
  * calm-motion switch and Android's own *remove animations* still win — [marbleMotion] clamps the
  * travel and a still motion settles without overshoot.
  *

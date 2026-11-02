@@ -148,19 +148,19 @@ object LiquidLens {
     // ── the physics ──────────────────────────────────────────────────────────────────────────
 
     /**
-     * `dampingRatio = 0.75f` — the brief's own number, and not quite the token it names beside it.
+     * `dampingRatio = 0.75f` — the brief's own number, and not the token it names beside it.
      *
      * The brief asks for `Spring.DampingRatioMediumBouncy` and writes *≈0.75* in the same breath.
-     * Those are two different springs: in `androidx.compose.animation.core.Spring` that token is
-     * **0.5**, i.e. a 16 % overshoot — on a 52dp lens, eight dp past the tab it is aiming at, which
-     * reads as a rubber band rather than as a liquid settling. 0.75 is a 2.8 % overshoot: about one
-     * and a half dp of arrival energy, which is what "medium bouncy" describes to a reader even
-     * though it is the framework's `DampingRatioLowBouncy` value.
+     * In `androidx.compose.animation.core.Spring` those are two different springs: the token is
+     * **0.5**, and 0.75 is `DampingRatioLowBouncy`. At 0.5 the arrival overshoots by 16 % — on a
+     * 52dp lens that is eight dp past the tab it is aiming at, which reads as a rubber band rather
+     * than as a liquid settling. At 0.75 the overshoot is 2.8 %, about one and a half dp of arrival
+     * energy: still a bounce you can see, nothing you can feel as a rebound.
      *
-     * The number therefore wins, and the test pins both halves of the decision: the value, and the
-     * fact that it sits between the framework's medium-bouncy token and no-bounce at all. A spring
-     * that is named in a document and configured in another file is a spring that drifts; a number
-     * that is written once, next to the reason, is not.
+     * The number therefore wins over the token, and it wins as a number rather than as a name: the
+     * test pins the value, pins that it is calmer than medium-bouncy and springier than
+     * `DampingRatioNoBouncy`, and — since 0.75 happens to *be* the low-bouncy token here — pins that
+     * too, so an upstream retune of the constant cannot silently re-tune the dock.
      *
      * `Spring.StiffnessMediumLow` — the other half of the pair — *is* 400f, and it is low on
      * purpose: a stiffer spring arrives too fast for the stretch below to be seen at all.

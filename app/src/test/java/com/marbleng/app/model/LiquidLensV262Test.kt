@@ -85,9 +85,9 @@ class LiquidLensV262Test {
     @Test
     fun theSpringIsThePairTheBriefNames() {
         // The brief names `Spring.DampingRatioMediumBouncy` *and* writes ≈0.75 beside it; in this
-        // framework those are two different springs (the token is 0.5). The dock takes the number —
-        // 0.75 is a 2.8 % arrival overshoot, 0.5 would be 16 % — and this test is where that
-        // judgement is written down instead of remembered.
+        // framework those are two different springs (the token is 0.5, and 0.75 is the low-bouncy
+        // one). The dock takes the number — 0.75 is a 2.8 % arrival overshoot, 0.5 would be 16 % —
+        // and this test is where that judgement is written down instead of remembered.
         assertEquals(0.75f, LiquidLens.SPRING_DAMPING_RATIO, epsilon)
         assertTrue(
             "the lens must settle, not ring: calmer than the framework's medium-bouncy token",
@@ -95,8 +95,10 @@ class LiquidLensV262Test {
         )
         assertTrue(
             "…but it must still arrive with energy, or the travel reads as a tween",
-            LiquidLens.SPRING_DAMPING_RATIO < Spring.DampingRatioLowBouncy
+            LiquidLens.SPRING_DAMPING_RATIO < Spring.DampingRatioNoBouncy
         )
+        // The number is the low-bouncy value, so the dock reads as that token to anyone comparing.
+        assertEquals(Spring.DampingRatioLowBouncy, LiquidLens.SPRING_DAMPING_RATIO, epsilon)
         // The other half of the pair is the framework's own constant, by value.
         assertEquals(Spring.StiffnessMediumLow, LiquidLens.SPRING_STIFFNESS, epsilon)
         assertEquals(400f, LiquidLens.SPRING_STIFFNESS, epsilon)
