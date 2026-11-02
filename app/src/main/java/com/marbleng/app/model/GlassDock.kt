@@ -71,10 +71,14 @@ object GlassDock {
         trackInsetPx: Float
     ): Float {
         if (barWidthPx <= 0f) return trackInsetPx
-        val half = (apertureWidthPx.coerceAtLeast(0f)) / 2f
+        val width = apertureWidthPx.coerceAtLeast(0f)
         val min = trackInsetPx
-        val max = (barWidthPx - half - trackInsetPx).coerceAtLeast(min)
-        return (centrePx - half).coerceIn(min, max)
+        // The *trailing* edge is what has to stay inside the capsule, so the largest legal left is
+        // the bar minus the whole aperture minus one inset — not minus half of it. (V261's first
+        // draft subtracted half and let a lens hang 48dp out of the glass at the last slot; the test
+        // that pins this found it before the dock did.)
+        val max = (barWidthPx - width - trackInsetPx).coerceAtLeast(min)
+        return (centrePx - width / 2f).coerceIn(min, max)
     }
 
     /**

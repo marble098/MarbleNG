@@ -72,6 +72,9 @@ class GlassDockV261Test {
 
     @Test
     fun theApertureIsCentredOnItsSlotAndStopsAtAnEdge() {
+        // V261's first draft subtracted *half* the aperture from the trailing clamp and let a lens
+        // hang 48dp out of the glass on the last slot. The assertion below is the one that caught it,
+        // so the last slot is pinned here as well as in the sweep above.
         val left = GlassDock.apertureLeftPx(
             barWidthPx = 300f,
             centrePx = 150f,
@@ -84,6 +87,12 @@ class GlassDockV261Test {
         // of hanging out of the glass.
         val clamped = GlassDock.apertureLeftPx(300f, 20f, 100f, 6f)
         assertEquals(6f, clamped, epsilon)
+
+        // The trailing end, which is where the draft went wrong: the aperture's *right* edge lands
+        // one inset inside the capsule's right rim, never past it.
+        val trailing = GlassDock.apertureLeftPx(300f, 300f, 96f, 6f)
+        assertEquals(300f - 96f - 6f, trailing, epsilon)
+        assertEquals(300f - 6f, trailing + 96f, epsilon)
     }
 
     @Test
