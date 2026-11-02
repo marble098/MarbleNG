@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MARBLE_AURORA_SURFACE_V219 — the prism mark, drawn on a 28-unit grid.
+<!-- MARBLE_PRISM_MARK_V264 — the brand mark on the 28-unit grid.
 
-     One orbit (the tunnel), one folded "M" (the product), one translucent facet where the two
-     strokes cross (the marble). The strokes are round-capped and share a single weight, so the mark
-     holds together at 18 dp in a notification and at 40 dp in the header. -->
+     The same object as the launcher icon, reduced to three paths: one hexagonal prism, one M cut
+     out of it, and one hairline rim. The orbit, the translucent facet and the tiny glint are gone —
+     at 18 dp in a badge they were the "ambiguous space/technology doodle" the V255 review already
+     diagnosed. A solid silhouette with a negative-space letter survives every size. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="28dp"
@@ -12,32 +13,27 @@
     android:viewportHeight="28">
 
     <path
-        android:fillColor="#00000000"
-        android:pathData="M3.2,14 a10.8,4.2 0 1,0 21.6,0 a10.8,4.2 0 1,0 -21.6,0"
-        android:strokeColor="#8FD8FF"
-        android:strokeAlpha="0.55"
-        android:strokeWidth="1.5" />
-
-    <path
-        android:pathData="M14,6.4 L20,21 L14,17.2 Z">
+        android:fillType="evenOdd"
+        android:pathData="M12.87,6.35 L7.94,9.20 Q6.81,9.85 6.81,11.15 L6.81,16.85 Q6.81,18.15 7.94,18.80 L12.87,21.65 Q14.00,22.30 15.13,21.65 L20.06,18.80 Q21.19,18.15 21.19,16.85 L21.19,11.15 Q21.19,9.85 20.06,9.20 L15.13,6.35 Q14.00,5.70 12.87,6.35 Z M9.59,17.63 L9.59,10.89 L11.67,10.89 L14.00,15.04 L16.33,10.89 L18.41,10.89 L18.41,17.63 L16.33,17.63 L16.33,13.74 L14.26,16.59 L13.74,16.59 L11.67,13.74 L11.67,17.63 Z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="14"
-                android:startY="6.4"
-                android:endX="20"
-                android:endY="21"
+                android:startX="7"
+                android:startY="6"
+                android:endX="21"
+                android:endY="22"
                 android:type="linear">
-                <item android:offset="0" android:color="#66FFFFFF" />
-                <item android:offset="1" android:color="#00FFFFFF" />
+                <item android:offset="0" android:color="#FFFFFFFF" />
+                <item android:offset="0.5" android:color="#FF9BDEFF" />
+                <item android:offset="1" android:color="#FF2563EB" />
             </gradient>
         </aapt:attr>
     </path>
 
     <path
         android:fillColor="#00000000"
-        android:pathData="M6.4,22 L9.6,6.2 L14,14.6 L18.4,6.2 L21.6,22"
-        android:strokeColor="#FFFFFFFF"
+        android:pathData="M12.87,6.35 L7.94,9.20 Q6.81,9.85 6.81,11.15 L6.81,16.85 Q6.81,18.15 7.94,18.80 L12.87,21.65 Q14.00,22.30 15.13,21.65 L20.06,18.80 Q21.19,18.15 21.19,16.85 L21.19,11.15 Q21.19,9.85 20.06,9.20 L15.13,6.35 Q14.00,5.70 12.87,6.35 Z"
+        android:strokeColor="#B3FFFFFF"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:strokeWidth="2.2" />
+        android:strokeWidth="0.35" />
 </vector>

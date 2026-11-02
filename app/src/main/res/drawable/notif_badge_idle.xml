@@ -2,8 +2,9 @@
 <!-- MARBLE_SHADE_ATELIER_V234 — the idle badge of the ongoing tunnel item.
 
      One drawing per state instead of one icon for all five: `idle` reads from the badge alone,
-     before a single word of the title is parsed. Same 24-unit grid and 2.1-unit stroke as every
-     other MarbleNG notification mark; the disc is the state's tone. -->
+     before a single word of the title is parsed. MARBLE_PRISM_MARK_V264 — the 22dp mark inside the
+     disc is the same filled hexagonal prism (with its M cut out) as the launcher; the disc alone
+     carries the state's tone. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
     <item>

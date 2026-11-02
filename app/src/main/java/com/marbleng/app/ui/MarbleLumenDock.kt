@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -208,12 +209,21 @@ internal fun MarbleLumenDock(
                 // A centred trigger splits the tabs around itself: half of them lead, half follow,
                 // so the button is the middle of the dock and not a fifth slot at one end. With the
                 // shipped four tabs the row reads Home · Servers · (action) · IP · Settings.
+                //
+                // MARBLE_STEADY_CONNECT_V264 — the slot is now a *reserved* width rather than the
+                // measured width of whatever the trigger happens to draw. V259's bloom, its tooltip
+                // and its connected halo were all measured children of this Box, so a tap or a state
+                // change resized the slot and moved every weighted tab. The trigger still owns its
+                // own fixed footprint; this pin is the second line of defence.
+                val centerSlotWidth = (DockStudio.centerTriggerWidthDp(size) + pillPadding * 2).dp
                 val centerAt = if (center != null) (tabCount + 1) / 2 else -1
                 tabs.forEachIndexed { index, tab ->
                     if (index == centerAt) {
                         center?.let { trigger ->
                             Box(
-                                modifier = Modifier.padding(horizontal = pillPadding.dp),
+                                modifier = Modifier
+                                    .width(centerSlotWidth)
+                                    .padding(horizontal = pillPadding.dp),
                                 contentAlignment = Alignment.Center
                             ) { trigger() }
                         }
@@ -240,7 +250,9 @@ internal fun MarbleLumenDock(
                 if (centerAt == tabCount) {
                     center?.let { trigger ->
                         Box(
-                            modifier = Modifier.padding(horizontal = pillPadding.dp),
+                            modifier = Modifier
+                                .width(centerSlotWidth)
+                                .padding(horizontal = pillPadding.dp),
                             contentAlignment = Alignment.Center
                         ) { trigger() }
                     }

@@ -1,18 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MARBLE_MINIMAL_MARK_V255 — restrained themed-icon silhouette. -->
+<!-- MARBLE_PRISM_MARK_V264 — the Android 13+ themed-icon layer.
+
+     One path, one fill, one silhouette: the same hexagonal prism and the same M cut-out as
+     ic_launcher_foreground.xml, with no gradient, no halo and no rim. Android tints this single
+     white shape with the wallpaper's colours; a stroked letter or a translucent facet would
+     collapse into a smudge at that size, which is exactly what the old themed icon did. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#00000000"
-        android:pathData="M29,77 L38,36 Q39,32 42,36 L54,54 L66,36 Q69,32 70,36 L79,77"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:strokeWidth="8" />
-    <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M78,26 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" />
+        android:fillType="evenOdd"
+        android:pathData="M49.67,24.50 L30.62,35.50 Q26.29,38.00 26.29,43.00 L26.29,65.00 Q26.29,70.00 30.62,72.50 L49.67,83.50 Q54.00,86.00 58.33,83.50 L77.38,72.50 Q81.71,70.00 81.71,65.00 L81.71,43.00 Q81.71,38.00 77.38,35.50 L58.33,24.50 Q54.00,22.00 49.67,24.50 Z M37,68 L37,42 L45,42 L54,58 L63,42 L71,42 L71,68 L63,68 L63,53 L55,64 L53,64 L45,53 L45,68 Z" />
 </vector>

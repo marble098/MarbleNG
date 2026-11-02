@@ -109,21 +109,19 @@ object DockStudio {
         maxOf(BASE_CLEARANCE_DP, centerDockHeightDp(size) + bottomGapDp(gapDp) + CLEARANCE_BREATHING_DP)
 
     /**
-     * How wide the trigger blooms while it is open: room for one glyph, the state word and the
-     * latency, capped so the bloomed pill can never swallow the tabs on a 360dp phone.
+     * MARBLE_STEADY_CONNECT_V264 — the centre trigger's **fixed** footprint.
+     *
+     * V259 animated this width from a circle to a 130…196dp bloom so a state word and a latency
+     * could open beside the knob. That width was measured inside the dock's weighted `Row`, so a tap
+     * — and every connection-state change — moved all four tabs. The bloom and the word are gone;
+     * the trigger is now a square of exactly [centerTriggerSizeDp] in every phase, and the dock
+     * reserves exactly this many dp for its slot. Fixed, not clamped: a state must never resize a
+     * neighbour.
      */
-    fun centerBloomedWidthDp(size: DockSize): Int =
-        (centerTriggerSizeDp(size) + 78).coerceAtMost(196)
+    fun centerTriggerWidthDp(size: DockSize): Int = centerTriggerSizeDp(size)
 
     /** The glyph inside the trigger: one step above the tab glyph at every rung. */
     fun centerGlyphDp(size: DockSize): Int = iconSizeDp(size) + 2
-
-    /**
-     * How long the centre trigger's tooltip stays after a tap. It is a reading the reader asked
-     * for: long enough for a latency, short enough that the card is never mistaken for part of the
-     * bar. V263 removed the tab caption entirely, so this is the dock's only timed word.
-     */
-    const val CENTER_TOOLTIP_HOLD_MS: Long = 1_400L
 
     /**
      * The spring under every dock movement.
@@ -203,7 +201,7 @@ object DockStudio {
 
     /**
      * The corner every object *inside* the capsule reads: a selected tab's pill, the island capsule,
-     * the bloomed centre trigger and the chrome drawn over the dock. One number, so "round like the
+     * the centre trigger and the chrome drawn over the dock. One number, so "round like the
      * bar" is a rule rather than a judgement.
      */
     fun innerRadiusDp(size: DockSize): Float =
@@ -315,6 +313,17 @@ object DockStudio {
         DockSize.LARGE -> 120
     }
 
+    /**
+     * MARBLE_STEADY_CONNECT_V264 — the island's width is **fixed**, not `widthIn(max = …)`.
+     *
+     * The readout is an `AnimatedContent` ("—" → "48 ms" → "12/79 pinging…") and the batch bar is an
+     * `AnimatedVisibility`. With a content-driven width, every one of those readings resized the
+     * leading wing and therefore shifted the weighted tabs. One fixed width per rung — safely below
+     * [islandMaxWidthDp] — keeps the row's geometry identical in all five connection phases; the
+     * text ellipsizes inside its own reserved space instead of borrowing space from a tab.
+     */
+    fun islandWidthDp(size: DockSize): Int = islandMaxWidthDp(size) - 12
+
     /** "48 ms" — the inline latency the capsule carries after a tap. */
     fun pingLabel(latencyMs: Int): String = if (latencyMs <= 0) "" else "$latencyMs ms"
 
@@ -326,6 +335,18 @@ object DockStudio {
         val safeTotal = total.coerceAtLeast(0)
         val safeDone = done.coerceIn(0, safeTotal)
         return "$safeDone/$safeTotal pinging…"
+    }
+
+    /**
+     * MARBLE_STEADY_CONNECT_V264 — "12/79" for the fixed-width island. The word `pinging…` is
+     * still printed by the screen-wide banner that owns a whole row; inside a badge whose width may
+     * never change, the micro bar already says the same thing and the two digits are what a glance
+     * needs. A truncated "12/79 ping…" was the price of pinning the width, so the copy got shorter
+     * instead of the geometry getting loose again.
+     */
+    fun batchCompactLabel(done: Int, total: Int): String {
+        val safeTotal = total.coerceAtLeast(0)
+        return "${done.coerceIn(0, safeTotal)}/$safeTotal"
     }
 
     /** The micro bar under the counter, clamped so a shrinking batch cannot draw backwards. */
@@ -345,7 +366,7 @@ object DockStudio {
  * | style | the complaint it answers |
  * |---|---|
  * | [DOCK_ISLAND] | "I never want to leave the page to disconnect." The pill grows a status badge on the left and a power button on the right. |
- * | [CENTER_MORPH] | "The dock is a toolbar, not a switchboard." One spring button in the middle blooms into the action, and its latency is a tooltip that leaves with the finger. |
+ * | [CENTER_MORPH] | "The dock is a toolbar, not a switchboard." One fixed-footprint button in the middle; V264 retired the bloom, the state word and the tooltip so a tap never moves a tab. |
  * | [HERO_CARD] | "Keep Home the way it was, just calmer." The large card stays, flattened and quiet. |
  *
  * The default is [DOCK_ISLAND] because it is the one that keeps the connect control reachable on
@@ -361,7 +382,7 @@ enum class ConnectionWidgetStyle(val id: String, val title: String, val hint: St
     CENTER_MORPH(
         id = "center_morph",
         title = "Center morph",
-        hint = "One spring button in the middle of the dock, with its latency in a tooltip"
+        hint = "One steady button in the middle of the dock; a long press measures the route"
     ),
     HERO_CARD(
         id = "hero_card",

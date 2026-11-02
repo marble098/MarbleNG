@@ -62,6 +62,10 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Center morph" to "دکمهٔ میانی",
     "One spring button in the middle of the dock, with its latency in a tooltip" to
         "یه دکمهٔ فنری وسط نوار، با پینگش روی حباب راهنما",
+    // MARBLE_STEADY_CONNECT_V264 — the centre style's new promise: no bloom, no word beside the
+    // glyph, and the route measurement moves to a long press so nothing opens on a tap.
+    "One steady button in the middle of the dock; a long press measures the route" to
+        "یه دکمهٔ ثابت وسط نوار؛ با نگه داشتنش مسیر اندازه گرفته می‌شه",
     "Hero card" to "کارت بزرگ",
     "The large connect card stays on Home, flattened and calm" to
         "همون کارت بزرگ اتصال توی خونه می‌مونه، تخت و آروم",
@@ -781,6 +785,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Fail-closed" to "قطع ایمن",
     "Ready to protect" to "آماده محافظت",
     "Connecting" to "در حال اتصال",
+    "Disconnecting" to "در حال قطع اتصال",
     "Connected" to "متصل",
     "Blocked" to "مسدود",
     "Connect" to "اتصال",

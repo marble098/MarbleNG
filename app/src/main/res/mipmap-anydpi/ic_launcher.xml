@@ -1,21 +1,72 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MARBLE_MINIMAL_MARK_V255 — scalable fallback for non-adaptive launcher consumers. -->
+<!-- MARBLE_PRISM_MARK_V264 — the scalable fallback for launchers that do not read adaptive icons.
+
+     The whole mark, field included, in one vector: no fixed-size PNG, no density duplicates. The
+     two background paths reproduce ic_launcher_background.xml's diagonal field and its pool of
+     light; the three foreground paths are byte-identical to ic_launcher_foreground.xml, so a
+     shortcut, a search result and a legacy launcher all show the same object. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <path android:pathData="M0,0 L108,0 L108,108 L0,108 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF0B2554" />
+                <item android:offset="0.5" android:color="#FF123C7B" />
+                <item android:offset="1" android:color="#FF06101F" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M0,0 L108,0 L108,108 L0,108 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="18"
+                android:startY="12"
+                android:endX="100"
+                android:endY="100"
+                android:type="linear">
+                <item android:offset="0" android:color="#4C3B82F6" />
+                <item android:offset="1" android:color="#00000000" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
     <path
-        android:fillColor="#10294A"
-        android:pathData="M0,0 L108,0 L108,108 L0,108 Z" />
+        android:fillColor="#1C8FD8FF"
+        android:fillType="evenOdd"
+        android:pathData="M48.80,21.00 L28.02,33.00 Q22.82,36.00 22.82,42.00 L22.82,66.00 Q22.82,72.00 28.02,75.00 L48.80,87.00 Q54.00,90.00 59.20,87.00 L79.98,75.00 Q85.18,72.00 85.18,66.00 L85.18,42.00 Q85.18,36.00 79.98,33.00 L59.20,21.00 Q54.00,18.00 48.80,21.00 Z M49.67,24.50 L30.62,35.50 Q26.29,38.00 26.29,43.00 L26.29,65.00 Q26.29,70.00 30.62,72.50 L49.67,83.50 Q54.00,86.00 58.33,83.50 L77.38,72.50 Q81.71,70.00 81.71,65.00 L81.71,43.00 Q81.71,38.00 77.38,35.50 L58.33,24.50 Q54.00,22.00 49.67,24.50 Z" />
+
+    <path
+        android:fillType="evenOdd"
+        android:pathData="M49.67,24.50 L30.62,35.50 Q26.29,38.00 26.29,43.00 L26.29,65.00 Q26.29,70.00 30.62,72.50 L49.67,83.50 Q54.00,86.00 58.33,83.50 L77.38,72.50 Q81.71,70.00 81.71,65.00 L81.71,43.00 Q81.71,38.00 77.38,35.50 L58.33,24.50 Q54.00,22.00 49.67,24.50 Z M37,68 L37,42 L45,42 L54,58 L63,42 L71,42 L71,68 L63,68 L63,53 L55,64 L53,64 L45,53 L45,68 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="26"
+                android:startY="22"
+                android:endX="82"
+                android:endY="86"
+                android:type="linear">
+                <item android:offset="0" android:color="#FFFFFFFF" />
+                <item android:offset="0.5" android:color="#FF9BDEFF" />
+                <item android:offset="1" android:color="#FF2563EB" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
     <path
         android:fillColor="#00000000"
-        android:pathData="M29,77 L38,36 Q39,32 42,36 L54,54 L66,36 Q69,32 70,36 L79,77"
-        android:strokeColor="#FFF8FCFF"
+        android:pathData="M49.67,24.50 L30.62,35.50 Q26.29,38.00 26.29,43.00 L26.29,65.00 Q26.29,70.00 30.62,72.50 L49.67,83.50 Q54.00,86.00 58.33,83.50 L77.38,72.50 Q81.71,70.00 81.71,65.00 L81.71,43.00 Q81.71,38.00 77.38,35.50 L58.33,24.50 Q54.00,22.00 49.67,24.50 Z"
+        android:strokeColor="#D9FFFFFF"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:strokeWidth="8" />
-    <path
-        android:fillColor="#FF77D6FF"
-        android:pathData="M78,26 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" />
+        android:strokeWidth="1.1" />
 </vector>
