@@ -6271,6 +6271,9 @@ check(
     and ".size(width = grooveWidth, height = grooveHeight)" in v264_wings
     and ".width(DockStudio.islandWidthDp(size).dp)" in v264_wings
     and ".matchParentSize()" in v264_wings
+    # matchParentSize is a BoxScope member extension, not a foundation.layout import. The wrong
+    # import compiled nowhere: CI caught it as UNRESOLVED_IMPORT, so pin its absence here too.
+    and "import androidx.compose.foundation.layout.matchParentSize" not in v264_wings
     and "dock-center-halo" in v264_wings
     # The whole mechanism is gone, not hidden behind a flag.
     and "centerBloomedWidthDp" not in v264_studio
