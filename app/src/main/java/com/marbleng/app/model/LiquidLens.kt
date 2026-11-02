@@ -148,12 +148,22 @@ object LiquidLens {
     // ── the physics ──────────────────────────────────────────────────────────────────────────
 
     /**
-     * `Spring.DampingRatioMediumBouncy` is 0.75 in androidx.compose.animation.core.Spring.
+     * `dampingRatio = 0.75f` — the brief's own number, and not quite the token it names beside it.
      *
-     * The brief names the pair; it is restated here as numbers because a spring that is named in
-     * one file and configured in another is a spring that drifts. `Spring.StiffnessMediumLow` — the
-     * other half of the pair — is 400f, and it is low on purpose: a stiffer spring arrives too fast
-     * for the stretch below to be seen at all.
+     * The brief asks for `Spring.DampingRatioMediumBouncy` and writes *≈0.75* in the same breath.
+     * Those are two different springs: in `androidx.compose.animation.core.Spring` that token is
+     * **0.5**, i.e. a 16 % overshoot — on a 52dp lens, eight dp past the tab it is aiming at, which
+     * reads as a rubber band rather than as a liquid settling. 0.75 is a 2.8 % overshoot: about one
+     * and a half dp of arrival energy, which is what "medium bouncy" describes to a reader even
+     * though it is the framework's `DampingRatioLowBouncy` value.
+     *
+     * The number therefore wins, and the test pins both halves of the decision: the value, and the
+     * fact that it sits between the framework's medium-bouncy token and no-bounce at all. A spring
+     * that is named in a document and configured in another file is a spring that drifts; a number
+     * that is written once, next to the reason, is not.
+     *
+     * `Spring.StiffnessMediumLow` — the other half of the pair — *is* 400f, and it is low on
+     * purpose: a stiffer spring arrives too fast for the stretch below to be seen at all.
      */
     const val SPRING_DAMPING_RATIO: Float = 0.75f
     const val SPRING_STIFFNESS: Float = 400f

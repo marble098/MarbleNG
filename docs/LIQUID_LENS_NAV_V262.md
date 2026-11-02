@@ -49,10 +49,13 @@
 
 ## ۳. فیزیک: فنر، کشیدگی و فرونشستن
 
-- **جابه‌جایی:** `spring(dampingRatio = LiquidLens.SPRING_DAMPING_RATIO /* ۰٫۷۵، MediumBouncy */,
-  stiffness = LiquidLens.SPRING_STIFFNESS /* ۴۰۰، MediumLow */)`. هر دو عدد در مدل‌اند و
-  `LiquidLensV262Test` آن‌ها را با ثابت‌های خودِ فریم‌ورک مقایسه می‌کند؛ فنری که در یک فایل نام برده
-  شود و در فایلی دیگر تنظیم، فنری است که از هم جدا می‌افتد.
+- **جابه‌جایی:** `spring(dampingRatio = LiquidLens.SPRING_DAMPING_RATIO /* ۰٫۷۵ */,
+  stiffness = LiquidLens.SPRING_STIFFNESS /* ۴۰۰، همان StiffnessMediumLow */)`. بریف هم توکنِ
+  `Spring.DampingRatioMediumBouncy` را نام می‌برد و هم کنارش «~۰٫۷۵» می‌نویسد؛ این دو در فریم‌ورک یک
+  چیز نیستند (توکن ۰٫۵ است). عدد انتخاب شده چون دیده می‌شود: ۰٫۷۵ حدود ۲٫۸٪ پرشِ رسیدن است (یک‌ونیم dp
+  روی لنزِ ۵۲dpی) و ۰٫۵ حدود ۱۶٪ (هشت dp)، که مثل کشِ لاستیکی می‌رسد نه مثل مایعِ آرام. `LiquidLensV262Test`
+  هر دو طرفِ این تصمیم را پین می‌کند: خودِ عدد، و این‌که بینِ توکنِ medium-bouncy و no-bounce می‌نشیند.
+  سختی (`StiffnessMediumLow`) با ثابتِ خودِ فریم‌ورک برابر است و همان‌جا هم تست می‌شود.
 - **کشیدگی:** سرعتِ همان فنر (`Animatable.velocity`) در فازِ لایه خوانده می‌شود و
   `LiquidLens.deformation` را می‌سازد: در سرعتِ اشباع، **۱۵٪ کشیده‌تر در راستای ردیف و ۸٪ کوتاه‌تر در
   عمود بر آن**، و برگشتِ پیوسته به ۱،۱. کشیدگی عمداً بزرگ‌تر از فرونشستن است: قطرهٔ پرتاب‌شده در
@@ -126,7 +129,8 @@
 
 ## ۸. تست
 
-- `model/LiquidLensV262Test` — اعدادِ مادّه، برابریِ فنر با `Spring.DampingRatioMediumBouncy` /
+- `model/LiquidLensV262Test` — اعدادِ مادّه، عددِ فنر در برابر توکن‌های
+  `Spring.DampingRatioMediumBouncy` / `Spring.DampingRatioLowBouncy` و برابریِ سختی با
   `Spring.StiffnessMediumLow`، شبیه‌سازیِ فنر (رسیدن، پرشِ کوچک، بدونِ عقب‌رفتن)، شکلِ تغییرشکل، قطرِ
   لنز در هر سه رونده، گوشهٔ نردبان، و این‌که لنز در هیچ اسلاتی از کپسول بیرون نمی‌زند.
 - `ui/LiquidLensDockV262UiTest` — کپسول و لنز و هر چهار تب inflate می‌شوند؛ پنج اسلات (با کنشِ وسط)

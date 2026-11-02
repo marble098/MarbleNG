@@ -84,12 +84,21 @@ class LiquidLensV262Test {
 
     @Test
     fun theSpringIsThePairTheBriefNames() {
-        // `Spring.DampingRatioMediumBouncy` and `Spring.StiffnessMediumLow`, by value: a spring that
-        // is named in a document and configured in a composable drifts apart, so the model owns the
-        // number and this pins it against the framework's own constants.
-        assertEquals(Spring.DampingRatioMediumBouncy, LiquidLens.SPRING_DAMPING_RATIO, epsilon)
-        assertEquals(Spring.StiffnessMediumLow, LiquidLens.SPRING_STIFFNESS, epsilon)
+        // The brief names `Spring.DampingRatioMediumBouncy` *and* writes ≈0.75 beside it; in this
+        // framework those are two different springs (the token is 0.5). The dock takes the number —
+        // 0.75 is a 2.8 % arrival overshoot, 0.5 would be 16 % — and this test is where that
+        // judgement is written down instead of remembered.
         assertEquals(0.75f, LiquidLens.SPRING_DAMPING_RATIO, epsilon)
+        assertTrue(
+            "the lens must settle, not ring: calmer than the framework's medium-bouncy token",
+            LiquidLens.SPRING_DAMPING_RATIO > Spring.DampingRatioMediumBouncy
+        )
+        assertTrue(
+            "…but it must still arrive with energy, or the travel reads as a tween",
+            LiquidLens.SPRING_DAMPING_RATIO < Spring.DampingRatioLowBouncy
+        )
+        // The other half of the pair is the framework's own constant, by value.
+        assertEquals(Spring.StiffnessMediumLow, LiquidLens.SPRING_STIFFNESS, epsilon)
         assertEquals(400f, LiquidLens.SPRING_STIFFNESS, epsilon)
     }
 

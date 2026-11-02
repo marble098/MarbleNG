@@ -67,9 +67,12 @@ import kotlinx.coroutines.delay
  * `LaunchedEffect(selectedIndex)` timer, so pressing the tab that is already selected does not
  * restart it and the dock never has to remember a "which one was transient" flag.
  *
- * **4. The motion was a tween.** Every movement here is a spring:
- * `spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)`
- * — the weight of the opening tab, the weight of the glyph, the travel of the glass. The app's
+ * **4. The motion was a tween.** Every movement here is a spring — the weight of the opening tab,
+ * the weight of the glyph, the travel of the glass. V258 shipped
+ * `spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow)`; V262 moved the pair into
+ * [LiquidLens.SPRING_DAMPING_RATIO] / [LiquidLens.SPRING_STIFFNESS] (0.75 / 400, with the
+ * difference from the framework's medium-bouncy token written down there and pinned by
+ * `LiquidLensV262Test`). The app's
  * calm-motion switch and Android's own *remove animations* still win — [marbleMotion] clamps the
  * travel and a still motion settles without overshoot.
  *
