@@ -5344,6 +5344,22 @@ check(
 
 
 # ---------------------------------------------------------------------------
+# MARBLE_LIQUID_LENS_V262 — the dock was split into a container, a lens and an
+# item view over one model. Every earlier pass that asserted a rule against
+# `MarbleLumenDock.kt` now names the file that owns the rule, because the rule is
+# unchanged: the material, the measurement, the spring and the caption did not
+# change their minds, they changed their address.
+# ---------------------------------------------------------------------------
+v262_dock = read("app/src/main/java/com/marbleng/app/ui/MarbleLumenDock.kt")
+v262_bar = read("app/src/main/java/com/marbleng/app/ui/LiquidLensNavigationBar.kt")
+v262_lens_ui = read("app/src/main/java/com/marbleng/app/ui/GlassLensIndicator.kt")
+v262_item = read("app/src/main/java/com/marbleng/app/ui/NavigationItemView.kt")
+v262_lens_model = read("app/src/main/java/com/marbleng/app/model/LiquidLens.kt")
+v262_doc = read("docs/LIQUID_LENS_NAV_V262.md")
+v262_lens_test = read("app/src/test/java/com/marbleng/app/model/LiquidLensV262Test.kt")
+v262_ui_test = read("app/src/test/java/com/marbleng/app/ui/LiquidLensDockV262UiTest.kt")
+
+# ---------------------------------------------------------------------------
 # MARBLE_LUMEN_DOCK_V256 — the dock is inset before it is measured, sized by a
 # three-rung ladder, and its caption is transient.
 # ---------------------------------------------------------------------------
@@ -5401,9 +5417,16 @@ check(
     and "LaunchedEffect(selection)" in v256_dock
     and "delay(DockStudio.EXPANDED_HOLD_MS)" in v256_dock
     and "HapticFeedbackType.TextHandleMove" in v256_dock
-    and "scaleIn(initialScale = 0.82f) + fadeIn()" in v256_dock
-    and "Spring.DampingRatioMediumBouncy" in v256_dock
+    # MARBLE_LIQUID_LENS_V262 — the caption's transition lives in the item view and the travel's
+    # spring lives in the model, so the rules are asserted where they moved: the caption still
+    # scales and fades, the dock still reads the brief's pair instead of a tween, and
+    # `LiquidLensV262Test` pins 0.75 / 400 against the framework's own constants below.
+    and "scaleIn(initialScale = 0.82f) + fadeIn()" in v262_item
+    and "LiquidLens.SPRING_DAMPING_RATIO" in v256_dock
+    and "LiquidLens.SPRING_STIFFNESS" in v256_dock
     and "Spring.StiffnessMediumLow" in v256_dock
+    and "Spring.DampingRatioMediumBouncy" in v262_lens_test
+    and "Spring.StiffnessMediumLow" in v262_lens_test
     and "class DockStudioV256Test" in v256_model_test
     and "fun everyRungFitsTheClearanceTheScreensActuallyReserve()" in v256_model_test
     and "fun theClearanceEveryPageReservesGrowsWithTheChosenGap()" in v256_model_test
@@ -5749,8 +5772,14 @@ check(
     and "fun innerRadiusDp(size: DockSize): Float =" in v260_studio
     and "fun centerTriggerRadiusDp(size: DockSize): Float = innerRadiusDp(size)" in v260_studio
     # The dock and the wings read the rule; nothing draws a stadium of its own any more.
-    and "val shape = RoundedCornerShape(corner)" in v260_dock
-    and "val tabShape = RoundedCornerShape(DockStudio.innerRadiusDp(size))" in v260_dock
+    # MARBLE_LIQUID_LENS_V262 — the pill's shape is still the ladder's corner, handed to the
+    # container and rounded once there. A tab now paints *no* pill at all (the lens is the
+    # selection), so the nested curve it used to read is the lens's own — half its diameter, i.e.
+    # a circle at rest — and the wings still read `innerRadiusDp`, asserted two lines down.
+    and "val pillShape = RoundedCornerShape(corner)" in v262_bar
+    and "corner = (height / 2f).dp" in v262_dock
+    and "fun lensCornerDp(diameterDp: Float): Float" in v262_lens_model
+    and "fun thePillReadsTheLaddersCornerAndTheBriefsPercent()" in v262_lens_test
     and "RoundedCornerShape(DockStudio.innerRadiusDp(size))" in v259_wings
     and ".clip(RoundedCornerShape(percent = 50))\n            .background(container)" not in v259_wings
     and "theBarAndEverythingInItReadOneCornerRule" in files["planUiTest"],
@@ -5869,19 +5898,28 @@ check(
     and "const val MARKER: String = \"MARBLE_GLASS_DOCK_V261\"" in v261_glass
     and "fun apertureLeftPx(" in v261_glass
     and "fun lensRadiusDp(" in v261_glass
-    and "GlassDock.apertureLeftPx(" in v261_dock_ui
-    and "GlassLens(" in v261_dock_ui
-    and 'testTag("lumen-glass-lens")' in v261_dock_ui
-    # The material is a rim and a wash, never an outlineVariant frame.
-    and ".glassCapsule(" in v261_dock_ui
-    and "GlassDock.SURFACE_ALPHA" in v261_dock_ui
-    and "GlassDock.RIM_ALPHA" in v261_dock_ui
-    and "GlassDock.FLOOR_ALPHA" in v261_dock_ui
-    and "colors.outlineVariant" not in v261_dock_ui
-    # A selected tab paints no pill: the lens is the selection.
-    and ".background(container)" not in v261_dock_ui
-    and "secondaryContainer" not in v261_dock_ui
-    and "detectHorizontalDragGestures" in v261_dock_ui
+    # MARBLE_LIQUID_LENS_V262 — the aperture became a lens and the dock became three files. Every
+    # decision this check is about survived the move: the clamp is still the one `GlassDock`
+    # publishes, the placement is still *measured*, the material is still a rim and a wash, and a
+    # selected tab still paints no pill of its own.
+    and "GlassDock.apertureLeftPx(" in v262_lens_model
+    and "LiquidLens.lensLeftPx(" in v262_bar
+    and "GlassLensIndicator(" in v262_bar
+    and 'lensTag: String = "lumen-glass-lens"' in v262_bar
+    and "fun DrawScope.drawCapsuleMaterial(" in v262_bar
+    and "GlassDock.SURFACE_ALPHA" in v262_bar
+    and "LiquidLens.PILL_BORDER_ALPHA" in v262_bar
+    and "LiquidLens.PILL_BORDER_FLOOR_ALPHA" in v262_bar
+    and "colors.outlineVariant" not in v262_bar
+    and "secondaryContainer" not in v262_bar
+    and "secondaryContainer" not in v262_item
+    # A selected tab paints no pill: the lens is the selection. The item view may paint nothing but
+    # its counter and its connection light, which are decorations with their own anchors.
+    and ".background(container)" not in v262_item
+    and "detectHorizontalDragGestures" in v262_bar
+    and "LiquidLensSlotReporter" in v262_bar
+    and "override fun reportSlot(index: Int, bounds: Rect)" in v262_bar
+    and "slotHost.reportSlot(index, bounds)" in v262_dock
     and "class GlassDockV261Test" in v261_glass_test
     and "class GlassDockV261UiTest" in v261_dock_test
     # The draw scope reads no theme and no translation, which is what makes the material testable.
@@ -5936,7 +5974,7 @@ check(
 )
 
 check(
-    "V261 the chapter is written down and linked as the newest one",
+    "V261 the chapter is written down and linked in the chapter chain",
     "MARBLE_GLASS_DOCK_V261" in v261_doc
     and "## ۱. نوار تب: یک کپسول شیشه‌ای با یک لنزِ مسافر" in v261_doc
     and "## ۲. قهرمانِ صفحهٔ اصلی: چهار عدد، یک سطح" in v261_doc
@@ -5945,7 +5983,122 @@ check(
     and "## ۵. آنچه عمداً انجام نشد" in v261_doc
     and "## ۶. تست" in v261_doc
     and "GLASS_DOCK_AND_HERO_V261.md" in files["readme"]
-    and "GLASS_DOCK_AND_HERO_V261.md` is the newest chapter" in files["readme"],
+    # MARBLE_LIQUID_LENS_V262 — the crown moved to the lens chapter; this one is now asserted by
+    # its own link in the chain, which is the part of a chapter that must never move.
+    and "GLASS_DOCK_AND_HERO_V261.md` is the chapter before it" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_LIQUID_LENS_V262 — the flat aperture became a convex lens, the dock
+# became three files, and every number the material draws with became a model.
+# ---------------------------------------------------------------------------
+check(
+    "V262 the pill is a lifted stadium with a soft hairline and a glass lens in it",
+    # The brief's own numbers, in the model where the JVM test can pin them.
+    'const val MARKER: String = "MARBLE_LIQUID_LENS_V262"' in v262_lens_model
+    and "const val PILL_SHADOW_BLUR_DP: Int = 16" in v262_lens_model
+    and "const val PILL_SHADOW_OFFSET_Y_DP: Float = 4f" in v262_lens_model
+    and "const val PILL_SHADOW_ALPHA: Float = 0.08f" in v262_lens_model
+    and "const val PILL_BORDER_DP: Float = 1f" in v262_lens_model
+    and "const val PILL_BORDER_ALPHA: Float = 0.6f" in v262_lens_model
+    and "const val PILL_CORNER_PERCENT: Int = 50" in v262_lens_model
+    and "const val GLASS_ALPHA_LIGHT: Float = 0.55f" in v262_lens_model
+    and "const val GLASS_BLUR_RADIUS_PX: Float = 12f" in v262_lens_model
+    and "const val GLASS_RIM_DP: Float = 1.5f" in v262_lens_model
+    and "const val GLASS_RIM_START_ALPHA: Float = 0.95f" in v262_lens_model
+    and "const val GLASS_RIM_END_ALPHA: Float = 0.15f" in v262_lens_model
+    and "const val MAGNIFICATION: Float = 1.28f" in v262_lens_model
+    and "const val MAX_STRETCH: Float = 0.15f" in v262_lens_model
+    and "const val MAX_SQUASH: Float = 0.08f" in v262_lens_model
+    and "const val SPRING_DAMPING_RATIO: Float = 0.75f" in v262_lens_model
+    and "const val SPRING_STIFFNESS: Float = 400f" in v262_lens_model
+    # The container draws it: shadow, material, measured placement, drag.
+    and ".shadow(" in v262_bar
+    and "LiquidLens.PILL_SHADOW_BLUR_DP.dp" in v262_bar
+    and "LiquidLens.PILL_SHADOW_OFFSET_Y_DP.dp" in v262_bar
+    and "fun DrawScope.drawCapsuleMaterial(" in v262_bar
+    and "LiquidLens.PILL_BORDER_DP.dp.toPx()" in v262_bar
+    and "GlassLensIndicator(" in v262_bar
+    and "onPlaced" in v262_bar
+    and "boundsInRoot()" in v262_bar
+    and "LiquidLens.lensLeftPx(" in v262_bar
+    and "detectHorizontalDragGestures" in v262_bar
+    # The lens is glass: a blurred sample of the bar, a caustic, a graded rim, a band, an arc.
+    # The blur is Compose's own effect (the same `RenderEffect.createBlurEffect` the brief names,
+    # built by the framework under `Modifier.blur`), and its radius is the model's pixel value
+    # converted once — never a second number written into the composable.
+    and "Modifier.blur(blurRadius)" in v262_lens_ui
+    and "LiquidLens.GLASS_BLUR_RADIUS_PX.toDp()" in v262_lens_ui
+    and "Build.VERSION_CODES.S" in v262_lens_ui
+    and "LiquidLens.GLASS_ACCENT_ALPHA" in v262_lens_ui
+    and "LiquidLens.GLASS_CAUSTIC_ALPHA" in v262_lens_ui
+    and "LiquidLens.GLASS_RIM_START_ALPHA" in v262_lens_ui
+    and "LiquidLens.GLASS_RIM_END_ALPHA" in v262_lens_ui
+    and "LiquidLens.GLASS_BAND_TOP_ALPHA" in v262_lens_ui
+    and "LiquidLens.GLASS_ARC_START_DEG" in v262_lens_ui
+    and "LiquidLens.GLASS_HOTSPOT_ALPHA" in v262_lens_ui
+    and "LiquidLens.GLASS_FROST_ALPHA" in v262_lens_ui
+    and "backdrop(this, travel.value)" in v262_lens_ui
+    # …and its travel, its stretch and its opacity are read in the layer, never in composition.
+    and "val travel = remember { Animatable(0f) }" in v262_lens_ui
+    and "translationX = travel.value" in v262_lens_ui
+    and "LiquidLens.deformation(travel.velocity)" in v262_lens_ui
+    and "animateTo(targetLeftPx, settleSpec)" in v262_lens_ui
+    and "snap()" in v262_lens_ui
+    # The models own the numbers: a composable that restated the pane's 0.55 would drift from
+    # the test that pins it.
+    and "0.55f" not in v262_lens_ui
+    and "LiquidLensV262Test" in v262_lens_test
+    and "LiquidLensDockV262UiTest" in v262_ui_test,
+)
+
+check(
+    "V262 a tab magnifies under the lens, and its badge and light keep their anchors",
+    "LiquidLens.MAGNIFICATION" in v262_item
+    and "LiquidLens.REST_SCALE" in v262_item
+    and "LiquidLens.GLYPH_WEIGHT_ACTIVE" in v262_item
+    and "graphicsLayer {" in v262_item
+    and "glyphScale.value" in v262_item
+    and "glyphWeight.value" in v262_item
+    and "statusPresence.value" in v262_item
+    and "LiquidLens.STATUS_DOT_SCALE" in v262_item
+    and "LiquidLens.STATUS_DOT_LIFT_DP" in v262_item
+    and "translationY = -statusLiftPx * presence" in v262_item
+    # The caption is a transition and a removal, not an invisible node.
+    and "AnimatedContent(" in v262_item
+    and "scaleIn(initialScale = 0.82f) + fadeIn()" in v262_item
+    and "Box(modifier = Modifier.size(0.dp))" in v262_item
+    # The counter is anchored to the icon box, and it does not zoom with the glyph.
+    and "DockBadge(" in v262_item
+    and "Modifier.align(Alignment.TopEnd)" in v262_item
+    and "lumen-tab-status-" in v262_item
+    and "LiquidDockSpec.badgeLabel(" in v262_item
+    and "faDigits(" in v262_item
+    # The five slots, the tags and the callbacks the product already promised.
+    and "MarbleLumenDock(" in files["marbleApp"]
+    and "LiquidLensNavigationBar(" in v262_dock
+    and "onPlaced = { bounds -> slotHost.reportSlot(index, bounds) }" in v262_dock
+    and 'testTag = "lumen-tab-${tab.key}"' in v262_dock
+    and 'badgeTag = "lumen-tab-count-${tab.key}"' in v262_dock
+    and "center?.let { trigger ->" in v262_dock
+    and "if (trailing != null) trailing()" in v262_dock
+    and "DockStudio.EXPANDED_HOLD_MS" in v262_dock
+    and "HapticFeedbackType.TextHandleMove" in v262_dock
+    and "lumen-glass-lens" in v262_bar,
+)
+
+check(
+    "V262 the chapter is written down and linked as the newest one",
+    "MARBLE_LIQUID_LENS_V262" in v262_doc
+    and "## ۱. کپسول: یک شیء شیشه‌ای روی صفحه، با گوشهٔ نردبان" in v262_doc
+    and "## ۲. لنز: شیشهٔ محدب، نه هایلایت" in v262_doc
+    and "## ۳. فیزیک: فنر، کشیدگی و فرونشستن" in v262_doc
+    and "## ۴. معماری: سه فایل، یک نوار" in v262_doc
+    and "## ۶. جدول اجرا" in v262_doc
+    and "## ۷. آنچه عمداً انجام نشد" in v262_doc
+    and "## ۸. تست" in v262_doc
+    and "LIQUID_LENS_NAV_V262.md" in files["readme"]
+    and "LIQUID_LENS_NAV_V262.md` is the newest chapter" in files["readme"],
 )
 
 failed = [name for name, passed in checks if not passed]
