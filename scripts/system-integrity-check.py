@@ -6197,6 +6197,20 @@ check(
     and "fun noRungKeepsACaption()" in v263_float_test,
 )
 
+check(
+    "V263 the pinned-core smoke survives a flaky Go module proxy",
+    # MARBLE_VERIFY_PROXY_RESILIENCE_V263 — three consecutive PR runs died at the same step with
+    # `stream error: INTERNAL_ERROR; received from peer` from proxy.golang.org while fetching a
+    # module zip. That is a network failure, not a broken core. The step forces HTTP/1.1 for the
+    # downloads and retries each Go command a bounded three times; a real compile, link or test
+    # failure still fails the step on the last attempt.
+    "GODEBUG: http2client=0" in files["verify"]
+    and "for attempt in 1 2 3" in files["verify"]
+    and "marble_go env GOTOOLCHAIN=auto CGO_ENABLED=0 go test" in files["verify"]
+    and "marble_go env \\" in files["verify"]
+    and 'echo "::error::Go command still failing after three attempts: $*"' in files["verify"],
+)
+
 failed = [name for name, passed in checks if not passed]
 
 print("=== MarbleNG SYSTEM INTEGRITY ===")
