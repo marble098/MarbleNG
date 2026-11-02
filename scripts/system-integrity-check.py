@@ -5661,7 +5661,10 @@ check(
     and "fun centerDockHeightDp(size: DockSize): Int = heightDp(size) + CENTER_PROUD_DP"
     in v259_studio
     and "fun centerTriggerSizeDp(size: DockSize): Int" in v259_studio
-    and "fun centerBloomedWidthDp(size: DockSize): Int" in v259_studio
+    # MARBLE_STEADY_CONNECT_V264 — V259's animated bloom was the reported tab-shift bug. The
+    # invariant now pins its replacement: one fixed width owned by the studio, not a second width
+    # that opens on a tap.
+    and "fun centerTriggerWidthDp(size: DockSize): Int" in v259_studio
     and "fun centerClearanceDp(size: DockSize, gapDp: Int = DEFAULT_BOTTOM_GAP_DP): Int" in v259_studio
     # The ladder V258 locked is untouched: the centre style is a step *above* it, not a new ladder.
     and "DockSize.SMALL -> 56" in v259_studio
@@ -5671,10 +5674,9 @@ check(
     and "centerProud: Boolean = false" in v259_dock
     and "DockStudio.centerClearanceDp(" in files["marbleApp"]
     and "settings.homeLayout.widgetStyle.showsCenterTrigger" in files["marbleApp"]
-    # The trigger's new material: three elevation layers, a specular rim, a live halo and a bloom
-    # that carries the reading instead of only the verb.
+    # The trigger's material: a specular rim, a live halo inside one fixed square, and no bloom.
     and "DockStudio.centerTriggerSizeDp(size).dp" in v259_wings
-    and "DockStudio.centerBloomedWidthDp(size).dp" in v259_wings
+    and "DockStudio.centerTriggerWidthDp(size).dp" in v259_wings
     and "dock-center-halo" in v259_wings
     and "DockStudio.centerGlyphDp(size).dp" in v259_wings
     # MARBLE_CENTER_TRIGGER_V260 — the object was rebuilt as a groove with a knob in it, so the
@@ -5806,9 +5808,11 @@ check(
     # One contact shadow and one tinted ambient: the three-layer stack is retired.
     and "elevation = 22.dp" not in v259_wings
     and "elevation = 12.dp" in v259_wings
-    # The state word and the measurement are printed without a tap, and the groove is the target.
-    and "centerStateWord" in v259_wings
-    and 'text = reading,' in v259_wings
+    # MARBLE_STEADY_CONNECT_V264 — the state word and the measurement are no longer *drawn* beside
+    # the knob: a visible word that opened on a tap was the second half of the reported bug. They
+    # are spoken through semantics, and the groove is still the whole press target.
+    and 'stateDescription = "$spokenState · $reading"' in v259_wings
+    and "contentDescription = description" in v259_wings
     and "RoundedCornerShape(DockStudio.innerRadiusDp(size))" in v259_wings
     and "theCentreTriggerIsAGrooveWithAKnobAndTheWholeGroovePresses" in files["planUiTest"]
     and "aLiveCentreTriggerSaysConnectedAndKeepsItsHalo" in files["planUiTest"],
@@ -6209,6 +6213,182 @@ check(
     and "marble_go env GOTOOLCHAIN=auto CGO_ENABLED=0 go test" in files["verify"]
     and "marble_go env \\" in files["verify"]
     and 'echo "::error::Go command still failing after three attempts: $*"' in files["verify"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_STEADY_CONNECT_V264 / MARBLE_PRISM_MARK_V264 — two reader reports: the
+# centre connect button moved the tabs when the tunnel changed state, and a word
+# opened beside it that must not; plus an app icon that had no silhouette, no
+# weight and no themed-icon answer. One state table for the three controls, one
+# fixed footprint for the dock, and one faceted mark for all launcher shapes.
+# ---------------------------------------------------------------------------
+v264_model = read("app/src/main/java/com/marbleng/app/model/ConnectControl.kt")
+v264_studio = read("app/src/main/java/com/marbleng/app/model/DockStudio.kt")
+v264_wings = read("app/src/main/java/com/marbleng/app/ui/MarbleDockWings.kt")
+v264_dock = read("app/src/main/java/com/marbleng/app/ui/MarbleLumenDock.kt")
+v264_shell = read("app/src/main/java/com/marbleng/app/ui/MarbleExpressiveShell.kt")
+v264_model_test = read("app/src/test/java/com/marbleng/app/model/ConnectControlV264Test.kt")
+v264_ui_test = read("app/src/test/java/com/marbleng/app/ui/SteadyConnectControlsV264Test.kt")
+v264_fg = read("app/src/main/res/drawable/ic_launcher_foreground.xml")
+v264_mono = read("app/src/main/res/drawable/ic_launcher_monochrome.xml")
+v264_bg = read("app/src/main/res/drawable/ic_launcher_background.xml")
+v264_fallback = read("app/src/main/res/mipmap-anydpi/ic_launcher.xml")
+v264_adaptive = read("app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml")
+v264_prism = read("app/src/main/res/drawable/ic_marble_prism.xml")
+v264_notification = read("app/src/main/res/drawable/ic_notification.xml")
+v264_tile = read("app/src/main/res/drawable/ic_quick_tile.xml")
+v264_doc = read("docs/STEADY_CONNECT_AND_PRISM_MARK_V264.md")
+
+v264_path = re.compile(r'android:pathData="([^"]+)"')
+v264_fg_paths = v264_path.findall(v264_fg)
+v264_mono_paths = v264_path.findall(v264_mono)
+v264_fallback_paths = v264_path.findall(v264_fallback)
+
+check(
+    "V264 one pure state table backs all three connect controls",
+    "object ConnectControl" in v264_model
+    and "fun phaseOf(raw: String?)" in v264_model
+    and "ConnectPhase.BLOCKED" in v264_model
+    and "ConnectAction.NONE" in v264_model
+    and "fun pressable(phase: ConnectPhase): Boolean" in v264_model
+    and "val phase: ConnectPhase" in v264_wings
+    and "ConnectControl.phaseOf(connected, connecting, disconnecting, blocked)" in v264_shell
+    # The verb is read at press time in both adapters, never captured by a stale lambda.
+    and "ConnectControl.actionOf(ConnectControl.phaseOf(repo.state))" in files["marbleApp"]
+    and "ConnectControl.actionOf(ConnectControl.phaseOf(repo.state))" in files["homeScreen"]
+    and "blocked = blocked" in files["homeScreen"]
+    and 'ConnectPhase.BLOCKED -> trx("Reset")' in files["homeScreen"]
+    and "class ConnectControlV264Test" in v264_model_test,
+)
+
+check(
+    "V264 the centre trigger and the island own one fixed width in every phase",
+    "fun centerTriggerWidthDp(size: DockSize): Int" in v264_studio
+    and "fun islandWidthDp(size: DockSize): Int" in v264_studio
+    and "fun batchCompactLabel(done: Int, total: Int): String" in v264_studio
+    and ".width(centerSlotWidth)" in v264_dock
+    and "DockStudio.centerTriggerWidthDp(size)" in v264_dock
+    and ".size(width = grooveWidth, height = grooveHeight)" in v264_wings
+    and ".width(DockStudio.islandWidthDp(size).dp)" in v264_wings
+    and ".matchParentSize()" in v264_wings
+    # matchParentSize is a BoxScope member extension, not a foundation.layout import. The wrong
+    # import compiled nowhere: CI caught it as UNRESOLVED_IMPORT, so pin its absence here too.
+    and "import androidx.compose.foundation.layout.matchParentSize" not in v264_wings
+    and "dock-center-halo" in v264_wings
+    # The whole mechanism is gone, not hidden behind a flag.
+    and "centerBloomedWidthDp" not in v264_studio
+    and "centerBloomedWidthDp" not in v264_wings
+    and "CENTER_TOOLTIP_HOLD_MS" not in v264_studio
+    and "CENTER_TOOLTIP_HOLD_MS" not in v264_wings
+    and "dock-center-tooltip" not in v264_wings
+    and "var open by remember" not in v264_wings
+    and 'stateDescription = "$spokenState · $reading"' in v264_wings,
+)
+
+check(
+    "V264 all three controls speak their verb and keep their geometry",
+    "combinedClickable(" in v264_wings
+    and "enabled = state.pressable" in v264_wings
+    and "FilledIconButton(" in v264_wings
+    and "enabled = pressable" in v264_shell
+    and ".height(82.dp)" in v264_shell
+    and "stateDescription" in v264_shell
+    and "animateContentSize" not in v264_shell
+    and "LoadingIndicator(" in v264_wings
+    and "class SteadyConnectControlsV264Test" in v264_ui_test
+    and "fun theCentreTriggerKeepsEveryTabWhereItWasInAllFivePhases()" in v264_ui_test
+    and "getBoundsInRoot()" in v264_ui_test,
+)
+
+check(
+    "V264 the launcher mark is one faceted prism shared by every icon shape",
+    all("MARBLE_PRISM_MARK_V264" in asset for asset in (
+        v264_fg, v264_mono, v264_bg, v264_fallback, v264_prism,
+        v264_notification, v264_tile
+    ))
+    and 'android:fillType="evenOdd"' in v264_fg
+    and 'android:fillType="evenOdd"' in v264_mono
+    and "#FFFFFFFF" in v264_mono
+    and "M37,68" in v264_fg
+    and "gradientRadius" in v264_bg
+    and "@drawable/ic_launcher_monochrome" in v264_adaptive
+    # The plate and the M cut-out are the literal same path in all three launcher vectors.
+    and len(v264_fg_paths) >= 3
+    and v264_fg_paths[1] in v264_mono_paths
+    and v264_fg_paths[1] in v264_fallback_paths
+    and v264_fg_paths[2] in v264_fallback_paths
+    # The status bar and the tile are one alpha-only silhouette, and the very same drawing.
+    and 'android:fillType="evenOdd"' in v264_notification
+    and "#FFFFFFFF" in v264_notification
+    and "strokeWidth" not in v264_notification
+    and v264_path.findall(v264_notification) == v264_path.findall(v264_tile),
+)
+
+# The new verbs/states are passed to trx() through ConnectControl.actionKey/stateKey, so the V233
+# literal scanner over ui/*.kt cannot discover them. Pin them here explicitly: every dynamic key
+# must really exist in the dictionary (with a Persian value), and the V249 normalizer must still be
+# the single runtime path those keys travel through.
+v264_dynamic_keys = (
+    "Connect",
+    "Cancel connect",
+    "Disconnect",
+    "Reset",
+    "Working\\u2026",
+    "Ready",
+    "Connecting",
+    "Connected",
+    "Disconnecting",
+    "Blocked",
+)
+v264_style_hint = "One steady button in the middle of the dock; a long press measures the route"
+check(
+    "V264 every dynamic connect verb and state has a real Persian sentence",
+    all('"%s" to' % key in files["persianLexicon"] for key in v264_dynamic_keys)
+    and all('"%s"' % key in v264_model for key in v264_dynamic_keys)
+    and all(
+        word in files["persianLexicon"]
+        for word in ("لغو اتصال", "برگردون به اول", "در حال قطع اتصال", "مسدود")
+    )
+    # Settings renders the style hint through trx too, so its new promise must be Persian as well.
+    and '"%s" to' % v264_style_hint in files["persianLexicon"]
+    and 'hint = "%s"' % v264_style_hint in v264_studio
+    and "internal fun faTranslate(text: String): String = "
+    "PersianOrthography.normalize(faTranslateRaw(text))" in files["persianLexicon"]
+    and "trx(state.actionKey)" in v264_wings
+    and "trx(state.stateKey)" in v264_wings
+    and "trx(ConnectControl.stateKey(phase))" in v264_shell
+    and 'trx("Cancel connect")' in files["homeScreen"]
+    and 'trx("Reset")' in files["homeScreen"],
+)
+
+# assertExists()/assertDoesNotExist() are members of SemanticsNodeInteraction in the pinned Compose
+# test artifact; they are NOT top-level functions to import. CI rejected exactly those invented
+# imports, so keep them out of every regression test that checks the missing word.
+v264_absence_tests = (
+    "app/src/test/java/com/marbleng/app/ui/DesignPassV260Test.kt",
+    "app/src/test/java/com/marbleng/app/ui/HomeQuietAndCentreMorphV259Test.kt",
+    "app/src/test/java/com/marbleng/app/ui/SteadyConnectControlsV264Test.kt",
+)
+check(
+    "V264 the missing-word assertions use the node's own methods, not invented imports",
+    all(
+        ".assertDoesNotExist()" in (ROOT / path).read_text(encoding="utf-8")
+        and "import androidx.compose.ui.test.assertDoesNotExist"
+        not in (ROOT / path).read_text(encoding="utf-8")
+        and "import androidx.compose.ui.test.assertExists"
+        not in (ROOT / path).read_text(encoding="utf-8")
+        for path in v264_absence_tests
+    ),
+)
+
+check(
+    "V264 the chapter, the README and the regression tests record the pass",
+    "MARBLE_STEADY_CONNECT_V264" in v264_doc
+    and "MARBLE_PRISM_MARK_V264" in v264_doc
+    and "## ۱. چرا تبها جابهجا میشدند" in v264_doc
+    and "## ۴. تست و ناورداها" in v264_doc
+    and "STEADY_CONNECT_AND_PRISM_MARK_V264.md" in files["readme"]
+    and "SteadyConnectControlsV264Test" in files["readme"],
 )
 
 failed = [name for name, passed in checks if not passed]

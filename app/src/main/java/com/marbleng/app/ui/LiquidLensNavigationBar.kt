@@ -67,9 +67,10 @@ import kotlin.math.roundToInt
  *
  * ## What it deliberately does not do
  *
- * It does not clip. The row draws a wing's tooltip above the capsule's top rim, a counter past the
- * icon's corner and a connection light lifted into the row — a `clip` on this Box would cut all
- * three at the glass's edge. The capsule's *material* is drawn with `drawWithContent`, which paints
+ * It does not clip. The row draws a counter past the icon's corner, a connection light lifted into
+ * the row and the centre trigger's contact shadow — a `clip` on this Box would cut them at the
+ * glass's edge. (MARBLE_STEADY_CONNECT_V264 retired the wing's tooltip; nothing in the dock draws a
+ * word that opens any more.) The capsule's *material* is drawn with `drawWithContent`, which paints
  * without clipping the children.
  *
  * The material is a `DrawScope` function ([drawCapsuleMaterial]) rather than a composable modifier,

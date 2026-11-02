@@ -186,7 +186,10 @@ class LumenDockV256Test {
             }
         }
 
-        compose.onNodeWithText("12/79 pinging…").assertExists()
+        // MARBLE_STEADY_CONNECT_V264 — the badge has one reserved width now, so its batch copy is
+        // the compact "12/79" and the micro bar carries the "pinging" meaning. No reading can
+        // resize the dock's leading wing and move the tabs.
+        compose.onNodeWithText("12/79").assertExists()
         // The capsule is a single merged semantics node; the micro bar is one of its children.
         compose.onNodeWithTag("dock-island-progress", useUnmergedTree = true).assertExists()
     }

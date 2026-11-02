@@ -1,32 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MARBLE_AURORA_SURFACE_V219 — the status-bar mark.
+<!-- MARBLE_PRISM_MARK_V264 — the status-bar mark.
 
-     Notification icons are silhouettes: the system tints one colour and nothing else, so this is
-     the prism from ic_marble_prism.xml redrawn on the 24-unit grid with alpha standing in for the
-     translucent facet. Same orbit, same folded "M", same single stroke weight, so the tunnel icon
-     in the shade and the launcher icon on the home screen are the same drawing. -->
+     A notification small icon is a silhouette: Android keeps its alpha and throws its colours away.
+     The old drawing was a thin orbit plus a stroked "M" — at 24 dp, tinted once, it read as a faint
+     doodle. This is the same object as the launcher: one solid rounded hexagonal prism with the M
+     cut out as negative space (even-odd), on a 24-unit grid. One path, one alpha, no stroke to
+     disappear when the shade darkens it, and the same letter is recognizable at 16 dp. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-
     <path
-        android:fillColor="#00000000"
-        android:pathData="M2.4,12 a9.6,3.7 0 1,0 19.2,0 a9.6,3.7 0 1,0 -19.2,0"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeAlpha="0.52"
-        android:strokeWidth="1.3" />
-
-    <path
-        android:fillColor="#45FFFFFF"
-        android:pathData="M12,4.6 L17.6,19.4 L12,16.1 Z" />
-
-    <path
-        android:fillColor="#00000000"
-        android:pathData="M5.6,19.4 L8.4,4.7 L12,12.6 L15.6,4.7 L18.4,19.4"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:strokeWidth="2.1" />
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M11.03,5.44 L6.81,7.89 Q5.84,8.44 5.84,9.56 L5.84,14.44 Q5.84,15.56 6.81,16.11 L11.03,18.56 Q12,19.11 12.97,18.56 L17.19,16.11 Q18.16,15.56 18.16,14.44 L18.16,9.56 Q18.16,8.44 17.19,7.89 L12.97,5.44 Q12,4.89 11.03,5.44 Z M8.22,15.11 L8.22,9.33 L10,9.33 L12,12.89 L14,9.33 L15.78,9.33 L15.78,15.11 L14,15.11 L14,11.78 L12.22,14.22 L11.78,14.22 L10,11.78 L10,15.11 Z" />
 </vector>

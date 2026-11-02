@@ -60,6 +60,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.NotificationRoute
+import com.marbleng.app.model.ConnectAction
+import com.marbleng.app.model.ConnectControl
+import com.marbleng.app.model.ConnectPhase
 import com.marbleng.app.model.DockIndicatorSpec
 import com.marbleng.app.model.LiquidDockNotices
 import com.marbleng.app.model.ProxyProfile
@@ -635,6 +638,8 @@ private fun MarbleNavigationRail(
         when (repo.state) {
             "CONNECTED" -> colors.success
             "CONNECTING", "DISCONNECTING" -> colors.warning
+            // MARBLE_STEADY_CONNECT_V264 — a kill switch is a state the tab light must show too.
+            "BLOCKED" -> colors.error
             else -> null
         }
     } else {
@@ -714,8 +719,9 @@ private fun MarbleNavigationRail(
  *  - `CENTER_MORPH`: the spring trigger, between the leading and trailing pairs of tabs;
  *  - `HERO_CARD`: neither, because Home still draws the large card.
  *
- * The dock owns the *place*, the wings own the *state*, and the state is resolved once here so all
- * of them agree about what "connected" means.
+ * The dock owns the *place*, the wings own the *state*, and the state is resolved once here — by
+ * [ConnectControl] since MARBLE_STEADY_CONNECT_V264 — so all of them agree about what "connected"
+ * means, what a tap does, and which phases are pressable at all.
  */
 @Composable
 private fun MarbleBottomTabBar(
@@ -740,6 +746,8 @@ private fun MarbleBottomTabBar(
         when (repo.state) {
             "CONNECTED" -> colors.success
             "CONNECTING", "DISCONNECTING" -> colors.warning
+            // MARBLE_STEADY_CONNECT_V264 — a kill switch is a state the tab light must show too.
+            "BLOCKED" -> colors.error
             else -> null
         }
     } else {
@@ -779,12 +787,15 @@ private fun MarbleBottomTabBar(
     }
 
     val style = s.homeLayout.widgetStyle
-    val connected = repo.state == "CONNECTED"
-    val connecting = repo.state == "CONNECTING"
+    // MARBLE_STEADY_CONNECT_V264 — one phase for all three controls, including the kill-switch
+    // state the old adapter had no word for. Nothing here decides a verb on its own.
+    val phase = ConnectControl.phaseOf(repo.state)
+    val connected = phase == ConnectPhase.CONNECTED
     val connection = DockConnectionState(
         connected = connected,
-        connecting = connecting,
-        disconnecting = repo.state == "DISCONNECTING",
+        connecting = phase == ConnectPhase.CONNECTING,
+        disconnecting = phase == ConnectPhase.DISCONNECTING,
+        blocked = phase == ConnectPhase.BLOCKED,
         // While the tunnel is up the live RTT is the honest number; before that it is the last
         // measurement of the route the pill would connect to.
         latencyMs = if (connected) repo.livePingMs else repo.selectedPingMs,
@@ -794,10 +805,16 @@ private fun MarbleBottomTabBar(
         probeTotal = repo.probeTotal
     )
 
+    // The verb is read from the repository *at press time*, so a fast state change cannot leave a
+    // stale "connect" lambda in a button that is already dialling. This is the same table the three
+    // controls use for their tone, glyph, label and enabled state.
     val toggle: () -> Unit = {
-        when {
-            connected || connecting -> repo.stopVpn()
-            repo.state != "DISCONNECTING" -> repo.reconnectLastOrAuto(onConnect)
+        when (ConnectControl.actionOf(ConnectControl.phaseOf(repo.state))) {
+            ConnectAction.CONNECT -> repo.reconnectLastOrAuto(onConnect)
+            ConnectAction.CANCEL,
+            ConnectAction.DISCONNECT,
+            ConnectAction.RESET -> repo.stopVpn()
+            ConnectAction.NONE -> Unit
         }
     }
     // One tap on the island is one measurement of the route that is or would be carrying traffic;

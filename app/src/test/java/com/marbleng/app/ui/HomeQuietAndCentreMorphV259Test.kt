@@ -97,7 +97,7 @@ class HomeQuietAndCentreMorphV259Test {
     }
 
     @Test
-    fun aConnectedCentreTriggerGrowsItsHaloAndItsReadout() {
+    fun aConnectedCentreTriggerKeepsItsHaloAndDrawsNoReadout() {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             ProvideMarbleLanguage("en") {
@@ -130,8 +130,13 @@ class HomeQuietAndCentreMorphV259Test {
         compose.mainClock.advanceTimeBy(120)
 
         // The halo is the Expressive "this is live" ring, and it only exists while connected.
+        // MARBLE_STEADY_CONNECT_V264 — it is drawn inside the trigger's fixed footprint; the
+        // state word and the latency are spoken, not printed beside the knob.
         compose.onNodeWithTag("dock-center-halo").assertExists()
         compose.onNodeWithTag("dock-center-trigger").assertExists()
+        compose.onNodeWithText("Connected").assertDoesNotExist()
+        compose.onNodeWithText("48 ms").assertDoesNotExist()
+        compose.onNodeWithTag("dock-center-tooltip").assertDoesNotExist()
     }
 
     @Test

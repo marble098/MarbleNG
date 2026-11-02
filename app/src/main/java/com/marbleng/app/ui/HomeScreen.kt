@@ -60,7 +60,10 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.CoreEngine
 import com.marbleng.app.core.coreEngine
+import com.marbleng.app.model.ConnectAction
+import com.marbleng.app.model.ConnectControl
 import com.marbleng.app.model.ConnectModeChip
+import com.marbleng.app.model.ConnectPhase
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.HomePingAction
@@ -119,9 +122,12 @@ fun HomeScreen(
     }
 
     val state = repo.state
-    val connected = state == "CONNECTED"
-    val connecting = state == "CONNECTING"
-    val disconnecting = state == "DISCONNECTING"
+    // MARBLE_STEADY_CONNECT_V264 — one phase, including BLOCKED, for the pill and its toggle.
+    val phase = ConnectControl.phaseOf(state)
+    val connected = phase == ConnectPhase.CONNECTED
+    val connecting = phase == ConnectPhase.CONNECTING
+    val disconnecting = phase == ConnectPhase.DISCONNECTING
+    val blocked = phase == ConnectPhase.BLOCKED
     val activeRoute = repo.homeRoute()
     val uptime = rememberUptimeLabel(repo.connectedSinceMs)
 
@@ -133,10 +139,15 @@ fun HomeScreen(
     val coreLabel = if (settings.coreEngine() == CoreEngine.SINGBOX) "sing-box" else "Xray"
     val headerSubtitle = "$modeLabel · $coreLabel"
 
+    // The verb is read at press time from the same table the two dock buttons use; a closing
+    // tunnel has no verb, and a kill switch is a reset rather than a second "connect".
     val toggleConnection: () -> Unit = {
-        when {
-            connected || connecting -> repo.stopVpn()
-            !disconnecting -> repo.reconnectLastOrAuto(onConnect)
+        when (ConnectControl.actionOf(ConnectControl.phaseOf(repo.state))) {
+            ConnectAction.CONNECT -> repo.reconnectLastOrAuto(onConnect)
+            ConnectAction.CANCEL,
+            ConnectAction.DISCONNECT,
+            ConnectAction.RESET -> repo.stopVpn()
+            ConnectAction.NONE -> Unit
         }
     }
 
@@ -348,6 +359,17 @@ fun HomeScreen(
                     // and carrying the essentials") is not a request for a third layout — it is a
                     // request for one surface that says the same four things either way, and puts
                     // the connect control inside itself only when the dock does not have it.
+                    // MARBLE_STEADY_CONNECT_V264 — the pill prints the verb the tap will actually
+                    // perform: "Connect" at rest, "Cancel connect" while dialling, "Disconnect"
+                    // while protected, the closing word while the tunnel closes, and "Reset" after
+                    // a kill switch. Six builds of Home used to print "Connect" for four states.
+                    val connectTitle = when (phase) {
+                        ConnectPhase.CONNECTED -> strings.disconnect
+                        ConnectPhase.CONNECTING -> trx("Cancel connect")
+                        ConnectPhase.DISCONNECTING -> strings.disconnecting
+                        ConnectPhase.BLOCKED -> trx("Reset")
+                        ConnectPhase.IDLE -> strings.connect
+                    }
                     HomeHeroStage(
                         snapshot = heroSnapshot,
                         modeChip = modeChip,
@@ -356,6 +378,8 @@ fun HomeScreen(
                         connected = connected,
                         connecting = connecting,
                         disconnecting = disconnecting,
+                        blocked = blocked,
+                        connectTitle = connectTitle,
                         uptime = uptime,
                         ticker = ticker,
                         routeLabel = heroRouteName,
@@ -526,6 +550,8 @@ private fun HomeHeroStage(
     connected: Boolean,
     connecting: Boolean,
     disconnecting: Boolean,
+    blocked: Boolean,
+    connectTitle: String,
     uptime: String,
     ticker: String,
     routeLabel: String,
@@ -534,7 +560,6 @@ private fun HomeHeroStage(
     onOpenLogs: () -> Unit,
     onOpenRoute: () -> Unit
 ) {
-    val strings = Tr.now
     val working = connecting || disconnecting
 
     MarbleHeroPanel(
@@ -594,7 +619,8 @@ private fun HomeHeroStage(
                 connected = connected,
                 connecting = connecting,
                 disconnecting = disconnecting,
-                title = if (connected) strings.disconnect else strings.connect,
+                blocked = blocked,
+                title = connectTitle,
                 subtitle = routeLabel,
                 onToggle = onToggle,
                 // The rolling clock, handed in exactly as V249 pinned it: eight animating digits in

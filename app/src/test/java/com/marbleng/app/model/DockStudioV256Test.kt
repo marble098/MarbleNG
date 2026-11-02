@@ -150,15 +150,24 @@ class DockStudioV256Test {
     }
 
     @Test
-    fun theCentreTooltipIsTheOnlyTimedWordInTheDock() {
-        // V263 removed the tab caption and its two-second hold. The tooltip is a reading the
-        // reader asked for, so it stays; nothing else in the dock times a word.
-        assertEquals(1_400L, DockStudio.CENTER_TOOLTIP_HOLD_MS)
+    fun theDockHasNoTimedWordLeftAndItsWingsHaveFixedWidths() {
+        // MARBLE_STEADY_CONNECT_V264 — after V263 retired the tab caption, the centre tooltip was
+        // the dock's last timed word. It opened above the bar on a tap and its Surface was a
+        // measured child of the centre slot, so it moved the tabs. Both are gone: the dock draws
+        // no word that opens, and the widths that used to follow a reading are fixed.
+        val studio = java.io.File("src/main/java/com/marbleng/app/model/DockStudio.kt").readText()
+        val wings = java.io.File("src/main/java/com/marbleng/app/ui/MarbleDockWings.kt").readText()
         val dock = java.io.File("src/main/java/com/marbleng/app/ui/MarbleLumenDock.kt").readText()
         val item = java.io.File("src/main/java/com/marbleng/app/ui/NavigationItemView.kt").readText()
+        assertFalse("the timed tooltip came back", "CENTER_TOOLTIP_HOLD_MS" in studio)
+        assertFalse("the timed tooltip came back", "CENTER_TOOLTIP_HOLD_MS" in wings)
+        assertFalse("a bloom came back", "centerBloomedWidthDp" in wings)
+        assertFalse("an open/close width spring came back", "var open by remember" in wings)
         assertFalse("a tab caption came back", "LaunchedEffect(selection)" in dock)
         assertFalse("a tab caption came back", "AnimatedContent(" in item)
         assertTrue("the label must stay readable to a screen reader", "contentDescription = tab.label" in item)
+        assertTrue("the island reserves one width", ".width(DockStudio.islandWidthDp(size).dp)" in wings)
+        assertTrue("the dock reserves the centre slot", "DockStudio.centerTriggerWidthDp(size)" in dock)
     }
 
     @Test
@@ -172,6 +181,10 @@ class DockStudioV256Test {
         assertEquals(1f, DockStudio.batchProgress(9, 8), 0.0001f)
         assertEquals(0f, DockStudio.batchProgress(-3, 8), 0.0001f)
         assertEquals("12/12 pinging…", DockStudio.batchLabel(99, 12))
+        // V264's fixed-width badge prints the compact counter; it clamps exactly like its parent.
+        assertEquals("12/79", DockStudio.batchCompactLabel(12, 79))
+        assertEquals("12/12", DockStudio.batchCompactLabel(99, 12))
+        assertEquals("0/8", DockStudio.batchCompactLabel(-3, 8))
     }
 
     // ── the connection styles ───────────────────────────────────────────────────────────────

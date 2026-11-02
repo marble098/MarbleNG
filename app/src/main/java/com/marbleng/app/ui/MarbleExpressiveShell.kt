@@ -18,7 +18,6 @@ package com.marbleng.app.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -85,6 +84,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -92,7 +92,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.AppRepository
+import com.marbleng.app.model.ConnectControl
 import com.marbleng.app.model.ConnectModeChip
+import com.marbleng.app.model.ConnectPhase
 import com.marbleng.app.model.ConnectPillMotion
 import com.marbleng.app.model.LogLevel
 import com.marbleng.app.model.QuickLogLine
@@ -125,11 +127,21 @@ import kotlinx.coroutines.withContext
 // ---------------------------------------------------------------------------------------------
 
 /**
- * MARBLE_EXPRESSIVE_STUDIO_V252 — the single primary action of the app.
+ * MARBLE_EXPRESSIVE_STUDIO_V252 / MARBLE_STEADY_CONNECT_V264 — the single primary action of the
+ * app.
  *
  * Replaces non-Expressive `CircleShape` halos/dots and linear gradients with solid Material 3
  * Expressive tonal/status fills, spatial-spring corner morphing, a `Clover4Leaf` ↔ `Flower`
  * morphing emblem, and Google's Expressive `LoadingIndicator` while negotiating the tunnel.
+ *
+ * V264 fixed the pill's four defects in the same state table ([ConnectControl]) the two dock
+ * buttons use: `CONNECTING` no longer says "Connect" while a tap cancels the dial (the caller now
+ * passes a state-aware [title]), `DISCONNECTING` is disabled instead of a dead tap, `BLOCKED` gets
+ * its own error tone and a reset glyph, and the pill keeps **one** width and height in every phase:
+ * the old 78 → 88dp height spring and the outer 20 → 0dp inset pushed the whole Home row around on
+ * connect. The inset spring is kept — with its V242 crash guard — as an *inner* content breathing
+ * that cannot resize the pill, and the emblem, its loading twin and the trailing mark reserve the
+ * same space in all states so the row never needs a size animation of its own.
  */
 @Composable
 fun MarbleConnectPill(
@@ -140,48 +152,51 @@ fun MarbleConnectPill(
     subtitle: String,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
-    ticker: String = ""
+    ticker: String = "",
+    blocked: Boolean = false
 ) {
     val colors = MaterialTheme.colorScheme
     val haptics = LocalHapticFeedback.current
     val reducedMotion = rememberReducedMotion()
     val motion = marbleMotion()
-    val working = connecting || disconnecting
+    val phase = ConnectControl.phaseOf(connected, connecting, disconnecting, blocked)
+    val working = ConnectControl.working(phase)
+    val pressable = ConnectControl.pressable(phase)
+    val spokenState = trx(ConnectControl.stateKey(phase))
 
     val tone by animateColorAsState(
         targetValue = when {
-            connected -> colors.success
+            phase == ConnectPhase.CONNECTED -> colors.success
             working -> colors.warning
+            phase == ConnectPhase.BLOCKED -> colors.error
             else -> colors.primary
         },
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "connectPillTone"
     )
     val onTone = when {
-        connected -> colors.onSuccess
+        phase == ConnectPhase.CONNECTED -> colors.onSuccess
         working -> colors.onWarning
+        phase == ConnectPhase.BLOCKED -> colors.onError
         else -> colors.onPrimary
     }
 
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
 
-    val height by animateDpAsState(
-        targetValue = if (connected) 88.dp else 78.dp,
-        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
-        label = "connectPillHeight"
-    )
-    // V242: Effects springs do not overshoot; ConnectPillMotion.insetDp is the second line of defence.
+    // V242: Effects springs do not overshoot; ConnectPillMotion.insetDp is the second line of
+    // defence. V264 moved this padding *inside* the fixed-width pill, so its travel can no longer
+    // resize the card (or the row it sits in).
     val inset by animateDpAsState(
-        targetValue = if (connected) 0.dp else ConnectPillMotion.RESTING_INSET_DP.dp,
+        targetValue = if (phase == ConnectPhase.CONNECTED) 0.dp else ConnectPillMotion.RESTING_INSET_DP.dp,
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "connectPillInset"
     )
     val corner by animateDpAsState(
         targetValue = when {
             pressed -> 20.dp
-            connected -> 26.dp
-            working -> 30.dp
+            phase == ConnectPhase.CONNECTED -> 26.dp
+            working || phase == ConnectPhase.BLOCKED -> 30.dp
             else -> 38.dp
         },
         animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
@@ -198,7 +213,7 @@ fun MarbleConnectPill(
     )
     val stateMorph by animateFloatAsState(
         targetValue = when {
-            connected -> 1f
+            phase == ConnectPhase.CONNECTED -> 1f
             pressed -> 0.55f
             else -> 0f
         },
@@ -208,14 +223,14 @@ fun MarbleConnectPill(
     val emblemSpin by animateFloatAsState(
         targetValue = when {
             pressed -> -18f
-            connected -> 45f
+            phase == ConnectPhase.CONNECTED -> 45f
             else -> 0f
         },
         animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
         label = "connectPillSpin"
     )
 
-    val ambientTurn = if (connected && motion.loops) {
+    val ambientTurn = if (phase == ConnectPhase.CONNECTED && motion.loops) {
         val transition = rememberInfiniteTransition(label = "connectEmblemIdle")
         val angle by transition.animateFloat(
             initialValue = 0f,
@@ -235,13 +250,13 @@ fun MarbleConnectPill(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = ConnectPillMotion.insetDp(inset.value).dp)
-            .height(height.coerceAtLeast(64.dp))
+            // One height in every phase: a connect must not push the rows below the pill down.
+            .height(82.dp)
             .scale(pressScale)
             .clip(shape)
             .background(tone)
             .clickable(
-                enabled = !disconnecting,
+                enabled = pressable,
                 role = Role.Button,
                 interactionSource = interaction,
                 indication = androidx.compose.foundation.LocalIndication.current
@@ -249,28 +264,23 @@ fun MarbleConnectPill(
                 haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                 onToggle()
             }
+            .semantics {
+                contentDescription = title
+                stateDescription = spokenState
+            }
+            .padding(horizontal = ConnectPillMotion.insetDp(inset.value).dp)
             .padding(horizontal = 20.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(
-                    if (reducedMotion) Modifier
-                    else Modifier.animateContentSize(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    )
-                ),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (working) {
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
+                        .size(52.dp)
                         .clip(marbleExpressiveShape(MarbleExpressiveMotif.BURST))
                         .background(onTone.copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center
@@ -288,14 +298,18 @@ fun MarbleConnectPill(
                 )
                 Box(
                     modifier = Modifier
-                        .size(if (connected) 52.dp else 48.dp)
+                        .size(52.dp)
                         .graphicsLayer { rotationZ = emblemSpin + ambientTurn }
                         .clip(emblemShape)
                         .background(onTone.copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center
                 ) {
                     MarbleGlyphIcon(
-                        glyph = if (connected) MarbleGlyph.STOP else MarbleGlyph.POWER,
+                        glyph = when (phase) {
+                            ConnectPhase.CONNECTED -> MarbleGlyph.STOP
+                            ConnectPhase.BLOCKED -> MarbleGlyph.REFRESH
+                            else -> MarbleGlyph.POWER
+                        },
                         color = onTone,
                         modifier = Modifier
                             .size(22.dp)
@@ -357,18 +371,30 @@ fun MarbleConnectPill(
                 }
             }
 
-            if (!working) {
-                Box(
-                    modifier = Modifier
-                        .size(16.dp)
-                        .clip(
-                            marbleExpressiveShape(
-                                if (connected) MarbleExpressiveMotif.SUNNY else MarbleExpressiveMotif.DIAMOND
-                            )
+            // The mark reserves its space in every phase, including the two working ones: the
+            // weighted text column never has to re-measure when a spinner replaces an emblem.
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(
+                        marbleExpressiveShape(
+                            if (phase == ConnectPhase.CONNECTED) {
+                                MarbleExpressiveMotif.SUNNY
+                            } else {
+                                MarbleExpressiveMotif.DIAMOND
+                            }
                         )
-                        .background(onTone.copy(alpha = if (connected) 0.92f else 0.78f))
-                )
-            }
+                    )
+                    .background(
+                        onTone.copy(
+                            alpha = when {
+                                working -> 0.35f
+                                phase == ConnectPhase.CONNECTED -> 0.92f
+                                else -> 0.78f
+                            }
+                        )
+                    )
+            )
         }
     }
 }

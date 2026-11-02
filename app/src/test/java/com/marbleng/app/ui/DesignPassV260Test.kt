@@ -128,8 +128,11 @@ class DesignPassV260Test {
         // The press target is the groove, not the knob inside it: a finger aims at the object.
         compose.onNodeWithTag("dock-center-trigger").performClick()
         assertEquals(1, toggled)
-        // The state and the measurement are printed without a tap, which is the whole point.
-        compose.onNodeWithText("Ready").assertExists()
+        // MARBLE_STEADY_CONNECT_V264 — no word opens beside the glyph, on a tap or at rest: that
+        // text was the reported defect. The state is spoken through stateDescription instead.
+        compose.onNodeWithText("Ready").assertDoesNotExist()
+        compose.onNodeWithText("—").assertDoesNotExist()
+        compose.onNodeWithTag("dock-center-tooltip").assertDoesNotExist()
     }
 
     @Test
@@ -166,8 +169,12 @@ class DesignPassV260Test {
         compose.mainClock.advanceTimeBy(160)
 
         compose.onNodeWithTag("dock-center-halo").assertExists()
-        compose.onNodeWithText("Connected").assertExists()
-        compose.onNodeWithText("48 ms").assertExists()
+        compose.onNodeWithTag("dock-center-trigger").assertExists()
+        // A connected tunnel changes the knob's tone, glyph and halo — never the row's geometry
+        // and never a word beside the button.
+        compose.onNodeWithText("Connected").assertDoesNotExist()
+        compose.onNodeWithText("48 ms").assertDoesNotExist()
+        compose.onNodeWithTag("dock-center-tooltip").assertDoesNotExist()
     }
 
     // ── the subscription card ─────────────────────────────────────────────────────────────────

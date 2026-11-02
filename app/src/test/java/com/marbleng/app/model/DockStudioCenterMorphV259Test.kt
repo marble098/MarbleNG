@@ -46,17 +46,32 @@ class DockStudioCenterMorphV259Test {
     }
 
     @Test
-    fun theBloomedCentrePillIsWiderThanTheCircleAndNeverSwallowsTheDock() {
+    fun theCentreTriggerKeepsOneFixedFootprintAtEveryRung() {
+        // MARBLE_STEADY_CONNECT_V264 — V259's bloom (circle → 130…196dp) was measured inside the
+        // dock's weighted row, so a tap or a state change moved every tab. The footprint is now
+        // exactly one number per rung: the groove itself, in every connection phase.
         DockSize.entries.forEach { size ->
-            val bloomed = DockStudio.centerBloomedWidthDp(size)
-            assertTrue("${size.name}: the bloom is not wider than the circle", bloomed > DockStudio.centerTriggerSizeDp(size))
-            // 196dp is the ceiling: on a 360dp phone the pill must never take the row the tabs need.
-            assertTrue(bloomed <= 196)
+            val groove = DockStudio.centerTriggerSizeDp(size)
+            assertEquals(
+                "${size.name}: the trigger width must not exceed its groove",
+                groove,
+                DockStudio.centerTriggerWidthDp(size)
+            )
+            // It is still bigger than a tab, and it still fits the taller capsule.
+            assertTrue(groove > DockStudio.restingTabSizeDp(size))
+            assertTrue(groove <= DockStudio.centerDockHeightDp(size) - DockStudio.pillPaddingDp(size) * 2)
+            // The island reserves one width too, safely inside its old ceiling.
+            assertTrue(DockStudio.islandWidthDp(size) > 0)
+            assertTrue(DockStudio.islandWidthDp(size) < DockStudio.islandMaxWidthDp(size))
         }
-        // The rung is visible in the bloom too — a Grand pill is wider than a Slim one.
+        // The rung is visible in the fixed footprint, not in a bloom: Grand > Slim.
         assertTrue(
-            DockStudio.centerBloomedWidthDp(DockSize.LARGE) >=
-                DockStudio.centerBloomedWidthDp(DockSize.SMALL)
+            DockStudio.centerTriggerWidthDp(DockSize.LARGE) >
+                DockStudio.centerTriggerWidthDp(DockSize.SMALL)
+        )
+        assertTrue(
+            DockStudio.islandWidthDp(DockSize.LARGE) >
+                DockStudio.islandWidthDp(DockSize.SMALL)
         )
     }
 

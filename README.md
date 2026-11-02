@@ -73,6 +73,22 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
+**V264 is the newest chapter: `docs/STEADY_CONNECT_AND_PRISM_MARK_V264.md`.** It fixes the two reports
+about the centre connect button — "the tabs move after connecting" and "the text beside it opens,
+and it must not" — by giving the centre trigger one fixed footprint, reserving that width in the
+dock, drawing its halo inside the same square, and retiring the bloom, the state word and the timed
+tooltip entirely. The island capsule gets a fixed width too, so a ping reading can no longer resize
+the leading wing. All three connect controls (dock power, centre trigger, Home pill) now share one
+pure state table, `ConnectControl`: five phases (`IDLE`, `CONNECTING`, `CONNECTED`, `DISCONNECTING`,
+`BLOCKED`), four verbs, one press rule and one verb read at press time — no more "Connect" on a
+button whose tap cancels a dial, no dead tap while a tunnel closes, and a real reset after a kill
+switch. The launcher mark was rebuilt with it: a faceted rounded hexagonal prism with an ice-white →
+electric-blue gradient, a specular rim and an **M cut out as negative space**, mirrored in the
+monochrome themed layer, the vector fallback, the 28-unit brand mark, the status-bar notification
+and the Quick Settings tile — one silhouette at every size, all vector, no PNG ramps.
+`SteadyConnectControlsV264Test` measures all four
+tabs and the trigger in every phase and demands identical rectangles.
+
 The newest corrections to this shell are recorded in `docs/QUIET_TABS_AND_READABLE_SURFACES_V263.md`:
 **a tap on the bottom bar no longer opens the tab's name beside its glyph** — the two-second caption,
 the spring-animated slot weight and the largest rung's permanent word are all gone, every tab keeps a
