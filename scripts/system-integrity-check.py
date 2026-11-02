@@ -5060,8 +5060,8 @@ check(
     and "fun canMove(" in v249_home_studio
     and "fun isBare(" in v249_home_studio
     and "val homeLayout: HomeLayout = HomeLayout()" in files["models"]
-    and "val sectionOrder: String = HomeStudio.DEFAULT_ORDER" in files["models"]
-    and "val hiddenSections: String = HomeStudio.DEFAULT_HIDDEN" in files["models"]
+    and "val sectionOrder: String = HomeQuiet.calmOrder()" in files["models"]
+    and "val hiddenSections: String = HomeQuiet.CALM_HIDDEN" in files["models"]
     # Both records are read on the way in and written on the way out, canonically, in one place.
     and "HomeLayout.of(" in files["store"]
     and "sectionOrder = HomeStudio.canonicalOrder(" in files["models"]
@@ -5684,7 +5684,7 @@ check(
     # halo while live) is still here, and the three stacked shadows and the flat white rim are the
     # two things the second review retired.
     and "DockStudio.centerKnobSizeDp(size).dp" in v259_wings
-    and "RoundedCornerShape(DockStudio.innerRadiusDp(size))" in v259_wings
+    and "RoundedCornerShape(DockStudio.innerRadiusDp(size).dp)" in v259_wings
     and "Color.White.copy(alpha = 0.26f)" in v259_wings
     and "elevation = 22.dp" not in v259_wings
     and "class DockStudioCenterMorphV259Test" in v259_model_test
@@ -5712,7 +5712,7 @@ check(
     "val CALM_SECTIONS: List<HomeSection> = listOf(" in v259_quiet
     and "HomeSection.HEADER," in v259_quiet
     and "HomeSection.CONNECT," in v259_quiet
-    and "HomeSection.ROUTE" in v259_quiet
+    and "HomeSection.STATS" in v259_quiet
     and "fun calmOrder(): String = HomeStudio.serialize(CALM_SECTIONS)" in v259_quiet
     and "fun calmHidden(): String" in v259_quiet
     and "fun toggle(" in v259_quiet
@@ -5794,7 +5794,7 @@ check(
     and "corner = (height / 2f).dp" in v262_dock
     and "fun lensCornerDp(diameterDp: Float): Float" in v262_lens_model
     and "fun thePillReadsTheLaddersCornerAndTheBriefsPercent()" in v262_lens_test
-    and "RoundedCornerShape(DockStudio.innerRadiusDp(size))" in v259_wings
+    and "RoundedCornerShape(DockStudio.innerRadiusDp(size).dp)" in v259_wings
     and ".clip(RoundedCornerShape(percent = 50))\n            .background(container)" not in v259_wings
     and "theBarAndEverythingInItReadOneCornerRule" in files["planUiTest"],
 )
@@ -5813,7 +5813,7 @@ check(
     # are spoken through semantics, and the groove is still the whole press target.
     and 'stateDescription = "$spokenState · $reading"' in v259_wings
     and "contentDescription = description" in v259_wings
-    and "RoundedCornerShape(DockStudio.innerRadiusDp(size))" in v259_wings
+    and "RoundedCornerShape(DockStudio.innerRadiusDp(size).dp)" in v259_wings
     and "theCentreTriggerIsAGrooveWithAKnobAndTheWholeGroovePresses" in files["planUiTest"]
     and "aLiveCentreTriggerSaysConnectedAndKeepsItsHalo" in files["planUiTest"],
 )

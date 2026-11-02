@@ -205,7 +205,7 @@ fun MarbleExpressiveTheme(
     }
 
     CompositionLocalProvider(
-        LocalMarbleStatusColors provides marbleStatusColors(dark),
+        LocalMarbleStatusColors provides marblePaletteStatusColors(scheme, palette, dark),
         LocalMarbleFlat provides flatSurfaces
     ) {
         MaterialExpressiveTheme(

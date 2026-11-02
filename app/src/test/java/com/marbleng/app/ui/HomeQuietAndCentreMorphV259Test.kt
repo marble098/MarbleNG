@@ -54,6 +54,17 @@ class HomeQuietAndCentreMorphV259Test {
     )
 
     @Test
+    fun islandWingsShareTheDockCornerAndSpeedHasNoExternalHeading() {
+        val wings = java.io.File("src/main/java/com/marbleng/app/ui/MarbleDockWings.kt").readText()
+        assertTrue(wings.contains("val islandShape = RoundedCornerShape(DockStudio.innerRadiusDp(size).dp)"))
+        assertTrue(wings.contains("shape = RoundedCornerShape(DockStudio.innerRadiusDp(size).dp)"))
+        val home = java.io.File("src/main/java/com/marbleng/app/ui/HomeScreen.kt").readText()
+        val stats = home.substringAfter("HomeSection.STATS ->").substringBefore("HomeSection.SHORTCUTS ->")
+        assertTrue(stats.contains("HomeTelemetryCard("))
+        assertTrue(!stats.contains("MarbleSectionHeader("))
+    }
+
+    @Test
     fun theCentreStyleDrawsItsProudTriggerAndKeepsAllFourTabs() {
         var toggled = 0
         var picked = -1

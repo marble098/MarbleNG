@@ -113,19 +113,25 @@ class DockStudioCenterMorphV259Test {
     fun aFirstRunIsTheCalmLayoutAndNotTheFullOne() {
         val calm = HomeQuiet.CALM_SECTIONS
         assertEquals(
-            listOf(HomeSection.HEADER, HomeSection.CONNECT, HomeSection.ROUTE),
+            listOf(HomeSection.HEADER, HomeSection.CONNECT, HomeSection.STATS),
             calm
         )
         // The calm layout is a real subset: quieter than the shipped one, and not empty.
         assertEquals(calm.toSet(), HomeStudio.visible(HomeQuiet.calmOrder(), HomeQuiet.CALM_HIDDEN).toSet())
         assertTrue("a first run must not be bare", HomeStudio.isBare(HomeQuiet.calmOrder(), HomeQuiet.CALM_HIDDEN).not())
         assertTrue(calm.size < HomeSection.entries.size)
-        // The three essentials are the page, the decision and the route it will use.
+        assertEquals(calm, HomeStudio.visible(HomeLayout().sectionOrder, HomeLayout().hiddenSections))
+        // An explicitly saved old layout is never replaced by the new first-run default.
+        assertEquals(
+            listOf(HomeSection.HEADER, HomeSection.CONNECT, HomeSection.ROUTE),
+            HomeStudio.visible("header,connect,route", "presets,stats,shortcuts")
+        )
+        // The three essentials are the page, the decision and live speed.
         assertTrue(HomeSection.HEADER in calm)
         assertTrue(HomeSection.CONNECT in calm)
-        assertTrue(HomeSection.ROUTE in calm)
-        // Everything that is a *reading* rather than a decision starts off.
-        listOf(HomeSection.PRESETS, HomeSection.STATS, HomeSection.SHORTCUTS).forEach { section ->
+        assertTrue(HomeSection.STATS in calm)
+        // The optional sections start off.
+        listOf(HomeSection.PRESETS, HomeSection.ROUTE, HomeSection.SHORTCUTS).forEach { section ->
             assertTrue(
                 "$section should start hidden",
                 HomeStudio.isHidden(section, HomeQuiet.CALM_HIDDEN)

@@ -108,6 +108,36 @@ class PaletteStudioV258Test {
     }
 
     @Test
+    fun namedPalettesReachStatusSurfacesDockAndTrueBlackCards() {
+        listOf(false, true).forEach { dark ->
+            val classic = marblePaletteScheme(MarblePalette.CLASSIC, dark)
+            assertEquals(
+                com.marbleng.app.ui.theme.marbleStatusColors(dark),
+                com.marbleng.app.ui.theme.marblePaletteStatusColors(classic, MarblePalette.CLASSIC, dark)
+            )
+            val custom = androidx.compose.ui.graphics.Color(0xFF008577)
+            assertEquals(custom, com.marbleng.app.ui.theme.marbleDockAccent(MarblePalette.CLASSIC, classic.primary, custom))
+            val dockColors = MarblePalette.brokenOut.map { palette ->
+                val scheme = marblePaletteScheme(palette, dark)
+                val status = com.marbleng.app.ui.theme.marblePaletteStatusColors(scheme, palette, dark)
+                assertEquals(scheme.primary, status.success)
+                assertEquals(scheme.onPrimary, status.onSuccess)
+                assertEquals(scheme.primaryContainer, status.successContainer)
+                assertEquals(scheme.onPrimaryContainer, status.onSuccessContainer)
+                assertEquals(scheme.tertiary, status.warning)
+                assertEquals(scheme.onTertiaryContainer, status.onWarningContainer)
+                if (dark) {
+                    val black = com.marbleng.app.ui.theme.marbleTrueBlackSurfaces(scheme)
+                    assertEquals(androidx.compose.ui.graphics.Color.Black, black.surface)
+                    assertEquals(scheme.surfaceContainerHigh, black.surfaceContainerHigh)
+                }
+                com.marbleng.app.ui.theme.marbleDockAccent(palette, scheme.primary, custom)
+            }
+            assertEquals(dockColors.size, dockColors.toSet().size)
+        }
+    }
+
+    @Test
     fun everyPaletteHasANameAHintAndAFourToneSignature() {
         MarblePalette.entries.forEach { palette ->
             assertTrue(palette.id.isNotBlank())

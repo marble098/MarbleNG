@@ -687,8 +687,7 @@ class AppStore(context: Context) {
         // on the way in, so a section added by a future build appears in the order (at the end)
         // instead of being silently dropped, and a section retired by one disappears from it.
         homeLayout = HomeLayout.of(
-            // MARBLE_HOME_QUIET_V259 — a *first run* is the quiet Home: heading, the one decision
-            // and the route it will use. These two fallbacks are read only when the preference has
+            // A first run shows the heading, connection stage and network speed card. These two fallbacks are read only when the preference has
             // never been written, and every save writes both keys, so an install that has ever kept
             // a layout never sees them. `HomeStudio.DEFAULT_ORDER` stays the full list, so "show
             // everything" in Settings still has one canonical answer to restore.

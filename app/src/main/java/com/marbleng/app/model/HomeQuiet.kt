@@ -12,9 +12,9 @@ package com.marbleng.app.model
  * The rule this file encodes has two halves, and the second half is the one that makes it safe:
  *
  *  1. **A first run is quiet.** [CALM_SECTIONS] is what Home draws before anybody has said
- *     otherwise: the heading, the one decision (connect), and the route it will use. Nothing else.
- *     Presets, the speed graph and the quick actions are one tap away in Settings → Home layout, and
- *     Home itself offers a card that says so.
+ *     otherwise: the heading, the connect stage, and the live speed graph. Nothing else.
+ *     Presets, the route card and the quick actions are one tap away in Settings → Home layout, and
+ *     existing saved layouts continue to be respected.
  *  2. **An install that has ever saved its settings is not touched.** The store reads
  *     `homeHiddenSections` and falls back to [CALM_HIDDEN] only when the key is absent, and every
  *     save writes the key. So an upgrade keeps the Home the reader built, and the quiet default
@@ -27,17 +27,11 @@ object HomeQuiet {
 
     const val MARKER: String = "MARBLE_HOME_QUIET_V259"
 
-    /**
-     * What a first run draws, in the shipped order: heading, the one decision, its route.
-     *
-     * Deliberately short. `CONNECT` is the reason the app exists, `ROUTE` is the one fact that makes
-     * the decision meaningful ("what will I be connected to?") and `HEADER` is how the page names
-     * itself. Everything else is a reading, and a reading is a reward for having connected once.
-     */
+    /** Heading plus the two default cards: connection and live network speed. */
     val CALM_SECTIONS: List<HomeSection> = listOf(
         HomeSection.HEADER,
         HomeSection.CONNECT,
-        HomeSection.ROUTE
+        HomeSection.STATS
     )
 
     /** The sections a fresh install keeps switched off. */
@@ -49,7 +43,7 @@ object HomeQuiet {
      *
      * Note that the *order* string is always the complete six-section list: `HomeStudio.order`
      * completes any string it is given, so a partial one would only be rewritten on the way in.
-     * The calm default therefore lives in the hidden string, which names the three sections a
+     * The calm default therefore lives in the hidden string, which names the sections a
      * first run switches off — positively, one id per section, never as "everything except…".
      */
     fun calmOrder(): String = HomeStudio.serialize(CALM_SECTIONS)

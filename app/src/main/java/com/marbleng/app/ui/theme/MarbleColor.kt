@@ -8,6 +8,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import com.marbleng.app.model.FlatAccent
 import com.marbleng.app.model.MarblePalette
 
@@ -322,13 +323,7 @@ fun marbleTrueBlackSurfaces(scheme: ColorScheme): ColorScheme = scheme.copy(
     background = Color.Black,
     surface = Color.Black,
     surfaceDim = Color.Black,
-    surfaceBright = Color(0xFF2A2A30),
     surfaceContainerLowest = Color.Black,
-    surfaceContainerLow = Color(0xFF0B0B0E),
-    surfaceContainer = Color(0xFF151519),
-    surfaceContainerHigh = Color(0xFF1E1E23),
-    surfaceContainerHighest = Color(0xFF27272D),
-    outlineVariant = Color(0xFF2C2C31),
     scrim = Color.Black
 )
 
@@ -379,6 +374,26 @@ private val MarbleDarkStatusColors = MarbleStatusColors(
 
 fun marbleStatusColors(dark: Boolean): MarbleStatusColors =
     if (dark) MarbleDarkStatusColors else MarbleLightStatusColors
+
+/** Keep the custom IP accent while letting a named palette influence the whole dock. */
+fun marbleDockAccent(palette: MarblePalette, primary: Color, custom: Color): Color =
+    if (palette == MarblePalette.CLASSIC) custom else lerp(primary, custom, 0.25f)
+
+/** Named palettes theme status surfaces too; Classic retains the familiar semantic colors. */
+fun marblePaletteStatusColors(scheme: ColorScheme, palette: MarblePalette, dark: Boolean): MarbleStatusColors {
+    val semantic = marbleStatusColors(dark)
+    if (palette == MarblePalette.CLASSIC) return semantic
+    return semantic.copy(
+        success = scheme.primary,
+        onSuccess = scheme.onPrimary,
+        successContainer = scheme.primaryContainer,
+        onSuccessContainer = scheme.onPrimaryContainer,
+        warning = scheme.tertiary,
+        onWarning = scheme.onTertiary,
+        warningContainer = scheme.tertiaryContainer,
+        onWarningContainer = scheme.onTertiaryContainer
+    )
+}
 
 /** The fallback primary of [accent] in [dark] mode — for swatches and previews. JVM-safe. */
 fun marbleAccentPrimary(accent: FlatAccent, dark: Boolean): Color =

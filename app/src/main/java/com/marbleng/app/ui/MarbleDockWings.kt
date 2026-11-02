@@ -175,7 +175,7 @@ internal fun MarbleConnectionIslandCapsule(
     val height = DockStudio.islandHeightDp(size)
     val horizontal = DockStudio.islandPaddingDp(size)
     val spoken = trx("Ping the active route")
-    val islandShape = RoundedCornerShape(DockStudio.innerRadiusDp(size))
+    val islandShape = RoundedCornerShape(DockStudio.innerRadiusDp(size).dp)
 
     Row(
         modifier = modifier
@@ -313,6 +313,7 @@ internal fun MarbleDockPowerButton(
                 stateDescription = spokenState
             }
             .testTag("dock-power"),
+        shape = RoundedCornerShape(DockStudio.innerRadiusDp(size).dp),
         colors = IconButtonDefaults.filledIconButtonColors(
             containerColor = container,
             contentColor = ink,
@@ -451,8 +452,8 @@ internal fun MarbleCenterSpringTrigger(
     } else {
         faDigits(state.latencyLabel)
     }
-    val grooveShape = RoundedCornerShape(DockStudio.innerRadiusDp(size))
-    val knobShape = RoundedCornerShape(DockStudio.centerTriggerRadiusDp(size))
+    val grooveShape = RoundedCornerShape(DockStudio.innerRadiusDp(size).dp)
+    val knobShape = RoundedCornerShape(DockStudio.centerTriggerRadiusDp(size).dp)
 
     Box(
         modifier = modifier
