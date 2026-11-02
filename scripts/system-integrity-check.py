@@ -6361,6 +6361,26 @@ check(
     and 'trx("Reset")' in files["homeScreen"],
 )
 
+# assertExists()/assertDoesNotExist() are members of SemanticsNodeInteraction in the pinned Compose
+# test artifact; they are NOT top-level functions to import. CI rejected exactly those invented
+# imports, so keep them out of every regression test that checks the missing word.
+v264_absence_tests = (
+    "app/src/test/java/com/marbleng/app/ui/DesignPassV260Test.kt",
+    "app/src/test/java/com/marbleng/app/ui/HomeQuietAndCentreMorphV259Test.kt",
+    "app/src/test/java/com/marbleng/app/ui/SteadyConnectControlsV264Test.kt",
+)
+check(
+    "V264 the missing-word assertions use the node's own methods, not invented imports",
+    all(
+        ".assertDoesNotExist()" in (ROOT / path).read_text(encoding="utf-8")
+        and "import androidx.compose.ui.test.assertDoesNotExist"
+        not in (ROOT / path).read_text(encoding="utf-8")
+        and "import androidx.compose.ui.test.assertExists"
+        not in (ROOT / path).read_text(encoding="utf-8")
+        for path in v264_absence_tests
+    ),
+)
+
 check(
     "V264 the chapter, the README and the regression tests record the pass",
     "MARBLE_STEADY_CONNECT_V264" in v264_doc
