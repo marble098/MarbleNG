@@ -155,9 +155,18 @@ fun SettingsNetworkCouncilPage(
                                 onClick = { repo.startNetworkCouncilScan() },
                                 modifier = Modifier.weight(1f)
                             )
+                            // MARBLE_ONE_RESET_V261 (the duplicate-control sweep) — one apply verb.
+                            //
+                            // This button and "Apply these settings" at the bottom of the findings
+                            // card were the same call behind the same gate: scroll half a screen and
+                            // the page offered to do the same thing again, in the other button
+                            // style, under a second label. The one that stays is this one, beside
+                            // the scan verb and the progress bar — the place a reader is already
+                            // looking when the plan arrives — and the label now says what applying
+                            // *does* rather than how many rows it touches.
                             if (plan != null && plan.changes.isNotEmpty() && !running) {
                                 MarbleButton(
-                                    label = "${trx("Apply")} ${faDigits("${plan.changes.size}")}",
+                                    label = trx("Apply these settings"),
                                     glyph = MarbleGlyph.CHECK,
                                     style = MarbleButtonStyle.TINTED,
                                     onClick = { repo.applyNetworkCouncilPlan() },
@@ -277,13 +286,16 @@ fun SettingsNetworkCouncilPage(
                                 }
                             }
                         }
-                        if (!running) {
-                            MarbleButton(
-                                label = trx("Apply these settings"),
-                                glyph = MarbleGlyph.SPARK,
-                                onClick = { repo.applyNetworkCouncilPlan() },
-                                modifier = Modifier.fillMaxWidth()
+                        // The trailing row of the findings card is a *footer*, not a second verb:
+                        // the apply is at the top of the page beside the scan that produced these
+                        // rows, and repeating it here was the duplicate this pass removes. A footer
+                        // that says what the button does is what belongs under a list of reasons.
+                        val changes = plan?.changes.orEmpty()
+                        if (!running && changes.isNotEmpty()) {
+                            val applyFooter = trx(
+                                "Applying takes the changes above and nothing else — revert any of them in Routing."
                             )
+                            MarbleSectionFooter(applyFooter)
                         }
                     }
                 }

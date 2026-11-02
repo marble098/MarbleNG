@@ -73,7 +73,23 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-`docs/DESIGN_COUNCIL_V260.md` is the newest chapter: the design council's pass — one corner rule for
+`docs/GLASS_DOCK_AND_HERO_V261.md` is the newest chapter: the bottom bar rebuilt as a **glass
+capsule with a travelling lens** — a translucent tonal slab with a light top rim, a dark floor rim and
+one wide lift instead of a two-tone gradient behind a tinted pill; a stadium corner (0.5 of the short
+side) and 30dp of air on each edge so the bar is an object floating on the page rather than a strip
+across it, capped at 520dp so a tablet draws the same object; a selection you look *through* — one
+aperture with a refracting band, a chromatic fringe, an inner shadow and a specular arc that travels on
+the app's own spring, follows a horizontal drag, and is placed from each slot's *measured* centre so a
+leading island, a trailing power button and an open caption can never pull it off its tab — plus a Home
+hero that carries the four facts the brief asked for on one Material surface (ping, jitter, session
+uptime and the exit address, each a value with a unit and an *honest* state, so a missing reading is a
+dash and never a zero), the two old Home stages collapsed into one panel with a single boolean deciding
+whether the connect control lives inside it, and a product-wide duplicate-control sweep: the IP page's
+three refreshes and its two copy paths, Servers' three differently-scoped "Reset Filters", Settings'
+two download verbs, its two apply verbs, its doubled section heading, its decorative polygon sitting
+beside the About door in the top-right corner, and a logs capsule that told a screen reader one thing
+and printed another.
+`docs/DESIGN_COUNCIL_V260.md` is the chapter before it: the design council's pass — one corner rule for
 the bottom capsule and everything inside it (a very round rectangle derived from the rung, with every
 nested object reading the same curve six dp inside it, instead of a stadium whose buttons could not
 share its curvature), the centre connect control rebuilt as a groove with a knob in it rather than a

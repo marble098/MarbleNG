@@ -61,17 +61,24 @@ class DesignPassV260Test {
             val inner = DockStudio.innerRadiusDp(rung)
             // It is a very round capsule…
             assertTrue("$rung must stay round", outer >= 22f)
-            // …but no longer a stadium: half the height is what the report asked to move away from.
-            assertTrue("$rung must not be a stadium", outer < DockStudio.heightDp(rung) / 2f)
+            // …and, since MARBLE_GLASS_DOCK_V261, a stadium: the glass reference the reader named
+            // has two half-circles at its ends, and 44 % read as a rectangle with soft corners.
+            assertEquals(
+                "$rung is a stadium",
+                DockStudio.heightDp(rung) / 2f,
+                outer,
+                0.5f
+            )
             // …and a nested object curves exactly one rim inside it.
             assertEquals(outer - DockStudio.INNER_CORNER_INSET_DP, inner, 0.001f)
             // The knob in the centre is the same curve, so it reads as part of the bar.
             assertEquals(inner, DockStudio.centerTriggerRadiusDp(rung), 0.001f)
         }
-        // The ratios are the shipped ones: 25 / 30 / 36 of 56 / 68 / 82.
-        assertEquals(25f, DockStudio.cornerRadiusDp(DockSize.SMALL), 0.001f)
-        assertEquals(30f, DockStudio.cornerRadiusDp(DockSize.MEDIUM), 0.001f)
-        assertEquals(36f, DockStudio.cornerRadiusDp(DockSize.LARGE), 0.001f)
+        // The radii are the shipped ones: 28 / 34 / 41 of 56 / 68 / 82 — half the short side, so
+        // the capsule's ends are two half-circles at every rung.
+        assertEquals(28f, DockStudio.cornerRadiusDp(DockSize.SMALL), 0.001f)
+        assertEquals(34f, DockStudio.cornerRadiusDp(DockSize.MEDIUM), 0.001f)
+        assertEquals(41f, DockStudio.cornerRadiusDp(DockSize.LARGE), 0.001f)
     }
 
     @Test

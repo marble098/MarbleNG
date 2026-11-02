@@ -187,7 +187,23 @@ fun SettingsRoutingPage(
                 MarbleSectionHeader(
                     title = trx("Country lists"),
                     badge = if (missing.isEmpty()) trx("Ready") else trx("Needs download"),
-                    badgeColor = if (missing.isEmpty()) colors.success else colors.warning
+                    badgeColor = if (missing.isEmpty()) colors.success else colors.warning,
+                    trailing = if (missing.isEmpty()) {
+                        {
+                            // One verb, in one place, in both states: the card below carries it
+                            // while something is missing, and this header carries it once everything
+                            // is present — the only case the card is not drawn in.
+                            MarbleIconButton(
+                                glyph = MarbleGlyph.REFRESH,
+                                tint = colors.primary,
+                                enabled = !repo.busy && repo.state == "DISCONNECTED",
+                                contentDescription = trx("Download the lists"),
+                                onClick = { repo.prepareRoutingAssets(force = true) }
+                            )
+                        }
+                    } else {
+                        null
+                    }
                 )
                 if (missing.isNotEmpty()) {
                     MarbleCard(contentPadding = PaddingValues(16.dp)) {
@@ -581,15 +597,20 @@ fun SettingsRoutingPage(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 MarbleSectionHeader(title = trx("Housekeeping"))
                 MarbleCard {
-                    MarbleListItem(
-                        title = trx("Update the lists now"),
-                        subtitle = trx("Fetch both files again from the source above"),
-                        glyph = MarbleGlyph.REFRESH,
-                        iconTint = colors.primary,
-                        enabled = !repo.busy,
-                        onClick = { repo.prepareRoutingAssets(force = true) }
-                    )
-                    MarbleDivider()
+                    // MARBLE_ONE_RESET_V261 (the duplicate-control sweep) — one download verb per
+                    // page, and it lives where the reason does.
+                    //
+                    // This row said "Update the lists now" and the Country lists card above said
+                    // "Download the lists"; both called `prepareRoutingAssets(force = true)` behind
+                    // the same "busy" gate. Not two verbs for two situations — one verb, twice, and
+                    // the second copy sat directly under the first whenever a file was missing.
+                    //
+                    // The card keeps the verb, because it is the one that says *why* the download is
+                    // needed and what stays paused until it happens. What is left here is the second
+                    // answer a reader needs once the files exist: whether the core agrees with the
+                    // policy they build. A refresh that is genuinely about *staleness* — the source
+                    // moved on but nothing is missing — is the same verb in the same place, so the
+                    // Country lists header carries the button in that state.
                     MarbleListItem(
                         title = trx("Check the policy with the core"),
                         subtitle = trx("Builds a real config and asks the core whether it runs"),
