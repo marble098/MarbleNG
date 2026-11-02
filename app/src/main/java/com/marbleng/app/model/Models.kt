@@ -1158,8 +1158,8 @@ data class ShadeRouteControl(
  * an order without a hidden set (or the reverse) is a layout half of whose meaning is missing.
  */
 data class HomeLayout(
-    val sectionOrder: String = HomeStudio.DEFAULT_ORDER,
-    val hiddenSections: String = HomeStudio.DEFAULT_HIDDEN,
+    val sectionOrder: String = HomeQuiet.calmOrder(),
+    val hiddenSections: String = HomeQuiet.CALM_HIDDEN,
 
     // MARBLE_HOME_WIDGETS_V256 — the four Home blocks that can be switched off on their own, plus
     // the one setting that decides *where* the connect control lives (dock island, dock centre, or

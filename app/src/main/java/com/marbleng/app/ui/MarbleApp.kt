@@ -633,7 +633,11 @@ private fun MarbleNavigationRail(
     // that is appearance, not meaning.
     val ipLabel = trx(dockSlotDefaultCaption(DockSlotKind.IP, ""))
     val ipGlyph = MarbleGlyph.GLOBE
-    val slotColor = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
+    val slotColor = com.marbleng.app.ui.theme.marbleDockAccent(
+        palette = com.marbleng.app.model.parseMarblePalette(s.themePalette),
+        primary = colors.primary,
+        custom = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
+    )
     val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
         when (repo.state) {
             "CONNECTED" -> colors.success
@@ -741,7 +745,11 @@ private fun MarbleBottomTabBar(
     // the tab's accessible name, not a word that opens beside the icon on a tap.
     val ipLabel = trx(dockSlotDefaultCaption(DockSlotKind.IP, ""))
     val ipGlyph = MarbleGlyph.GLOBE
-    val slotColor = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
+    val slotColor = com.marbleng.app.ui.theme.marbleDockAccent(
+        palette = com.marbleng.app.model.parseMarblePalette(s.themePalette),
+        primary = colors.primary,
+        custom = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
+    )
     val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
         when (repo.state) {
             "CONNECTED" -> colors.success

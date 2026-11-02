@@ -444,8 +444,6 @@ fun HomeScreen(
                         enter = appear,
                         exit = vanish
                     ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MarbleSectionHeader(title = strings.networkSpeed)
                         HomeTelemetryCard(
                             downBps = repo.liveDownBps,
                             upBps = repo.liveUpBps,
@@ -459,7 +457,6 @@ fun HomeScreen(
                                 repo.setRuntimeMessage(strings.socksCopied)
                             }
                         )
-                    }
                     }
                 }
 
