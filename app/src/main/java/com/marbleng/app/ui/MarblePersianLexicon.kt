@@ -3259,6 +3259,15 @@ private val FaFriendlyVoice: Map<String, String> = mapOf(
     "Tap to check direct IP" to "بزن تا آی‌پی مستقیم بررسی بشه",
     "Inspect server" to "جزئیات سرور",
     "Exit IP" to "آی‌پی خروجی",
+    // MARBLE_HOME_HERO_V261 / MARBLE_ONE_RESET_V261 — the hero's own captions and the two headings the
+    // duplicate-control sweep rewrote. The four metric names above already exist; these are the words
+    // that are new, and the em dash they pair with needs none.
+    "Since you connected" to "از زمانی که وصل شدی",
+    "Across reconnects" to "در اتصال‌های پشت‌سرهم",
+    "Applying takes the changes above and nothing else — revert any of them in Routing." to
+        "اعمال، فقط تغییرهای بالاست و نه چیز دیگری — هر کدام را می‌توانی از مسیریابی برگردانی.",
+    "Lists are out of date" to "فهرست‌ها قدیمی شده‌اند",
+    "Download them from the Country lists card above" to "از کارت فهرست کشورها در بالا دانلودشان کن",
     "Local SOCKS5" to "SOCKS5 محلی",
     "More" to "بیشتر",
     "Paste link" to "چسباندن لینک",

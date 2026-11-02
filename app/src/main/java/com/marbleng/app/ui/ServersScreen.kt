@@ -519,16 +519,7 @@ fun ServersScreen(
                                 label = trx("Reset Filters"),
                                 selected = false,
                                 onClick = {
-                                    searchQuery = ""
-                                    repo.selectLibrarySource("all")
-                                    repo.updateSettings(
-                                        settings.copy(
-                                            serversProtocolFilter = "",
-                                            serversOnlyReachable = false,
-                                            serversMaxPingMs = 0,
-                                            nodeSortReverse = false
-                                        )
-                                    )
+                                    resetServersFilters(repo, settings) { searchQuery = "" }
                                 }
                             )
                         }
@@ -653,16 +644,7 @@ fun ServersScreen(
                                     label = trx("Reset Filters"),
                                     style = MarbleButtonStyle.TINTED,
                                     onClick = {
-                                        searchQuery = ""
-                                        repo.selectLibrarySource("all")
-                                        repo.updateSettings(
-                                            settings.copy(
-                                                serversProtocolFilter = "",
-                                                serversOnlyReachable = false,
-                                                serversMaxPingMs = 0,
-                                                nodeSortReverse = false
-                                            )
-                                        )
+                                        resetServersFilters(repo, settings) { searchQuery = "" }
                                     },
                                     modifier = Modifier.fillMaxWidth()
                                 )
@@ -797,6 +779,7 @@ fun ServersScreen(
         ServersFilterSheet(
             repo = repo,
             protocolTallies = protocolTallies,
+            onClearSearch = { searchQuery = "" },
             onDismiss = { filterSheetOpen = false }
         )
     }
@@ -976,6 +959,29 @@ fun ServersScreen(
             )
         }
     }
+}
+
+/**
+ * MARBLE_ONE_RESET_V261 — one "Reset Filters", one scope.
+ *
+ * The page used to spell the reset three times: the chip strip cleared five settings *and* the
+ * source, the filtered-empty state cleared the same five, and the sheet cleared three of them and
+ * left the sort direction and the source alone. The label was the same in all three places, so a
+ * reader who learned it once was misled twice.
+ *
+ * The split is the model's ([ServersQuery.clearedFilters]): a *filter* hides a server, a *sort*
+ * reorders the list. This function adds the two pieces the model cannot reach — the page's search
+ * text and the repository's source selection — and nothing else. Every caller that shows a "Reset
+ * Filters" verb calls this, so the verb means exactly one thing everywhere.
+ */
+private fun resetServersFilters(
+    repo: AppRepository,
+    settings: com.marbleng.app.model.AppSettings,
+    clearSearch: () -> Unit
+) {
+    clearSearch()
+    repo.selectLibrarySource("all")
+    repo.updateSettings(ServersQuery.clearedFilters(settings))
 }
 
 /** One chip removed from the sticky strip, with everything else left alone. */
@@ -2233,13 +2239,17 @@ private fun PingSkeleton() {
 private fun ServersFilterSheet(
     repo: AppRepository,
     protocolTallies: List<com.marbleng.app.core.ProtocolTally>,
+    onClearSearch: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val settings = repo.settings
-    val narrowing = settings.serversProtocolFilter.isNotBlank() ||
-        settings.serversOnlyReachable ||
-        settings.serversMaxPingMs > ServersQuery.MAX_PING_OFF
+    // MARBLE_ONE_RESET_V261 — the same predicate the model uses, plus the source the repository
+    // owns, so the sheet offers its reset in exactly the states the page would.
+    val narrowing = ServersQuery.narrows(
+        settings = settings,
+        sourcesNarrow = repo.librarySourceFilter != "all"
+    )
 
     MarbleBottomSheet(
         title = trx("Sort & Filter"),
@@ -2253,15 +2263,7 @@ private fun ServersFilterSheet(
                 glyph = MarbleGlyph.CLOSE,
                 style = MarbleButtonStyle.TINTED,
                 compact = true,
-                onClick = {
-                    repo.updateSettings(
-                        settings.copy(
-                            serversProtocolFilter = "",
-                            serversOnlyReachable = false,
-                            serversMaxPingMs = ServersQuery.MAX_PING_OFF
-                        )
-                    )
-                },
+                onClick = { resetServersFilters(repo, settings) { onClearSearch() } },
                 modifier = Modifier.fillMaxWidth()
             )
         }

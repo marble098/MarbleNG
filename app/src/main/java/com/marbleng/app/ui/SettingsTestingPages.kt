@@ -421,7 +421,12 @@ fun SettingsIdentityLocationPage(
     ) {
         item(key = "identity-guard") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("Identity Guard"))
+                // MARBLE_ONE_RESET_V261 (the duplicate-control sweep) — the heading that named this
+                // card was the card's own first row, word for word: "Identity Guard" above
+                // "Identity Guard" above a switch. A section header earns its line by naming
+                // something the rows do not, so the header now says what the *group* is — the two
+                // switches under it — and the first row keeps the feature's name.
+                MarbleSectionHeader(title = trx("Across reconnects"))
                 MarbleCard {
                     MarbleSwitchRow(
                         title = trx("Identity Guard"),

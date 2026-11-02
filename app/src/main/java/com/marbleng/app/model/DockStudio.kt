@@ -25,8 +25,25 @@ package com.marbleng.app.model
 object DockStudio {
     const val MARKER: String = "MARBLE_LUMEN_DOCK_V256"
 
-    /** Air between the pill and the screen edge. The pill floats; it is never full-bleed. */
-    const val HORIZONTAL_MARGIN_DP: Int = 18
+    /**
+     * Air between the pill and the screen edge. The pill floats; it is never full-bleed.
+     *
+     * MARBLE_GLASS_DOCK_V261 — 18dp of air on a 360dp phone left a 324dp bar: a full-width strip
+     * with rounded ends, which is the shape the brief called *simple*. A bar that is deliberately
+     * narrower than the page reads as an object floating over it, so the margin is now 30dp and the
+     * four tabs on a 360dp phone get a 300dp capsule. The setting that owns the *vertical* air
+     * (`dockBottomGapDp`) is untouched: this is the horizontal inset only.
+     */
+    const val HORIZONTAL_MARGIN_DP: Int = 30
+
+    /**
+     * MARBLE_GLASS_DOCK_V261 — the capsule never grows past this, however wide the window is.
+     *
+     * A tablet would otherwise get a 780dp bar: the margin alone caps a phone correctly and says
+     * nothing useful on a 900dp foldable. The cap keeps the *object* the same object on every
+     * screen, which is what "much narrower" has to mean once the window is wider than a phone.
+     */
+    const val MAX_WIDTH_DP: Int = 520
 
     /** The rung the dock ships on. Larger than V256's 16dp: the capsule now visibly floats. */
     const val DEFAULT_BOTTOM_GAP_DP: Int = 22
@@ -169,27 +186,28 @@ object DockStudio {
     fun showsCaptionsAlways(size: DockSize): Boolean = size == DockSize.LARGE
 
     /**
-     * MARBLE_DOCK_RADII_V260 — the capsule's corner, and the reason it is no longer a stadium.
+     * MARBLE_DOCK_RADII_V260 / MARBLE_GLASS_DOCK_V261 — the capsule's corner, and the reason it is
+     * a stadium again.
      *
-     * The report was exact: *"the bar should be round, and its buttons should be round to the same
-     * degree as it"*. A stadium (`height / 2`) answers the first half and not the second, because a
-     * button inscribed in a stadium cannot share its curvature and still read as a button — half of
-     * its own height as radius makes it a circle, and a circle in a stadium is a different object,
-     * not a rounder one.
+     * V260's report was *"the bar should be round, and its buttons should be round to the same
+     * degree as it"*, and it answered with 44 % of the short side and an explicit refusal of a
+     * stadium. A second screenshot reversed that half of the judgement: the bar still read as a
+     * *rectangle with soft ends*, and the reference the brief named — a floating glass bar — is a
+     * capsule whose ends are two half-circles.
      *
-     * The dock is therefore a large-radius capsule whose radius is derived from the rung, and every
-     * object inside it reads [innerRadiusDp] — the same curve pulled in by the rim it sits behind.
+     * The rule is kept and its constant moves, rather than the rule being abandoned:
      *
      * ```
-     * capsule corner = round(height × 0.44)   →  25 / 30 / 36 dp at 56 / 68 / 82
-     * inner radius   = capsule corner − 6dp   →  19 / 24 / 30 dp
+     * capsule corner = round(height × 0.50)   →  28 / 34 / 41 dp at 56 / 68 / 82
+     * inner radius   = capsule corner − 6dp   →  22 / 28 / 35 dp
      * ```
      *
-     * The 0.44 is the Expressive ratio: a *very* rounded rectangle is 40-50 % of its short side, and
-     * a full 50 % is the stadium the reader asked to move away from. The 6dp pull keeps a nested
-     * object visually concentric with the surface that contains it — the rule Material uses for
-     * every inset container — so a selected tab's pill curves with the bar instead of cutting its
-     * rim at a different angle.
+     * The button inside a stadium does not have to be a circle any more, because V261 retired the
+     * tinted pill a selected tab used to wear: a slot paints no background at all, and what sits
+     * inside the bar at a 28dp radius is the *glass lens*, which is a window rather than an object
+     * with its own silhouette. The 6dp pull still keeps every nested curve concentric with the
+     * surface that contains it — the rule Material uses for every inset container — so the island
+     * capsule, the centre groove and the trigger all still curve with the bar.
      */
     fun cornerRadiusDp(size: DockSize): Float =
         kotlin.math.round(heightDp(size) * CORNER_RATIO).toFloat()
@@ -221,8 +239,19 @@ object DockStudio {
      */
     fun centerTriggerRadiusDp(size: DockSize): Float = innerRadiusDp(size)
 
-    /** The ratio: 44 % of the short side — very round, and never a stadium. */
-    const val CORNER_RATIO: Float = 0.44f
+    /**
+     * MARBLE_GLASS_DOCK_V261 — the bar is a *lens*, so its corner is the radius that still reads as
+     * a cap rather than as a rectangle with soft ends.
+     *
+     * V260 answered "make it round" with 44 % of the short side and explicitly refused a stadium. A
+     * second look at a screenshot reversed that half of the judgement: the reported shape was *too
+     * square*, and a floating glass capsule whose ends are two half-circles is the shape the brief
+     * points at (`KernelSU`'s liquid bar is a capsule; so is every iOS floating bar). The ratio is
+     * therefore 0.5 — a stadium — and everything inside it keeps reading
+     * [innerRadiusDp] one rim inside, so the corner rule is still *one* rule: a nested object is
+     * exactly [INNER_CORNER_INSET_DP] less round than the surface that contains it.
+     */
+    const val CORNER_RATIO: Float = 0.5f
 
     /**
      * Width of a tab while its word is showing: the resting circle plus the word's own room.
