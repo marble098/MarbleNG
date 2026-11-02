@@ -11,9 +11,10 @@ import org.junit.Test
  * every rule of the V256 pass, pinned on the host JVM.
  *
  * The point of this file is that nothing here needs a device: the dock's height ladder, the
- * clearance arithmetic that stopped the capsule clipping, the two-second caption hold, the
- * clipboard classifier behind the 2×2 grid and the six verbs of the row bubble are all pure Kotlin,
- * so a regression is a red test in ten seconds rather than a screenshot somebody has to notice.
+ * clearance arithmetic that stopped the capsule clipping, the centre tooltip's hold, the clipboard
+ * classifier behind the 2×2 grid and the six verbs of the row bubble are all pure Kotlin, so a
+ * regression is a red test in ten seconds rather than a screenshot somebody has to notice.
+ * MARBLE_QUIET_TABS_V263 retired the two-second caption hold; the ladder is pinned without it.
  */
 class DockStudioV256Test {
 
@@ -43,11 +44,14 @@ class DockStudioV256Test {
         assertEquals(20, DockStudio.iconSizeDp(DockSize.SMALL))
         assertEquals(24, DockStudio.iconSizeDp(DockSize.MEDIUM))
         assertEquals(28, DockStudio.iconSizeDp(DockSize.LARGE))
-        assertEquals(10, DockStudio.labelSp(DockSize.SMALL))
-        assertEquals(13, DockStudio.labelSp(DockSize.LARGE))
-        assertFalse(DockStudio.showsCaptionsAlways(DockSize.SMALL))
-        assertFalse(DockStudio.showsCaptionsAlways(DockSize.MEDIUM))
-        assertTrue(DockStudio.showsCaptionsAlways(DockSize.LARGE))
+        // MARBLE_QUIET_TABS_V263 — the rungs differ in size, not in words: no caption policy is
+        // left in the model, and the Settings hints no longer promise one.
+        assertEquals("Icons only, tightest capsule", DockStudio.ladderHint(DockSize.SMALL))
+        assertEquals("Bigger glyphs, a roomier capsule", DockStudio.ladderHint(DockSize.MEDIUM))
+        assertEquals("Largest glyphs, the widest capsule", DockStudio.ladderHint(DockSize.LARGE))
+        val studio = java.io.File("src/main/java/com/marbleng/app/model/DockStudio.kt").readText()
+        assertFalse("a caption policy came back", "EXPANDED_HOLD_MS" in studio)
+        assertFalse("a caption policy came back", "showsCaptionsAlways" in studio)
         DockSize.entries.forEach { size ->
             assertTrue(DockStudio.ladderHint(size).isNotBlank())
         }
@@ -132,20 +136,29 @@ class DockStudioV256Test {
     }
 
     @Test
-    fun anOpenCaptionIsWiderThanTheCircleItGrewFromAndIsCapped() {
-        val resting = DockStudio.restingTabSizeDp(DockSize.MEDIUM)
-        assertTrue(DockStudio.expandedTabWidthDp(DockSize.MEDIUM, 4) > resting)
-        // Fourteen characters is the cap: a longer word is elided by the label, not by the dock.
-        assertEquals(
-            DockStudio.expandedTabWidthDp(DockSize.MEDIUM, 14),
-            DockStudio.expandedTabWidthDp(DockSize.MEDIUM, 40)
-        )
+    fun everyRungStillDiffersInItsGlyphAndItsInnerAir() {
+        // MARBLE_QUIET_TABS_V263 — with the caption retired these are the three differences the
+        // ladder actually offers; all three must still grow with the rung.
+        val glyphs = DockSize.entries.map { DockStudio.iconSizeDp(it) }
+        val air = DockSize.entries.map { DockStudio.pillPaddingDp(it) }
+        val heights = DockSize.entries.map { DockStudio.heightDp(it) }
+        listOf(glyphs, air, heights).forEach { ladder ->
+            ladder.zipWithNext().forEach { (small, large) ->
+                assertTrue("$small -> $large must grow", large > small)
+            }
+        }
     }
 
     @Test
-    fun theTransientCaptionHoldsForTwoSeconds() {
-        assertEquals(2_000L, DockStudio.EXPANDED_HOLD_MS)
-        assertTrue(DockStudio.CENTER_TOOLTIP_HOLD_MS < DockStudio.EXPANDED_HOLD_MS)
+    fun theCentreTooltipIsTheOnlyTimedWordInTheDock() {
+        // V263 removed the tab caption and its two-second hold. The tooltip is a reading the
+        // reader asked for, so it stays; nothing else in the dock times a word.
+        assertEquals(1_400L, DockStudio.CENTER_TOOLTIP_HOLD_MS)
+        val dock = java.io.File("src/main/java/com/marbleng/app/ui/MarbleLumenDock.kt").readText()
+        val item = java.io.File("src/main/java/com/marbleng/app/ui/NavigationItemView.kt").readText()
+        assertFalse("a tab caption came back", "LaunchedEffect(selection)" in dock)
+        assertFalse("a tab caption came back", "AnimatedContent(" in item)
+        assertTrue("the label must stay readable to a screen reader", "contentDescription = tab.label" in item)
     }
 
     @Test
@@ -342,6 +355,5 @@ class DockStudioV256Test {
     @Test
     fun theCopiedCheckmarkIsClaimedForFifteenHundredMilliseconds() {
         assertEquals(1_500L, IpTileCopy.COPIED_HOLD_MS)
-        assertTrue(IpTileCopy.COPIED_HOLD_MS < DockStudio.EXPANDED_HOLD_MS)
     }
 }

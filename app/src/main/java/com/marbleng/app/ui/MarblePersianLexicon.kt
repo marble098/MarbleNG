@@ -2812,12 +2812,10 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Slim" to "باریک",
     "Grand" to "بزرگ",
     "Icons only, tightest capsule" to "فقط نشانه، تنگ‌ترین کپسول",
-    "Bigger glyphs, the selected word opens for a moment" to
-        "نشانه‌های بزرگ‌تر، واژهٔ انتخاب‌شده لحظه‌ای باز می‌شود",
-    "Largest glyphs, the selected word never closes" to
-        "بزرگ‌ترین نشانه‌ها، واژهٔ انتخاب‌شده هرگز بسته نمی‌شود",
-    "Slim keeps glyphs only, Classic opens the selected word for a moment, Grand keeps it open." to
-        "باریک فقط نشانه‌ها را نگه می‌دارد، کلاسیک واژهٔ انتخاب‌شده را لحظه‌ای باز می‌کند، بزرگ آن را باز نگه می‌دارد.",
+    "Bigger glyphs, a roomier capsule" to "نشانه‌های بزرگتر، کپسول جادارتر",
+    "Largest glyphs, the widest capsule" to "بزرگترین نشانه‌ها، پهنترین کپسول",
+    "Every size is icon-only; tapping a tab never opens its name beside the glyph." to
+        "همهٔ اندازه‌ها فقط نشانه دارند؛ زدن روی تب هیچوقت نامش را کنار نشانه باز نمی‌شود.",
     "Capsule size" to "اندازهٔ کپسول",
     "Distance from the bottom" to "فاصله از پایین",
     "distance from the bottom" to "فاصله از پایین",

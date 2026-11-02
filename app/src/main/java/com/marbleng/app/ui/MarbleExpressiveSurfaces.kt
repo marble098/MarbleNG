@@ -135,6 +135,23 @@ internal fun marbleExpressivePolygon(motif: MarbleExpressiveMotif): RoundedPolyg
 internal fun marbleExpressiveShape(motif: MarbleExpressiveMotif): Shape =
     marbleExpressivePolygon(motif).toShape()
 
+/**
+ * MARBLE_READABLE_SURFACES_V263 — the silhouette of a surface that has to be **read**.
+ *
+ * The official `MaterialShapes` polygons (Flower, Clover4Leaf, Arch, Fan …) are excellent as small
+ * badges and as watermarks, but their concave lobes cut into the corners of the rectangle they are
+ * scaled to. A card clipped to one of them clips the first and last characters of the sentences
+ * inside it: the IP stack tiles and the About core tiles both used
+ * `clip(marbleExpressiveShape(motif))` on a container holding text, so a long IPv6 address or a
+ * core tag lost its ends and the reader could not see the whole fact.
+ *
+ * One rule, applied everywhere: **a polygon is a badge, never a reading container.** Anything that
+ * holds a sentence uses this rounded rectangle at the theme's own card corner
+ * ([MarbleSpec.CARD_CORNER_DP]); the polygon stays on the small glyph badge and on the watermark,
+ * where it cannot touch a letter. Text inside a reading surface wraps instead of being elided.
+ */
+internal val MarbleReadingShape: Shape = RoundedCornerShape(MarbleSpec.CARD_CORNER_DP.dp)
+
 private fun Morph.scaledPath(progress: Float, targetSize: Size): Path {
     val path = toPath(progress = progress.coerceIn(0f, 1f))
     if (targetSize.width <= 0f || targetSize.height <= 0f) return path

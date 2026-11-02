@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.DockSize
@@ -17,8 +18,6 @@ import com.marbleng.app.model.DockStudio
 import com.marbleng.app.ui.theme.MarbleExpressiveTheme
 import com.marbleng.app.ui.theme.ProvideMarbleMotion
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -88,11 +87,32 @@ class FloatingDockV258Test {
     }
 
     @Test
-    fun theGrandRungIsTheOneThatKeepsItsCaption() {
-        // The third rung differs from the other two in behaviour, not only in height.
-        assertFalse(DockStudio.showsCaptionsAlways(DockSize.SMALL))
-        assertFalse(DockStudio.showsCaptionsAlways(DockSize.MEDIUM))
-        assertTrue(DockStudio.showsCaptionsAlways(DockSize.LARGE))
+    fun noRungKeepsACaption() {
+        // MARBLE_QUIET_TABS_V263 — the third rung differs from the other two in height, inner air
+        // and glyph size, never in words. Inflate it and prove no tab name is drawn.
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            ProvideMarbleLanguage("en") {
+                MarbleExpressiveTheme(dynamicColor = false) {
+                    ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
+                        Box(Modifier.width(360.dp)) {
+                            MarbleLumenDock(
+                                tabs = tabs(),
+                                selectedIndex = 0,
+                                onSelect = {},
+                                size = DockSize.LARGE
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        compose.mainClock.advanceTimeBy(3_200)
+        tabs().forEach { tab ->
+            compose.onNodeWithText(tab.label).assertDoesNotExist()
+        }
+        compose.onNodeWithTag("lumen-tab-HOME").assertExists()
     }
 
     @Test

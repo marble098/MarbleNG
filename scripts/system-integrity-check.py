@@ -5399,29 +5399,38 @@ check(
 
 check(
     "V258 the ladder is 56/68/82 and every rung fits the clearance the screens reserve",
-    "const val EXPANDED_HOLD_MS: Long = 2_000L" in v256_studio
+    # MARBLE_QUIET_TABS_V263 — the two-second hold and the rung that kept a caption are gone;
+    # what remains is the height/padding/glyph ladder and the clearance arithmetic built on it.
+    "MARBLE_QUIET_TABS_V263" in v256_studio
+    and "EXPANDED_HOLD_MS" not in v256_studio
+    and "showsCaptionsAlways" not in v256_studio
     # MARBLE_FLOATING_DOCK_V258 — eight dp between rungs was inside the noise of a screenshot, so
-    # the ladder was rebuilt with a glyph, a padding and a caption that grow with it.
+    # the ladder was rebuilt with a glyph and a padding that grow with it.
     and "DockSize.SMALL -> 56" in v256_studio
     and "DockSize.MEDIUM -> 68" in v256_studio
     and "DockSize.LARGE -> 82" in v256_studio
     and "DockSize.SMALL -> 20" in v256_studio
     and "DockSize.MEDIUM -> 24" in v256_studio
     and "DockSize.LARGE -> 28" in v256_studio
-    and "fun showsCaptionsAlways(size: DockSize): Boolean = size == DockSize.LARGE" in v256_studio
+    and 'DockSize.MEDIUM -> "Bigger glyphs, a roomier capsule"' in v256_studio
+    and 'DockSize.LARGE -> "Largest glyphs, the widest capsule"' in v256_studio
     and "fun clearanceDp(size: DockSize, gapDp: Int = DEFAULT_BOTTOM_GAP_DP): Int" in v256_studio
     and "fun fitsClearance(" in v256_studio
     and "fun ladderFits(" in v256_studio
     and "DampingRatioMediumBouncy" in v256_studio
     and "StiffnessMediumLow" in v256_studio
-    and "LaunchedEffect(selection)" in v256_dock
-    and "delay(DockStudio.EXPANDED_HOLD_MS)" in v256_dock
+    # MARBLE_QUIET_TABS_V263 — no timer, no transient state and no spring-animated slot weight:
+    # every slot is a fixed weight(1f), so a tap changes the page and nothing else.
+    and "LaunchedEffect(selection)" not in v256_dock
+    and "labelOpen" not in v256_dock
+    and "EXPANDED_HOLD_MS" not in v256_dock
+    and "Modifier.weight(1f)" in v256_dock
+    and "AnimatedContent(" not in v262_item
+    and "contentDescription = tab.label" in v262_item
     and "HapticFeedbackType.TextHandleMove" in v256_dock
-    # MARBLE_LIQUID_LENS_V262 — the caption's transition lives in the item view and the travel's
-    # spring lives in the model, so the rules are asserted where they moved: the caption still
-    # scales and fades, the dock still reads the brief's pair instead of a tween, and
+    # MARBLE_LIQUID_LENS_V262 — the travel's spring lives in the model, so the rules are asserted
+    # where they moved: the dock still reads the brief's pair instead of a tween, and
     # `LiquidLensV262Test` pins 0.75 / 400 against the framework's own constants below.
-    and "scaleIn(initialScale = 0.82f) + fadeIn()" in v262_item
     and "LiquidLens.SPRING_DAMPING_RATIO" in v256_dock
     and "LiquidLens.SPRING_STIFFNESS" in v256_dock
     and "Spring.StiffnessMediumLow" in v256_dock
@@ -5430,7 +5439,7 @@ check(
     and "class DockStudioV256Test" in v256_model_test
     and "fun everyRungFitsTheClearanceTheScreensActuallyReserve()" in v256_model_test
     and "fun theClearanceEveryPageReservesGrowsWithTheChosenGap()" in v256_model_test
-    and "fun theCaptionOpensWithTheSelectionAndClosesOnItsOwnTimer()" in v256_ui_test,
+    and "fun aTapNeverOpensATabCaptionAtAnyRung()" in v256_ui_test,
 )
 
 check(
@@ -5513,7 +5522,10 @@ check(
 check(
     "V256 the IP page prints a 32sp monospaced address and copies with a checkmark",
     "fontFamily = FontFamily.Monospace" in v256_ip
-    and "fontSize = 32.sp" in v256_ip
+    # MARBLE_READABLE_SURFACES_V263 — 32sp stays the headline for a short address; a long IPv6
+    # steps down and wraps, and the exit literal is never ellipsized again.
+    and "if (longAddress) 20.sp else 32.sp" in v256_ip
+    and "val longAddress = shown.length > 18" in v256_ip
     and "private fun IpIdentityFactsBadge(" in v256_ip
     and "private fun IpFactTile(" in v256_ip
     and "IpTileCopy.COPIED_HOLD_MS" in v256_ip
@@ -6064,10 +6076,14 @@ check(
     and "LiquidLens.STATUS_DOT_SCALE" in v262_item
     and "LiquidLens.STATUS_DOT_LIFT_DP" in v262_item
     and "translationY = -statusLiftPx * presence" in v262_item
-    # The caption is a transition and a removal, not an invisible node.
-    and "AnimatedContent(" in v262_item
-    and "scaleIn(initialScale = 0.82f) + fadeIn()" in v262_item
-    and "Box(modifier = Modifier.size(0.dp))" in v262_item
+    # MARBLE_QUIET_TABS_V263 — the caption was a transition and a removal; now it is not composed
+    # at all. The word lives on the slot's contentDescription, and the badge always prints its
+    # number instead of collapsing into a mute dot while the caption is closed.
+    and "AnimatedContent(" not in v262_item
+    and "scaleIn(initialScale = 0.82f) + fadeIn()" not in v262_item
+    and "Box(modifier = Modifier.size(0.dp))" not in v262_item
+    and "contentDescription = tab.label" in v262_item
+    and "MARBLE_QUIET_TABS_V263" in v262_item
     # The counter is anchored to the icon box, and it does not zoom with the glyph.
     and "DockBadge(" in v262_item
     and "Modifier.align(Alignment.TopEnd)" in v262_item
@@ -6082,7 +6098,8 @@ check(
     and 'badgeTag = "lumen-tab-count-${tab.key}"' in v262_dock
     and "center?.let { trigger ->" in v262_dock
     and "if (trailing != null) trailing()" in v262_dock
-    and "DockStudio.EXPANDED_HOLD_MS" in v262_dock
+    and "EXPANDED_HOLD_MS" not in v262_dock
+    and "Modifier.weight(1f)" in v262_dock
     and "HapticFeedbackType.TextHandleMove" in v262_dock
     and "lumen-glass-lens" in v262_bar,
 )
@@ -6099,6 +6116,85 @@ check(
     and "## ۸. تست" in v262_doc
     and "LIQUID_LENS_NAV_V262.md" in files["readme"]
     and "LIQUID_LENS_NAV_V262.md` is the newest chapter" in files["readme"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_QUIET_TABS_V263 / MARBLE_READABLE_SURFACES_V263 — two reader reports:
+# a tab's name must not unfold beside its glyph on a tap, and the small
+# Material 3 Expressive polygons must not cut the ends off the facts on IP
+# and About. The old chapters keep their own invariants (with the caption
+# claims inverted above); these pin the new rules and the new chapter.
+# ---------------------------------------------------------------------------
+v263_studio = read("app/src/main/java/com/marbleng/app/model/DockStudio.kt")
+v263_dock = read("app/src/main/java/com/marbleng/app/ui/MarbleLumenDock.kt")
+v263_item = read("app/src/main/java/com/marbleng/app/ui/NavigationItemView.kt")
+v263_surfaces = read("app/src/main/java/com/marbleng/app/ui/MarbleExpressiveSurfaces.kt")
+v263_ip = read("app/src/main/java/com/marbleng/app/ui/IpIdentityScreen.kt")
+v263_about = read("app/src/main/java/com/marbleng/app/ui/AboutScreen.kt")
+v263_settings = read("app/src/main/java/com/marbleng/app/ui/SettingsAppearancePages.kt")
+v263_doc = read("docs/QUIET_TABS_AND_READABLE_SURFACES_V263.md")
+v263_test = read("app/src/test/java/com/marbleng/app/ui/ReadableSurfacesV263Test.kt")
+v263_float_test = read("app/src/test/java/com/marbleng/app/ui/FloatingDockV258Test.kt")
+
+check(
+    "V263 a tap changes the page and never opens a tab name beside its glyph",
+    "MARBLE_QUIET_TABS_V263" in v263_studio
+    and "MARBLE_QUIET_TABS_V263" in v263_dock
+    and "MARBLE_QUIET_TABS_V263" in v263_item
+    # The whole mechanism is retired, not merely hidden behind a flag.
+    and "EXPANDED_HOLD_MS" not in v263_studio
+    and "showsCaptionsAlways" not in v263_studio
+    and "labelOpen" not in v263_dock
+    and "LaunchedEffect(selection)" not in v263_dock
+    and "animateFloatAsState(" not in v263_dock
+    and "Modifier.weight(1f)" in v263_dock
+    and "AnimatedContent(" not in v263_item
+    and "Modifier.size(0.dp)" not in v263_item
+    # The name is still spoken, and the notification count is still printed.
+    and "contentDescription = tab.label" in v263_item
+    and "faDigits(LiquidDockSpec.badgeLabel(count))" in v263_item
+    # Settings no longer promises a word that opens.
+    and "Classic opens the selected word for a moment" not in v263_settings
+    and "Every size is icon-only; tapping a tab never opens its name beside the glyph."
+    in v263_settings
+    and 'DockSize.MEDIUM -> "Bigger glyphs, a roomier capsule"' in v263_studio,
+)
+
+check(
+    "V263 an expressive polygon is a badge and a reading surface is a rounded rectangle",
+    "internal val MarbleReadingShape: Shape" in v263_surfaces
+    and "RoundedCornerShape(MarbleSpec.CARD_CORNER_DP.dp)" in v263_surfaces
+    and "a polygon is a badge, never a reading container" in v263_surfaces
+    and ".clip(MarbleReadingShape)" in v263_ip
+    and ".clip(MarbleReadingShape)" in v263_about
+    # The two container clips that cut characters off are gone; the badges survive.
+    and ".clip(marbleExpressiveShape(motif))\n            .background(colors.surfaceContainerLow)"
+    not in v263_ip
+    and ".clip(marbleExpressiveShape(core.motif))\n            .background(colors.surfaceContainerLow)"
+    not in v263_about
+    and ".clip(marbleExpressiveShape(motif))" in v263_ip
+    and ".clip(marbleExpressiveShape(core.motif))" in v263_about
+    # Facts are printed in full: no ellipsis on the headline, the stack tile or the core tag.
+    and "val longAddress = shown.length > 18" in v263_ip
+    and "if (longAddress) 20.sp else 32.sp" in v263_ip
+    and "maxLines = 3,\n            overflow = TextOverflow.Ellipsis" not in v263_ip
+    and "about-build-line" in v263_about
+    and "maxLines = 2,\n                    modifier = Modifier.testTag" not in v263_about,
+)
+
+check(
+    "V263 the chapter, the README and the regression test record the pass",
+    "MARBLE_QUIET_TABS_V263" in v263_doc
+    and "MARBLE_READABLE_SURFACES_V263" in v263_doc
+    and "## ۱. تب: یک ضربه یعنی یک صفحه، و بس" in v263_doc
+    and "## ۲. سطح خوانا: چندضلعی نشان است، نه قاب متن" in v263_doc
+    and "## ۴. تست و ناورداها" in v263_doc
+    and "QUIET_TABS_AND_READABLE_SURFACES_V263.md" in files["readme"]
+    and "class ReadableSurfacesV263Test" in v263_test
+    and "fun aTabIsOneSteadyGlyphAndItsNameIsAnAccessibleLabel()" in v263_test
+    and "fun aPolygonIsABadgeNeverAReadingContainer()" in v263_test
+    and "fun aTapNeverOpensATabCaptionAtAnyRung()" in v256_ui_test
+    and "fun noRungKeepsACaption()" in v263_float_test,
 )
 
 failed = [name for name, passed in checks if not passed]

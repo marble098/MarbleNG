@@ -2,7 +2,6 @@ package com.marbleng.app.ui
 
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
@@ -19,12 +18,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,7 +32,6 @@ import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.DockStudio
 import com.marbleng.app.model.LiquidLens
 import com.marbleng.app.ui.theme.marbleMotion
-import kotlinx.coroutines.delay
 
 /**
  * MARBLE_LUMEN_DOCK_V256 — the floating navigation dock, rebuilt against the four complaints a
@@ -62,13 +55,14 @@ import kotlinx.coroutines.delay
  * **2. It had one size.** The ladder is 56 / 68 / 82 dp ([DockStudio.heightDp]), and the padding,
  * the glyph and the lens are derived from the rung instead of restated per call site.
  *
- * **3. A selected tab kept its caption.** Selecting a tab opens it into a capsule carrying its word
- * for exactly [DockStudio.EXPANDED_HOLD_MS], then relaxes it back to the glyph. The hold is a
- * `LaunchedEffect(selectedIndex)` timer, so pressing the tab that is already selected does not
- * restart it and the dock never has to remember a "which one was transient" flag.
+ * **3. A selected tab opened its caption.** MARBLE_QUIET_TABS_V263 removed it: no transient word,
+ * no timer, no spring-animated slot weight and no permanent word on the largest rung. Every slot
+ * keeps a fixed `weight(1f)`, so a tap changes the page and the lens travels over a row whose
+ * geometry never moves. The tab's word is still read by a screen reader: [NavigationItemView] keeps
+ * it on the slot's `contentDescription` instead of drawing it.
  *
- * **4. The motion was a tween.** Every movement here is a spring — the weight of the opening tab,
- * the weight of the glyph, the travel of the glass. V258 shipped
+ * **4. The motion was a tween.** Every movement here is a spring — the magnification of the glyph,
+ * the tint of the ink, the travel of the glass. V258 shipped
  * `spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow)`; V262 moved the pair into
  * [LiquidLens.SPRING_DAMPING_RATIO] / [LiquidLens.SPRING_STIFFNESS] (0.75 / 400 — the brief's
  * number rather than the medium-bouncy token it names, which is 0.5; the reasoning lives on the
@@ -92,11 +86,11 @@ import kotlinx.coroutines.delay
  * |---|---|
  * | `LiquidLensNavigationBar.kt` | the pill: material, lift, measurement, the drag, the lens's placement |
  * | `GlassLensIndicator.kt` | the lens: blur, refraction, specular rim, the spring and its deformation |
- * | `NavigationItemView.kt` | one tab: magnification, ink, caption, counter, connection light |
+ * | `NavigationItemView.kt` | one tab: magnification, ink, counter, connection light |
  *
  * This file is still the adapter, and it is still deliberately thin. Everything the settings
- * promise holds — dock size, the chosen air under the capsule, labels, the fourth tab's own glyph
- * and accent, the connection light, the red counter, the three connection-widget styles, and the
+ * promise holds — dock size, the chosen air under the capsule, the icon-only tabs, the fourth tab's
+ * own glyph and accent, the connection light, the red counter, the three connection-widget styles, and the
  * five slots in their original order (Home, Servers, the centre action, IP, Settings) — and it is
  * translated into one [MarbleDockTab] per visible tab plus the two wing slots. No route, no state,
  * no view model and no badge count is touched by the material: the dock draws what it is given and
@@ -140,15 +134,6 @@ internal fun MarbleLumenDock(
     val selection = selectedIndex.coerceIn(0, tabs.lastIndex)
     val tabCount = tabs.size
     val haptics = LocalHapticFeedback.current
-
-    // The transient caption. Re-armed per *selection*, never per recomposition: tapping the tab
-    // that is already selected must not re-open a word the reader has just dismissed.
-    var labelOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(selection) {
-        labelOpen = true
-        delay(DockStudio.EXPANDED_HOLD_MS)
-        labelOpen = false
-    }
 
     // The brief's pair — 0.75 / StiffnessMediumLow — with calm motion and the platform's
     // remove-animations honoured on top: a still app does not spring, it arrives.
@@ -233,33 +218,22 @@ internal fun MarbleLumenDock(
                             ) { trigger() }
                         }
                     }
-                    // MARBLE_FLOATING_DOCK_V258 — the rung decides the caption. The biggest capsule
-                    // keeps its word; the other two open it for the transient hold.
-                    val opening = index == selection &&
-                        (labelOpen || DockStudio.showsCaptionsAlways(size))
-                    // The opening slot takes more of the row than its neighbours, and that ratio is
-                    // a spring-animated Float: a `weight` that moves *is* a capsule that grows, with
-                    // no second animation object to keep in step with it.
-                    val slotWeight by animateFloatAsState(
-                        targetValue = if (opening) 1.9f else 1f,
-                        animationSpec = floatSpec,
-                        label = "liquidLensTabSlot"
-                    )
+                    // MARBLE_QUIET_TABS_V263 — no slot ever changes its weight: the row is measured
+                    // once and the lens always sits over a tab whose geometry did not move on a tap.
                     key(tab.key) {
                         NavigationItemView(
                             tab = tab,
                             selected = index == selection,
-                            expanded = opening,
                             size = size,
                             spatialSpec = floatSpec,
                             colorSpec = colorSpec,
                             onClick = { onSelect(index) },
                             // The slot's own rectangle, measured rather than assumed: this is what
-                            // keeps the lens over the tab whose caption is opening.
+                            // keeps the lens over its tab through insets, wings and a centre trigger.
                             onPlaced = { bounds -> slotHost.reportSlot(index, bounds) },
                             testTag = "lumen-tab-${tab.key}",
                             badgeTag = "lumen-tab-count-${tab.key}",
-                            modifier = Modifier.weight(slotWeight)
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }

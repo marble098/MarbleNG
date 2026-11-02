@@ -13,11 +13,13 @@ package com.marbleng.app.model
  *     must never draw a capsule the last row of a list can hide under.
  *  2. **The bar had one height.** The setting offered Compact / Standard / Large of a fixed 68dp
  *     capsule. The ladder is now 56 / 68 / 82 dp of *capsule* (V258: V256's 48 / 56 / 64 was
- *     inside the noise of a screenshot), and padding, glyph, label rung and caption behaviour are
- *     derived from it instead of being constants that could drift apart.
- *  3. **A selected tab kept its caption forever.** The transparent label is now a **transient**:
- *     [EXPANDED_HOLD_MS] of icon + word, then the capsule relaxes back to the glyph, so four tabs
- *     fit on a small phone without a permanent second row of text.
+ *     inside the noise of a screenshot), and the padding and the glyph are derived from it instead
+ *     of being constants that could drift apart.
+ *  3. **A selected tab opened its word beside the glyph.** MARBLE_QUIET_TABS_V263 retired the
+ *     whole caption mechanism — timer, spring-animated slot weight and the largest rung's permanent
+ *     word — so a tap changes the page and nothing else. The dock is an icon bar at every rung;
+ *     each tab's name lives on its `contentDescription` for a screen reader. See
+ *     `docs/QUIET_TABS_AND_READABLE_SURFACES_V263.md`.
  *
  * Nothing here is Android: the numbers, the ladder and the style enum are the contract, and the
  * composable that draws them reads this file rather than repeating it.
@@ -68,9 +70,6 @@ object DockStudio {
     /** Air the dock keeps between its own top rim and the last row of a list. */
     const val CLEARANCE_BREATHING_DP: Int = 26
 
-    /** How long a newly selected tab shows its word before it relaxes back to its glyph. */
-    const val EXPANDED_HOLD_MS: Long = 2_000L
-
     // ── MARBLE_CENTER_MORPH_STUDIO_V259 ─────────────────────────────────────────────────────────
     //
     // The centre trigger used to be a circle of exactly `restingTabSizeDp` — the same circle as a
@@ -120,11 +119,9 @@ object DockStudio {
     fun centerGlyphDp(size: DockSize): Int = iconSizeDp(size) + 2
 
     /**
-     * How long the centre trigger's tooltip stays after a tap.
-     *
-     * Shorter than the tab caption on purpose: the caption confirms a navigation the reader has
-     * just made, while the tooltip is a reading they already knew they wanted. Long enough to read
-     * a latency, short enough that the card is never mistaken for part of the bar.
+     * How long the centre trigger's tooltip stays after a tap. It is a reading the reader asked
+     * for: long enough for a latency, short enough that the card is never mistaken for part of the
+     * bar. V263 removed the tab caption entirely, so this is the dock's only timed word.
      */
     const val CENTER_TOOLTIP_HOLD_MS: Long = 1_400L
 
@@ -170,20 +167,6 @@ object DockStudio {
         DockSize.MEDIUM -> 24
         DockSize.LARGE -> 28
     }
-
-    /** The word's rung: 10 / 11 / 13 sp, so a Grand capsule is not a Slim one with big glyphs. */
-    fun labelSp(size: DockSize): Int = when (size) {
-        DockSize.SMALL -> 10
-        DockSize.MEDIUM -> 11
-        DockSize.LARGE -> 13
-    }
-
-    /**
-     * The third difference between the rungs, and the one a screenshot cannot miss: on the biggest
-     * capsule the selected tab keeps its word drawn for as long as it is selected, the middle one
-     * opens it for [EXPANDED_HOLD_MS] and then relaxes, and the smallest stays a pure icon bar.
-     */
-    fun showsCaptionsAlways(size: DockSize): Boolean = size == DockSize.LARGE
 
     /**
      * MARBLE_DOCK_RADII_V260 / MARBLE_GLASS_DOCK_V261 — the capsule's corner, and the reason it is
@@ -253,21 +236,6 @@ object DockStudio {
      */
     const val CORNER_RATIO: Float = 0.5f
 
-    /**
-     * Width of a tab while its word is showing: the resting circle plus the word's own room.
-     * Derived from the height so a Grand dock's capsule is proportionally wider rather than
-     * a Slim capsule with a long word squeezed into it.
-     */
-    fun expandedTabWidthDp(size: DockSize, labelChars: Int): Int {
-        val base = restingTabSizeDp(size)
-        val perChar = when (size) {
-            DockSize.SMALL -> 7
-            DockSize.MEDIUM -> 8
-            DockSize.LARGE -> 9
-        }
-        return base + 20 + labelChars.coerceIn(1, 14) * perChar
-    }
-
     /** The user's chosen air under the capsule, clamped into the setting's own range. */
     fun bottomGapDp(gapDp: Int): Int = gapDp.coerceIn(MIN_BOTTOM_GAP_DP, MAX_BOTTOM_GAP_DP)
 
@@ -309,11 +277,15 @@ object DockStudio {
         DockSize.LARGE -> "Grand"
     }
 
-    /** One line per rung that says what is actually different, not only how tall it is. */
+    /**
+     * One line per rung that says what is actually different, not only how tall it is. V263: the
+     * old hints promised a word that opened on selection; all three rungs are icon-only now, so the
+     * hints describe the things that really change — height, inner air and glyph size.
+     */
     fun ladderHint(size: DockSize): String = when (size) {
         DockSize.SMALL -> "Icons only, tightest capsule"
-        DockSize.MEDIUM -> "Bigger glyphs, the selected word opens for a moment"
-        DockSize.LARGE -> "Largest glyphs, the selected word never closes"
+        DockSize.MEDIUM -> "Bigger glyphs, a roomier capsule"
+        DockSize.LARGE -> "Largest glyphs, the widest capsule"
     }
 
     fun ladderHeightLabel(size: DockSize): String = "${heightDp(size)} dp"
