@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -164,7 +165,9 @@ internal fun LiquidLensNavigationBar(
     // ── the hand ─────────────────────────────────────────────────────────────────────────────
     //
     // The state objects are read inside the gesture, not captured by value: a drag that started
-    // before the caption opened must still find the slot where it currently is.
+    // before a relayout must still find the slot where it currently is. One change per slot
+    // crossed, so a slow finger sweeping the bar walks the lens tab by tab — the same
+    // "the selection is the tab under the finger" behaviour as a swipe-driven pager.
     val dragModifier = Modifier.pointerInput(slotCount, onDragSelect != null) {
         // Null means "this bar is display-only" (a preview, a screenshot of the material): the
         // handler detaches rather than swallowing a drag the page behind it could have used.
@@ -288,6 +291,7 @@ internal fun LiquidLensNavigationBar(
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
+                        .clip(pillClip)
                         .selectableGroup()
                         .onPlaced { coordinates -> rowBounds.value = coordinates.boundsInRoot() }
                         .then(dragModifier),
