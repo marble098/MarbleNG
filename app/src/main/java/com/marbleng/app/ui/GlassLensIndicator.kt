@@ -41,7 +41,7 @@ import com.marbleng.app.model.LiquidLens
  * | layer | what it is | why it is drawn |
  * |---|---|---|
  * | backdrop | the capsule's **own material**, replayed at the lens's position and blurred at `RenderEffect.createBlurEffect(12f, 12f, CLAMP)` (through Compose's `Modifier.blur`) | a lens has to show the surface it is sitting on, not a flat tint: this is the "frosted" half of the material. API 31+ only; below it the glass falls back to a soft radial frost, because the alternative is a solid disc pretending to be clear |
- * | accent wash | the selected tab's colour at [LiquidLens.GLASS_ACCENT_ALPHA] | says *which* tab without tinting the glyph that will be drawn over it |
+ * | prism wash | selected-tab and secondary palette colours at [LiquidLens.GLASS_ACCENT_ALPHA] / [LiquidLens.GLASS_PRISM_ALPHA] | a vivid, refracted hue says *which* destination is active without obscuring its glyph |
  * | pane | white at [LiquidLens.GLASS_ALPHA_LIGHT] (0.55), or 0.22 on a dark page | the body of the glass; the row's ink is printed **over** this, never under it |
  * | caustic | radial, transparent at the axis, bright at the perimeter | light refracted through a curved rim lands on the rim |
  * | refraction band | a short vertical gradient at the top | the pane has a thickness, and light enters it there |
@@ -84,6 +84,7 @@ internal fun GlassLensIndicator(
     trackInsetPx: Float,
     verticalInsetPx: Float,
     accent: Color,
+    prism: Color,
     dark: Boolean,
     reduced: Boolean,
     /**
@@ -196,9 +197,24 @@ internal fun GlassLensIndicator(
                 )
             }
 
-            // Which tab this is, at a twelfth: a lens magnifies what it covers, it does not dye it.
+            // The selected route's colour is the lens's living identity, with a secondary hue
+            // refracted across it. The wash remains translucent enough that the icon stays crisp.
             drawCircle(
                 color = accent.copy(alpha = LiquidLens.GLASS_ACCENT_ALPHA),
+                radius = radius,
+                center = center
+            )
+            drawCircle(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.12f),
+                        accent.copy(alpha = LiquidLens.GLASS_PRISM_ALPHA),
+                        prism.copy(alpha = LiquidLens.GLASS_PRISM_ALPHA),
+                        Color.Transparent
+                    ),
+                    start = Offset(center.x - radius, center.y - radius),
+                    end = Offset(center.x + radius, center.y + radius)
+                ),
                 radius = radius,
                 center = center
             )
@@ -246,7 +262,9 @@ internal fun GlassLensIndicator(
                 brush = Brush.linearGradient(
                     colors = listOf(
                         Color.White.copy(alpha = LiquidLens.GLASS_RIM_START_ALPHA),
+                        accent.copy(alpha = 0.82f),
                         Color.White.copy(alpha = LiquidLens.GLASS_RIM_MID_ALPHA),
+                        prism.copy(alpha = 0.70f),
                         Color.White.copy(alpha = LiquidLens.GLASS_RIM_END_ALPHA)
                     ),
                     start = Offset(center.x - radius, center.y - radius),

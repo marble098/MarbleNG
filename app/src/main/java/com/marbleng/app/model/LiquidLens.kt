@@ -116,8 +116,11 @@ object LiquidLens {
     const val GLASS_FROST_X_RATIO: Float = 0.2f
     const val GLASS_FROST_Y_RATIO: Float = 0.25f
 
-    /** The chosen tab's own colour inside the pane. Enough to say *which* tab, never enough to tint it. */
-    const val GLASS_ACCENT_ALPHA: Float = 0.12f
+    /** The selected route's colour through the pane, vivid enough to read as an active destination. */
+    const val GLASS_ACCENT_ALPHA: Float = 0.22f
+
+    /** A second palette hue in the refracted wash, for a subtle prismatic rather than flat tint. */
+    const val GLASS_PRISM_ALPHA: Float = 0.14f
 
     /**
      * The lens is a capsule/oval, never a square: the corner is half the diameter, i.e. a circle,

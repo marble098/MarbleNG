@@ -8,6 +8,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.ui.theme.MarbleExpressiveTheme
@@ -129,6 +131,31 @@ class LiquidLensDockV262UiTest {
 
         compose.onNodeWithTag("lumen-tab-IP").performClick()
         assertEquals(2, picked)
+    }
+
+    @Test
+    fun draggingAcrossTheBarSelectsTheTabUnderTheFinger() {
+        var picked = -1
+        compose.setContent {
+            ProvideMarbleLanguage("en") {
+                MarbleExpressiveTheme(dynamicColor = false) {
+                    ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
+                        Box(Modifier.width(360.dp)) {
+                            MarbleLumenDock(
+                                tabs = tabs(),
+                                selectedIndex = 0,
+                                onSelect = { picked = it },
+                                size = DockSize.MEDIUM
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Swipe from the middle toward the final slot: selection follows the finger, not just taps.
+        compose.onNodeWithTag("liquid-lens-bar").performTouchInput { swipeRight() }
+        assertEquals(tabs().lastIndex, picked)
     }
 
     @Test

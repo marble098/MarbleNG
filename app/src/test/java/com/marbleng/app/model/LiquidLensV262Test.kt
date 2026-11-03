@@ -250,5 +250,6 @@ class LiquidLensV262Test {
         // The accent wash inside the pane is a hint, never a fill: the glyph is printed over it.
         assertTrue(LiquidLens.GLASS_ACCENT_ALPHA > 0f)
         assertTrue(LiquidLens.GLASS_ACCENT_ALPHA < LiquidLens.GLASS_ALPHA_LIGHT)
+        assertTrue("the secondary prism stays translucent", LiquidLens.GLASS_PRISM_ALPHA in 0f..0.2f)
     }
 }
