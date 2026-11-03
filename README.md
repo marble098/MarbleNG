@@ -73,7 +73,18 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-**V264 is the newest chapter: `docs/STEADY_CONNECT_AND_PRISM_MARK_V264.md`.** It fixes the two reports
+**V265 is the newest chapter: `docs/LUMEN_DOCK_V265.md`.** It answers the two reports about the tab
+bar itself — "the Material 3 ripple does not follow the shape lines" and "the bottom bar must be
+draggable: a finger should be able to sweep across it" — by clipping every press target to its own
+outline *before* its interaction is added (the row to the capsule's exact `PillOutlineShape`, each
+tab slot to `innerRadiusDp` before `selectable`, both wings before their click handlers — the same
+rule the Lumen Android reference's `DockTab` draws with `.clip(...)` before `.selectable(...)` in
+`krambovic/Lumen`, release `android-v1.5.0`), and by holding the lens under the finger for the whole
+drag (`heldLensLeftPx` through the one `LiquidLens.lensLeftPx` clamp) so a swipe pushes the glass
+itself and seats it with a spring on release. `LumenDockV265UiTest` pins both promises for all three
+connection-widget styles (dock island, centre morph, hero card) in all three connection-button
+states (disconnected, connecting, connected).
+`docs/STEADY_CONNECT_AND_PRISM_MARK_V264.md` is the chapter before it. It fixes the two reports
 about the centre connect button — "the tabs move after connecting" and "the text beside it opens,
 and it must not" — by giving the centre trigger one fixed footprint, reserving that width in the
 dock, drawing its halo inside the same square, and retiring the bloom, the state word and the timed

@@ -182,6 +182,11 @@ internal fun MarbleConnectionIslandCapsule(
             .height(height.dp)
             // Fixed, not content-driven: the readout cannot resize the dock's weighted row.
             .width(DockStudio.islandWidthDp(size).dp)
+            // MARBLE_LUMEN_DOCK_V265 — the clip sits *before* the interaction on purpose: the
+            // Material 3 ripple this capsule raises on press is confined to the island's own
+            // outline, so the press feedback follows the shape's lines instead of crossing them
+            // (the same rule the Lumen reference tab bar draws with `.clip(...)` before
+            // `.selectable(...)` in its DockTab).
             .clip(islandShape)
             .background(container)
             .clickable(role = Role.Button) {
@@ -313,6 +318,9 @@ internal fun MarbleDockPowerButton(
                 stateDescription = spokenState
             }
             .testTag("dock-power"),
+        // MARBLE_LUMEN_DOCK_V265 — the shape is what confines this button's own Material 3
+        // ripple: FilledIconButton draws its press feedback clipped to `shape`, so it follows the
+        // button's curve (the same inner corner rule as the island and the groove) in every phase.
         shape = RoundedCornerShape(DockStudio.innerRadiusDp(size).dp),
         colors = IconButtonDefaults.filledIconButtonColors(
             containerColor = container,
@@ -481,6 +489,9 @@ internal fun MarbleCenterSpringTrigger(
             modifier = Modifier
                 .width(grooveWidth)
                 .height(grooveHeight)
+                // MARBLE_LUMEN_DOCK_V265 — the clip sits *before* the interaction on purpose:
+                // the ripple a press raises on the groove is confined to the groove's own
+                // outline, so it follows the shape's lines in every connection phase.
                 .clip(grooveShape)
                 .background(grooveTone)
                 .border(
