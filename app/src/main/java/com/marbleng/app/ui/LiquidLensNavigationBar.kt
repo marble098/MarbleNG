@@ -1,5 +1,6 @@
 package com.marbleng.app.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -128,6 +130,10 @@ internal fun LiquidLensNavigationBar(
     // exactly the row the tabs live in. `LiquidLens.lensDiameterDp` is the single place that
     // decides it, so the 56 / 68 / 82 dp ladder produces 44 / 52 / 60 dp lenses rather than three
     // hand-tuned radii.
+    val lensAccent by animateColorAsState(
+        targetValue = accent,
+        label = "liquidLensAccent"
+    )
     val barHeightDp = height.value
     val insetDp = trackInset.value
     val diameterDp = LiquidLens.lensDiameterDp(barHeightDp.roundToInt(), insetDp.roundToInt())
@@ -251,7 +257,8 @@ internal fun LiquidLensNavigationBar(
                         diameter = diameterDp.dp,
                         trackInsetPx = trackInsetPx,
                         verticalInsetPx = verticalInsetPx,
-                        accent = accent,
+                        accent = lensAccent,
+                        prism = second,
                         dark = dark,
                         reduced = reduced,
                         backdrop = { travelPx ->
@@ -359,9 +366,9 @@ internal fun DrawScope.drawCapsuleMaterial(
             drawRect(
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        highlight.copy(alpha = 0.13f),
+                        highlight.copy(alpha = 0.22f),
                         Color.Transparent,
-                        second.copy(alpha = 0.09f)
+                        second.copy(alpha = 0.18f)
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(width, height)

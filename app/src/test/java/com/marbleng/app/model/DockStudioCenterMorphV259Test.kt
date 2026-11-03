@@ -113,7 +113,7 @@ class DockStudioCenterMorphV259Test {
     fun aFirstRunIsTheCalmLayoutAndNotTheFullOne() {
         val calm = HomeQuiet.CALM_SECTIONS
         assertEquals(
-            listOf(HomeSection.HEADER, HomeSection.CONNECT, HomeSection.STATS),
+            listOf(HomeSection.CONNECT, HomeSection.STATS),
             calm
         )
         // The calm layout is a real subset: quieter than the shipped one, and not empty.
@@ -121,17 +121,24 @@ class DockStudioCenterMorphV259Test {
         assertTrue("a first run must not be bare", HomeStudio.isBare(HomeQuiet.calmOrder(), HomeQuiet.CALM_HIDDEN).not())
         assertTrue(calm.size < HomeSection.entries.size)
         assertEquals(calm, HomeStudio.visible(HomeLayout().sectionOrder, HomeLayout().hiddenSections))
+        assertEquals(
+            calm,
+            HomeStudio.visible(HomeLayout.of(null, null).sectionOrder, HomeLayout.of(null, null).hiddenSections)
+        )
         // An explicitly saved old layout is never replaced by the new first-run default.
         assertEquals(
             listOf(HomeSection.HEADER, HomeSection.CONNECT, HomeSection.ROUTE),
             HomeStudio.visible("header,connect,route", "presets,stats,shortcuts")
         )
-        // The three essentials are the page, the decision and live speed.
-        assertTrue(HomeSection.HEADER in calm)
-        assertTrue(HomeSection.CONNECT in calm)
-        assertTrue(HomeSection.STATS in calm)
-        // The optional sections start off.
-        listOf(HomeSection.PRESETS, HomeSection.ROUTE, HomeSection.SHORTCUTS).forEach { section ->
+        // Only the two requested essentials are active by default.
+        assertEquals(setOf(HomeSection.CONNECT, HomeSection.STATS), calm.toSet())
+        // The heading and every other section start off.
+        listOf(
+            HomeSection.HEADER,
+            HomeSection.PRESETS,
+            HomeSection.ROUTE,
+            HomeSection.SHORTCUTS
+        ).forEach { section ->
             assertTrue(
                 "$section should start hidden",
                 HomeStudio.isHidden(section, HomeQuiet.CALM_HIDDEN)
@@ -253,7 +260,7 @@ class DockStudioCenterMorphV259Test {
 
     @Test
     fun theCountsTheCardsPrintAreTheSectionsThePageDraws() {
-        assertEquals(3, HomeQuiet.shownCount(HomeQuiet.calmOrder(), HomeQuiet.CALM_HIDDEN))
+        assertEquals(2, HomeQuiet.shownCount(HomeQuiet.calmOrder(), HomeQuiet.CALM_HIDDEN))
         assertEquals(
             HomeSection.entries.size,
             HomeQuiet.shownCount(HomeQuiet.everythingOrder(), HomeQuiet.nothingHidden())
@@ -281,7 +288,7 @@ class DockStudioCenterMorphV259Test {
             "Only what you need is here. Add the rest whenever you want it.",
             // MARBLE_HOME_DECLUTTER_V260 — the quiet card's two verbs ("Show everything" and the
             // section picker) left with the card itself, so they are no longer keys to translate.
-            "Home starts quiet: the heading, the connect control and the route it will use.",
+            "Home starts focused: only Connect Control and Network Speed & Session Data are shown.",
             "The order is designed, not dragged: the heading, the decision, the modes, " +
                 "the route, the live speed and the shortcuts.",
             "Protected uptime",

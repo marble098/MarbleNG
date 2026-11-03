@@ -11,8 +11,8 @@ package com.marbleng.app.model
  *
  * The rule this file encodes has two halves, and the second half is the one that makes it safe:
  *
- *  1. **A first run is quiet.** [CALM_SECTIONS] is what Home draws before anybody has said
- *     otherwise: the heading, the connect stage, and the live speed graph. Nothing else.
+ *  1. **A first run is focused.** [CALM_SECTIONS] is what Home draws before anybody has said
+ *     otherwise: only the Connect Control and live network-speed/session-data section. Nothing else.
  *     Presets, the route card and the quick actions are one tap away in Settings → Home layout, and
  *     existing saved layouts continue to be respected.
  *  2. **An install that has ever saved its settings is not touched.** The store reads
@@ -27,9 +27,8 @@ object HomeQuiet {
 
     const val MARKER: String = "MARBLE_HOME_QUIET_V259"
 
-    /** Heading plus the two default cards: connection and live network speed. */
+    /** Exactly the two default essentials: connection control and live network/session data. */
     val CALM_SECTIONS: List<HomeSection> = listOf(
-        HomeSection.HEADER,
         HomeSection.CONNECT,
         HomeSection.STATS
     )

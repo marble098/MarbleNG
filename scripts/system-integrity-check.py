@@ -5706,11 +5706,11 @@ check(
 )
 
 check(
-    "V259 a first run is the quiet Home, and the sections a reader adds are switches",
-    # The quiet default is three sections, and it reaches only a preference that has never been
-    # written: every save writes both keys.
+    "V259 a first run shows the two focused Home sections and keeps all sections switchable",
+    # A fresh install starts with exactly the connect control and live network/session data;
+    # the heading and optional sections are hidden. Saved layouts remain preference-backed.
     "val CALM_SECTIONS: List<HomeSection> = listOf(" in v259_quiet
-    and "HomeSection.HEADER," in v259_quiet
+    and "HomeSection.HEADER," not in v259_quiet
     and "HomeSection.CONNECT," in v259_quiet
     and "HomeSection.STATS" in v259_quiet
     and "fun calmOrder(): String = HomeStudio.serialize(CALM_SECTIONS)" in v259_quiet
@@ -5731,6 +5731,8 @@ check(
     # The studio is back, one named switch per section, over a live preview of the order.
     and 'item(key = "home-section-switches")' in v259_appearance
     and "HomeQuiet.toggle(" in v259_appearance
+    and "Every section, including the optional heading, stays user-switchable." in v259_appearance
+    and ".clickable(role = Role.Switch)" in v259_appearance
     and "MarbleHomeSectionPreview(" in v259_appearance
     and 'testTag("home-section-switch-${section.id}")' in v259_appearance
     # The one designed surface both stages share.

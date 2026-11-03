@@ -828,7 +828,7 @@ fun SettingsHomeLayoutPage(
         //
         // V258 removed the studio because a list of six rows whose only feedback was a page
         // rebuilding behind an animation was a worse Home than a designed one. The right answer is
-        // neither extreme: Home *ships* quiet (heading, the one decision, its route), and this page
+        // neither extreme: Home *ships* focused (only the connect control and live network data), and this page
         // is where the rest is added, one named block at a time, with a live preview of the result
         // directly under the title. Three differences from the retired studio:
         //
@@ -860,7 +860,7 @@ fun SettingsHomeLayoutPage(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                     )
                     MarbleSectionFooter(
-                        text = trx("Home starts quiet: the heading, the connect control and the route it will use."),
+                        text = trx("Home starts focused: only Connect Control and Network Speed & Session Data are shown."),
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
                     HomeSection.entries.forEach { section ->
@@ -870,32 +870,28 @@ fun SettingsHomeLayoutPage(
                             legacyStatsVisible = s.modularShowStats,
                             legacyShortcutsVisible = s.modularShowShortcuts
                         )
-                        // The heading is the page's name; hiding it would leave a feed with no title,
-                        // so it is the one row that is always on and says why.
-                        val locked = section == HomeSection.HEADER
+                        // Every section, including the optional heading, stays user-switchable.
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable(enabled = !locked, role = Role.Switch) {
-                                    if (!locked) {
-                                        val toggle = HomeQuiet.toggle(
-                                            orderRaw = layout.sectionOrder,
-                                            hiddenRaw = layout.hiddenSections,
-                                            section = section,
-                                            legacyStatsVisible = s.modularShowStats,
-                                            legacyShortcutsVisible = s.modularShowShortcuts
-                                        )
-                                        repo.updateSettings(
-                                            s.copy(
-                                                modularShowStats = toggle.legacyStatsVisible,
-                                                modularShowShortcuts = toggle.legacyShortcutsVisible,
-                                                homeLayout = layout.copy(
-                                                    sectionOrder = toggle.order,
-                                                    hiddenSections = toggle.hidden
-                                                )
+                                .clickable(role = Role.Switch) {
+                                    val toggle = HomeQuiet.toggle(
+                                        orderRaw = layout.sectionOrder,
+                                        hiddenRaw = layout.hiddenSections,
+                                        section = section,
+                                        legacyStatsVisible = s.modularShowStats,
+                                        legacyShortcutsVisible = s.modularShowShortcuts
+                                    )
+                                    repo.updateSettings(
+                                        s.copy(
+                                            modularShowStats = toggle.legacyStatsVisible,
+                                            modularShowShortcuts = toggle.legacyShortcutsVisible,
+                                            homeLayout = layout.copy(
+                                                sectionOrder = toggle.order,
+                                                hiddenSections = toggle.hidden
                                             )
                                         )
-                                    }
+                                    )
                                 }
                                 .padding(horizontal = 16.dp, vertical = 12.dp)
                                 .testTag("home-section-${section.id}"),
@@ -944,29 +940,26 @@ fun SettingsHomeLayoutPage(
                             Switch(
                                 checked = visible,
                                 onCheckedChange = { on ->
-                                    if (!locked) {
-                                        val toggle = HomeQuiet.toggle(
-                                            orderRaw = layout.sectionOrder,
-                                            hiddenRaw = layout.hiddenSections,
-                                            section = section,
-                                            legacyStatsVisible = s.modularShowStats,
-                                            legacyShortcutsVisible = s.modularShowShortcuts
-                                        )
-                                        if (toggle.nowVisible != on) {
-                                            repo.updateSettings(
-                                                s.copy(
-                                                    modularShowStats = toggle.legacyStatsVisible,
-                                                    modularShowShortcuts = toggle.legacyShortcutsVisible,
-                                                    homeLayout = layout.copy(
-                                                        sectionOrder = toggle.order,
-                                                        hiddenSections = toggle.hidden
-                                                    )
+                                    val toggle = HomeQuiet.toggle(
+                                        orderRaw = layout.sectionOrder,
+                                        hiddenRaw = layout.hiddenSections,
+                                        section = section,
+                                        legacyStatsVisible = s.modularShowStats,
+                                        legacyShortcutsVisible = s.modularShowShortcuts
+                                    )
+                                    if (toggle.nowVisible != on) {
+                                        repo.updateSettings(
+                                            s.copy(
+                                                modularShowStats = toggle.legacyStatsVisible,
+                                                modularShowShortcuts = toggle.legacyShortcutsVisible,
+                                                homeLayout = layout.copy(
+                                                    sectionOrder = toggle.order,
+                                                    hiddenSections = toggle.hidden
                                                 )
                                             )
-                                        }
+                                        )
                                     }
                                 },
-                                enabled = !locked,
                                 modifier = Modifier.testTag("home-section-switch-${section.id}")
                             )
                         }

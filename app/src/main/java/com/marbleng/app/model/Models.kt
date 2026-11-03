@@ -1187,8 +1187,8 @@ data class HomeLayout(
             showIpBox: Boolean = true,
             connectionStyle: String? = null
         ): HomeLayout = HomeLayout(
-            sectionOrder = HomeStudio.canonicalOrder(sectionOrder ?: HomeStudio.DEFAULT_ORDER),
-            hiddenSections = HomeStudio.canonicalHidden(hiddenSections ?: HomeStudio.DEFAULT_HIDDEN),
+            sectionOrder = HomeStudio.canonicalOrder(sectionOrder ?: HomeQuiet.calmOrder()),
+            hiddenSections = HomeStudio.canonicalHidden(hiddenSections ?: HomeQuiet.CALM_HIDDEN),
             showRouteCard = showRouteCard,
             showPresets = showPresets,
             showSpeedGraph = showSpeedGraph,

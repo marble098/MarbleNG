@@ -638,6 +638,14 @@ private fun MarbleNavigationRail(
         primary = colors.primary,
         custom = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
     )
+    // Each destination gets a distinct live palette role: the lens is colorful and the routes are
+    // easier to scan than four identical blue marks.
+    fun accentFor(tab: MarbleRootTab): Color = when (tab) {
+        MarbleRootTab.HOME -> colors.primary
+        MarbleRootTab.SERVERS -> colors.tertiary
+        MarbleRootTab.IP -> slotColor
+        MarbleRootTab.SETTINGS -> colors.secondary
+    }
     val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
         when (repo.state) {
             "CONNECTED" -> colors.success
@@ -656,7 +664,7 @@ private fun MarbleNavigationRail(
     ) {
         tabs.forEach { tab ->
             val isSelected = tab == selected
-            val accent = if (tab == MarbleRootTab.IP) slotColor else colors.primary
+            val accent = accentFor(tab)
             val glyph = when (tab) {
                 MarbleRootTab.HOME -> MarbleGlyph.HOME
                 MarbleRootTab.SERVERS -> MarbleGlyph.SERVER
@@ -750,6 +758,13 @@ private fun MarbleBottomTabBar(
         primary = colors.primary,
         custom = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
     )
+    // Keep the same per-destination colors in the bottom dock as in the wide navigation rail.
+    fun accentFor(tab: MarbleRootTab): Color = when (tab) {
+        MarbleRootTab.HOME -> colors.primary
+        MarbleRootTab.SERVERS -> colors.tertiary
+        MarbleRootTab.IP -> slotColor
+        MarbleRootTab.SETTINGS -> colors.secondary
+    }
     val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
         when (repo.state) {
             "CONNECTED" -> colors.success
@@ -788,7 +803,7 @@ private fun MarbleBottomTabBar(
                 MarbleRootTab.IP -> ipGlyph
                 MarbleRootTab.SETTINGS -> MarbleGlyph.TUNERS
             },
-            accent = if (tab == MarbleRootTab.IP) slotColor else colors.primary,
+            accent = accentFor(tab),
             badgeCount = if (tab == MarbleRootTab.SETTINGS) notices else 0,
             statusDot = if (tab == MarbleRootTab.IP) statusDotColor else null
         )
