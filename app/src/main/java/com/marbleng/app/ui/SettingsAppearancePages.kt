@@ -870,32 +870,28 @@ fun SettingsHomeLayoutPage(
                             legacyStatsVisible = s.modularShowStats,
                             legacyShortcutsVisible = s.modularShowShortcuts
                         )
-                        // The first-run layout may intentionally omit the page heading: all six
-                        // sections remain user-switchable from this studio.
-                        val locked = false
+                        // Every section, including the optional heading, stays user-switchable.
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable(enabled = !locked, role = Role.Switch) {
-                                    if (!locked) {
-                                        val toggle = HomeQuiet.toggle(
-                                            orderRaw = layout.sectionOrder,
-                                            hiddenRaw = layout.hiddenSections,
-                                            section = section,
-                                            legacyStatsVisible = s.modularShowStats,
-                                            legacyShortcutsVisible = s.modularShowShortcuts
-                                        )
-                                        repo.updateSettings(
-                                            s.copy(
-                                                modularShowStats = toggle.legacyStatsVisible,
-                                                modularShowShortcuts = toggle.legacyShortcutsVisible,
-                                                homeLayout = layout.copy(
-                                                    sectionOrder = toggle.order,
-                                                    hiddenSections = toggle.hidden
-                                                )
+                                .clickable(role = Role.Switch) {
+                                    val toggle = HomeQuiet.toggle(
+                                        orderRaw = layout.sectionOrder,
+                                        hiddenRaw = layout.hiddenSections,
+                                        section = section,
+                                        legacyStatsVisible = s.modularShowStats,
+                                        legacyShortcutsVisible = s.modularShowShortcuts
+                                    )
+                                    repo.updateSettings(
+                                        s.copy(
+                                            modularShowStats = toggle.legacyStatsVisible,
+                                            modularShowShortcuts = toggle.legacyShortcutsVisible,
+                                            homeLayout = layout.copy(
+                                                sectionOrder = toggle.order,
+                                                hiddenSections = toggle.hidden
                                             )
                                         )
-                                    }
+                                    )
                                 }
                                 .padding(horizontal = 16.dp, vertical = 12.dp)
                                 .testTag("home-section-${section.id}"),
@@ -944,29 +940,26 @@ fun SettingsHomeLayoutPage(
                             Switch(
                                 checked = visible,
                                 onCheckedChange = { on ->
-                                    if (!locked) {
-                                        val toggle = HomeQuiet.toggle(
-                                            orderRaw = layout.sectionOrder,
-                                            hiddenRaw = layout.hiddenSections,
-                                            section = section,
-                                            legacyStatsVisible = s.modularShowStats,
-                                            legacyShortcutsVisible = s.modularShowShortcuts
-                                        )
-                                        if (toggle.nowVisible != on) {
-                                            repo.updateSettings(
-                                                s.copy(
-                                                    modularShowStats = toggle.legacyStatsVisible,
-                                                    modularShowShortcuts = toggle.legacyShortcutsVisible,
-                                                    homeLayout = layout.copy(
-                                                        sectionOrder = toggle.order,
-                                                        hiddenSections = toggle.hidden
-                                                    )
+                                    val toggle = HomeQuiet.toggle(
+                                        orderRaw = layout.sectionOrder,
+                                        hiddenRaw = layout.hiddenSections,
+                                        section = section,
+                                        legacyStatsVisible = s.modularShowStats,
+                                        legacyShortcutsVisible = s.modularShowShortcuts
+                                    )
+                                    if (toggle.nowVisible != on) {
+                                        repo.updateSettings(
+                                            s.copy(
+                                                modularShowStats = toggle.legacyStatsVisible,
+                                                modularShowShortcuts = toggle.legacyShortcutsVisible,
+                                                homeLayout = layout.copy(
+                                                    sectionOrder = toggle.order,
+                                                    hiddenSections = toggle.hidden
                                                 )
                                             )
-                                        }
+                                        )
                                     }
                                 },
-                                enabled = !locked,
                                 modifier = Modifier.testTag("home-section-switch-${section.id}")
                             )
                         }
