@@ -160,50 +160,60 @@ class LiquidLensDockV262UiTest {
         assertEquals(tabs().lastIndex, picked)
     }
 
+    // DOCK_ISLAND (both wings), CENTER_MORPH (centre trigger) and HERO_CARD (no wing): the drag
+    // reads the measured slot rectangles, so it must keep selecting the tab under the finger
+    // whatever shares the row with the tabs. One test per style — setContent runs once per test.
     @Test
-    fun swipeAcrossTheBarWorksInAllThreeConnectWidgetStyles() {
-        // DOCK_ISLAND (both wings), CENTER_MORPH (centre trigger) and HERO_CARD (no wing): the
-        // drag reads the measured slot rectangles, so it must keep selecting the tab under the
-        // finger whatever shares the row with the tabs.
-        listOf("island", "center", "hero").forEach { style ->
-            var picked = -1
-            compose.setContent {
-                ProvideMarbleLanguage("en") {
-                    MarbleExpressiveTheme(dynamicColor = false) {
-                        ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
-                            Box(Modifier.width(360.dp)) {
-                                MarbleLumenDock(
-                                    tabs = tabs(),
-                                    selectedIndex = 0,
-                                    onSelect = { picked = it },
-                                    size = DockSize.MEDIUM,
-                                    centerProud = style == "center",
-                                    leading = if (style == "island") {
-                                        { Box(Modifier.width(48.dp)) }
-                                    } else null,
-                                    center = if (style == "center") {
-                                        {
-                                            MarbleCenterSpringTrigger(
-                                                state = DockConnectionState(connected = false),
-                                                size = DockSize.MEDIUM,
-                                                onToggle = {},
-                                                onPing = {}
-                                            )
-                                        }
-                                    } else null,
-                                    trailing = if (style == "island") {
-                                        { Box(Modifier.width(48.dp)) }
-                                    } else null
-                                )
-                            }
+    fun swipeAcrossTheIslandStyleBarSelectsTheLastTab() = swipeAcrossBar(
+        leading = { Box(Modifier.width(48.dp)) },
+        trailing = { Box(Modifier.width(48.dp)) }
+    )
+
+    @Test
+    fun swipeAcrossTheCenterMorphStyleBarSelectsTheLastTab() = swipeAcrossBar(
+        centerProud = true,
+        center = {
+            MarbleCenterSpringTrigger(
+                state = DockConnectionState(connected = false),
+                size = DockSize.MEDIUM,
+                onToggle = {},
+                onPing = {}
+            )
+        }
+    )
+
+    @Test
+    fun swipeAcrossTheHeroStyleBarSelectsTheLastTab() = swipeAcrossBar()
+
+    private fun swipeAcrossBar(
+        centerProud: Boolean = false,
+        leading: (@Composable RowScope.() -> Unit)? = null,
+        center: (@Composable () -> Unit)? = null,
+        trailing: (@Composable RowScope.() -> Unit)? = null
+    ) {
+        var picked = -1
+        compose.setContent {
+            ProvideMarbleLanguage("en") {
+                MarbleExpressiveTheme(dynamicColor = false) {
+                    ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
+                        Box(Modifier.width(360.dp)) {
+                            MarbleLumenDock(
+                                tabs = tabs(),
+                                selectedIndex = 0,
+                                onSelect = { picked = it },
+                                size = DockSize.MEDIUM,
+                                centerProud = centerProud,
+                                leading = leading,
+                                center = center,
+                                trailing = trailing
+                            )
                         }
                     }
                 }
             }
-            compose.onNodeWithTag("liquid-lens-bar").performTouchInput { swipeRight() }
-            assertEquals("style=$style", tabs().lastIndex, picked)
-            compose.waitForIdle()
         }
+        compose.onNodeWithTag("liquid-lens-bar").performTouchInput { swipeRight() }
+        assertEquals(tabs().lastIndex, picked)
     }
 
     @Test
