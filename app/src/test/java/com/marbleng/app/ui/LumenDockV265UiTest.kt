@@ -198,10 +198,13 @@ class LumenDockV265UiTest {
         renderDock(ConnectionWidgetStyle.HERO_CARD, DockConnectionState()) { picked = it }
 
         // Down near the first slot, drag to just past the second slot's centre, lift: the
-        // selection is the tab the finger is on, not the last tab of the bar.
+        // selection is the tab the finger is on, not the last tab of the bar. The node's size is
+        // read through its semantics node — the injection scope of this Compose version has no
+        // `size` property (CI caught it as Unresolved reference).
+        val barSize = compose.onNodeWithTag("liquid-lens-bar").fetchSemanticsNode().size
+        val w = barSize.width.toFloat()
+        val h = barSize.height.toFloat()
         compose.onNodeWithTag("liquid-lens-bar").performTouchInput {
-            val w = size.width.toFloat()
-            val h = size.height.toFloat()
             swipe(Offset(w * 0.08f, h / 2f), Offset(w * 0.42f, h / 2f), durationMillis = 250L)
         }
         assertEquals(1, picked)
