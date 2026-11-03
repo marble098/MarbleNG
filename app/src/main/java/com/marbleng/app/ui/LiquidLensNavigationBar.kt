@@ -70,11 +70,14 @@ import kotlin.math.roundToInt
  *
  * ## What it deliberately does not do
  *
- * It does not clip. The row draws a counter past the icon's corner, a connection light lifted into
- * the row and the centre trigger's contact shadow — a `clip` on this Box would cut them at the
- * glass's edge. (MARBLE_STEADY_CONNECT_V264 retired the wing's tooltip; nothing in the dock draws a
- * word that opens any more.) The capsule's *material* is drawn with `drawWithContent`, which paints
- * without clipping the children.
+ * The capsule's *material* Box does not clip: its drop shadow is a separate, contentless layer,
+ * and the material is painted with `drawWithContent`, which paints without clipping the children.
+ * The **row**, however, *is* clipped — to the capsule's exact outline ([PillOutlineShape]): the
+ * Material 3 ripple a slot raises on press is a bare bounded rectangle, and on the first and last
+ * slots its corners ran past the stadium's curve. Clipped to the glass, the ripple follows the
+ * shape's lines in every one of the three connection-widget layouts, because the wings and the
+ * centre trigger are row children too. (MARBLE_STEADY_CONNECT_V264 retired the wing's tooltip; the
+ * counter and the connection light are anchored inside the capsule, so the clip never cuts them.)
  *
  * The material is a `DrawScope` function ([drawCapsuleMaterial]) rather than a composable modifier,
  * because [GlassLensIndicator] has to replay it in order to sample it: the lens shows the surface
@@ -161,6 +164,13 @@ internal fun LiquidLensNavigationBar(
     val capsuleWidthPx = row.width + trackInsetPx * 2f
     val pillShape = RoundedCornerShape(corner)
     val cornerPx = with(density) { minOf(corner, height / 2f).toPx() }
+    // MARBLE_LUMEN_RIPPLE_CLIP — the capsule's outline expressed in the *row's* coordinates: the
+    // row is inset by one track inset from the pill on each side, so the stadium reaches one
+    // `trackInsetPx` past the row's left and right edges. Clipping the row with it confines every
+    // slot's Material 3 ripple to the glass, so the press feedback follows the capsule's curve
+    // instead of crossing its shape lines — the same "the feedback lives inside the bar's shape"
+    // rule the Lumen reference tab bar draws with its own clipped tap highlight.
+    val pillClip = remember(trackInsetPx, cornerPx) { PillOutlineShape(trackInsetPx, cornerPx) }
 
     // ── the hand ─────────────────────────────────────────────────────────────────────────────
     //
@@ -303,6 +313,38 @@ internal fun LiquidLensNavigationBar(
             }
         }
     }
+}
+
+/**
+ * MARBLE_LUMEN_RIPPLE_CLIP — the capsule's outline in the row's own coordinates.
+ *
+ * The row sits one track inset inside the pill on each side, so the stadium's straight walls lie
+ * at `-insetPx` and `width + insetPx` in row space; the corner radius is the pill's own. Clipping
+ * the row with this shape makes every slot's ripple — and any ink a slot draws — stop exactly at
+ * the glass's edge, following the shape lines instead of crossing them.
+ */
+private class PillOutlineShape(
+    private val insetPx: Float,
+    private val radiusPx: Float
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline = Outline.Generic(
+        Path().apply {
+            addRoundRect(
+                RoundRect(
+                    left = -insetPx,
+                    top = 0f,
+                    right = size.width + insetPx,
+                    bottom = size.height,
+                    radiusX = radiusPx,
+                    radiusY = radiusPx
+                )
+            )
+        }
+    )
 }
 
 /**
