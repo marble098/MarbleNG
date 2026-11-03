@@ -72,6 +72,17 @@ import kotlin.math.roundToInt
  *    a tap. The drag reads the *measured* rectangles, so it keeps working while a caption is
  *    opening.
  *
+ * ## MARBLE_LUMEN_DOCK_V265 — the lens is held under the finger while dragging
+ *
+ * V262's drag moved the *selection* per slot crossed and let the lens spring after it. V265 adds the
+ * missing half: while the finger is down, the lens's left edge is the **held** position the drag
+ * last wrote ([heldLensLeftPx]), computed through the same [LiquidLens.lensLeftPx] clamp the
+ * selected slot uses — one arithmetic for finger and selection, so they can never disagree. The
+ * finger therefore drags the glass itself across the row; on release the held value is cleared and
+ * the lens springs from wherever the drag left it to the slot that is now selected. A swipe that
+ * stops mid-bar leaves the mid tab selected (the tab under the finger), in every one of the three
+ * connection-widget layouts, because the drag lives on the row and the wings are row children.
+ *
  * ## What it deliberately does not do
  *
  * The capsule's *material* Box does not clip: its drop shadow is a separate, contentless layer,
@@ -118,6 +129,10 @@ internal fun LiquidLensNavigationBar(
     val density = LocalDensity.current
     val slots = remember(slotCount) { mutableStateOf(List(slotCount) { Rect.Zero }) }
     val rowBounds = remember { mutableStateOf(Rect.Zero) }
+    // MARBLE_LUMEN_DOCK_V265 — the lens's left edge while a finger is dragging the row. Null means
+    // "not held": the selected slot's own anchor is used. Written on every drag move, cleared on
+    // release/cancel, so the glass follows the finger continuously and then seats with a spring.
+    val heldLensLeftPx = remember { mutableStateOf<Float?>(null) }
 
     val reporter = remember(slotCount, slots) {
         object : LiquidLensSlotReporter {
@@ -154,7 +169,7 @@ internal fun LiquidLensNavigationBar(
     val row = rowBounds.value
     val slot = slots.value.getOrNull(selectedIndex.coerceIn(0, slotCount - 1)) ?: Rect.Zero
     val measured = row.width > 0f && slot.width > 0f
-    val lensLeftPx = if (measured) {
+    val slotLensLeftPx = if (measured) {
         LiquidLens.lensLeftPx(
             barWidthPx = row.width,
             centrePx = slot.center.x - row.left,
@@ -164,6 +179,11 @@ internal fun LiquidLensNavigationBar(
     } else {
         0f
     }
+    // MARBLE_LUMEN_DOCK_V265 — the finger's own position wins while it is down; the selected
+    // slot's anchor wins otherwise. The lens is drawable once the row is measured and either a
+    // held position or a measured slot exists.
+    val lensLeftPx = heldLensLeftPx.value ?: slotLensLeftPx
+    val lensVisible = row.width > 0f && (heldLensLeftPx.value != null || slot.width > 0f)
     // The capsule's width in the *capsule's* space: the row is inset by exactly one track inset.
     val capsuleWidthPx = row.width + trackInsetPx * 2f
     val pillShape = RoundedCornerShape(corner)
@@ -180,9 +200,14 @@ internal fun LiquidLensNavigationBar(
     //
     // The state objects are read inside the gesture, not captured by value: a drag that started
     // before a relayout must still find the slot where it currently is. One change per slot
-    // crossed, so a slow finger sweeping the bar walks the lens tab by tab — the same
+    // crossed, so a slow finger sweeping the bar walks the selection tab by tab — the same
     // "the selection is the tab under the finger" behaviour as a swipe-driven pager.
-    val dragModifier = Modifier.pointerInput(slotCount, onDragSelect != null) {
+    //
+    // MARBLE_LUMEN_DOCK_V265 — on top of that, every drag move also writes the lens's own left edge
+    // ([heldLensLeftPx]) through the same [LiquidLens.lensLeftPx] clamp, so the glass is *under the
+    // finger* for the whole drag; release clears the held value and the lens springs to the slot
+    // that is now selected.
+    val dragModifier = Modifier.pointerInput(slotCount, onDragSelect != null, height, trackInset) {
         // Null means "this bar is display-only" (a preview, a screenshot of the material): the
         // handler detaches rather than swallowing a drag the page behind it could have used.
         val select = onDragSelect ?: return@pointerInput
@@ -204,10 +229,24 @@ internal fun LiquidLensNavigationBar(
             return best
         }
 
+        // The lens's left edge for a row-relative finger x — the *same* clamp the selected slot
+        // uses, so the finger and the selection can never disagree about where the glass is.
+        fun lensLeftFor(xPx: Float): Float? {
+            val barWidth = rowBounds.value.width
+            if (barWidth <= 0f) return null
+            return LiquidLens.lensLeftPx(
+                barWidthPx = barWidth,
+                centrePx = xPx,
+                diameterPx = diameterPx,
+                trackInsetPx = trackInsetPx
+            )
+        }
+
         detectHorizontalDragGestures(
             onDragStart = { start ->
                 emitted = nearest(start.x)
                 if (emitted >= 0) select(emitted)
+                lensLeftFor(start.x)?.let { heldLensLeftPx.value = it }
             },
             onHorizontalDrag = { change, _ ->
                 change.consume()
@@ -216,6 +255,15 @@ internal fun LiquidLensNavigationBar(
                     emitted = index
                     select(index)
                 }
+                lensLeftFor(change.position.x)?.let { heldLensLeftPx.value = it }
+            },
+            onDragEnd = {
+                // The finger lifted: the lens is no longer held, and it springs from wherever the
+                // drag left it to the anchor of the slot that is now selected.
+                heldLensLeftPx.value = null
+            },
+            onDragCancel = {
+                heldLensLeftPx.value = null
             }
         )
     }
@@ -267,8 +315,9 @@ internal fun LiquidLensNavigationBar(
                 // 3. The lens, drawn before the row: the glass is *over* the capsule's surface and
                 //    *under* everything a reader has to read. A pane painted last would wash the
                 //    selected glyph with its own accent — a lens magnifies what it covers, it does
-                //    not tint it.
-                if (measured) {
+                //    not tint it. V265: visible whenever the row is measured and the lens has a
+                //    legal position — the selected slot's or the finger's held one.
+                if (lensVisible) {
                     GlassLensIndicator(
                         targetLeftPx = lensLeftPx,
                         diameter = diameterDp.dp,

@@ -6393,6 +6393,53 @@ check(
     and "SteadyConnectControlsV264Test" in files["readme"],
 )
 
+# ---------------------------------------------------------------------------
+# MARBLE_LUMEN_DOCK_V265 — the tab bar's Material 3 ripple conforms to the shape
+# lines (every press target is clipped to its own outline BEFORE its interaction,
+# the rule the Lumen Android reference's DockTab draws), and the bottom bar is
+# draggable (a drag holds the lens under the finger and seats it on release),
+# pinned for all three connection-widget styles in all three connection states.
+# ---------------------------------------------------------------------------
+v265_item = read("app/src/main/java/com/marbleng/app/ui/NavigationItemView.kt")
+v265_bar = read("app/src/main/java/com/marbleng/app/ui/LiquidLensNavigationBar.kt")
+v265_wings = read("app/src/main/java/com/marbleng/app/ui/MarbleDockWings.kt")
+v265_doc = read("docs/LUMEN_DOCK_V265.md")
+v265_ui_test = read("app/src/test/java/com/marbleng/app/ui/LumenDockV265UiTest.kt")
+
+v265_slot_clip = v265_item.find(".clip(RoundedCornerShape(DockStudio.innerRadiusDp(size).dp))")
+# Search from the clip onwards: the file's header comment quotes the Lumen reference's own
+# `.selectable(...)`, and that quote is not the code.
+v265_slot_selectable = (
+    v265_item.find(".selectable(", v265_slot_clip) if v265_slot_clip >= 0 else -1
+)
+v265_island_clip = v265_wings.find(".clip(islandShape)")
+v265_island_click = v265_wings.find(".clickable(role = Role.Button)")
+v265_groove_clip = v265_wings.find(".clip(grooveShape)")
+v265_groove_click = v265_wings.find(".combinedClickable(")
+
+check(
+    "V265 the ripple is clipped to every shape before the interaction, and the bar drags",
+    "MARBLE_LUMEN_DOCK_V265" in v265_item
+    and "MARBLE_LUMEN_DOCK_V265" in v265_bar
+    # The slot's press target clips to the one inner corner rule BEFORE selectable, so the
+    # Material 3 ripple follows the slot's own outline at every position in the row.
+    and 0 <= v265_slot_clip < v265_slot_selectable
+    # The row keeps the capsule clip from MARBLE_LUMEN_RIPPLE_CLIP; the wings keep theirs.
+    and ".clip(pillClip)" in v265_bar
+    and "PillOutlineShape" in v265_bar
+    and 0 <= v265_island_clip < v265_island_click
+    and 0 <= v265_groove_clip < v265_groove_click
+    # The drag holds the lens under the finger through the one lens clamp, and seats on release.
+    and "heldLensLeftPx.value = it" in v265_bar
+    and "lensLeftFor" in v265_bar
+    and "onDragEnd" in v265_bar
+    and "heldLensLeftPx.value = null" in v265_bar
+    # The chapter, the README link and the regression tests record the pass.
+    and "MARBLE_LUMEN_DOCK_V265" in v265_doc
+    and "LUMEN_DOCK_V265.md" in files["readme"]
+    and "class LumenDockV265UiTest" in v265_ui_test,
+)
+
 failed = [name for name, passed in checks if not passed]
 
 print("=== MarbleNG SYSTEM INTEGRITY ===")

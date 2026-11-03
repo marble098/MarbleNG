@@ -194,7 +194,8 @@ internal fun MarbleLumenDock(
                 accent = tabs.getOrNull(selection)?.accent ?: colors.primary,
                 reduced = motion.still,
                 modifier = Modifier.fillMaxSize(),
-                // A drag moves the selection to the slot under the finger: a lens that travels on
+                // A drag moves the selection to the slot under the finger *and* holds the lens
+                // under the finger while it lasts (MARBLE_LUMEN_DOCK_V265): a lens that travels on
                 // tap alone is a highlight with better manners. The container has already decided
                 // *which* slot that is; the haptic and the callback belong to the app.
                 onDragSelect = { index ->

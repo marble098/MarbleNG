@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -84,8 +85,18 @@ import com.marbleng.app.model.LiquidLens
  *    animated `translationY` while under the glass, so it can grow to
  *    [LiquidLens.STATUS_DOT_SCALE] without ever being clipped by the row's padding.
  *
- * Nothing in this file clips: the row must be able to draw a tooltip, a counter or a lifted light
- * over its own rim.
+ * ## MARBLE_LUMEN_DOCK_V265 — the ripple lives inside the slot's own shape
+ *
+ * The slot is two boxes, and the split is the whole point. The **press target** is clipped to the
+ * slot's own outline ([DockStudio.innerRadiusDp] — the product's one inner corner rule) *before*
+ * `selectable` is added, so the Material 3 ripple a press raises follows this slot's curve at
+ * every position in the row, not only where the row's capsule clip cuts the two edge slots. That
+ * is the rule the Lumen Android reference draws in its own tab bar (`krambovic/Lumen`, release
+ * `android-v1.5.0`, `ui/components/FloatingNavigationDock.kt`, `DockTab`:
+ * `.clip(RoundedCornerShape(26.dp))` **before** `.selectable(...)` — "the feedback lives inside the
+ * bar's shape"). The **content** (glyph, counter, light) is a sibling drawn above the press target
+ * and deliberately *not* clipped by it: a counter may sit on the slot's rim, so the capsule clip
+ * on the row stays the only outer boundary the decorations obey.
  */
 @Composable
 internal fun NavigationItemView(
@@ -137,26 +148,37 @@ internal fun NavigationItemView(
             // The slot's own geometry, reported upwards so the container can place the lens over
             // it. Root space for both this rectangle and the row's, so the subtraction cancels the
             // capsule's insets, the safe-area insets and the page's offset in one step.
-            .onPlaced { coordinates -> onPlaced(coordinates.boundsInRoot()) }
-            .selectable(
-                selected = selected,
-                role = Role.Tab,
-                onClick = {
-                    // A selection that moved, not a button that was pressed: a tab that is
-                    // already selected says nothing.
-                    if (!selected) {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-                    onClick()
-                }
-            )
-            // MARBLE_QUIET_TABS_V263 — the word lives here, for a reader who cannot see the glyph.
-            .semantics { contentDescription = tab.label }
-            .testTag(testTag),
+            .onPlaced { coordinates -> onPlaced(coordinates.boundsInRoot()) },
         contentAlignment = Alignment.Center
     ) {
+        // MARBLE_LUMEN_DOCK_V265 — the press target, clipped to the slot's own outline *before*
+        // the interaction is added: the Material 3 ripple follows the slot's curve everywhere in
+        // the row, because `clip` is an ancestor of `selectable`'s indication. The corner is the
+        // one inner rule [DockStudio.innerRadiusDp], so the feedback reads as the same surface.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(DockStudio.innerRadiusDp(size).dp))
+                .selectable(
+                    selected = selected,
+                    role = Role.Tab,
+                    onClick = {
+                        // A selection that moved, not a button that was pressed: a tab that is
+                        // already selected says nothing.
+                        if (!selected) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                        onClick()
+                    }
+                )
+                // MARBLE_QUIET_TABS_V263 — the word lives here, for a reader who cannot see the glyph.
+                .semantics { contentDescription = tab.label }
+                .testTag(testTag)
+        )
+
         // The icon and its counter share one anchor box. The glyph magnifies inside it; the
-        // counter does not, so it keeps the corner it was given.
+        // counter does not, so it keeps the corner it was given. This content box is *not*
+        // clipped by the press target above it — only the ripple is (V265).
         Box(contentAlignment = Alignment.Center) {
             Canvas(
                 modifier = Modifier
