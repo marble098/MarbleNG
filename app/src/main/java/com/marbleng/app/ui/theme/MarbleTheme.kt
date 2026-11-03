@@ -4,10 +4,12 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.os.Build
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -212,9 +214,15 @@ fun MarbleExpressiveTheme(
             colorScheme = scheme,
             motionScheme = MotionScheme.expressive(),
             shapes = MarbleShapes,
-            typography = typography,
-            content = content
-        )
+            typography = typography
+        ) {
+            // One press language across app-owned Foundation interactions. Bounded ripples stay
+            // inside each control's measured hit target; shape-clipped controls (pills, cards,
+            // dock items) also keep the wave inside their rounded outline.
+            CompositionLocalProvider(LocalIndication provides ripple(bounded = true)) {
+                content()
+            }
+        }
     }
 }
 

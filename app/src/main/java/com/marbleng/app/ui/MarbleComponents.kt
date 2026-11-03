@@ -499,7 +499,7 @@ internal fun MarbleNumberStepperRow(
                         .clickable(
                             enabled = value > range.first,
                             interactionSource = minusInteraction,
-                            indication = null
+                            indication = androidx.compose.foundation.LocalIndication.current
                         ) {
                             haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                             latestOnChange((latestValue - step).coerceIn(range))
@@ -553,7 +553,7 @@ internal fun MarbleNumberStepperRow(
                         .clickable(
                             enabled = value < range.last,
                             interactionSource = plusInteraction,
-                            indication = null
+                            indication = androidx.compose.foundation.LocalIndication.current
                         ) {
                             haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                             latestOnChange((latestValue + step).coerceIn(range))
