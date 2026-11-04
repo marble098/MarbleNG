@@ -4069,6 +4069,28 @@ private fun postToMain(block: () -> Unit) {
      */
     val jitterReducer = SmartJitterController()
 
+    init {
+        // MARBLE_SMART_JITTER_REALTIME_V262 — the reducer used to publish its live jitter only
+        // to the settings page's StateFlow; the home hero and the other live surfaces read
+        // [liveJitterMs], which until now only the slower route probe in the VPN service wrote.
+        // This bridge forwards every reducer tick while the module is running and has valid
+        // samples, so the home page's jitter tile is real-time whenever the reducer is on. With
+        // the module OFF the reducer never publishes a running state and this bridge is silent.
+        jitterReducer.onState = { reducerState ->
+            if (reducerState.running &&
+                reducerState.validSamples > 0 &&
+                reducerState.jitterMs > 0.0
+            ) {
+                postToMain {
+                    if (state == "CONNECTED") {
+                        liveJitterMs = reducerState.jitterMs.roundToInt().coerceIn(0, 10_000)
+                        liveJitterSamples = reducerState.validSamples.coerceIn(0, 10_000)
+                    }
+                }
+            }
+        }
+    }
+
     val jitterReducerState: com.marbleng.app.jitter.SmartJitterController.State
         get() = jitterReducer.state.value
 
