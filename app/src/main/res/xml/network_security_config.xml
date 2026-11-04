@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- Global cleartext stays denied: no remote HTTP, no exceptions. -->
     <base-config cleartextTrafficPermitted="false" />
+    <!-- MARBLE_LOCALHOST_CLEARTEXT_V265 — the one exception is loopback. The Xray and sing-box
+         local controller APIs (http://127.0.0.1:<port>/...) are plain HTTP by design, and on
+         Android 16 and older the base-config above is also applied to 127.0.0.1, which broke
+         the sing-box controller path (real-delay test, readiness check, some server tests)
+         with CleartextTrafficNotPermitted on every API level MarbleNG supports (minSdk 26).
+         Android 17 permits loopback implicitly; this domain-config restores that behaviour
+         explicitly and only for the loopback names — public cleartext remains denied. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain>localhost</domain>
+        <domain>127.0.0.1</domain>
+        <domain>::1</domain>
+    </domain-config>
 </network-security-config>

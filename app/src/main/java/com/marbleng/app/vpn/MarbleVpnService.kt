@@ -4326,6 +4326,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         monitorWorker.shutdownNow()
         controlWorker.shutdownNow()
         connectionWorker.shutdownNow()
+        // MARBLE_SERVICE_POOL_LIFECYCLE_V265 — the route-probe race pool is `lazy`, so it only
+        // exists if a pivot race ever ran; shut it down in that case. Daemon threads are not a
+        // lifecycle: a pool that outlives the service instance can keep probing into the next
+        // session and hold sockets after onDestroy.
+        if (::routeProbeRacePool.isInitialized) {
+            routeProbeRacePool.shutdownNow()
+        }
         // MARBLE_TUN2SOCKS_SHUTDOWN_V223 — last chance for the descriptor: a datapath run that
         // already returned has closed it in [releaseDatapathFd], and one that never returns is
         // left to the process teardown rather than closed under a live dispatcher.

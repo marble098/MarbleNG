@@ -8,6 +8,11 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- MARBLE_WIFI_LOCK_PERMISSION_V265 — the low-latency Wi-Fi lock taken while a session is
+         live (WIFI_MODE_FULL_LOW_LATENCY) requires WAKE_LOCK; without the declaration the
+         acquire() in MarbleVpnService could fail with a permission error on some platform
+         builds. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
         <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
         <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
