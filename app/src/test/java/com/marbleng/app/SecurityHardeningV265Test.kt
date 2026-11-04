@@ -74,5 +74,24 @@ class SecurityHardeningV265Test {
             "no wildcard/public domain may be exempt",
             domains.all { it in setOf("localhost", "127.0.0.1", "::1") }
         )
+        // MARBLE_LINT_FATAL_LOOPBACK_V267 — release run #375 failed in lintVitalRelease because
+        // these <domain> elements omitted includeSubdomains, which lint treats as a fatal
+        // NetworkSecurityConfig error and which blocked assembleRelease entirely. The attribute
+        // is now explicit and must stay explicit *and* false: true would widen the exception to
+        // every subdomain of the host, and omitting it again re-breaks the signed build.
+        val domainNodes = (0 until domainConfig.getElementsByTagName("domain").length)
+            .map { i -> domainConfig.getElementsByTagName("domain").item(i) as Element }
+        domainNodes.forEach { element ->
+            assertTrue(
+                "<domain>${element.textContent.trim()}</domain> must state includeSubdomains " +
+                    "explicitly; a missing attribute is a fatal lint error in the release build",
+                element.hasAttribute("includeSubdomains")
+            )
+            assertEquals(
+                "includeSubdomains must stay false: no loopback subdomain grant",
+                "false",
+                element.getAttribute("includeSubdomains")
+            )
+        }
     }
 }

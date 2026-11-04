@@ -6440,6 +6440,47 @@ check(
     and "class LumenDockV265UiTest" in v265_ui_test,
 )
 
+# MARBLE_LINT_FATAL_LOOPBACK_V267 — release run #375 died at `lintVitalRelease`, not at any
+# compile or packaging step: every <domain> in the loopback domain-config was missing the
+# `includeSubdomains` attribute, which lint reports as a *fatal* NetworkSecurityConfig error,
+# so `assembleRelease` never produced an APK. The semantics were always "these exact hosts",
+# so the attribute is now stated explicitly; this guard keeps a future edit from dropping it
+# (the release build is the only place the fatality shows up, and only after ~4 minutes of
+# native-core preparation).
+def _network_security_domains(xml: str) -> list[tuple[str, bool]]:
+    """(host, includeSubdomains-stated) for every <domain> in the config."""
+    found = []
+    # `\b` after "domain" would also match `<domain-config ...>` ("-" is a non-word character),
+    # so the tag name is anchored on the closing ">" instead.
+    for match in re.finditer(r"<domain(?P<attrs>(?:\s[^>]*)?)>(?P<host>[^<]*)</domain>", xml):
+        attrs, host = match.group("attrs"), match.group("host").strip()
+        found.append((host, "includeSubdomains" in attrs))
+    return found
+
+
+_security_domains = _network_security_domains(files["security"])
+check(
+    "cleartext exceptions are loopback-only and lint-clean",
+    len(_security_domains) == 3
+    and {host for host, _ in _security_domains} == {"localhost", "127.0.0.1", "::1"}
+    and all(stated for _, stated in _security_domains),
+)
+check(
+    "the loopback exception stays non-recursive",
+    'includeSubdomains="false"' in files["security"]
+    and 'includeSubdomains="true"' not in files["security"],
+)
+# The chapter, the README crown and the regression test that record the pass.
+v267_doc = read("docs/LINT_FATAL_LOOPBACK_V267.md")
+check(
+    "V267 the chapter, the README and the regression test record the pass",
+    "MARBLE_LINT_FATAL_LOOPBACK_V267" in v267_doc
+    and "lintVitalRelease" in v267_doc
+    and "V267 is the newest chapter: `docs/LINT_FATAL_LOOPBACK_V267.md`" in files["readme"]
+    and "includeSubdomains" in files["readme"]
+    and "SecurityHardeningV265Test" in v267_doc,
+)
+
 failed = [name for name, passed in checks if not passed]
 
 print("=== MarbleNG SYSTEM INTEGRITY ===")

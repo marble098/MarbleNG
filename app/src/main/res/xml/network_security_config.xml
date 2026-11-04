@@ -9,9 +9,14 @@
          with CleartextTrafficNotPermitted on every API level MarbleNG supports (minSdk 26).
          Android 17 permits loopback implicitly; this domain-config restores that behaviour
          explicitly and only for the loopback names — public cleartext remains denied. -->
+    <!-- includeSubdomains="false" is stated explicitly rather than left implicit: lint's
+         NetworkSecurityConfig check treats the missing attribute as a fatal release error
+         ("Missing includeSubdomains attribute"), which failed lintVitalRelease and blocked
+         the signed-APK build. Semantics are unchanged — only these three loopback hosts
+         are exempt, no suffix/wildcard matching is enabled. -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain>localhost</domain>
-        <domain>127.0.0.1</domain>
-        <domain>::1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">::1</domain>
     </domain-config>
 </network-security-config>
