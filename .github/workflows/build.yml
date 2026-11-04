@@ -58,6 +58,35 @@ jobs:
           python3 scripts/system-integrity-check.py
 
       # ========================================================================
+      # MARBLE_RUNNER_DISK_HEADROOM_V268 — the runner's disk, before anything
+      # is installed on it.
+      #
+      # Release run #377 died inside :app:stripReleaseDebugSymbols with
+      # "No space left on device": that task is the second full copy of ~500 MB
+      # of merged native libraries, so it is where a filesystem at its limit
+      # finally refuses a write. The build did not fill it. The ubuntu-latest
+      # image (Ubuntu 26.04, 20261026.180.1) ships three NDKs, eighteen Android
+      # platforms, eleven .NET SDKs, Homebrew, vcpkg, GHC, Swift, four browsers,
+      # four JVMs, three Go toolchains, five Pythons and two CLIs on the same
+      # filesystem, and an Android release build cannot reach any of them: it
+      # installs its own JDK, Go and NDK.
+      #
+      # The reclaimer spares the one platform compileSdk compiles against and
+      # the one NDK ndkVersion names, both read from app/build.gradle.kts, then
+      # fails here — naming the floor and the largest directories — if the
+      # filesystem still has no headroom, instead of four minutes later inside
+      # a Gradle work item. Proven offline by scripts/test-reclaim-runner-disk.sh.
+      # ========================================================================
+
+      - name: Reclaim runner disk headroom
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          chmod +x scripts/reclaim-runner-disk.sh
+          MARBLE_DISK_WORKSPACE="$PWD" ./scripts/reclaim-runner-disk.sh
+
+      # ========================================================================
       # Java
       # ========================================================================
 
@@ -84,8 +113,27 @@ jobs:
 
           yes | sdkmanager --licenses >/dev/null || true
 
+          # MARBLE_RUNNER_DISK_HEADROOM_V268 — the platform installed here is the
+          # one app/build.gradle.kts compiles against, read from that file. It
+          # used to be a hard-coded 'platforms;android-36' while compileSdk had
+          # already moved to 37, which only worked because the runner image
+          # happened to ship android-37; the disk reclaimer now deletes every
+          # platform the build does not name, so the build has to install its
+          # own.
+          compile_sdk="$(
+            sed -n 's/^[[:space:]]*compileSdk[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+              app/build.gradle.kts | tail -n 1
+          )"
+
+          if [[ ! "$compile_sdk" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not read compileSdk from app/build.gradle.kts."
+            exit 1
+          fi
+
+          echo "Installing platforms;android-${compile_sdk} (compileSdk), build-tools;36.0.0, ndk;28.2.13676358"
+
           sdkmanager \
-            'platforms;android-36' \
+            "platforms;android-${compile_sdk}" \
             'build-tools;36.0.0' \
             'ndk;28.2.13676358'
 
@@ -93,6 +141,11 @@ jobs:
             >> "$GITHUB_ENV"
 
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/28.2.13676358" \
+            >> "$GITHUB_ENV"
+
+          # The image points this at an NDK the reclaimer deleted; the pinned NDK
+          # is now the only one on the runner, so the pointer follows it.
+          echo "ANDROID_NDK_LATEST_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" \
             >> "$GITHUB_ENV"
 
       # ========================================================================
@@ -182,6 +235,41 @@ jobs:
           # from one commit and the digest from the next, `test "$actual" = "$expected"` failed, and
           # the step exited 1 without printing why. See scripts/bundle-routing-assets.sh.
           bash scripts/bundle-routing-assets.sh
+
+      # ========================================================================
+      # MARBLE_RUNNER_DISK_HEADROOM_V268 — release the native build's scratch.
+      #
+      # jniLibs now holds the finished libraries and app/src/main/assets the
+      # verified routing data, so the three pinned core source trees, their
+      # staging copies and the twelve Go build caches behind them are dead
+      # weight for the rest of the job — and the rest of the job is the one
+      # phase that needs the room (merged native libs, stripped native libs,
+      # five APKs, R8).
+      #
+      # GOCACHE is per-runner and is never restored, so dropping it costs
+      # nothing across runs. The module cache stays, because setup-go's post
+      # step archives it, and .bootstrap stays for the same reason: that post
+      # step hashes .bootstrap/xray/go.sum.
+      # ========================================================================
+
+      - name: Release native scratch before the Gradle phase
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -d .cores ]]; then
+            echo "Native scratch before:"
+            du -sh .cores 2>/dev/null || true
+            rm -rf .cores
+            echo "[OK] .cores released"
+          else
+            echo ".cores is already gone"
+          fi
+
+          go clean -cache
+
+          echo "[OK] Go build cache released"
+          df -h "$PWD"
 
       # ========================================================================
       # Gradle
@@ -925,3 +1013,88 @@ jobs:
           done
 
           echo "Draft release successfully created and assets uploaded. Waiting for your manual approval to publish."
+
+      # ========================================================================
+      # MARBLE_RUNNER_DISK_HEADROOM_V268 — a dead release build must name its
+      # cause in the run itself.
+      #
+      # Run #377's only surviving evidence was its annotation text: the step log
+      # host was unreachable from every diagnostic environment, and "No space
+      # left on device" was buried in a Gradle work-item line. So the free space
+      # and the largest directories now travel in the run — into the failed
+      # job's summary and into one annotation — on every failure of this job,
+      # whatever its cause.
+      # ========================================================================
+
+      - name: Diagnose a failed release build
+        if: failure()
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          # Annotation commands are single-line: a newline ends the command and
+          # truncates the message, so multi-line bodies are %0A-encoded (and
+          # percent signs escaped first, or %0A would decode as text).
+          annotate_error() {
+            local title="$1"
+            local body="$2"
+
+            body="${body//%/%25}"
+            body="${body//$'\r'/ }"
+            body="${body//$'\n'/%0A}"
+
+            printf '::error title=%s::%s\n' "$title" "$body"
+          }
+
+          free_mib="$(df -Pm -- "$PWD" 2>/dev/null | awk 'NR==2 {print $4}')"
+          report="${RUNNER_TEMP:-/tmp}/marbleng-failure-diagnostics.txt"
+
+          {
+            echo "Free space on the job filesystem: ${free_mib:-unknown} MiB"
+            echo
+            echo "Filesystems:"
+            df -h 2>/dev/null
+            echo
+            echo "Largest directories under the runner home:"
+            du -xk -d 2 "$HOME" 2>/dev/null | sort -rn | head -n 25 |
+              awk '{printf "  %8.1f MiB  %s\n", $1 / 1024, $2}'
+            echo
+            echo "Largest directories in the checkout:"
+            du -xk -d 2 "$PWD" 2>/dev/null | sort -rn | head -n 25 |
+              awk '{printf "  %8.1f MiB  %s\n", $1 / 1024, $2}'
+          } > "$report" 2>&1
+
+          cat "$report"
+
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            {
+              echo "## [FAIL] MarbleNG release build"
+              echo
+              echo "- Free space on the job filesystem: \`${free_mib:-unknown} MiB\`"
+              echo
+              echo '```'
+              cat "$report"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          largest_home() {
+            du -xk -d 1 "$HOME" 2>/dev/null | sort -rn | head -n 8 |
+              awk '{printf "  %8.1f MiB  %s\n", $1 / 1024, $2}'
+          }
+
+          if (( ${free_mib:-0} < 4096 )); then
+            annotate_error "MarbleNG-release-build" "$(
+              printf 'The release build failed with only %s MiB free on %s.\n' \
+                "${free_mib:-0}" "$PWD"
+              printf 'A full filesystem is the known cause of ":app:stripReleaseDebugSymbols ... No space left on device".\n'
+              printf 'Largest directories under the runner home:\n'
+              largest_home
+            )"
+          else
+            annotate_error "MarbleNG-release-build" "$(
+              printf 'The release build failed with %s MiB free on %s, so the disk is probably not the cause.\n' \
+                "${free_mib:-0}" "$PWD"
+              printf 'The "Diagnose a failed release build" step of this job carries df -h and the largest directories.\n'
+            )"
+          fi

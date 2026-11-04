@@ -66,6 +66,21 @@ jobs:
           set -euo pipefail
           ./scripts/test-routing-asset-pin.sh
 
+      # MARBLE_RUNNER_DISK_HEADROOM_V268 — release run #377 died with "No space
+      # left on device" inside :app:stripReleaseDebugSymbols, on a runner whose
+      # image ships three NDKs and eighteen Android platforms the build never
+      # touches. The release job reclaims that space with `rm -rf`, which is the
+      # one kind of script a pull request has to prove before it runs beside a
+      # release: these fixtures build a fake image tree, run the reclaimer
+      # against it, and pin what it spares (the compileSdk platform, the
+      # ndkVersion NDK, the SDK components the build needs) and what it refuses
+      # to delete (the root, a top-level path, the workspace, the repository).
+      - name: Runner disk headroom fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/test-reclaim-runner-disk.sh
+
       # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — what the newest published version of every
       # component this build is made of actually is, printed on every source verification. The
       # resolver is the same file the scheduled updater writes `gradle/toolchain.properties`
