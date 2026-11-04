@@ -389,11 +389,17 @@ class MarbleVpnService : VpnService() {
      */
     @Volatile private var probeCalmStreak = 0
 
-    private val routeProbeRacePool by lazy {
-        Executors.newFixedThreadPool(PIVOT_RACE_TARGETS) { runnable ->
-            Thread(runnable, "marble-route-probe").apply { isDaemon = true }
+    // MARBLE_SERVICE_POOL_LIFECYCLE_V265 — held in a nullable instead of `by lazy` so onDestroy
+    // can both ask whether it was ever created and shut it down (a delegated lazy exposes no
+    // isInitialized to the owner).
+    private val routeProbeRacePoolLock = Any()
+    @Volatile private var routeProbeRacePoolInstance: java.util.concurrent.ExecutorService? = null
+    private val routeProbeRacePool: java.util.concurrent.ExecutorService
+        get() = routeProbeRacePoolInstance ?: synchronized(routeProbeRacePoolLock) {
+            routeProbeRacePoolInstance ?: Executors.newFixedThreadPool(PIVOT_RACE_TARGETS) { runnable ->
+                Thread(runnable, "marble-route-probe").apply { isDaemon = true }
+            }.also { routeProbeRacePoolInstance = it }
         }
-    }
 
     @Volatile private var jitterControlActive = false
     @Volatile private var lastJitterOptimizerRequestAt = 0L
