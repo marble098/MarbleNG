@@ -6480,7 +6480,7 @@ check(
     and "includeSubdomains" in files["readme"]
     and "SecurityHardeningV265Test" in v267_doc
     # The fatal task itself now runs in this workflow, not only inside assembleRelease.
-    and ":app:lintVitalAnalyzeRelease" in files["verify"]
+    and ":app:lintVitalRelease" in files["verify"]
     and "Release lint vitals" in files["verify"],
 )
 

@@ -63,8 +63,9 @@ verified by re-introducing the omission and watching both invariants go red.
 
 And because the fatality itself lived in a task no pull request ever ran, source verification now
 runs it too: **`Release lint vitals (what assembleRelease refuses to ship)`** executes
-`:app:lintVitalAnalyzeRelease` — the analysis half of `lintVitalRelease`, which needs no signing
-secrets, no R8 output and no packaged APK — and archives `lint-vital.log` plus
-`app/build/reports/lint-vital/**` on every outcome. A release-only fatal now surfaces on the pull
+`:app:lintVitalRelease` by name — the same task, in full (its analysis half alone would not raise
+the error, since the fatality is decided when the vitals report is produced) — which needs the
+release lint model but no signing secrets, no R8 output and no packaged APK. It archives
+`lint-vital.log` plus `app/build/reports/lint-vital/**` on every outcome. A release-only fatal now surfaces on the pull
 request in minutes, next to the tests, instead of in the signed-APK lane after the native cores
 have already been built.

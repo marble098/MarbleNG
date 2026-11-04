@@ -795,20 +795,23 @@ jobs:
       # executes it, so a pull request could be green and the signed build still doomed:
       # that is exactly how the missing `includeSubdomains` attribute slipped through
       # (the fatal check needs the release variant, and the release variant needs the
-      # signing secrets this job does not have).
+      # signing secrets this job does not have). The structural half of that lesson is also
+      # pinned in scripts/system-integrity-check.py, which parses the config here.
       #
-      # `lintVitalAnalyzeRelease` is the analysis half of that task (lint model + bytecode
-      # scanning for release-only fatals) and needs no signing material, no R8 output and no
-      # packaged APK, so the failure is reproduced here in the PR lane instead of after ~4
-      # minutes of native-core preparation in the release lane. The report is archived even
-      # on failure so a reviewer can read the exact issue.
+      # The step asks for the *whole* task by name, not just its analysis half
+      # (`lintVitalAnalyzeRelease`), because the fatality is raised when the vitals report is
+      # produced — the half that only runs in the full task. `lintVitalRelease` needs the
+      # release lint model (compiled by the previous step) but no signing material, no R8
+      # output and no packaged APK, so the identical verdict is reachable here in the PR lane
+      # instead of after ~4 minutes of native-core preparation in the release lane. The report
+      # is archived even on failure so a reviewer can read the exact issue.
       - name: Release lint vitals (what assembleRelease refuses to ship)
         shell: bash
         run: |
           set -o pipefail
           gradle --no-daemon \
             --max-workers=2 \
-            :app:lintVitalAnalyzeRelease 2>&1 | tee lint-vital.log
+            :app:lintVitalRelease 2>&1 | tee lint-vital.log
 
       - name: Archive the release lint vitals
         if: always()
