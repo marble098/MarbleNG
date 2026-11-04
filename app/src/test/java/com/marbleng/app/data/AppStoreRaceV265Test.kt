@@ -1,7 +1,6 @@
 package com.marbleng.app.data
 
 import android.app.Application
-import androidx.test.core.app.ApplicationProvider
 import com.marbleng.app.core.IpFamilyScan
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -10,6 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
@@ -27,7 +27,7 @@ class AppStoreRaceV265Test {
 
     @Test
     fun parallelServerLocationSavesNeverLoseAWrites() {
-        val store = AppStore(ApplicationProvider.getApplicationContext())
+        val store = AppStore(RuntimeEnvironment.getApplication())
         val keys = (1..240).map { "profile-$it" }
         val pool = Executors.newFixedThreadPool(8)
         try {

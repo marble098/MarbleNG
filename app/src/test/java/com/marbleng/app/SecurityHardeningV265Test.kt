@@ -30,7 +30,7 @@ class SecurityHardeningV265Test {
 
     @Test
     fun mergedManifestDeclaresWakeLock() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
+        val context = RuntimeEnvironment.getApplication<Context>()
         val info = context.packageManager.getPackageInfo(
             context.packageName,
             PackageManager.GET_PERMISSIONS
@@ -70,6 +70,9 @@ class SecurityHardeningV265Test {
         }
         assertTrue("localhost must be exempt", "localhost" in domains)
         assertTrue("127.0.0.1 must be exempt", "127.0.0.1" in domains)
-        assertTrue("no wildcard/public domain may be exempt", domains.all { it in setOf("localhost", "127.0.0.1", "::1") })
+        assertTrue(
+            "no wildcard/public domain may be exempt",
+            domains.all { it in setOf("localhost", "127.0.0.1", "::1") }
+        )
     }
 }
