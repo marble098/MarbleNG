@@ -73,7 +73,24 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-**V267 is the newest chapter: `docs/LINT_FATAL_LOOPBACK_V267.md`.** It is one attribute, in one
+**V268 is the newest chapter: `docs/RUNNER_DISK_HEADROOM_V268.md`.** Release run #377 died with
+`No space left on device` inside `:app:stripReleaseDebugSymbols` — the second full copy of ~500 MB
+of merged native libraries, and the place a full filesystem finally refuses a write. The build did
+not fill it: `ubuntu-latest` is now Ubuntu 26.04, and that image ships three NDKs, eighteen Android
+platforms, eleven .NET SDKs, Homebrew, vcpkg, GHC, Swift, four browsers and four JVMs on the same
+filesystem, none of it reachable from an Android release build. The release job now reclaims that
+space before its first toolchain is installed (`scripts/reclaim-runner-disk.sh`, which spares the
+one platform `compileSdk` compiles against and the one NDK `ndkVersion` names, both read from
+`app/build.gradle.kts`, and refuses to touch the repository, the workspace or an SDK component the
+build needs), releases the native build's `.cores` scratch and Go build cache before the Gradle
+phase, installs the platform its own `compileSdk` names instead of leaning on one the image happens
+to ship, fails at minute one with the largest directories named if the headroom floor is still
+missed, and — on any failure — puts the free space and those directories into the run itself,
+because #377's step log was unreachable from every diagnostic environment.
+`scripts/test-reclaim-runner-disk.sh` proves the deletions, the spared pins and every refusal
+offline, in source verification.
+
+**V267 is the chapter before it: `docs/LINT_FATAL_LOOPBACK_V267.md`.** It is one attribute, in one
 `<domain>` tag, three times over: the loopback cleartext exception from V265 omitted
 `includeSubdomains`, lint reads that omission as a *fatal* `NetworkSecurityConfig` error, and
 `lintVitalRelease` — which runs inside `assembleRelease` — killed release run #375 after four

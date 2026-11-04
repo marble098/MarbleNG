@@ -6476,12 +6476,95 @@ check(
     "V267 the chapter, the README and the regression test record the pass",
     "MARBLE_LINT_FATAL_LOOPBACK_V267" in v267_doc
     and "lintVitalRelease" in v267_doc
-    and "V267 is the newest chapter: `docs/LINT_FATAL_LOOPBACK_V267.md`" in files["readme"]
+    and "V267 is the chapter before it: `docs/LINT_FATAL_LOOPBACK_V267.md`" in files["readme"]
     and "includeSubdomains" in files["readme"]
     and "SecurityHardeningV265Test" in v267_doc
     # The fatal task itself now runs in this workflow, not only inside assembleRelease.
     and ":app:lintVitalRelease" in files["verify"]
     and "Release lint vitals" in files["verify"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_RUNNER_DISK_HEADROOM_V268 — release run #377 died inside
+# :app:stripReleaseDebugSymbols with "No space left on device": that task is the
+# second full copy of ~500 MB of merged native libraries, so it is where a
+# filesystem at its limit refuses a write. The build did not fill it — the
+# ubuntu-latest image (Ubuntu 26.04, 20261026.180.1) ships three NDKs, eighteen
+# Android platforms, eleven .NET SDKs, Homebrew, vcpkg, GHC, Swift, four
+# browsers and four JVMs on the same filesystem, none of it reachable from an
+# Android release build — so the job now takes that space back.
+#
+# The order is the invariant: reclaiming after `Set up JDK 17` or after
+# `Install Android SDK and NDK` would delete the toolchains the job had just
+# installed, and reclaiming after `Prepare all native ABIs` would delete cores
+# it had just built. The native scratch, by contrast, is only dead weight once
+# jniLibs and the bundled assets exist, so it goes just before the Gradle phase.
+# ---------------------------------------------------------------------------
+v268_doc = read("docs/RUNNER_DISK_HEADROOM_V268.md")
+v268_reclaim = read("scripts/reclaim-runner-disk.sh")
+v268_fixture = read("scripts/test-reclaim-runner-disk.sh")
+
+
+def _occurs_before(text: str, first: str, second: str) -> bool:
+    """`first` occurs in `text`, and before `second` does."""
+    return (
+        first in text
+        and second in text
+        and text.index(first) < text.index(second)
+    )
+
+
+check(
+    "the release job reclaims runner disk before it installs any toolchain",
+    "Reclaim runner disk headroom" in files["build"]
+    and "scripts/reclaim-runner-disk.sh" in files["build"]
+    and _occurs_before(files["build"], "scripts/reclaim-runner-disk.sh", "Set up JDK 17")
+    and _occurs_before(files["build"], "scripts/reclaim-runner-disk.sh", "Install Android SDK and NDK")
+    and _occurs_before(files["build"], "scripts/reclaim-runner-disk.sh", "Prepare all native ABIs")
+    and _occurs_before(
+        files["build"],
+        "Bundle verified Iran routing assets",
+        "Release native scratch before the Gradle phase",
+    )
+    and _occurs_before(
+        files["build"],
+        "Release native scratch before the Gradle phase",
+        "Build signed release APKs",
+    )
+    and "go clean -cache" in files["build"]
+    # The platform installed is the one compileSdk names, read from the file
+    # that owns it, because the reclaimer deletes every other platform.
+    and 'sed -n \'s/^[[:space:]]*compileSdk' in files["build"]
+    # A dead release build names its cause in the run itself: #377's step log was
+    # unreachable from every diagnostic environment.
+    and "Diagnose a failed release build" in files["build"]
+    and "No space left on device" in files["build"],
+)
+check(
+    "the reclaimer spares the pins it reads from the build and refuses the rest",
+    "app/build.gradle.kts" in v268_reclaim
+    and "compileSdk" in v268_reclaim
+    and "ndkVersion" in v268_reclaim
+    and "refusing to delete the filesystem root" in v268_reclaim
+    and "refusing a top-level deletion target" in v268_reclaim
+    and "refusing to delete inside the repository" in v268_reclaim
+    and "refusing to delete inside the workspace" in v268_reclaim
+    and "refusing to delete an Android SDK component" in v268_reclaim
+    and "required commands still resolve" in v268_reclaim
+    # The fixture is what proves those refusals without a runner.
+    and "MARBLE_DISK_ROOT" in v268_reclaim
+    and "MARBLE_DISK_ROOT" in v268_fixture
+    and "expect_refusal" in v268_fixture,
+)
+check(
+    "V268 the chapter, the README and the offline fixtures record the pass",
+    "MARBLE_RUNNER_DISK_HEADROOM_V268" in v268_doc
+    and "stripReleaseDebugSymbols" in v268_doc
+    and "No space left on device" in v268_doc
+    and "V268 is the newest chapter: `docs/RUNNER_DISK_HEADROOM_V268.md`" in files["readme"]
+    and "scripts/test-reclaim-runner-disk.sh" in files["verify"]
+    and "Runner disk headroom fixtures" in files["verify"]
+    and "test-reclaim-runner-disk.sh" in v268_doc,
 )
 
 failed = [name for name, passed in checks if not passed]
