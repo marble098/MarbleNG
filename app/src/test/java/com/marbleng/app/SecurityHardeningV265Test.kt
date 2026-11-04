@@ -30,7 +30,7 @@ class SecurityHardeningV265Test {
 
     @Test
     fun mergedManifestDeclaresWakeLock() {
-        val context = RuntimeEnvironment.getApplication<Context>()
+        val context: Context = RuntimeEnvironment.getApplication()
         val info = context.packageManager.getPackageInfo(
             context.packageName,
             PackageManager.GET_PERMISSIONS
