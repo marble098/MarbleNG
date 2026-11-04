@@ -1180,7 +1180,17 @@ class MarbleVpnService : VpnService() {
             "ms" to ((System.nanoTime() - t0) / 1_000_000L), "ok" to tunOk
         )
 
-        runCatching { coreThread.join() }
+        // MARBLE_CORE_JOIN_TIMEOUT_V266 — join() without a timeout can block the caller
+        // forever if launchCore stalls on a path with no internal deadline. Bound it by
+        // the overall connect-startup budget; a still-alive thread is a daemon and the
+        // session check below decides whether its result is still relevant.
+        runCatching { coreThread.join(CONNECT_STARTUP_TIMEOUT_MS) }
+        if (coreThread.isAlive) {
+            diag.event(
+                "VPN", "core-join-timeout", "session" to session,
+                "timeoutMs" to CONNECT_STARTUP_TIMEOUT_MS
+            )
+        }
         if (!isCurrent(session)) {
             coreStop()
             return

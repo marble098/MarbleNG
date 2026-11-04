@@ -4,6 +4,12 @@ name: Source verification
 
 on:
   pull_request:
+  # MARBLE_MAIN_PUSH_VERIFY_V266 — automated workflows (update-cores, update-toolchain)
+  # push straight to main; running the same verification on those pushes closes the gap
+  # where a change landed without ever executing the project's test suite.
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
