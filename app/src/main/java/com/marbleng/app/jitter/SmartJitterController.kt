@@ -126,7 +126,9 @@ class SmartJitterController(
         val switchCooldownMs: Long = SwitchPolicy.DEFAULT_COOLDOWN_MS,
         val minSamples: Int = JitterWindow.DEFAULT_MIN_SAMPLES,
         val jitterTriggerMs: Double = DEFAULT_JITTER_TRIGGER_MS,
-        val probeHost: String = SmartJitterDefaults.PROBE_HOST
+        val probeHost: String = SmartJitterDefaults.PROBE_HOST,
+        val burstSamples: Int = SmartJitterDefaults.BURST_SAMPLES,
+        val burstGapMs: Long = SmartJitterDefaults.BURST_GAP_MS
     ) {
         companion object {
             const val DEFAULT_JITTER_TRIGGER_MS = 25.0
@@ -144,6 +146,14 @@ class SmartJitterController(
     @Volatile private var wake: CompletableDeferred<Unit>? = null
     private var probeChannel: KeepaliveHttpsProbe? = null
     private val started = AtomicBoolean(false)
+
+    /**
+     * MARBLE_SMART_JITTER_REALTIME_V262 — an optional listener invoked with every published
+     * [State] (from [publish], i.e. after every probe tick, every tuning change and close). The
+     * repository attaches one so the home hero and the other live surfaces read the reducer's
+     * jitter in real time instead of only the slower route-probe figure.
+     */
+    @Volatile var onState: ((State) -> Unit)? = null
 
     fun start(host: Host, tuning: Tuning) {
         this.host = host
@@ -224,18 +234,32 @@ class SmartJitterController(
             }
             publish { it.copy(running = true, targetName = currentHost.liveRouteName()) }
 
-            val (rttMs, cold) = probeOnce(port, currentTuning.probeHost)
-            val ok = rttMs > 0.0
-            if (!ok) probeFailures++ else probeFailures = 0
-
+            // MARBLE_SMART_JITTER_REALTIME_V262 — one tick now takes a small burst of warm
+            // keep-alive requests on the same connection instead of a single sample. A lone RTT
+            // per tick feeds the RFC 3550 EWMA exactly one delta per interval, so the jitter
+            // figure lagged the route by a whole probe interval; a burst of [Tuning.burstSamples]
+            // samples a few tens of milliseconds apart gives that many consecutive in-path
+            // deltas per tick, which is what lets the home hero's jitter settle fast and true.
+            val burst = currentTuning.burstSamples.coerceIn(1, MAX_BURST_SAMPLES)
+            var lastRttMs = 0.0
+            var lastCold = false
+            var tickSuccesses = 0
             val snapshot = mutex.withLock {
-                channel(port, currentTuning.probeHost).let { channel ->
+                val channel = channel(port, currentTuning.probeHost)
+                repeat(burst) { index ->
+                    val (rttMs, cold) = channel.probe()
+                    lastRttMs = rttMs
+                    lastCold = cold
                     // A cold sample (fresh connection) still counts as an attempt but stays out
                     // of the statistics — the cold-start rule, applied to our own probe.
+                    val ok = rttMs > 0.0
+                    if (ok) tickSuccesses++
                     channel.add(rttMs = rttMs, ok = ok, cold = cold)
-                    channel.summarize(currentTuning.minSamples)
+                    if (index < burst - 1) delay(currentTuning.burstGapMs.coerceAtLeast(0L))
                 }
+                channel.summarize(currentTuning.minSamples)
             }
+            if (lastRttMs > 0.0) probeFailures = 0 else probeFailures++
             val power = currentHost.powerStatus()
             val triggerMs = currentTuning.jitterTriggerMs *
                 JitterModeProfile.of(currentTuning.mode).triggerScale
@@ -278,7 +302,11 @@ class SmartJitterController(
             }
             currentHost.onEvent(
                 "probe",
-                if (ok) "rtt=${rttMs.toInt()}ms cold=$cold calm=$calmStreak" else "loss"
+                if (lastRttMs > 0.0) {
+                    "rtt=${lastRttMs.toInt()}ms cold=$lastCold burst=$tickSuccesses/$burst calm=$calmStreak"
+                } else {
+                    "loss burst=$tickSuccesses/$burst"
+                }
             )
 
             considerSwitch(score, currentTuning)
@@ -286,11 +314,6 @@ class SmartJitterController(
             waitForNextProbe(nextDelayMs)
         }
     }
-
-    private suspend fun probeOnce(port: Int, probeHost: String): Pair<Double, Boolean> =
-        mutex.withLock {
-            channel(port, probeHost).probe()
-        }
 
     /** The probe channel for the live SOCKS port; rebuilt (cold) whenever port or host change. */
     private fun channel(port: Int, probeHost: String): KeepaliveHttpsProbe {
@@ -300,7 +323,14 @@ class SmartJitterController(
         return KeepaliveHttpsProbe(
             socksPort = port,
             host = probeHost,
-            path = KeepaliveHttpsProbe.DEFAULT_PATH
+            path = KeepaliveHttpsProbe.DEFAULT_PATH,
+            // MARBLE_SMART_JITTER_REALTIME_V262 — the tunnel still dials the configured target
+            // (often a literal anycast IP), but TLS needs a real certificate hostname: the
+            // 2026-11-03 logs showed the jitter probe reporting `loss` on every tick while the
+            // route probe succeeded, because the route probe maps literal IPs to their SNI
+            // names and this channel sent the literal itself ("previous literal HTTPS target
+            // produced zero verified RTTs").
+            tlsHost = SmartJitterDefaults.tlsSniFor(probeHost)
         ).also { probeChannel = it }
     }
 
@@ -361,7 +391,9 @@ class SmartJitterController(
     }
 
     private fun publish(transform: (State) -> State) {
-        stateFlow.value = transform(stateFlow.value)
+        val next = transform(stateFlow.value)
+        stateFlow.value = next
+        runCatching { onState?.invoke(next) }
     }
 
     /** Stops the loop and closes the probe channel; idempotent, safe from any thread. */
@@ -383,6 +415,7 @@ class SmartJitterController(
     companion object {
         const val SERIES_MAX = 60
         const val SWITCH_LOG_MAX = 12
+        const val MAX_BURST_SAMPLES = 8
     }
 }
 
@@ -395,4 +428,36 @@ object SmartJitterDefaults {
     const val SWITCH_IMPROVE_PERCENT = 20
     const val SWITCH_COOLDOWN_SEC = 180
     const val MIN_SAMPLES = 8
+
+    /**
+     * MARBLE_SMART_JITTER_REALTIME_V262 — how many warm keep-alive requests one probe tick
+     * fires, and the gap between them. Three requests ~50 ms apart cost one radio wake and give
+     * the RFC 3550 jitter EWMA three consecutive in-path deltas per tick (the route probe's own
+     * burst is the same shape: 3 samples, 45 ms apart).
+     */
+    const val BURST_SAMPLES = 3
+    const val BURST_GAP_MS = 50L
+
+    /**
+     * The TLS certificate hostname for a probe target. The SOCKS dial still uses the configured
+     * [probeHost] (often a literal anycast IP — dialing the IP keeps the path identical to what
+     * the route probe measures), but the TLS handshake must present a name the server's
+     * certificate actually covers. Sending a literal IP as the SNI/hostname is what made every
+     * jitter-probe tick read as `loss` in the 2026-11-03 logs ("previous literal HTTPS target
+     * produced zero verified RTTs") while the route probe — which maps the same literals through
+     * its own `probeTlsHost` — reported 100% success on the same session.
+     */
+    fun tlsSniFor(probeHost: String): String {
+        var host = probeHost.trim().trim('[', ']').removePrefix("http://").removePrefix("https://")
+            .substringBefore('/')
+        // Strip a trailing :port only for hostname/IPv4 forms — an IPv6 literal has many
+        // colons and must survive intact.
+        if (host.count { it == ':' } == 1) host = host.substringBefore(':')
+        return when (host) {
+            "1.1.1.1", "1.0.0.1" -> "cloudflare-dns.com"
+            "8.8.8.8" -> "dns.google"
+            "9.9.9.9" -> "dns.quad9.net"
+            else -> host.ifBlank { probeHost.trim() }
+        }
+    }
 }
