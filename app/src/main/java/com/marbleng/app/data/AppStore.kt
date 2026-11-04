@@ -16,6 +16,16 @@ import org.json.JSONObject
 class AppStore(context: Context) {
     private val prefs = context.getSharedPreferences("marbleng-store", Context.MODE_PRIVATE)
 
+    /**
+     * MARBLE_STORE_RACE_V265 — one lock for every read-modify-write of the JSON maps kept in
+     * SharedPreferences. The parallel server scanners call [saveServerLocation] /
+     * [saveIpFamilyScan] from a thread pool, and each call is load-all → put-one → save-all;
+     * two interleaved calls lose one writer's record (a classic lost update — a scanned server's
+     * country silently vanishes and gets re-scanned). Serializing the whole read-modify-write
+     * on this lock makes each save atomic against the others.
+     */
+    private val mapStoreLock = Any()
+
     fun createBackup(): String {
         val values = JSONObject()
         prefs.all.forEach { (key, value) ->
@@ -122,25 +132,29 @@ class AppStore(context: Context) {
 
     fun saveServerLocation(key: String, code: String, provisional: Boolean = false) {
         if (key.isBlank() || code.length != 2) return
-        val all = loadServerLocations().toMutableMap()
-        val provisionalFlags = loadServerLocationProvisional().toMutableMap()
-        all[key] = code.uppercase() to System.currentTimeMillis()
-        provisionalFlags[key] = provisional
-        val kept = all.entries
-            .sortedByDescending { it.value.second }
-            .take(serverLocationMemoryLimit)
-            .associate { it.key to it.value }
-        val out = JSONObject()
-        kept.forEach { (k, v) ->
-            out.put(
-                k,
-                JSONObject()
-                    .put("code", v.first)
-                    .put("at", v.second)
-                    .put("provisional", provisionalFlags[k] == true)
-            )
+        // MARBLE_STORE_RACE_V265 — the whole load → put → save is one critical section; the
+        // parallel scanners must not interleave here or one server's location is lost.
+        synchronized(mapStoreLock) {
+            val all = loadServerLocations().toMutableMap()
+            val provisionalFlags = loadServerLocationProvisional().toMutableMap()
+            all[key] = code.uppercase() to System.currentTimeMillis()
+            provisionalFlags[key] = provisional
+            val kept = all.entries
+                .sortedByDescending { it.value.second }
+                .take(serverLocationMemoryLimit)
+                .associate { it.key to it.value }
+            val out = JSONObject()
+            kept.forEach { (k, v) ->
+                out.put(
+                    k,
+                    JSONObject()
+                        .put("code", v.first)
+                        .put("at", v.second)
+                        .put("provisional", provisionalFlags[k] == true)
+                )
+            }
+            prefs.edit().putString("serverLocations", out.toString()).apply()
         }
-        prefs.edit().putString("serverLocations", out.toString()).apply()
     }
 
     fun loadServerLocationProvisional(): Map<String, Boolean> {
@@ -170,9 +184,13 @@ class AppStore(context: Context) {
 
     fun saveIpFamilyScan(scan: IpFamilyScan) {
         if (scan.endpoint.isBlank()) return
-        val all = loadIpFamilyScans().toMutableMap()
-        all[scan.endpoint] = scan
-        saveIpFamilyScans(all)
+        // MARBLE_STORE_RACE_V265 — same lost-update guard as saveServerLocation: the IP-family
+        // scans also run on a parallel pool and each save is a load-all → put-one → save-all.
+        synchronized(mapStoreLock) {
+            val all = loadIpFamilyScans().toMutableMap()
+            all[scan.endpoint] = scan
+            saveIpFamilyScans(all)
+        }
     }
 
     fun saveIpFamilyScans(scans: Map<String, IpFamilyScan>) {

@@ -389,11 +389,17 @@ class MarbleVpnService : VpnService() {
      */
     @Volatile private var probeCalmStreak = 0
 
-    private val routeProbeRacePool by lazy {
-        Executors.newFixedThreadPool(PIVOT_RACE_TARGETS) { runnable ->
-            Thread(runnable, "marble-route-probe").apply { isDaemon = true }
+    // MARBLE_SERVICE_POOL_LIFECYCLE_V265 — held in a nullable instead of `by lazy` so onDestroy
+    // can both ask whether it was ever created and shut it down (a delegated lazy exposes no
+    // isInitialized to the owner).
+    private val routeProbeRacePoolLock = Any()
+    @Volatile private var routeProbeRacePoolInstance: java.util.concurrent.ExecutorService? = null
+    private val routeProbeRacePool: java.util.concurrent.ExecutorService
+        get() = routeProbeRacePoolInstance ?: synchronized(routeProbeRacePoolLock) {
+            routeProbeRacePoolInstance ?: Executors.newFixedThreadPool(PIVOT_RACE_TARGETS) { runnable ->
+                Thread(runnable, "marble-route-probe").apply { isDaemon = true }
+            }.also { routeProbeRacePoolInstance = it }
         }
-    }
 
     @Volatile private var jitterControlActive = false
     @Volatile private var lastJitterOptimizerRequestAt = 0L
@@ -4326,6 +4332,12 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         monitorWorker.shutdownNow()
         controlWorker.shutdownNow()
         connectionWorker.shutdownNow()
+        // MARBLE_SERVICE_POOL_LIFECYCLE_V265 — shut the route-probe race pool down if a pivot
+        // race ever created it. Daemon threads are not a lifecycle: a pool that outlives the
+        // service instance can keep probing into the next session and hold sockets after
+        // onDestroy.
+        routeProbeRacePoolInstance?.shutdownNow()
+        routeProbeRacePoolInstance = null
         // MARBLE_TUN2SOCKS_SHUTDOWN_V223 — last chance for the descriptor: a datapath run that
         // already returned has closed it in [releaseDatapathFd], and one that never returns is
         // left to the process teardown rather than closed under a live dispatcher.
