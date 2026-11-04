@@ -73,7 +73,15 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-**V265 is the newest chapter: `docs/LUMEN_DOCK_V265.md`.** It answers the two reports about the tab
+**V267 is the newest chapter: `docs/LINT_FATAL_LOOPBACK_V267.md`.** It is one attribute, in one
+`<domain>` tag, three times over: the loopback cleartext exception from V265 omitted
+`includeSubdomains`, lint reads that omission as a *fatal* `NetworkSecurityConfig` error, and
+`lintVitalRelease` — which runs inside `assembleRelease` — killed release run #375 after four
+minutes of successful native preparation with no APK to show for it. The attribute is now stated
+`false` on `localhost`, `127.0.0.1` and `::1` (explicitly non-recursive, never `true`), and two
+guards — the release preflight in `scripts/system-integrity-check.py` and
+`SecurityHardeningV265Test` — parse the config so the omission cannot come back.
+`docs/LUMEN_DOCK_V265.md` is the chapter before it: the tab bar's ripple and its drag. It answers the two reports about the tab
 bar itself — "the Material 3 ripple does not follow the shape lines" and "the bottom bar must be
 draggable: a finger should be able to sweep across it" — by clipping every press target to its own
 outline *before* its interaction is added (the row to the capsule's exact `PillOutlineShape`, each
