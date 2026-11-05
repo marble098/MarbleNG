@@ -388,12 +388,14 @@ class NetworkCouncilV236Test {
             it.field == NetworkCouncil.TuningField.FRAGMENT && it.seat == NetworkCouncil.CouncilSeat.PORTS
         }
         assertEquals(FragmentStrategy.RECORD.id, portProposal.value)
-        assertTrue(
-            portProposal.dissent.contains("DPI & censorship wanted auto")
-        )
+        // The completed-handshake seat still wins the field at higher confidence — the loser is
+        // kept as a dissent line on the applied change, not deleted.
         val fragment = change(plan, NetworkCouncil.TuningField.FRAGMENT)
         assertEquals(NetworkCouncil.CouncilSeat.DPI, fragment?.seat)
         assertEquals(FragmentStrategy.AUTO.id, fragment?.value)
+        assertTrue(
+            fragment?.dissent?.contains("Server & firewall wanted record") == true
+        )
     }
 
     @Test
