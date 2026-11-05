@@ -6642,7 +6642,7 @@ check(
     # The published file carries a DECIMAL API level for a minor-versioned
     # platform (AndroidVersion.ApiLevel=37.0); an integer-only reader rejects a
     # good install, which is what the first hosted run of this change did.
-    and "declared_api_matches_MISSING" in v271_installer
+    and "declared_api_matches" in v271_installer
     and "[0-9][0-9]*\\(\\.[0-9][0-9]*\\)" in v271_installer
     and "AndroidVersion.ApiLevel" in v271_installer
     and "android.jar" in v271_installer
