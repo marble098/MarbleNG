@@ -142,7 +142,7 @@ object NotificationRoutePicker {
             val serverWindow = liveSourceServers.take(serverBudget)
             val activeRoute = liveSourceServers.firstOrNull { it.id == currentId }
             val servers = if (activeRoute != null && activeRoute !in serverWindow) {
-                activeRoute + serverWindow.filter { it.id != currentId }
+                listOf(activeRoute) + serverWindow.filter { it.id != currentId }
             } else {
                 serverWindow
             }

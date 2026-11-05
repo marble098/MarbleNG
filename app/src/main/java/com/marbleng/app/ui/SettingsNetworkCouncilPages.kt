@@ -103,7 +103,7 @@ fun SettingsNetworkCouncilPage(
                                 // MARBLE_EXPRESSIVE_WAVE_V272 — the scan's progress, one wave
                                 // that fills exactly this frame: not less than it, not more.
                                 MarbleWaveProgressIndicator(
-                                    progress = repo.councilProgress.coerceIn(0f, 1f),
+                                    progress = { repo.councilProgress.coerceIn(0f, 1f) },
                                     color = colors.primary,
                                     trackColor = colors.surfaceContainer
                                 )

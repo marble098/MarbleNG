@@ -24,12 +24,15 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -361,14 +364,14 @@ internal fun MarbleActionColumn(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun MarbleWaveProgressIndicator(
-    progress: Float,
+    progress: () -> Float,
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
     trackColor: Color = MaterialTheme.colorScheme.surfaceContainer,
     height: Dp = 6.dp
 ) {
     LinearWavyProgressIndicator(
-        progress = { progress.coerceIn(0f, 1f) },
+        progress = { progress().coerceIn(0f, 1f) },
         color = color,
         trackColor = trackColor,
         modifier = modifier.fillMaxWidth().height(height)
