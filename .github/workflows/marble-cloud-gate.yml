@@ -66,8 +66,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          # MARBLE_ANDROID_PLATFORM_DIRECTORY_V271 — the same installer the
+          # release job uses: it reads the compileSdk and ndkVersion pins from
+          # app/build.gradle.kts, resolves the platform package the catalog
+          # publishes (android-37.0, not android-37 — V270) and then locates the
+          # directory sdkmanager actually wrote (V271), instead of this file
+          # naming a platform path itself.
+          bash scripts/install-android-sdk.sh --exec >> "$GITHUB_ENV"
 
       - name: Read the pinned Gradle version
         id: toolchain

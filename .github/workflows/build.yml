@@ -106,108 +106,33 @@ jobs:
           packages: "platform-tools"
         
 
+      # ========================================================================
+      # MARBLE_ANDROID_PLATFORM_DIRECTORY_V271 — the release job installs the
+      # SDK here, and nothing in this file guesses where it landed.
+      #
+      # Release run #380 resolved platforms;android-37.0 correctly, installed it
+      # correctly, and then failed its own verification with "Selected compileSdk
+      # package platforms;android-37.0 is missing android.jar after installation".
+      # The install had worked: the check joined the SDK root to the bare package
+      # name (`$ANDROID_SDK_ROOT/android-37.0`) instead of sdkmanager's
+      # `platforms/android-37.0`, so it could never pass — for any API level, on
+      # any image. Two assumptions in a row (V270: the package ID; #380: the
+      # path) is enough: the platform is now located by reading the filesystem
+      # (non-empty android.jar plus the API level in the directory's own
+      # source.properties) and the directory that passes is what ANDROID_PLATFORM
+      # reports to Gradle. The script prints shell assignments on stdout; all of
+      # its logging, sdkmanager included, goes to stderr.
+      #
+      # Proven offline by scripts/test-android-sdk-install.sh against a fake
+      # sdkmanager (source verification runs it on every pull request).
+      # ========================================================================
+
       - name: Install Android SDK and NDK
         shell: bash
         run: |
           set -euo pipefail
 
-          # sdkmanager closes its input as soon as licenses are accepted. Keep
-          # that expected SIGPIPE from `yes` out of the Actions log.
-          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
-
-          # Read both SDK pins from the Gradle file that owns them. Android's
-          # platform package IDs can now include a minor version (for example
-          # android-37.0), so resolve against SDK Manager's live catalog rather
-          # than constructing a package ID from the API integer.
-          compile_sdk="$(
-            sed -n 's/^[[:space:]]*val[[:space:]]*compileSdkApi[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
-              app/build.gradle.kts | tail -n 1
-          )"
-          ndk_version="$(
-            sed -n 's/^[[:space:]]*ndkVersion[[:space:]]*=[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' \
-              app/build.gradle.kts | tail -n 1
-          )"
-
-          if [[ ! "$compile_sdk" =~ ^[0-9]+$ ]]; then
-            echo "::error::Could not read compileSdk from app/build.gradle.kts."
-            exit 1
-          fi
-          if [[ ! "$ndk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Could not read ndkVersion from app/build.gradle.kts."
-            exit 1
-          fi
-
-          platform_dir=""
-          platform_package=""
-          installed=false
-          sdk_list_file="$RUNNER_TEMP/android-sdk-list.txt"
-          resolver_log="$RUNNER_TEMP/android-platform-resolver.log"
-
-          for attempt in 1 2 3; do
-            if ! sdkmanager --list --channel=3 > "$sdk_list_file" 2>&1; then
-              echo "SDK Manager could not list packages (attempt ${attempt}/3):"
-              cat "$sdk_list_file"
-            elif platform_package="$(python3 scripts/resolve-android-platform.py "$compile_sdk" \
-                < "$sdk_list_file" 2> "$resolver_log")"; then
-              platform_dir="$ANDROID_SDK_ROOT/${platform_package#platforms;}"
-              packages=( 'build-tools;36.0.0' "ndk;${ndk_version}" "$platform_package" )
-              echo "$(cat "$resolver_log")"
-              echo "Installing ${packages[*]}"
-              if sdkmanager --channel=3 "${packages[@]}"; then
-                installed=true
-                break
-              fi
-              echo "SDK package installation failed (attempt ${attempt}/3)."
-            else
-              echo "$(cat "$resolver_log")"
-            fi
-
-            if (( attempt < 3 )); then
-              echo "Refreshing SDK Manager metadata before retry ${attempt}/3."
-              rm -rf "$HOME/.android/cache"
-              sleep $((attempt * 10))
-            fi
-          done
-
-          if [[ "$installed" != true ]]; then
-            echo "::error::Could not install build-tools 36.0.0, NDK ${ndk_version}, and the stable compileSdk ${compile_sdk} platform after three attempts."
-            echo "SDK Manager platform packages reported by the last catalog listing:"
-            if [[ -s "$sdk_list_file" ]]; then
-              grep -E '^[[:space:]]*platforms;android-[^[:space:]|]+[[:space:]]*\|' "$sdk_list_file" \
-                | sed 's/^[[:space:]]*/  /' || echo "  (none listed)"
-            else
-              echo "  (sdkmanager --list produced no catalog output)"
-            fi
-            echo "Installed platform directories on the runner:"
-            if [[ -d "$ANDROID_SDK_ROOT/platforms" ]]; then
-              find "$ANDROID_SDK_ROOT/platforms" -mindepth 1 -maxdepth 1 -type d -printf '  %f\n' \
-                | sort || true
-            else
-              echo "  (none)"
-            fi
-            exit 1
-          fi
-
-          if [[ ! -s "$platform_dir/android.jar" ]]; then
-            echo "::error::Selected compileSdk package ${platform_package} is missing android.jar after installation."
-            exit 1
-          fi
-
-          # Gradle consumes the same resolved package ID. Its API number is the
-          # compileSdk pin, while the package's minor suffix selects the exact
-          # installed platform directory.
-          printf 'ANDROID_PLATFORM=%s\n' "${platform_package#platforms;}" >> "$GITHUB_ENV"
-
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${ndk_version}" \
-            >> "$GITHUB_ENV"
-
-          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${ndk_version}" \
-            >> "$GITHUB_ENV"
-
-          # The image may point this at an NDK the reclaimer deleted; always
-          # redirect consumers to the exact Gradle-pinned version installed above.
-          echo "ANDROID_NDK_LATEST_HOME=$ANDROID_SDK_ROOT/ndk/${ndk_version}" \
-            >> "$GITHUB_ENV"
+          bash scripts/install-android-sdk.sh --exec >> "$GITHUB_ENV"
 
       # ========================================================================
       # Determine Go version directly from pinned Xray

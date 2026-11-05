@@ -33,8 +33,21 @@ def workflow(name: str) -> str:
     """
     return read(f".github/workflows/{name}")
 
+def _code_mentions(text: str, needle: str) -> bool:
+    """`needle` occurs in a shell/YAML line that is not a comment."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if needle in line:
+            return True
+    return False
+
+
 files = {
     "buildWorkflow": read(".github/workflows/build.yml"),
+    # MARBLE_ANDROID_PLATFORM_DIRECTORY_V271 — the one SDK installer every job runs.
+    "androidSdk": read("scripts/install-android-sdk.sh"),
     "main": read("app/src/main/java/com/marbleng/app/MainActivity.kt"),
     "permissions": read("app/src/main/java/com/marbleng/app/ui/MarblePermissionOnboarding.kt"),
     "app": read("app/src/main/java/com/marbleng/app/MarbleApplication.kt"),
@@ -6535,12 +6548,16 @@ check(
     # Both SDK pins are read from the Gradle file that owns them; SDK Manager's
     # live listing selects a stable platform package, retries with fresh metadata
     # and verifies android.jar before handing the selection to Gradle.
-    and 'sed -n \'s/^[[:space:]]*val[[:space:]]*compileSdkApi' in files["build"]
-    and 'sed -n \'s/^[[:space:]]*ndkVersion' in files["build"]
-    and 'sdkmanager --channel=3 "${packages[@]}"' in files["build"]
-    and 'for attempt in 1 2 3' in files["build"]
-    and 'rm -rf "$HOME/.android/cache"' in files["build"]
-    and '-s "$platform_dir/android.jar"' in files["build"]
+    # MARBLE_ANDROID_PLATFORM_DIRECTORY_V271 — those pins, the catalog retries and
+    # the android.jar verification now live in scripts/install-android-sdk.sh, so
+    # the release job cannot grow a second, divergent copy of them.
+    and 'bash scripts/install-android-sdk.sh --exec' in files["build"]
+    and 'sed -n \'s/^[[:space:]]*val[[:space:]]*compileSdkApi' in files["androidSdk"]
+    and 'sed -n \'s/^[[:space:]]*ndkVersion' in files["androidSdk"]
+    and '--channel=3 "${packages[@]}"' in files["androidSdk"]
+    and 'for attempt in 1 2 3' in files["androidSdk"]
+    and 'rm -rf "$HOME/.android/cache"' in files["androidSdk"]
+    and '-s "$dir/android.jar"' in files["androidSdk"]
     # A dead release build names its cause in the run itself: #377's step log was
     # unreachable from every diagnostic environment.
     and "Diagnose a failed release build" in files["build"]
@@ -6587,16 +6604,88 @@ check(
     and "ndkVersion" in v269_doc
     and "MARBLE_ANDROID_SDK_MINOR_PLATFORM_V270" in v270_doc
     and "android-37.0" in v270_doc
-    and "sdkmanager --list --channel=3" in files["build"]
+    and "--list --channel=3" in files["androidSdk"]
     and "ANDROID_PLATFORM" in files["build"]
     and "stable_candidates" in v270_resolver
     and "platforms;android-37.0" in v270_fixture
     and "ANDROID_PLATFORM" in files["gradle"]
     and "compileSdk = resolvedCompileSdk" in files["gradle"]
-    and "V270 is the newest chapter: `docs/ANDROID_SDK_MINOR_PLATFORM_V270.md`" in files["readme"]
     and "Android SDK platform resolver fixtures" in files["verify"]
     and "scripts/test-android-sdk-platform-resolver.sh" in files["verify"]
     and "android.jar" in files["build"],
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_ANDROID_PLATFORM_DIRECTORY_V271 — release run #380 installed
+# platforms;android-37.0 and then failed its own verification: the path was
+# assembled as "$ANDROID_SDK_ROOT/${platform_package#platforms;}", which is
+# $ANDROID_SDK_ROOT/android-37.0, while sdkmanager writes
+# $ANDROID_SDK_ROOT/platforms/android-37.0. The download was fine; the check
+# could never pass. V270 fixed which package ID to ask for; this fixes where the
+# answer lands: the platform is located by reading the filesystem (a non-empty
+# android.jar plus the API level in the directory's own source.properties) and
+# the directory that passes is what ANDROID_PLATFORM reports to Gradle. Nothing
+# joins a package ID onto a path any more — not here, not in the release job.
+# ---------------------------------------------------------------------------
+v271_doc = read("docs/ANDROID_PLATFORM_DIRECTORY_V271.md")
+v271_installer = read("scripts/install-android-sdk.sh")
+v271_fixture = read("scripts/test-android-sdk-install.sh")
+
+check(
+    "V271 the Android platform is located by evidence, never joined from a package ID",
+    # The installer reads the pins from the file that owns them.
+    "app/build.gradle.kts" in v271_installer
+    and "compileSdkApi" in v271_installer
+    and "ndkVersion" in v271_installer
+    # It asks the filesystem instead of assuming a layout.
+    and "source.properties" in v271_installer
+    # The published file carries a DECIMAL API level for a minor-versioned
+    # platform (AndroidVersion.ApiLevel=37.0); an integer-only reader rejects a
+    # good install, which is what the first hosted run of this change did.
+    and "declared_api_matches" in v271_installer
+    and "[0-9][0-9]*\\(\\.[0-9][0-9]*\\)" in v271_installer
+    and "AndroidVersion.ApiLevel" in v271_installer
+    and "android.jar" in v271_installer
+    and "basename -- \"$platform_dir\"" in v271_installer
+    # Gradle's naming rule: android-<api> or android-<api>.<minor>, nothing else.
+    and "android-${api}\\.([0-9]+)$" in v271_installer
+    # A directory AGP cannot resolve is refused with its reason, not accepted.
+    and "cannot be used: AGP looks for platforms/android-" in v271_installer
+    # stdout is the eval contract, so sdkmanager never writes to it.
+    and "--channel=3 \"${packages[@]}\" >&2" in v271_installer
+    # The release job delegates, and no longer names a platform path or package.
+    and "bash scripts/install-android-sdk.sh --exec" in files["build"]
+    and "${platform_package#platforms;}" not in files["build"]
+    and "platform_dir=\"$ANDROID_SDK_ROOT" not in files["build"]
+    and not _code_mentions(files["build"], "platforms;")
+    # Every other job that compiles the app installs the same way.
+    and "bash scripts/install-android-sdk.sh --exec" in files["verify"]
+    and "bash scripts/install-android-sdk.sh --exec" in workflow("marble-cloud-gate.yml")
+    and "bash scripts/install-android-sdk.sh --exec" in workflow("update-toolchain.yml"),
+)
+check(
+    "V271 the offline fixtures prove the layout, the landing minor and the refusals",
+    "sdkmanager" in v271_fixture
+    and "platforms/android-37.0" in v271_fixture
+    and "the bug is back" in v271_fixture
+    and 'fail "stdout carried something that is not an assignment' in v271_fixture
+    and "other-minor" in v271_fixture
+    and "misplaced" in v271_fixture
+    # The fixtures write the file the way Google publishes it, decimal and all.
+    and "AndroidVersion.ApiLevel=%s.0" in v271_fixture
+    and "scripts/test-android-sdk-install.sh" in files["verify"]
+    and "Android SDK install fixtures" in files["verify"]
+    and "--self-test" in v271_installer,
+)
+check(
+    "V271 the chapter and the README record the resolution",
+    "MARBLE_ANDROID_PLATFORM_DIRECTORY_V271" in v271_doc
+    and "platforms/android-37.0" in v271_doc
+    and "#380" in v271_doc
+    and "source.properties" in v271_doc
+    and "V271 is the newest chapter: `docs/ANDROID_PLATFORM_DIRECTORY_V271.md`"
+    in files["readme"]
+    and "scripts/test-android-sdk-install.sh" in v271_doc,
 )
 
 failed = [name for name, passed in checks if not passed]
