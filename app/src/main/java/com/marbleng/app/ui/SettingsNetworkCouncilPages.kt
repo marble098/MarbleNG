@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -101,21 +100,13 @@ fun SettingsNetworkCouncilPage(
 
                         if (running) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(colors.surfaceContainer)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth(repo.councilProgress.coerceIn(0f, 1f))
-                                            .height(6.dp)
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(colors.primary)
-                                    )
-                                }
+                                // MARBLE_EXPRESSIVE_WAVE_V272 — the scan's progress, one wave
+                                // that fills exactly this frame: not less than it, not more.
+                                MarbleWaveProgressIndicator(
+                                    progress = { repo.councilProgress.coerceIn(0f, 1f) },
+                                    color = colors.primary,
+                                    trackColor = colors.surfaceContainer
+                                )
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,

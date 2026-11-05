@@ -2789,6 +2789,17 @@ private val FaLexicon: Map<String, String> = mapOf(
     "The TLS handshake completed cleanly" to "دست‌دهی TLS پاک و کامل شد",
     "Network council could not finish: " to "شورای شبکه نتوانست کارش را تمام کند: ",
     "Network council found nothing to change" to "شورای شبکه چیزی برای تغییر پیدا نکرد",
+    "Captive portal controls the link" to "یک صفحهٔ ورودی (کپتیو پورتال) مالک لینک است",
+    "A portal page owns this link and no request reaches the internet until it is opened in a browser and accepted. No tunnel knob can fix that, so the scan stays small on purpose and no protection is bought for a link the portal can still rewrite." to "یک صفحهٔ ورودی (کپتیو پورتال) مالک این لینک است و هرگز درخواستی به اینترنت نمی‌رسد تا آن صفحه در مرورگر باز و تایید شود. هیچ تنظیم تونلی نمی‌تواند آن را برطرف کند، بنابراین اسکن کوچک می‌ماند و برای این لینک هیچ محافظتی خریداری نمی‌شود.",
+    "Every HTTPS target answered" to "هر هدف HTTPS پاسخ داد",
+    "No HTTPS target answered" to "هیچ‌یک از هدف‌های HTTPS پاسخ نداد",
+    "TCP 443 answers but TLS over it does not" to "TCP 443 پاسخ می‌دهد اما TLS روی آن نه",
+    "The port is open and the handshake to it is not: something in the middle is reading SNI and resetting the connection." to "پورت باز است ولی دست‌دهی به آن نه: چیزی در میانه SNI را می‌خواند و اتصال را ریست می‌کند.",
+    "Resolvers disagree on the same names" to "ریزولورها برای یک نام پاسخ‌های متفاوت می‌دهند",
+    "Two honest resolvers do not give different answers for one name; something is rewriting responses." to "دو ریزولور صادق برای یک نام پاسخ متفاوت نمی‌دهند؛ چیزی پاسخ‌ها را بازنویسی می‌کند.",
+    "SNI interference suspected" to "احتمال تداخل در SNI",
+    "TCP 443 answers but the TLS handshake does not complete: a middlebox is inspecting the ClientHello and resetting what it does not like." to "TCP 443 پاسخ می‌دهد اما دستهٔ TLS کامل نمی‌شود: یک لایه میانی ClientHello را بازرسی می‌کند و آنچه را نمی‌پذیرد ریست می‌کند.",
+    "interference detected on this link: the cores run the stealth workload" to "تداخل روی این لینک شناسایی شد: هسته‌ها بار کار مخفیانه را اجرا می‌کنند",
 
     // MARBLE_NETWORK_COUNCIL_V236 — the twelve-expert scanner speaks Persian too: its chrome,
     // its twelve seats, every knob it may write, and the verdicts those seats reach.

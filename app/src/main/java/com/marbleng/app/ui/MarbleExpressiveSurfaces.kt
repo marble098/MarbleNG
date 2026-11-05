@@ -24,12 +24,15 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -342,6 +345,37 @@ internal fun MarbleActionColumn(
     ) {
         content()
     }
+}
+
+/**
+ * MARBLE_EXPRESSIVE_WAVE_V272 — Google's Material 3 Expressive wavy progress indicator, bound
+ * exactly to the frame it is given.
+ *
+ * The Expressive wave is a loading rhythm, not a measurement the reader can misread. It fills
+ * the width the caller gave it, edge to edge, at the fixed thickness the caller asked for: it
+ * never paints outside its bounds and it never leaves the container half empty — **not less
+ * than the frame, not more than the frame**. Every loading rail in the app draws through this
+ * one composable so a probe sweep, a council scan and every future loader share one wave and
+ * one bound contract.
+ *
+ * @param progress 0..1 — clamped; 0 is an empty track and 1 is a full one.
+ * @param height the fixed thickness of the track; the wave stays inside it.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun MarbleWaveProgressIndicator(
+    progress: () -> Float,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+    trackColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    height: Dp = 6.dp
+) {
+    LinearWavyProgressIndicator(
+        progress = { progress().coerceIn(0f, 1f) },
+        color = color,
+        trackColor = trackColor,
+        modifier = modifier.fillMaxWidth().height(height)
+    )
 }
 
 /**

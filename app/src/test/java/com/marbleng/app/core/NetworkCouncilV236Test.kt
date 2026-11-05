@@ -332,6 +332,126 @@ class NetworkCouncilV236Test {
     }
 
     // ---------------------------------------------------------------------------------------
+    // Filtering detection: what the path is actually doing to TLS and names
+    // ---------------------------------------------------------------------------------------
+
+    @Test
+    fun aCaptivePortalMakesTheLinkCritical() {
+        val evidence = healthyEvidence().copy(
+            radio = healthyEvidence().radio.copy(captivePortal = true)
+        )
+        val plan = NetworkCouncil.deliberate(evidence, AppSettings())
+
+        assertTrue(plan.critical)
+        assertEquals(
+            NetworkCouncil.CouncilSeverity.CRITICAL,
+            plan.seatVerdicts.getValue(NetworkCouncil.CouncilSeat.RADIO)
+        )
+        assertTrue(
+            plan.findings.any {
+                it.seat == NetworkCouncil.CouncilSeat.RADIO &&
+                    it.severity == NetworkCouncil.CouncilSeverity.CRITICAL
+            }
+        )
+    }
+
+    @Test
+    fun tcp443WithoutTlsIsFilteringEvenWhenThePortAnswers() {
+        val evidence = healthyEvidence().copy(
+            latency = NetworkCouncil.LatencyEvidence(
+                samplesMs = listOf(200, 210, 220),
+                attempts = 3,
+                failures = 0,
+                targets = "1.1.1.1"
+            ),
+            ports = listOf(
+                NetworkCouncil.PortEvidence("1.1.1.1", 443, NetworkCouncil.PortProtocol.TCP, open = true, latencyMs = 40),
+                NetworkCouncil.PortEvidence("1.1.1.1", 80, NetworkCouncil.PortProtocol.TCP, open = true, latencyMs = 42)
+            ),
+            httpsTargets = listOf(
+                NetworkCouncil.HttpsProbe("1.1.1.1", 443, reachable = false, latencyMs = 0)
+            )
+        )
+        // The user's settings already ask for full fragmentation; the clean handshake seat wins
+        // the field back to automatic and the port seat's record request is quoted as dissent.
+        val plan = NetworkCouncil.deliberate(evidence, AppSettings(fragmentStrategy = FragmentStrategy.FULL.id))
+
+        assertTrue(plan.critical)
+        assertEquals(
+            NetworkCouncil.CouncilSeverity.CRITICAL,
+            plan.seatVerdicts.getValue(NetworkCouncil.CouncilSeat.PORTS)
+        )
+        assertEquals(1, plan.metrics.httpsProbed)
+        assertEquals(0, plan.metrics.httpsOk)
+        // The port answers but TLS dies: the port seat asks for record-level splitting (66). The
+        // completed-handshake DPI seat still wins the field at higher confidence (96, AUTO) —
+        // the loser is kept as a dissent line on the applied change, not deleted.
+        val fragment = change(plan, NetworkCouncil.TuningField.FRAGMENT)
+        assertEquals(NetworkCouncil.CouncilSeat.DPI, fragment?.seat)
+        assertEquals(FragmentStrategy.AUTO.id, fragment?.value)
+        assertTrue(
+            fragment?.dissent?.contains("Ports & firewall wanted record") == true
+        )
+    }
+
+    @Test
+    fun dnsResolversDisagreeingOnTheSameNameIsASuspectedHijack() {
+        val evidence = healthyEvidence().copy(
+            dns = listOf(
+                NetworkCouncil.DnsEvidence("1.1.1.1", answered = true, latencyMs = 12, rcode = 0, answer = "104.16.132.229"),
+                NetworkCouncil.DnsEvidence("8.8.8.8", answered = true, latencyMs = 24, rcode = 0, answer = "10.10.34.36")
+            )
+        )
+        val plan = NetworkCouncil.deliberate(evidence, AppSettings())
+
+        assertEquals(
+            NetworkCouncil.CouncilSeverity.WARNING,
+            plan.seatVerdicts.getValue(NetworkCouncil.CouncilSeat.DNS)
+        )
+        // Both guards are proposed by the DNS seat even though the settings already default to
+        // on, so nothing is written: the evidence lives in the proposals, not in a change.
+        assertTrue(
+            plan.proposals.any {
+                it.field == NetworkCouncil.TuningField.DNS_HIJACK &&
+                    it.seat == NetworkCouncil.CouncilSeat.DNS &&
+                    it.value == "true"
+            }
+        )
+        assertTrue(
+            plan.proposals.any {
+                it.field == NetworkCouncil.TuningField.DNS_FAKE_IP &&
+                    it.seat == NetworkCouncil.CouncilSeat.DNS &&
+                    it.value == "true"
+            }
+        )
+    }
+
+    @Test
+    fun sniSuspicionDemotesTheCoresAndHoldsMuxBack() {
+        val evidence = healthyEvidence().copy(
+            latency = NetworkCouncil.LatencyEvidence(
+                samplesMs = listOf(200, 210, 220),
+                attempts = 3,
+                failures = 0,
+                targets = "1.1.1.1"
+            ),
+            sniSuspicion = true
+        )
+        val plan = NetworkCouncil.deliberate(evidence, AppSettings())
+
+        assertEquals(WorkloadProfile.STEALTH, plan.settings.workloadProfile)
+        assertFalse(plan.settings.muxEnabled)
+        assertEquals(
+            NetworkCouncil.CouncilSeverity.WARNING,
+            plan.seatVerdicts.getValue(NetworkCouncil.CouncilSeat.DPI)
+        )
+        assertEquals(
+            NetworkCouncil.CouncilSeverity.WARNING,
+            plan.seatVerdicts.getValue(NetworkCouncil.CouncilSeat.CORE)
+        )
+    }
+
+    // ---------------------------------------------------------------------------------------
     // The cores and the device
     // ---------------------------------------------------------------------------------------
 

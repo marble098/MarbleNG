@@ -18,6 +18,12 @@ import com.marbleng.app.model.ShadeControlDefaults
  *  - rows beyond [cap] are dropped, never ellipsized into unreadable slivers;
  *  - the output carries no Android type: `PickerRow` + an action id is everything the
  *    RemoteViews builder needs, and the host-JVM test pins every rule.
+ *
+ * The honest form of this control is the studio: two floors, a page, and the measured ping of
+ * every row, because a fixed nine-row cap that spends half its height on jump rows hides the
+ * library it is supposed to expose. The list below is the bounded shape some readers asked for,
+ * and its budget now keeps the live route visible instead of dropping it when the library is
+ * deep; everything that still does not fit is paged in the studio, never cut.
  */
 /**
  * MARBLE_SHADE_STUDIO_V249 — which floor of the library the shade is standing on.
@@ -111,7 +117,18 @@ object NotificationRoutePicker {
         val liveSourceServers = routes.filter { it.sourceId == currentSource }
         val otherSources = NotificationRouteCycle.sources(routes).filter { it != currentSource }
 
-        var serverBudget = cap - otherSources.size.coerceAtMost(cap / 2) - 2
+        // MARBLE_NOTIFICATION_PICKER_V238 — an honest row budget. The old one had a fixed cap of
+        // nine rows, spent half of them on jump rows, and cut the live subscription's servers off
+        // at whatever was left: a library of forty servers showed four of them, and the row that
+        // disappeared could be the one the user wants — "switch to this server" meant nothing if
+        // the server in question was not among the first few. The studio (two floors, paging, a
+        // measured ping on every row) is the shape that keeps a library of any depth reachable;
+        // this list stays the short bounded alternative for readers who want the smaller item, and
+        // its budget now keeps the live route visible and limits jump rows to a third of the item
+        // instead of half of it. Rows that still do not fit are paged in the studio, never dropped
+        // into an unreadable sliver.
+        val jumpBudget = (cap / 3).coerceAtMost(otherSources.size)
+        var serverBudget = cap - jumpBudget - 2
         serverBudget = serverBudget.coerceIn(MIN_SERVER_ROWS, cap - 2)
 
         if (liveSourceServers.isNotEmpty()) {
@@ -120,7 +137,16 @@ object NotificationRoutePicker {
                 label = NotificationRouteCycle.sourceName(routes, currentSource),
                 actionId = ""
             )
-            liveSourceServers.take(serverBudget).forEach { route ->
+            // The live row is guaranteed a seat: if the budget window left it behind it is pulled
+            // in, because a shade control must be able to reach the route that is actually live.
+            val serverWindow = liveSourceServers.take(serverBudget)
+            val activeRoute = liveSourceServers.firstOrNull { it.id == currentId }
+            val servers = if (activeRoute != null && activeRoute !in serverWindow) {
+                listOf(activeRoute) + serverWindow.filter { it.id != currentId }
+            } else {
+                serverWindow
+            }
+            servers.forEach { route ->
                 rows += PickerRow(
                     kind = RowKind.SERVER,
                     label = route.name,
@@ -132,7 +158,7 @@ object NotificationRoutePicker {
             }
         }
 
-        otherSources.take(cap - rows.size - 1).forEach { sourceId ->
+        otherSources.take(jumpBudget).forEach { sourceId ->
             val representative = routes.firstOrNull { it.sourceId == sourceId } ?: return@forEach
             rows += PickerRow(
                 kind = RowKind.SUBSCRIPTION,

@@ -39,7 +39,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -213,6 +212,9 @@ fun ServersScreen(
     }
 
     val benchmarks = repo.benchmarks.associateBy { it.profileId }
+    // One clock for every plan line on this page so a subscription's quota and its remaining
+    // days are read against the same instant.
+    val nowMs = remember { System.currentTimeMillis() }
     val filter = ServersFilter(
         query = searchQuery,
         protocol = settings.serversProtocolFilter,
@@ -585,7 +587,9 @@ fun ServersScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 contentAlignment = Alignment.Center
                             ) {
-                                LinearWavyProgressIndicator(
+                                // MARBLE_EXPRESSIVE_WAVE_V272 — one wave, exactly this frame:
+                                // not less than it, not more than it.
+                                MarbleWaveProgressIndicator(
                                     progress = { done.toFloat() / total.toFloat() },
                                     color = colors.success,
                                     trackColor = colors.surfaceContainer
@@ -683,7 +687,8 @@ fun ServersScreen(
                                             editSubUrl = sub.url
                                         }
                                         openGroupEditor
-                                    }
+                                    },
+                                    nowMs = nowMs
                                 )
                             }
                         }
@@ -1155,6 +1160,13 @@ private fun SelectionBar(
  * tail, and one 44dp overflow — inside a 48dp touch target, so folding a section is no longer a
  * precision gesture.
  */
+/**
+ * MARBLE_SERVER_PLAN_CARDS_V260 — the group header is the only place a subscription's own plan
+ * is read on the Servers page, and until now it said nothing about the plan: a reader looking at
+ * the list of subs could not see how much of the quota was spent or when the sub stops, and had
+ * to open the sources sheet to learn either fact. The header now draws both beside the node
+ * count, so the list answers the two questions a paid subscription is judged by at a glance.
+ */
 @Composable
 internal fun ServerGroupHeader(
     bucket: ServerGroupBucket,
@@ -1166,13 +1178,16 @@ internal fun ServerGroupHeader(
     onToggleCollapse: () -> Unit,
     onRefresh: () -> Unit,
     onPing: () -> Unit,
-    onEdit: (() -> Unit)?
+    onEdit: (() -> Unit)?,
+    /** The instant the plan plate measures its expiry against. */
+    nowMs: Long = System.currentTimeMillis()
 ) {
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
     val sub = bucket.subscription
     val freshness = sub?.updatedAt?.takeIf { it > 0L }?.let { trx(relativeTimeLabel(it)) }
     val stateLabel = if (collapsed) trx("Collapsed") else trx("Expanded")
+    val plan = planOf(sub, nowMs)
 
     // MARBLE_EXPRESSIVE_BENTO_V250 — the overflow lives in a reserved trailing column.
     // Title, count and freshness share one flexible leading block, so a long subscription
@@ -1231,6 +1246,36 @@ internal fun ServerGroupHeader(
                             text = freshness,
                             color = colors.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
+                }
+            }
+
+            // The plan line: how much of the ceiling is spent, and how many days are left.
+            if (!plan.isEmpty) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = faDigits(PlanStatus.quotaPairLabel(plan.usedBytes, plan.totalBytes)),
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (plan.hasExpiry) {
+                        Text(
+                            text =
+                                "${trx(if (plan.expired) "Expired" else "Expires")} · ${faDigits(PlanStatus.expiryLabel(plan.remainingDays))}",
+                            color = planToneColor(plan.tone),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold
+                            ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
@@ -1502,18 +1547,20 @@ private fun ServerFlagTile(
     }
 }
 
-/** One library's quiet second line: how many servers, and what the plan is doing. */
+/** One library's quiet second line: how many servers, what the plan spent, and when it stops. */
 @Composable
-private fun libraryCardSubtitle(card: ServersLibraryCard): String {
+private fun libraryCardSubtitle(card: ServersLibraryCard, nowMs: Long): String {
     val strings = Tr.now
     val parts = mutableListOf("${faDigits("${card.count}")} ${strings.serversUnit}")
     card.subscription?.let { sub ->
-        when {
-            sub.totalBytes > 0L ->
-                parts += "${formatBytes(sub.uploadBytes + sub.downloadBytes)} / " +
-                    formatBytes(sub.totalBytes)
-
-            sub.updatedAt > 0L -> parts += trx(relativeTimeLabel(sub.updatedAt))
+        val plan = planOf(sub, nowMs)
+        if (plan.hasQuota) {
+            parts += "${formatBytes(sub.uploadBytes + sub.downloadBytes)} / ${formatBytes(sub.totalBytes)}"
+        }
+        if (plan.hasExpiry) {
+            parts += "${trx(if (plan.expired) "Expired" else "Expires")} · ${faDigits(PlanStatus.expiryLabel(plan.remainingDays))}"
+        } else if (sub.updatedAt > 0L) {
+            parts += trx(relativeTimeLabel(sub.updatedAt))
         }
     }
     return parts.joinToString(" · ")
@@ -1648,7 +1695,7 @@ internal fun SourceLibraryCard(
     )
     val titleColor = if (selected) colors.onPrimaryContainer else colors.onSurface
     val metaColor = if (selected) colors.onPrimaryContainer.copy(alpha = 0.78f) else colors.onSurfaceVariant
-    val subtitle = libraryCardSubtitle(card)
+    val subtitle = libraryCardSubtitle(card, nowMs)
     val plan = planOf(card.subscription, nowMs)
 
     // One sentence for the screen reader, so the plate is not four unlabelled numbers. Read here, in
