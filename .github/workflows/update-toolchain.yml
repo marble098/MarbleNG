@@ -79,8 +79,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          # MARBLE_ANDROID_PLATFORM_DIRECTORY_V271 — the autopilot proves a toolchain
+          # by compiling the app, so it needs the same platform the release build
+          # compiles against. The shared installer reads the compileSdk and NDK pins
+          # from app/build.gradle.kts, resolves the catalog package (V270) and
+          # locates the installed directory (V271).
+          bash scripts/install-android-sdk.sh --exec >> "$GITHUB_ENV"
 
       - name: Read the pinned Gradle version
         if: steps.moved.outputs.moved == 'yes'

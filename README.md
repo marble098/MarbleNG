@@ -73,7 +73,18 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-**V270 is the newest chapter: `docs/ANDROID_SDK_MINOR_PLATFORM_V270.md`.** Release run #379
+**V271 is the newest chapter: `docs/ANDROID_PLATFORM_DIRECTORY_V271.md`.** Release run #380
+installed `platforms;android-37.0` and then failed its own check with "missing android.jar after
+installation": the path was assembled as `$ANDROID_SDK_ROOT/${package#platforms;}`, which is
+`$ANDROID_SDK_ROOT/android-37.0`, one directory above where `sdkmanager` writes it. The SDK step is
+now one script — `scripts/install-android-sdk.sh` — that every job which compiles the app runs; it
+locates the platform by evidence (a non-empty `android.jar`, the API level in the directory's own
+`source.properties`, and a name Gradle accepts, `android-<api>[.<minor>]`), reports the substituted
+minor when the install landed on another one, refuses an inconsistent location with its reason, and
+exports the directory that passed. Offline fixtures drive the installer against a fake `sdkmanager`
+on every pull request.
+
+**V270: `docs/ANDROID_SDK_MINOR_PLATFORM_V270.md`.** Release run #379
 failed because the workflow constructed `platforms;android-37`, while the SDK catalog may publish
 stable API 37 under a minor-version package name. The installer now resolves the platform from
 `sdkmanager --list`, prefers `android-37.0`, otherwise selects the highest stable numeric `37.x`
