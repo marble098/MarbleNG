@@ -6532,15 +6532,15 @@ check(
         "Build signed release APKs",
     )
     and "go clean -cache" in files["build"]
-    # Both SDK pins are read from the Gradle file that owns them; a preinstalled
-    # exact platform is reused, otherwise SDK Manager searches preview-inclusive
-    # channels, retries with fresh metadata and verifies android.jar.
-    and 'sed -n \'s/^[[:space:]]*compileSdk' in files["build"]
+    # Both SDK pins are read from the Gradle file that owns them; SDK Manager's
+    # live listing selects a stable platform package, retries with fresh metadata
+    # and verifies android.jar before handing the selection to Gradle.
+    and 'sed -n \'s/^[[:space:]]*val[[:space:]]*compileSdkApi' in files["build"]
     and 'sed -n \'s/^[[:space:]]*ndkVersion' in files["build"]
     and 'sdkmanager --channel=3 "${packages[@]}"' in files["build"]
     and 'for attempt in 1 2 3' in files["build"]
     and 'rm -rf "$HOME/.android/cache"' in files["build"]
-    and '[[ -s "$platform_dir/android.jar" ]]' in files["build"]
+    and '-s "$platform_dir/android.jar"' in files["build"]
     # A dead release build names its cause in the run itself: #377's step log was
     # unreachable from every diagnostic environment.
     and "Diagnose a failed release build" in files["build"]
@@ -6556,10 +6556,12 @@ check(
     and "refusing to delete inside the repository" in v268_reclaim
     and "refusing to delete inside the workspace" in v268_reclaim
     and "refusing to delete an Android SDK component" in v268_reclaim
+    and "android-${COMPILE_SDK}(\\.[0-9]+)?" in v268_reclaim
     and "required commands still resolve" in v268_reclaim
     # The fixture is what proves those refusals without a runner.
     and "MARBLE_DISK_ROOT" in v268_reclaim
     and "MARBLE_DISK_ROOT" in v268_fixture
+    and '"usr/local/lib/android/sdk/platforms/android-$COMPILE_SDK.0"' in v268_fixture
     and "expect_refusal" in v268_fixture,
 )
 check(
@@ -6574,14 +6576,26 @@ check(
 )
 
 v269_doc = read("docs/ANDROID_SDK_RESOLUTION_V269.md")
+v270_doc = read("docs/ANDROID_SDK_MINOR_PLATFORM_V270.md")
+v270_resolver = read("scripts/resolve-android-platform.py")
+v270_fixture = read("scripts/test-android-sdk-platform-resolver.sh")
 check(
-    "V269 resolves Android SDK pins robustly and records the release failure",
+    "V269/V270 resolve stable Android SDK packages and record the release failure",
     "MARBLE_ANDROID_SDK_RESOLUTION_V269" in v269_doc
     and "platforms;android-37" in v269_doc
     and "three attempts" in v269_doc
     and "ndkVersion" in v269_doc
-    and "V269 is the newest chapter: `docs/ANDROID_SDK_RESOLUTION_V269.md`" in files["readme"]
-    and "sdkmanager --channel=3" in files["build"]
+    and "MARBLE_ANDROID_SDK_MINOR_PLATFORM_V270" in v270_doc
+    and "android-37.0" in v270_doc
+    and "sdkmanager --list --channel=3" in files["build"]
+    and "ANDROID_PLATFORM" in files["build"]
+    and "stable_candidates" in v270_resolver
+    and "platforms;android-37.0" in v270_fixture
+    and "ANDROID_PLATFORM" in files["gradle"]
+    and "compileSdk = resolvedCompileSdk" in files["gradle"]
+    and "V270 is the newest chapter: `docs/ANDROID_SDK_MINOR_PLATFORM_V270.md`" in files["readme"]
+    and "Android SDK platform resolver fixtures" in files["verify"]
+    and "scripts/test-android-sdk-platform-resolver.sh" in files["verify"]
     and "android.jar" in files["build"],
 )
 

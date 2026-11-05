@@ -63,7 +63,7 @@ expect_kept() {
 GRADLE_FILE="$ROOT/app/build.gradle.kts"
 
 COMPILE_SDK="$(
-    sed -n 's/^[[:space:]]*compileSdk[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+    sed -n 's/^[[:space:]]*val[[:space:]]*compileSdkApi[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
         "$GRADLE_FILE" | tail -n 1
 )"
 
@@ -123,6 +123,7 @@ make_fake_image() {
         "$image/usr/local/lib/android/sdk/platforms/android-34" \
         "$image/usr/local/lib/android/sdk/platforms/android-36" \
         "$image/usr/local/lib/android/sdk/platforms/android-37.2-beta3" \
+        "$image/usr/local/lib/android/sdk/platforms/android-$COMPILE_SDK.0" \
         "$image/usr/local/lib/android/sdk/platforms/android-$COMPILE_SDK" \
         "$image/usr/local/lib/android/sdk/build-tools/36.0.0" \
         "$image/usr/local/lib/android/sdk/build-tools/37.0.0" \
@@ -194,6 +195,7 @@ done
 for kept in \
     "usr/local/lib/android/sdk/ndk/$PINNED_NDK" \
     "usr/local/lib/android/sdk/platforms/android-$COMPILE_SDK" \
+    "usr/local/lib/android/sdk/platforms/android-$COMPILE_SDK.0" \
     usr/local/lib/android/sdk/build-tools/36.0.0 \
     usr/local/lib/android/sdk/build-tools/37.0.0 \
     usr/local/lib/android/sdk/platform-tools \
@@ -210,6 +212,9 @@ grep -q "spared  /usr/local/lib/android/sdk/ndk/$PINNED_NDK (ndkVersion)" "$TMP/
 
 grep -q "spared  /usr/local/lib/android/sdk/platforms/android-$COMPILE_SDK (compileSdk)" "$TMP/case1.log" ||
     fail "the compileSdk platform was not reported as spared"
+
+grep -q "spared  /usr/local/lib/android/sdk/platforms/android-$COMPILE_SDK.0 (compileSdk)" "$TMP/case1.log" ||
+    fail "the versioned compileSdk platform was not reported as spared"
 
 grep -q "required commands still resolve" "$TMP/case1.log" ||
     fail "the tool verification did not run"

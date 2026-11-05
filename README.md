@@ -73,16 +73,24 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-**V269 is the newest chapter: `docs/ANDROID_SDK_RESOLUTION_V269.md`.** Release run #378 failed
-before native preparation because SDK Manager could not resolve `platforms;android-37`. The release
-installer now reads `compileSdk` and `ndkVersion` from `app/build.gradle.kts`, reuses an exact
-preinstalled platform when its `android.jar` is present, searches stable and preview channels for a
-missing platform, refreshes stale package metadata and retries, then validates the platform before
-Gradle starts. NDK environment pointers follow the same Gradle pin instead of duplicating a version
-string. V268 remains the disk-headroom chapter: the release job reclaims runner ballast before its
-first toolchain is installed, spares the platform and NDK named by Gradle, releases native scratch
-before Gradle and reports disk diagnostics on failure. `scripts/test-reclaim-runner-disk.sh` proves
-the reclaimer's deletions, spared pins and refusal guards offline, in source verification.
+**V270 is the newest chapter: `docs/ANDROID_SDK_MINOR_PLATFORM_V270.md`.** Release run #379
+failed because the workflow constructed `platforms;android-37`, while the SDK catalog may publish
+stable API 37 under a minor-version package name. The installer now resolves the platform from
+`sdkmanager --list`, prefers `android-37.0`, otherwise selects the highest stable numeric `37.x`
+package (or the legacy name when that alone is listed), and rejects preview/beta/extension names.
+The selected package is handed through `ANDROID_PLATFORM` to Gradle; missing-platform diagnostics
+show catalog package IDs as well as installed platform directories. The disk reclaimer keeps stable
+minor platform directories for the pinned API. Offline fixtures prove the resolver and the
+`android-37.0` reclaim case.
+
+**V269: `docs/ANDROID_SDK_RESOLUTION_V269.md`.** Release run #378 established the original SDK
+package-resolution boundary: the workflow already derived the compileSdk and NDK pins from Gradle,
+retried SDK Manager after refreshing metadata, and verified `android.jar`, but still assumed the
+unversioned platform ID. NDK environment pointers continue to follow the Gradle pin. V268 remains
+the disk-headroom chapter: the release job reclaims runner ballast before its first toolchain is
+installed, releases native scratch before Gradle and reports disk diagnostics on failure.
+`scripts/test-reclaim-runner-disk.sh` proves the reclaimer's deletions, spared pins and refusal
+guards offline, in source verification.
 
 **V268: `docs/RUNNER_DISK_HEADROOM_V268.md`.** Release run #377 died with `No space left on device`
 inside `:app:stripReleaseDebugSymbols` — the second full copy of ~500 MB of merged native

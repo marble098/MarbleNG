@@ -1,0 +1,12 @@
+Installed packages:
+  Path                              | Version | Description
+  -------                           | ------- | -------
+
+Available Packages:
+  Path                              | Version | Description
+  -------                           | ------- | -------
+  platforms;android-37.2-beta3      | 1       | Android SDK Platform 37.2 Beta 3
+  platforms;android-37-ext15        | 1       | Android SDK Platform 37 Extension 15
+  platforms;android-37.1            | 1       | Android SDK Platform 37.1
+  platforms;android-37.0            | 1       | Android SDK Platform 37.0
+  platforms;android-38.0            | 1       | Android SDK Platform 38.0
