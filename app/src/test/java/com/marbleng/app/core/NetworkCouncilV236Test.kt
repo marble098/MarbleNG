@@ -390,7 +390,7 @@ class NetworkCouncilV236Test {
         assertEquals(NetworkCouncil.CouncilSeat.DPI, fragment?.seat)
         assertEquals(FragmentStrategy.AUTO.id, fragment?.value)
         assertTrue(
-            fragment?.dissent?.contains("Server & firewall wanted record") == true
+            fragment?.dissent?.contains("Ports & firewall wanted record") == true
         )
     }
 
