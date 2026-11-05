@@ -4125,8 +4125,10 @@ private fun postToMain(block: () -> Unit) {
         val list = subscriptions
         if (list.isEmpty()) return emptyMap()
         val now = System.currentTimeMillis()
+        // [AppSettings.appLanguage] is already the id string the notification layer normalizes —
+        // the same one [SmartNotifier] is constructed with one screen up.
         val language = NotificationCopy.languageFor(
-            settings.appLanguage.id,
+            settings.appLanguage,
             java.util.Locale.getDefault().language
         )
         val persian = language == NotificationLanguage.FA
