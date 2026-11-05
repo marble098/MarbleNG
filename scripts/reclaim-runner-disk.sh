@@ -210,7 +210,7 @@ GRADLE_FILE="$ROOT/app/build.gradle.kts"
 }
 
 COMPILE_SDK="$(
-    sed -n 's/^[[:space:]]*compileSdk[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+    sed -n 's/^[[:space:]]*val[[:space:]]*compileSdkApi[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
         "$GRADLE_FILE" | tail -n 1
 )"
 
@@ -390,8 +390,9 @@ fi
 if [[ -d "$SDK/platforms" ]]; then
     for platform_dir in "$SDK/platforms"/*; do
         [[ -d "$platform_dir" ]] || continue
-        if [[ "$(basename -- "$platform_dir")" == "$KEEP_PLATFORM" ]]; then
-            echo "  spared  /usr/local/lib/android/sdk/platforms/$KEEP_PLATFORM (compileSdk)"
+        platform_name="$(basename -- "$platform_dir")"
+        if [[ "$platform_name" =~ ^android-${COMPILE_SDK}(\.[0-9]+)?$ ]]; then
+            echo "  spared  /usr/local/lib/android/sdk/platforms/$platform_name (compileSdk)"
             continue
         fi
         reclaim "/usr/local/lib/android/sdk/platforms/$(basename -- "$platform_dir")" "unused platform"

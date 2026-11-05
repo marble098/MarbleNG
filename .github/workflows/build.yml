@@ -115,12 +115,12 @@ jobs:
           # that expected SIGPIPE from `yes` out of the Actions log.
           yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
 
-          # Read both SDK pins from the Gradle file that owns them. API 37 has
-          # occasionally been published only on a preview channel while the
-          # stable repository index catches up, and hosted images may already
-          # contain the exact platform even when the remote package is absent.
+          # Read both SDK pins from the Gradle file that owns them. Android's
+          # platform package IDs can now include a minor version (for example
+          # android-37.0), so resolve against SDK Manager's live catalog rather
+          # than constructing a package ID from the API integer.
           compile_sdk="$(
-            sed -n 's/^[[:space:]]*compileSdk[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+            sed -n 's/^[[:space:]]*val[[:space:]]*compileSdkApi[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
               app/build.gradle.kts | tail -n 1
           )"
           ndk_version="$(
@@ -137,42 +137,66 @@ jobs:
             exit 1
           fi
 
-          packages=( 'build-tools;36.0.0' "ndk;${ndk_version}" )
-          platform_dir="$ANDROID_SDK_ROOT/platforms/android-${compile_sdk}"
-          if [[ -s "$platform_dir/android.jar" ]]; then
-            echo "Using the preinstalled compileSdk platform android-${compile_sdk}"
-          else
-            packages+=("platforms;android-${compile_sdk}")
-          fi
-
-          echo "Installing ${packages[*]}"
+          platform_dir=""
+          platform_package=""
           installed=false
+          sdk_list_file="$RUNNER_TEMP/android-sdk-list.txt"
+          resolver_log="$RUNNER_TEMP/android-platform-resolver.log"
+
           for attempt in 1 2 3; do
-            # Include preview channel packages: stable pins are still selected
-            # exactly, while this also covers a platform transitioning from
-            # preview to stable in Google's repository.
-            if sdkmanager --channel=3 "${packages[@]}"; then
-              installed=true
-              break
+            if ! sdkmanager --list --channel=3 > "$sdk_list_file" 2>&1; then
+              echo "SDK Manager could not list packages (attempt ${attempt}/3):"
+              cat "$sdk_list_file"
+            elif platform_package="$(python3 scripts/resolve-android-platform.py "$compile_sdk" \
+                < "$sdk_list_file" 2> "$resolver_log")"; then
+              platform_dir="$ANDROID_SDK_ROOT/${platform_package#platforms;}"
+              packages=( 'build-tools;36.0.0' "ndk;${ndk_version}" "$platform_package" )
+              echo "$(cat "$resolver_log")"
+              echo "Installing ${packages[*]}"
+              if sdkmanager --channel=3 "${packages[@]}"; then
+                installed=true
+                break
+              fi
+              echo "SDK package installation failed (attempt ${attempt}/3)."
+            else
+              echo "$(cat "$resolver_log")"
             fi
+
             if (( attempt < 3 )); then
-              echo "SDK package resolution failed (attempt ${attempt}/3); refreshing cached repository metadata and retrying."
+              echo "Refreshing SDK Manager metadata before retry ${attempt}/3."
               rm -rf "$HOME/.android/cache"
               sleep $((attempt * 10))
             fi
           done
 
           if [[ "$installed" != true ]]; then
-            echo "::error::Could not install the pinned Android SDK packages after three attempts. Available compileSdk platform directories:"
-            find "$ANDROID_SDK_ROOT/platforms" -mindepth 1 -maxdepth 1 -type d -printf '  %f\n' 2>/dev/null || true
-            echo "::error::Check the Android repository's availability for platforms;android-${compile_sdk}."
+            echo "::error::Could not install build-tools 36.0.0, NDK ${ndk_version}, and the stable compileSdk ${compile_sdk} platform after three attempts."
+            echo "SDK Manager platform packages reported by the last catalog listing:"
+            if [[ -s "$sdk_list_file" ]]; then
+              grep -E '^[[:space:]]*platforms;android-[^[:space:]|]+[[:space:]]*\|' "$sdk_list_file" \
+                | sed 's/^[[:space:]]*/  /' || echo "  (none listed)"
+            else
+              echo "  (sdkmanager --list produced no catalog output)"
+            fi
+            echo "Installed platform directories on the runner:"
+            if [[ -d "$ANDROID_SDK_ROOT/platforms" ]]; then
+              find "$ANDROID_SDK_ROOT/platforms" -mindepth 1 -maxdepth 1 -type d -printf '  %f\n' \
+                | sort || true
+            else
+              echo "  (none)"
+            fi
             exit 1
           fi
 
           if [[ ! -s "$platform_dir/android.jar" ]]; then
-            echo "::error::compileSdk platform android-${compile_sdk} is missing android.jar after installation."
+            echo "::error::Selected compileSdk package ${platform_package} is missing android.jar after installation."
             exit 1
           fi
+
+          # Gradle consumes the same resolved package ID. Its API number is the
+          # compileSdk pin, while the package's minor suffix selects the exact
+          # installed platform directory.
+          printf 'ANDROID_PLATFORM=%s\n' "${platform_package#platforms;}" >> "$GITHUB_ENV"
 
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${ndk_version}" \
             >> "$GITHUB_ENV"

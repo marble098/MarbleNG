@@ -81,6 +81,15 @@ jobs:
           set -euo pipefail
           ./scripts/test-reclaim-runner-disk.sh
 
+      # MARBLE_ANDROID_SDK_MINOR_PLATFORM_V270 — SDK platform package IDs can
+      # carry stable minor versions. Exercise the resolver against recorded
+      # sdkmanager output without network or a hosted runner.
+      - name: Android SDK platform resolver fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/test-android-sdk-platform-resolver.sh
+
       # MARBLE_TOOLCHAIN_AUTOPILOT_V211 — what the newest published version of every
       # component this build is made of actually is, printed on every source verification. The
       # resolver is the same file the scheduled updater writes `gradle/toolchain.properties`

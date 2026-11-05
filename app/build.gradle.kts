@@ -126,10 +126,21 @@ if (signingConfigured) {
     ).forEach(::signingValue)
 }
 
+// The release SDK resolver passes the concrete installed package name (for
+// example android-37.0). AGP consumes the API level; keeping it derived from
+// that selected package prevents Gradle from drifting from the installed SDK.
+val compileSdkApi = 37
+val resolvedCompileSdk =
+    System.getenv("ANDROID_PLATFORM")?.let { platform ->
+        val match = Regex("^android-(\\d+)(?:\\.\\d+)?$").matchEntire(platform)
+            ?: error("ANDROID_PLATFORM must be a stable android-<api>[.<minor>] package, got '$platform'")
+        match.groupValues[1].toInt()
+    } ?: compileSdkApi
+
 android {
     namespace = "com.marbleng.app"
 
-    compileSdk = 37
+    compileSdk = resolvedCompileSdk
 
     ndkVersion = "28.2.13676358"
 
