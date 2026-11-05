@@ -1187,7 +1187,6 @@ internal fun ServerGroupHeader(
     val sub = bucket.subscription
     val freshness = sub?.updatedAt?.takeIf { it > 0L }?.let { trx(relativeTimeLabel(it)) }
     val stateLabel = if (collapsed) trx("Collapsed") else trx("Expanded")
-    val plan = planOf(sub, nowMs)
 
     // MARBLE_EXPRESSIVE_BENTO_V250 — the overflow lives in a reserved trailing column.
     // Title, count and freshness share one flexible leading block, so a long subscription
@@ -1252,35 +1251,26 @@ internal fun ServerGroupHeader(
                         )
                     }
                 }
-            }
 
-            // The plan line: how much of the ceiling is spent, and how many days are left.
-            if (!plan.isEmpty) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = faDigits(PlanStatus.quotaPairLabel(plan.usedBytes, plan.totalBytes)),
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                // MARBLE_SERVER_PLAN_V273 — the plan belongs to the title block, not beside it.
+                //
+                // V260 drew this as a **sibling** of the title inside a horizontal Row: a
+                // `fillMaxWidth` row with no width left to fill, whose two `weight(1f, fill =
+                // false)` labels collapsed to zero. The result was a subscription header that
+                // showed nothing about the subscription's own plan — no used traffic, no remaining
+                // days — exactly as reported. It is now the last child of the column that owns the
+                // title, so it inherits that column's full width and always has room for both
+                // numbers; and `ServerPlanStrip` prints a *sentence* when a panel reported no plan
+                // at all, because "unknown" and "zero" are not the same fact.
+                if (sub != null) {
+                    ServerPlanStrip(
+                        summary = PlanStatus.summarize(
+                            subscription = sub,
+                            nowMs = nowMs,
+                            persian = Tr.now.language == MarbleLanguage.FA
+                        ),
+                        modifier = Modifier.padding(top = 4.dp)
                     )
-                    if (plan.hasExpiry) {
-                        Text(
-                            text =
-                                "${trx(if (plan.expired) "Expired" else "Expires")} · ${faDigits(PlanStatus.expiryLabel(plan.remainingDays))}",
-                            color = planToneColor(plan.tone),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                    }
                 }
             }
         }

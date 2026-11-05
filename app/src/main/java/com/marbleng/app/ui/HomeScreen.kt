@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -973,10 +972,9 @@ private fun HomeMetricBentoTile(
                 contentAlignment = Alignment.Center
             ) {
                 if (loading) {
-                    LoadingIndicator(
-                        modifier = Modifier.size(22.dp),
-                        color = pair.badge
-                    )
+                    // MARBLE_EXPRESSIVE_WAVE_V273 — the same wave the rest of the product
+                    // draws, inscribed in the exact box the spinner used to fill.
+                    MarbleWaveRing(size = 22.dp, color = pair.badge)
                 } else {
                     MarbleGlyphIcon(
                         glyph = glyph,

@@ -209,6 +209,109 @@ object PlanStatus {
         }
     }
 
+    /**
+     * MARBLE_SERVER_PLAN_V273 — one plan, as the fields a list row prints.
+     *
+     * ## What was wrong
+     *
+     * V260 shipped [Status] and a plate for the sources *sheet*, and then the Servers *list* drew
+     * the same information into a horizontal `Row` beside the title: the quota line and the expiry
+     * line were siblings of the title block instead of children of it, so their `fillMaxWidth` had
+     * nothing to fill and their `weight(1f, fill = false)` collapsed to nothing. A subscription
+     * with a plan therefore showed neither the traffic it had spent nor the day it stops — the
+     * report's «میزان حجم مصرف شده هر ساب و زمان باقی مونده نشون داده نمیشه».
+     *
+     * The fix is not another layout tweak: it is to stop letting the row compose the sentence.
+     * [summarize] resolves the numbers once, from the same [Status] the plate uses, and the row
+     * only places them — which also makes the "nothing was reported" case a *sentence* instead of
+     * an absence, because a panel that returns no `subscription-userinfo` leaves the plan unknown,
+     * and unknown is not zero.
+     *
+     * The words stay keys (`expiryLabel`) and the numbers stay digits, so the row can translate
+     * the one and shape the other, exactly as the plate does.
+     */
+    data class Summary(
+        /** The used/total pair, digits only ("3.2 GB / 20.0 GB"). Empty when no quota exists. */
+        val usedLabel: String = "",
+        /** What is left, digits only ("16.8 GB"). */
+        val remainingLabel: String = "",
+        /** "24%" — the share spent, from [usagePercentLabel]. */
+        val percentLabel: String = "",
+        /** An English key the UI translates: "in 6 days", "Tomorrow", "3 days ago". */
+        val daysLabel: String = "",
+        /** The expiry day in the reader's calendar, digits only. */
+        val expiryDateLabel: String = "",
+        /** The used share, for the wave rail. */
+        val fraction: Float = 0f,
+        val tone: Tone = Tone.UNKNOWN,
+        val hasQuota: Boolean = false,
+        val hasExpiry: Boolean = false,
+        val expired: Boolean = false,
+        /** True when the panel reported a quota or an expiry. False means "unknown", not "zero". */
+        val reported: Boolean = false,
+        /** True when the caller passed no subscription at all (the "All sources" header). */
+        val isSource: Boolean = false
+    )
+
+    /** The words a row prints when a panel reported no plan at all. */
+    const val UNKNOWN_QUOTA: String = "Quota not reported"
+    const val UNKNOWN_EXPIRY: String = "Expiry not reported"
+    const val UNKNOWN_PLAN_HINT: String = "Refresh this subscription to fetch its plan"
+
+    /**
+     * Resolve [subscription] into the row's fields, against `nowMs`.
+     *
+     * `zone` is only used for the calendar arithmetic; `persian` picks the calendar of the day
+     * that is printed. Both are parameters so the whole function is provable on the host JVM.
+     */
+    fun summarize(
+        subscription: Subscription?,
+        nowMs: Long,
+        persian: Boolean = false,
+        zone: TimeZone = TimeZone.getDefault()
+    ): Summary {
+        if (subscription == null) {
+            return Summary(
+                tone = Tone.UNKNOWN,
+                daysLabel = expiryLabel(Int.MIN_VALUE),
+                isSource = true
+            )
+        }
+        val status = of(subscription, nowMs, zone)
+        return Summary(
+            usedLabel = if (status.hasQuota) {
+                quotaPairLabel(status.usedBytes, status.totalBytes)
+            } else {
+                ""
+            },
+            remainingLabel = if (status.hasQuota) formatBytes(status.remainingBytes) else "",
+            percentLabel = if (status.hasQuota) {
+                usagePercentLabel(status.usageFraction, status.usedBytes)
+            } else {
+                ""
+            },
+            // "No expiry" is a claim; it is only made by a panel that reported *something*.
+            // A panel that reported nothing leaves the distance unknown, and the row says so.
+            daysLabel = when {
+                status.hasExpiry -> expiryLabel(status.remainingDays)
+                status.hasQuota -> expiryLabel(Int.MIN_VALUE)
+                else -> UNKNOWN_EXPIRY
+            },
+            expiryDateLabel = if (status.hasExpiry) {
+                expiryDate(status.expireAtMs, persian, zone)
+            } else {
+                ""
+            },
+            fraction = status.usageFraction,
+            tone = status.tone,
+            hasQuota = status.hasQuota,
+            hasExpiry = status.hasExpiry,
+            expired = status.expired,
+            reported = status.hasQuota || status.hasExpiry,
+            isSource = false
+        )
+    }
+
     /** "14.20 GB of 50.00 GB" — the pair the bar is drawn from. */
     fun quotaPairLabel(usedBytes: Long, totalBytes: Long): String {
         val used = formatBytes(usedBytes)

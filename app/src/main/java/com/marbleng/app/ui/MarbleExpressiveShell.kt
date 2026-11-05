@@ -56,7 +56,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -285,10 +284,7 @@ fun MarbleConnectPill(
                         .background(onTone.copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    LoadingIndicator(
-                        modifier = Modifier.size(28.dp),
-                        color = onTone
-                    )
+                    MarbleWaveRing(size = 28.dp, color = onTone)
                 }
             } else {
                 val emblemShape = marbleMorphingShape(

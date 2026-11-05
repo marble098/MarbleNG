@@ -123,6 +123,170 @@ object NetworkCouncil {
         val http2: Boolean = false
     )
 
+    // ------------------------------------------------------------------------------------------
+    // MARBLE_FILTER_LAB_V273 — what the path does to a real handshake
+    //
+    // V236 declared [HttpsProbe] and `sniSuspicion` here and then never filled either of them:
+    // the scanner probed one host through the product's own reachability helper and wrote a
+    // single boolean. A subscriber in a filtered country could therefore read "DPI & censorship
+    // · the TLS handshake completed cleanly" while telegram.org and x.com were being reset
+    // mid-ClientHello, because nothing ever asked them. The council could name interference but
+    // could not *find* it, and the report was right to call the twelve checks weak: the loudest
+    // seat in the product was measuring the quietest thing on the link.
+    //
+    // [FilterEvidence] is the measurement the seat needed. Three independent families of test —
+    // a TLS matrix across reachable and routinely-filtered names, a resolver cross-check that
+    // compares the same handful of names on several resolvers, and a block-page fetch — each
+    // reported per target so the page can say *which* name died and *how*, not "censorship
+    // suspected".
+    // ------------------------------------------------------------------------------------------
+
+    /** How one TLS handshake ended. [RESET] is the fingerprint of an active middlebox. */
+    enum class TlsOutcome(val label: String) {
+        COMPLETED("TLS completed"),
+        RESET("Connection reset during the handshake"),
+        TIMEOUT("No answer before the deadline"),
+        REFUSED("Connection refused"),
+        DNS_FAILED("The name did not resolve"),
+        HANDSHAKE_FAILED("The handshake failed")
+    }
+
+    /** One host, dialled for real, with the SNI name the middlebox would have read. */
+    data class TlsProbe(
+        val host: String,
+        val port: Int = 443,
+        val sni: String = host,
+        val outcome: TlsOutcome = TlsOutcome.HANDSHAKE_FAILED,
+        val latencyMs: Int = 0,
+        val certificateOk: Boolean = false,
+        /** The name is on the list a filter is expected to act on, in this product's catalogue. */
+        val routinelyFiltered: Boolean = false
+    ) {
+        val reachable: Boolean get() = outcome == TlsOutcome.COMPLETED
+    }
+
+    /** How one name's plain answer compared with the honest answer for the same name. */
+    enum class DnsVerdict(val label: String) {
+        /** Two resolvers agree on an answer no policy intercepts. */
+        AGREE("Resolvers agree"),
+
+        /** One resolver returned a private/block-page address where another returned a real one. */
+        BLOCKED("A resolver answered with a block-page address"),
+
+        /** Two honest resolvers returned different addresses and neither is a block page. */
+        DIFFERENT("Resolvers returned different answers"),
+
+        /** The name did not answer on the plain path at all. */
+        NO_ANSWER("The name did not resolve"),
+
+        /** Nothing was measured for this name. */
+        UNMEASURED("Not measured")
+    }
+
+    /**
+     * One name, asked on every resolver the scan could reach, with the first two answers kept.
+     *
+     * `blockPageServer` names the resolver that produced the intercepted answer, so a finding can
+     * say *who* rewrote the record instead of blaming the link as a whole.
+     */
+    data class DnsNameCheck(
+        val name: String,
+        val firstServer: String = "",
+        val firstAnswer: String = "",
+        val secondServer: String = "",
+        val secondAnswer: String = "",
+        val blockPageServer: String = "",
+        val answeredServers: Int = 0,
+        val verdict: DnsVerdict = DnsVerdict.UNMEASURED
+    )
+
+    /** A target that answered a plain HTTP request with a policy page instead of the site. */
+    data class BlockPageProbe(
+        val host: String,
+        val statusCode: Int = 0,
+        val redirectHost: String = "",
+        val bodyMarker: String = "",
+        val intercepted: Boolean = false,
+        val latencyMs: Int = 0
+    )
+
+    /**
+     * The filtration lab's evidence.
+     *
+     * Every counter here is derived, so the seats cannot disagree with the page about how many
+     * targets failed: the list is the measurement, the numbers are a view of it.
+     */
+    data class FilterEvidence(
+        val tls: List<TlsProbe> = emptyList(),
+        val dnsNames: List<DnsNameCheck> = emptyList(),
+        val blockPages: List<BlockPageProbe> = emptyList(),
+        /** A TLS reset that arrived from a hop that is not the destination (measured elsewhere). */
+        val rstInjected: Boolean = false
+    ) {
+        val tlsProbed: Int get() = tls.size
+        val tlsCompleted: Int get() = tls.count { it.reachable }
+        val tlsFailed: Int get() = tls.count { !it.reachable }
+        val tlsReset: Int get() = tls.count { it.outcome == TlsOutcome.RESET }
+        val dnsPoisoned: Int get() = dnsNames.count { it.verdict == DnsVerdict.BLOCKED }
+        val dnsSplit: Int get() = dnsNames.count { it.verdict == DnsVerdict.DIFFERENT }
+        val blockPagesFound: Int get() = blockPages.count { it.intercepted }
+
+        /** The names a filter acted on, in scan order: what a reader wants to see first. */
+        val filteredHosts: List<String>
+            get() = tls.filter { !it.reachable && it.routinelyFiltered }.map { it.host } +
+                blockPages.filter { it.intercepted }.map { it.host } +
+                dnsNames.filter { it.verdict == DnsVerdict.BLOCKED }.map { it.name }
+
+        /** The open names that also failed, which is the signature of a link-wide problem. */
+        val openHostsFailed: Int
+            get() = tls.count { !it.reachable && !it.routinelyFiltered }
+
+        val measured: Boolean
+            get() = tls.isNotEmpty() || dnsNames.any { it.verdict != DnsVerdict.UNMEASURED } ||
+                blockPages.isNotEmpty()
+
+        /**
+         * SNI inspection: some names completed, the routinely-filtered ones did not, and at least
+         * one of those deaths was a reset or a deadline rather than a refusal.
+         *
+         * The "some names completed" clause is what keeps a dead link from being reported as
+         * censorship — a link where every handshake times out is unreachable, not filtered, and
+         * the two justify different settings.
+         */
+        val sniFiltering: Boolean
+            get() = tlsCompleted > 0 &&
+                tls.any { !it.reachable && it.routinelyFiltered } &&
+                tls.any {
+                    it.routinelyFiltered &&
+                        (it.outcome == TlsOutcome.RESET || it.outcome == TlsOutcome.TIMEOUT)
+                }
+
+        /** One word for the page's badge, derived from the evidence, never guessed. */
+        val verdict: FilterVerdict
+            get() = when {
+                !measured -> FilterVerdict.UNMEASURED
+                // `rstInjected` is the one flag measured outside the lab (the product's own
+                // reachability probe); it is the same evidence and belongs to the same verdict.
+                dnsPoisoned > 0 || blockPagesFound > 0 || sniFiltering || rstInjected ->
+                    FilterVerdict.FILTERED
+                tlsProbed > 0 && tlsCompleted == 0 -> FilterVerdict.UNREACHABLE
+                tlsFailed > 0 || dnsSplit > 0 -> FilterVerdict.SUSPECT
+                else -> FilterVerdict.CLEAN
+            }
+
+        /** The share of the TLS matrix that completed, for the score and the page's number. */
+        val completionFraction: Double
+            get() = if (tlsProbed == 0) 1.0 else tlsCompleted.toDouble() / tlsProbed.toDouble()
+    }
+
+    enum class FilterVerdict(val label: String) {
+        UNMEASURED("Not measured"),
+        CLEAN("No interference measured"),
+        SUSPECT("Partial interference"),
+        FILTERED("Filtering measured"),
+        UNREACHABLE("The public internet is unreachable")
+    }
+
     data class PathEvidence(
         val ipv4Ok: Boolean = false,
         val ipv4Ms: Int = 0,
@@ -162,6 +326,12 @@ object NetworkCouncil {
          * SNI inspection signature. Set by the scanner; the council never guesses it.
          */
         val sniSuspicion: Boolean = false,
+        /**
+         * MARBLE_FILTER_LAB_V273 — the filtration lab. Empty in a scan that predates the lab or
+         * that could not measure it, which the council reports as "not measured" rather than as
+         * "clean".
+         */
+        val filter: FilterEvidence = FilterEvidence(),
         val throughputDownKbps: Int = 0,
         val capturedAtMs: Long = 0L
     )
@@ -281,6 +451,13 @@ object NetworkCouncil {
         val httpsOk: Int = 0,
         /** TCP 443 answers but TLS keeps failing across targets — SNI inspection territory. */
         val sniSuspicion: Boolean = false,
+        /** MARBLE_FILTER_LAB_V273 — the lab's own summary, so the page never re-derives it. */
+        val filterVerdict: FilterVerdict = FilterVerdict.UNMEASURED,
+        val tlsProbed: Int = 0,
+        val tlsCompleted: Int = 0,
+        val filteredHosts: List<String> = emptyList(),
+        val dnsPoisoned: Int = 0,
+        val blockPages: Int = 0,
         val score: Int = 0,
         val grade: String = "C"
     )
@@ -422,10 +599,23 @@ object NetworkCouncil {
             tcpPorts.isEmpty() -> 55
             else -> (30 + (openPorts.toDouble() / tcpPorts.size.toDouble() * 70.0)).roundToInt()
         }
+        val filter = evidence.filter
+        // MARBLE_FILTER_LAB_V273 — the DPI share used to be a three-way guess about one boolean.
+        // It is the one score the report called weak, and it was weak because it was blind: a
+        // link that reset every filtered name still scored 100 as long as *one* handshake had
+        // completed. With the lab's matrix the share is the measured completion rate, minus a
+        // penalty for the two kinds of evidence that no healthy link produces at all (an
+        // intercepted DNS answer and a policy page served in place of the site). A scan that did
+        // not run the lab keeps the V236 arithmetic exactly.
         val dpiScore = when {
             !evidence.path.tlsCompleted -> 45
             evidence.path.injectedReset -> 30
-            else -> 100
+            !filter.measured -> 100
+            else -> {
+                val completion = 100.0 * filter.completionFraction
+                val intercepted = filter.dnsPoisoned * 12.0 + filter.blockPagesFound * 15.0
+                (completion - intercepted.coerceAtMost(60.0)).roundToInt().coerceIn(10, 100)
+            }
         }
         val udpScore = when {
             evidence.path.quicOk -> 100
@@ -472,6 +662,12 @@ object NetworkCouncil {
             httpsProbed = httpsProbed,
             httpsOk = httpsOk,
             sniSuspicion = evidence.sniSuspicion,
+            filterVerdict = filter.verdict,
+            tlsProbed = filter.tlsProbed,
+            tlsCompleted = filter.tlsCompleted,
+            filteredHosts = filter.filteredHosts,
+            dnsPoisoned = filter.dnsPoisoned,
+            blockPages = filter.blockPagesFound,
             tlsOk = evidence.path.tlsCompleted,
             injectedReset = evidence.path.injectedReset,
             quicOk = evidence.path.quicOk,
@@ -943,6 +1139,78 @@ object NetworkCouncil {
                 "A fake-IP pool keeps a tampered answer from ever reaching an application."
             )
         }
+
+        // MARBLE_FILTER_LAB_V273 — the cross-check the V236 seat could not make.
+        //
+        // V236 asked one name on several resolvers and compared the answers *for that one name*,
+        // which is both too little and too much: too little because one name is not a policy, and
+        // too much because two honest resolvers may legitimately return different A records for a
+        // CDN name. The lab asks a fixed handful of names, several of which a filter is expected
+        // to act on, and compares the block-page verdicts rather than raw addresses — so a name
+        // that two resolvers answer differently but honestly is a suspicion, while a name that one
+        // resolver answers with a block-page address is proof, and it names the resolver.
+        val lab = evidence.filter
+        val poisoned = lab.dnsNames.filter { it.verdict == DnsVerdict.BLOCKED }
+        val split = lab.dnsNames.filter { it.verdict == DnsVerdict.DIFFERENT }
+        if (poisoned.isNotEmpty()) {
+            findings += CouncilFinding(
+                CouncilSeat.DNS,
+                CouncilSeverity.CRITICAL,
+                "${poisoned.size} name(s) were answered with a block-page address",
+                poisoned.joinToString(" · ") { check ->
+                    "${check.name}: ${check.blockPageServer.ifBlank { "a resolver" }} said " +
+                        "${check.firstAnswer.ifBlank { "nothing" }}" +
+                        (if (check.secondAnswer.isNotBlank() && check.secondAnswer != check.firstAnswer) {
+                            " while ${check.secondServer.ifBlank { "another resolver" }} said ${check.secondAnswer}"
+                        } else {
+                            ""
+                        })
+                }
+            )
+            proposals += Proposal(
+                TuningField.DNS_HIJACK,
+                "true",
+                CouncilSeat.DNS,
+                92,
+                "A block-page address was measured for ${poisoned.size} name(s): the hijack guard must treat every plain answer as suspect."
+            )
+            proposals += Proposal(
+                TuningField.DNS_FAKE_IP,
+                "true",
+                CouncilSeat.DNS,
+                88,
+                "A fake-IP pool keeps a rewritten answer from ever reaching an application, so a tampered record costs one failed lookup instead of a broken page."
+            )
+            proposals += Proposal(
+                TuningField.DNS_STRATEGY,
+                "UseIP",
+                CouncilSeat.DNS,
+                74,
+                "Plain answers are being rewritten; the resolver strategy is kept deterministic so the encrypted path is the only one that is trusted."
+            )
+        }
+        if (split.isNotEmpty()) {
+            findings += CouncilFinding(
+                CouncilSeat.DNS,
+                CouncilSeverity.WARNING,
+                "${split.size} name(s) resolved differently on different resolvers",
+                split.joinToString(" · ") { check ->
+                    "${check.name}: ${check.firstServer.ifBlank { "one resolver" }} said " +
+                        "${check.firstAnswer.ifBlank { "nothing" }}, " +
+                        "${check.secondServer.ifBlank { "another" }} said ${check.secondAnswer.ifBlank { "nothing" }}"
+                } + " — a CDN can answer differently and honestly, so this is a suspicion the encrypted path resolves, not a verdict."
+            )
+        }
+        if (lab.dnsNames.isNotEmpty() && poisoned.isEmpty() && split.isEmpty()) {
+            findings += CouncilFinding(
+                CouncilSeat.DNS,
+                CouncilSeverity.GOOD,
+                "Every checked name resolved honestly on every resolver",
+                lab.dnsNames.joinToString(" · ") { check ->
+                    "${check.name}: ${check.firstAnswer.ifBlank { "no answer" }}"
+                }
+            )
+        }
     }
 
     private fun seatPorts(
@@ -1220,9 +1488,18 @@ object NetworkCouncil {
         proposals: MutableList<Proposal>
     ) {
         val path = evidence.path
+        val filter = evidence.filter
+        val labFiltered = filter.verdict == FilterVerdict.FILTERED
+        val labSuspect = filter.verdict == FilterVerdict.SUSPECT
+        val labUnreachable = filter.verdict == FilterVerdict.UNREACHABLE
         val severity = when {
             path.injectedReset -> CouncilSeverity.CRITICAL
+            labFiltered -> CouncilSeverity.CRITICAL
+            // A link where not one TLS target answered is not "suspicious": it is a dead path,
+            // and calling it a warning let the rest of the plan treat it as a slow network.
+            labUnreachable -> CouncilSeverity.CRITICAL
             !path.tlsCompleted -> CouncilSeverity.WARNING
+            labSuspect -> CouncilSeverity.WARNING
             else -> CouncilSeverity.GOOD
         }
         findings += CouncilFinding(
@@ -1230,7 +1507,10 @@ object NetworkCouncil {
             severity,
             when {
                 path.injectedReset -> "An injected TLS reset was measured"
+                labFiltered -> "Filtering measured on ${filter.tlsFailed} of ${filter.tlsProbed} TLS targets"
                 !path.tlsCompleted -> "The TLS handshake did not complete"
+                labSuspect -> "Part of the handshake matrix did not complete"
+                labUnreachable -> "No TLS target answered at all"
                 else -> "The TLS handshake completed cleanly"
             },
             "A completed handshake and a reset are different verdicts: only the second justifies the heavy treatment."
@@ -1246,23 +1526,77 @@ object NetworkCouncil {
             )
         }
 
+        // MARBLE_FILTER_LAB_V273 — the lab's per-target truth. One finding per family so the page
+        // can print *which* name died instead of one aggregate adjective, and so a reader can tell
+        // "the whole link is down" (every target, open names included) from "this country filters
+        // these names" (the routinely filtered ones only).
+        if (filter.tls.isNotEmpty()) {
+            val dead = filter.tls.filter { !it.reachable }
+            if (dead.isNotEmpty()) {
+                findings += CouncilFinding(
+                    CouncilSeat.DPI,
+                    when {
+                        filter.tlsCompleted == 0 -> CouncilSeverity.CRITICAL
+                        filter.openHostsFailed > 0 -> CouncilSeverity.WARNING
+                        else -> CouncilSeverity.WARNING
+                    },
+                    when {
+                        filter.tlsCompleted == 0 ->
+                            "Every TLS target failed; the public internet is not reachable from this link"
+                        filter.openHostsFailed > 0 ->
+                            "${filter.openHostsFailed} routinely open target(s) failed as well — this is a path problem, not only a policy"
+                        else ->
+                            "Exactly the routinely filtered names failed — SG/SNI policy on this path"
+                    },
+                    filter.tls.joinToString(" · ") { probe ->
+                        "${probe.sni}: ${probe.outcome.label.lowercase()}" +
+                            (if (probe.latencyMs > 0) " in ${probe.latencyMs}ms" else "")
+                    }
+                )
+            }
+            if (filter.tlsReset > 0) {
+                findings += CouncilFinding(
+                    CouncilSeat.DPI,
+                    CouncilSeverity.CRITICAL,
+                    "${filter.tlsReset} handshake(s) were reset before they could finish",
+                    "A reset that arrives during the ClientHello is injected by a middlebox: the destination never answered, and its own server never saw the request."
+                )
+            }
+        }
+        if (filter.blockPagesFound > 0) {
+            findings += CouncilFinding(
+                CouncilSeat.DPI,
+                CouncilSeverity.CRITICAL,
+                "A policy page was served in place of ${filter.blockPagesFound} site(s)",
+                filter.blockPages.filter { it.intercepted }
+                    .joinToString(" · ") { probe ->
+                        "${probe.host}: HTTP ${probe.statusCode}" +
+                            (if (probe.redirectHost.isNotBlank()) " → ${probe.redirectHost}" else "")
+                    }
+            )
+        }
+
         val strategy = when {
-            path.injectedReset -> FragmentStrategy.FULL
+            path.injectedReset || labFiltered -> FragmentStrategy.FULL
             !path.tlsCompleted -> FragmentStrategy.RECORD
+            labSuspect -> FragmentStrategy.RECORD
             else -> FragmentStrategy.AUTO
         }
         proposals += Proposal(
             TuningField.FRAGMENT,
             strategy.id,
             CouncilSeat.DPI,
-            96,
+            if (labFiltered) 98 else 96,
             when (strategy) {
-                FragmentStrategy.FULL -> "A reset inside the handshake is a middlebox that has already decided; split the whole ClientHello across segments."
-                FragmentStrategy.RECORD -> "The handshake never completed; splitting the ClientHello across TLS records is the cheap first attempt."
-                else -> "Nothing interfered with a completed handshake, so the default automatic treatment is kept — a protection is never spent without evidence."
+                FragmentStrategy.FULL ->
+                    "A reset inside the handshake is a middlebox that has already decided; split the whole ClientHello across segments."
+                FragmentStrategy.RECORD ->
+                    "The handshake never completed; splitting the ClientHello across TLS records is the cheap first attempt."
+                else ->
+                    "Nothing interfered with a completed handshake, so the default automatic treatment is kept — a protection is never spent without evidence."
             }
         )
-        if (path.injectedReset) {
+        if (path.injectedReset || labFiltered) {
             proposals += Proposal(
                 TuningField.MUX_PADDING,
                 "true",
@@ -1287,7 +1621,11 @@ object NetworkCouncil {
         val hot = thermal >= 3
         val downKbps = maxOf(evidence.throughputDownKbps, evidence.radio.linkDownKbps)
 
-        val censored = evidence.radio.captivePortal || evidence.sniSuspicion || evidence.dns.any { it.blockPage }
+        // MARBLE_FILTER_LAB_V273 — a measured filtrations verdict is as loud as a captive portal:
+        // the cores run the stealth workload when the lab actually found policy on the path.
+        val censored = evidence.radio.captivePortal || evidence.sniSuspicion ||
+            evidence.dns.any { it.blockPage } ||
+            evidence.filter.verdict == FilterVerdict.FILTERED
         val power = when {
             evidence.radio.captivePortal -> PowerProfile.EFFICIENT
             hot || lowBattery -> PowerProfile.EFFICIENT
@@ -1302,8 +1640,11 @@ object NetworkCouncil {
             CouncilSeat.CORE,
             when {
                 hot -> CouncilSeverity.WARNING
-                power == PowerProfile.EXTREME -> CouncilSeverity.GOOD
+                // MARBLE_FILTER_LAB_V273 — interference outranks "this device is fast enough":
+                // a seat that measured a policy on the path may not answer GOOD because the phone
+                // happens to have eight cores.
                 censored -> CouncilSeverity.WARNING
+                power == PowerProfile.EXTREME -> CouncilSeverity.GOOD
                 else -> CouncilSeverity.NOTICE
             },
             "Device: $cores cores · ${if (device.memoryMb > 0) "${device.memoryMb} MB" else "memory unknown"} · " +
@@ -1330,6 +1671,9 @@ object NetworkCouncil {
         val dnsTampered = evidence.dns.any { it.blockPage }
         val workload = when {
             evidence.radio.captivePortal || evidence.sniSuspicion || dnsTampered -> WorkloadProfile.STEALTH
+            // MARBLE_FILTER_LAB_V273 — a lab that *measured* filtering is the same evidence the
+            // sniSuspicion flag used to be, except that it was actually collected.
+            evidence.filter.verdict == FilterVerdict.FILTERED -> WorkloadProfile.STEALTH
             evidence.path.injectedReset -> WorkloadProfile.STEALTH
             metrics.jitterMs > 45.0 || metrics.lossPercent > 4.0 -> WorkloadProfile.STABILITY
             downKbps >= 20_000 -> WorkloadProfile.STREAMING
@@ -1348,7 +1692,8 @@ object NetworkCouncil {
             }
         )
 
-        val wantMux = muxSafe && metrics.medianRttMs > 120.0 && !evidence.path.injectedReset && !evidence.sniSuspicion
+        val wantMux = muxSafe && metrics.medianRttMs > 120.0 && !evidence.path.injectedReset &&
+            !evidence.sniSuspicion && evidence.filter.verdict != FilterVerdict.FILTERED
         proposals += Proposal(
             TuningField.MUX,
             wantMux.toString(),

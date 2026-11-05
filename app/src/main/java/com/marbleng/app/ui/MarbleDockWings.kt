@@ -37,7 +37,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -242,25 +241,18 @@ internal fun MarbleConnectionIslandCapsule(
             enter = fadeIn(),
             exit = fadeOut()
         ) {
-            Box(
-                modifier = Modifier
-                    .width(26.dp)
-                    .height(3.dp)
-                    .clip(CircleShape)
-                    .background(ink.copy(alpha = 0.18f))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(
-                            DockStudio.batchProgress(state.probeDone, state.probeTotal)
-                                .coerceIn(0.02f, 1f)
-                        )
-                        .height(3.dp)
-                        .clip(CircleShape)
-                        .background(ink)
-                        .testTag("dock-island-progress")
-                )
-            }
+            // MARBLE_EXPRESSIVE_WAVE_V273 — the island's batch rail is the same wave the
+            // scan and every other loader draw, in the same 26 × 3 dp box the flat bar filled:
+            // it spans the frame edge to edge and inks exactly its thickness.
+            MarbleWaveRail(
+                progress = DockStudio.batchProgress(state.probeDone, state.probeTotal)
+                    .coerceIn(0f, 1f),
+                modifier = Modifier.width(26.dp),
+                color = ink,
+                trackColor = ink.copy(alpha = 0.18f),
+                height = 3.dp,
+                tag = "dock-island-progress"
+            )
         }
     }
 }
@@ -338,10 +330,7 @@ internal fun MarbleDockPowerButton(
             label = "powerGlyph"
         ) { shown ->
             if (ConnectControl.working(shown)) {
-                LoadingIndicator(
-                    modifier = Modifier.size(22.dp),
-                    color = ink
-                )
+                MarbleWaveRing(size = 22.dp, color = ink)
             } else {
                 MarbleGlyphIcon(
                     glyph = when (shown) {
@@ -548,10 +537,7 @@ internal fun MarbleCenterSpringTrigger(
                 contentAlignment = Alignment.Center
             ) {
                 if (state.working) {
-                    LoadingIndicator(
-                        modifier = Modifier.size(glyph),
-                        color = ink
-                    )
+                    MarbleWaveRing(size = glyph, color = ink)
                 } else {
                     MarbleGlyphIcon(
                         glyph = when (phase) {

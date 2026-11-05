@@ -46,6 +46,8 @@ import com.marbleng.app.core.ConnectionStatus
 import com.marbleng.app.core.NotificationCopy
 import com.marbleng.app.core.NotificationRoutePicker
 import com.marbleng.app.core.NotificationCycleKind
+import com.marbleng.app.core.ShadeDeck
+import com.marbleng.app.core.ShadeFloor
 import com.marbleng.app.core.SmartNotificationKind
 import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.core.TransportTelemetry
@@ -753,10 +755,24 @@ class MarbleVpnService : VpnService() {
             runCatching { stopSelf() }
             return
         }
-        when (verb) {
-            NotificationRoutePicker.CONTROL_LEVEL -> repo.flipShadeRouteLevel()
-            NotificationRoutePicker.CONTROL_NEXT -> repo.stepShadeRoutePage(1)
-            NotificationRoutePicker.CONTROL_PREVIOUS -> repo.stepShadeRoutePage(-1)
+        when {
+            verb == NotificationRoutePicker.CONTROL_LEVEL -> repo.flipShadeRouteLevel()
+            // MARBLE_SHADE_DECK_V273 — the deck spends one row on paging, so "next" wraps: from
+            // the last page it returns to the first rather than sitting there doing nothing, which
+            // is the only way every page is reachable from one control.
+            verb == NotificationRoutePicker.CONTROL_NEXT -> repo.cycleShadeRoutePage()
+            verb == NotificationRoutePicker.CONTROL_PREVIOUS -> repo.stepShadeRoutePage(-1)
+            verb == "live" -> repo.clearShadeRouteScope()
+            ShadeDeck.isSourceVerb(verb) -> {
+                val sourceId = ShadeDeck.sourceIdFromVerb(verb)
+                if (sourceId.isBlank()) {
+                    diag.event("VPN", "shade-control-unknown", "verb" to verb)
+                    return
+                }
+                // Opening a subscription is a *browse*, not a switch: nothing is dialled, the
+                // servers floor simply stands inside it and the next tap is the user's own.
+                repo.openShadeRouteSource(sourceId)
+            }
             else -> {
                 diag.event("VPN", "shade-control-unknown", "verb" to verb)
                 return
@@ -4412,11 +4428,23 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             showCycleVerbs = current.shadeControl.cycle,
             pickerStyle = current.shadeControl.style,
             pickerLevel = repo.shadeRouteLevel.id,
+            pickerScopeSourceId = repo.shadeRouteScope,
             pickerPage = repo.shadeRoutePage,
             pickerRows = current.shadeControl.rows,
             showRoutePing = current.shadeControl.showPing,
             routePingLabels = if (current.shadeControl.showPing) {
                 repo.notificationShadePingLabels()
+            } else {
+                emptyMap()
+            },
+            // MARBLE_SERVER_PLAN_V273 — the sources floor's plan column. Read only when the deck
+            // is actually standing on that floor: building a map nobody draws is work the telemetry
+            // loop would repeat every second, and a plan does not change between two seconds.
+            routeSourcePlans = if (
+                current.shadeControl.picker &&
+                repo.shadeRouteLevel == ShadeFloor.SOURCES
+            ) {
+                repo.notificationSourcePlans()
             } else {
                 emptyMap()
             }

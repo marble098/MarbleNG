@@ -1070,6 +1070,16 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Rank all servers" to "رتبه‌بندی همه سرورها",
     "Unlimited" to "نامحدود",
     "Expired" to "منقضی‌شده",
+    // MARBLE_FILTER_LAB_V273 — the filtration lab's own words.
+    "Filtering lab" to "آزمایشگاه فیلترینگ",
+    "No filtration test ran" to "هیچ آزمون فیلترینگی اجرا نشد",
+    "Run the check again on a live link: the lab dials six TLS targets, asks every reachable resolver for three names and fetches two plain pages." to "وقتی اینترنت وصل شد یک بار دیگر تست کن: آزمایشگاه شش مقصد TLS را زنگ می‌زند، از هر رزولور در دسترس سه نام می‌پرسد و دو صفحهٔ سادهٔ HTTP می‌گیرد.",
+    "Policy page" to "صفحهٔ سیاست",
+    "No policy page" to "بدون صفحهٔ سیاست",
+    // MARBLE_SERVER_PLAN_V273 — the plan row's own words, and its honest "unknown".
+    "Quota not reported" to "حجم اعلام نشده",
+    "Expiry not reported" to "تاریخ انقضا اعلام نشده",
+    "Refresh this subscription to fetch its plan" to "این اشتراک را تازه‌سازی کن تا پلنش بیاید",
     "All apps" to "همه برنامه‌ها",
     "Only selected" to "فقط انتخاب‌شده‌ها",
     "Bypass" to "دورزدن",
