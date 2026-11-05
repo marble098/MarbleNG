@@ -6532,9 +6532,15 @@ check(
         "Build signed release APKs",
     )
     and "go clean -cache" in files["build"]
-    # The platform installed is the one compileSdk names, read from the file
-    # that owns it, because the reclaimer deletes every other platform.
+    # Both SDK pins are read from the Gradle file that owns them; a preinstalled
+    # exact platform is reused, otherwise SDK Manager searches preview-inclusive
+    # channels, retries with fresh metadata and verifies android.jar.
     and 'sed -n \'s/^[[:space:]]*compileSdk' in files["build"]
+    and 'sed -n \'s/^[[:space:]]*ndkVersion' in files["build"]
+    and 'sdkmanager --channel=3 "${packages[@]}"' in files["build"]
+    and 'for attempt in 1 2 3' in files["build"]
+    and 'rm -rf "$HOME/.android/cache"' in files["build"]
+    and '[[ -s "$platform_dir/android.jar" ]]' in files["build"]
     # A dead release build names its cause in the run itself: #377's step log was
     # unreachable from every diagnostic environment.
     and "Diagnose a failed release build" in files["build"]
@@ -6561,10 +6567,22 @@ check(
     "MARBLE_RUNNER_DISK_HEADROOM_V268" in v268_doc
     and "stripReleaseDebugSymbols" in v268_doc
     and "No space left on device" in v268_doc
-    and "V268 is the newest chapter: `docs/RUNNER_DISK_HEADROOM_V268.md`" in files["readme"]
+    and "V268: `docs/RUNNER_DISK_HEADROOM_V268.md`" in files["readme"]
     and "scripts/test-reclaim-runner-disk.sh" in files["verify"]
     and "Runner disk headroom fixtures" in files["verify"]
     and "test-reclaim-runner-disk.sh" in v268_doc,
+)
+
+v269_doc = read("docs/ANDROID_SDK_RESOLUTION_V269.md")
+check(
+    "V269 resolves Android SDK pins robustly and records the release failure",
+    "MARBLE_ANDROID_SDK_RESOLUTION_V269" in v269_doc
+    and "platforms;android-37" in v269_doc
+    and "three attempts" in v269_doc
+    and "ndkVersion" in v269_doc
+    and "V269 is the newest chapter: `docs/ANDROID_SDK_RESOLUTION_V269.md`" in files["readme"]
+    and "sdkmanager --channel=3" in files["build"]
+    and "android.jar" in files["build"],
 )
 
 failed = [name for name, passed in checks if not passed]
