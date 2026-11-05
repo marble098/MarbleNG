@@ -4922,9 +4922,11 @@ check(
     # A library that shrank between two taps resolves to the last page that exists.
     and "fun clampPage(" in files["routePicker"]
     and "const val DEFAULT_STUDIO_ROWS: Int = ShadeControlDefaults.ROWS" in files["routePicker"]
-    # The V238 list is still shipped and still selectable; the studio was added beside it.
+    # The V238 list is still shipped and still selectable; the V249 studio survives *as a
+    # library* (its pure rules and its own tests), but the shade itself is drawn by the V273 deck:
+    # the studio added paging and a ping column and still let its chrome push servers off the item.
     and "fun build(input: Input): List<PickerRow>" in files["routePicker"]
-    and "ShadePickerStyle.STUDIO -> NotificationRoutePicker.studio(" in files["notifier"]
+    and "ShadePickerStyle.STUDIO -> ShadeDeck.view(" in files["notifier"]
     and "ShadePickerStyle.LIST -> NotificationRoutePicker.build(" in files["notifier"]
     # The ping column exists in *both* row layouts: the LTR and RTL id sets must stay equal.
     and "@+id/picker_meta" in files["pickerRowLayout"]
@@ -4939,12 +4941,12 @@ check(
     "V249 every shade control row reaches the service with its own verb and its own data URI",
     'const val ACTION_SHADE_CONTROL = "com.marbleng.SHADE_CONTROL"' in files["vpn"]
     and "EXTRA_SHADE_CONTROL" in files["vpn"]
-    and "NotificationRoutePicker.CONTROL_LEVEL -> repo.flipShadeRouteLevel()" in files["vpn"]
-    and "NotificationRoutePicker.CONTROL_NEXT -> repo.stepShadeRoutePage(1)" in files["vpn"]
-    and "NotificationRoutePicker.CONTROL_PREVIOUS -> repo.stepShadeRoutePage(-1)" in files["vpn"]
+    and "verb == NotificationRoutePicker.CONTROL_LEVEL -> repo.flipShadeRouteLevel()" in files["vpn"]
+    and "verb == NotificationRoutePicker.CONTROL_NEXT -> repo.cycleShadeRoutePage()" in files["vpn"]
+    and "verb == NotificationRoutePicker.CONTROL_PREVIOUS -> repo.stepShadeRoutePage(-1)" in files["vpn"]
     and "fun flipShadeRouteLevel()" in files["repo"]
     and "fun stepShadeRoutePage(delta: Int)" in files["repo"]
-    and "fun shadeRouteItemCount(level: ShadeLevel)" in files["repo"]
+    and "fun shadeRouteItemCount(level: ShadeFloor)" in files["repo"]
     and "fun notificationShadePingLabels()" in files["repo"]
     and "marbleng://shade/" in files["notifier"]
     # Republishing the same state is what makes a tap inside the shade visible without the app.
@@ -5329,8 +5331,11 @@ check(
     and "fun marbleAsymmetricShape(" in v252_surfaces
     and "fun marbleSelectionMorphShape(" in v252_surfaces
     and "fun MarbleExpressiveIconButton(" in v252_surfaces
-    and "LoadingIndicator(" in files["shellUi"]
-    and "LoadingIndicator(" in files["homeScreen"]
+    # MARBLE_EXPRESSIVE_WAVE_V273 — the morphing `LoadingIndicator` is retired from these two
+    # surfaces: every loader in the product is the Material 3 Expressive wave now, inscribed in the
+    # exact box the spinner used to fill.
+    and "MarbleWaveRing(" in files["shellUi"]
+    and "MarbleWaveRing(" in files["homeScreen"]
     and "HomeMetricBentoTile(" in files["homeScreen"]
     and ".clip(CircleShape)" not in files["homeScreen"]
     and ".clip(CircleShape)" not in files["shellUi"]
@@ -6309,7 +6314,11 @@ check(
     and ".height(82.dp)" in v264_shell
     and "stateDescription" in v264_shell
     and "animateContentSize" not in v264_shell
-    and "LoadingIndicator(" in v264_wings
+    # MARBLE_EXPRESSIVE_WAVE_V273 — the working state is the wave ring, and the batch rail is the
+    # wave rail: both hold the geometry V264 fixed (the power button's 22 dp box, the island's
+    # 26 × 3 dp bar).
+    and "MarbleWaveRing(" in v264_wings
+    and "MarbleWaveRail(" in v264_wings
     and "class SteadyConnectControlsV264Test" in v264_ui_test
     and "fun theCentreTriggerKeepsEveryTabWhereItWasInAllFivePhases()" in v264_ui_test
     and "getBoundsInRoot()" in v264_ui_test,
@@ -6683,9 +6692,136 @@ check(
     and "platforms/android-37.0" in v271_doc
     and "#380" in v271_doc
     and "source.properties" in v271_doc
-    and "V271 is the newest chapter: `docs/ANDROID_PLATFORM_DIRECTORY_V271.md`"
-    in files["readme"]
+    # MARBLE_EXPRESSIVE_WAVE_AND_SHADE_DECK_V273 — the crown moves with each pass; what must never
+    # move is the link to this one.
+    and "docs/ANDROID_PLATFORM_DIRECTORY_V271.md" in files["readme"]
     and "scripts/test-android-sdk-install.sh" in v271_doc,
+)
+
+# ---------------------------------------------------------------------------
+# MARBLE_EXPRESSIVE_WAVE_AND_SHADE_DECK_V273 — four reports, four broken
+# contracts. The wave is the app's only progress idiom and is inscribed in the
+# exact frame it is drawn in; the council measures censorship instead of
+# guessing at it; the Servers page prints a subscription's plan; and the
+# shade's route control is a deck whose budget includes its own chrome.
+# ---------------------------------------------------------------------------
+v273_wave = read("app/src/main/java/com/marbleng/app/ui/MarbleWave.kt")
+v273_deck = read("app/src/main/java/com/marbleng/app/core/ShadeDeck.kt")
+v273_council = read("app/src/main/java/com/marbleng/app/core/NetworkCouncil.kt")
+v273_scanner = read("app/src/main/java/com/marbleng/app/core/NetworkScanner.kt")
+v273_plan = read("app/src/main/java/com/marbleng/app/model/PlanStatus.kt")
+v273_cards = read("app/src/main/java/com/marbleng/app/ui/MarblePlanCards.kt")
+v273_servers = read("app/src/main/java/com/marbleng/app/ui/ServersScreen.kt")
+v273_socks = read("app/src/main/java/com/marbleng/app/core/SocksHttpClient.kt")
+v273_doc = read("docs/EXPRESSIVE_WAVE_AND_SHADE_DECK_V273.md")
+v273_wings = read("app/src/main/java/com/marbleng/app/ui/MarbleDockWings.kt")
+v273_wave_test = read("app/src/test/java/com/marbleng/app/ui/MarbleWaveFrameV273Test.kt")
+v273_council_test = read("app/src/test/java/com/marbleng/app/core/NetworkCouncilV273Test.kt")
+v273_plan_test = read("app/src/test/java/com/marbleng/app/model/SubscriptionPlanV273Test.kt")
+v273_deck_test = read("app/src/test/java/com/marbleng/app/core/ShadeDeckV273Test.kt")
+
+check(
+    "V273 the Expressive wave is the only progress idiom and it is clipped to its own frame",
+    "MARBLE_EXPRESSIVE_WAVE_V273" in v273_wave
+    and "object MarbleWaveBounds" in v273_wave
+    and "fun trackDp(requested: Float): Float" in v273_wave
+    and "fun strokeDp(trackDp: Float): Float" in v273_wave
+    and "fun wavelengthDp(widthDp: Float, trackDp: Float): Float" in v273_wave
+    and "const val AMPLITUDE: Float = 1f" in v273_wave
+    and v273_wave.count("clipToBounds()") == 4
+    # The four primitives, and no fifth way to say "working".
+    and all(
+        f"internal fun {name}(" in v273_wave
+        for name in ("MarbleWaveProgressIndicator", "MarbleWaveActivity", "MarbleWaveRing", "MarbleWaveRail")
+    )
+    # The retired idioms must not come back anywhere in the product.
+    and all(
+        "LoadingIndicator(" not in source
+        and "LinearProgressIndicator(" not in source
+        and "CircularProgressIndicator(" not in source
+        for name, source in files.items()
+        if name not in ("wave",)
+    )
+    and "MarbleWaveRail(" in v273_cards
+    and "MarbleWaveRail(" in v273_wings
+    and "MarbleWaveRing(" in v273_wings
+    and "MarbleWaveRing(" in files["homeScreen"],
+)
+
+check(
+    "V273 the verdict of the filtration lab is measured, derived, and it moves the plan",
+    "MARBLE_FILTER_LAB_V273" in v273_council
+    and "data class FilterEvidence(" in v273_council
+    and "enum class FilterVerdict(val label: String)" in v273_council
+    and "val sniFiltering: Boolean" in v273_council
+    and "val completionFraction: Double" in v273_council
+    and "val verdict: FilterVerdict" in v273_council
+    and 'TlsTarget("telegram.org", routinelyFiltered = true)' in v273_scanner
+    and 'TlsTarget("www.gstatic.com")' in v273_scanner
+    and "fun probeTlsMatrix(): List<NetworkCouncil.TlsProbe>" in v273_scanner
+    and "fun probeDnsNames(servers: List<String>): List<NetworkCouncil.DnsNameCheck>" in v273_scanner
+    and "fun probeBlockPages(): List<NetworkCouncil.BlockPageProbe>" in v273_scanner
+    and "internal fun classifyTlsFailure(error: Throwable): NetworkCouncil.TlsOutcome" in v273_scanner
+    # The seat reads the lab, and the score is the measured completion rate.
+    and "labFiltered -> FragmentStrategy.FULL" in v273_council
+    and "labFiltered -> CouncilSeverity.CRITICAL" in v273_council
+    and "val completion = 100.0 * filter.completionFraction" in v273_council
+    and "httpsTargets = tls.map { probe ->" in v273_scanner,
+)
+
+check(
+    "V273 the Servers page prints a subscription plan, from headers both transports keep",
+    "MARBLE_SERVER_PLAN_V273" in v273_cards
+    and "internal fun ServerPlanStrip(" in v273_cards
+    and "fun summarize(" in v273_plan
+    and "data class Summary(" in v273_plan
+    and "const val UNKNOWN_QUOTA: String" in v273_plan
+    and "const val UNKNOWN_PLAN_HINT: String" in v273_plan
+    # The strip belongs to the column that owns the title, not to a sibling row.
+    and "ServerPlanStrip(" in v273_servers
+    and "PlanStatus.summarize(" in v273_servers
+    and "MARBLE_SERVER_PLAN_V273" in v273_servers
+    and v273_servers.count("ServerPlanStrip(") == 1
+    # The data: headers over both transports, and a body-only fetch cannot zero a plan.
+    and "data class TextResponse(" in v273_socks
+    and "fun getTextUrlResponse(" in v273_socks
+    and "SUBSCRIPTION_USERINFO_HEADER" in files["repo"]
+    and "uploadBytes = meta?.upload ?: current.uploadBytes" in files["repo"]
+    and "text = SocksHttpClient.getTextUrl(" not in files["repo"]
+    and "fun notificationSourcePlans(): Map<String, String>" in files["repo"],
+)
+
+check(
+    "V273 the shade's deck keeps a hard row budget and makes every route reachable",
+    "MARBLE_SHADE_DECK_V273" in v273_deck
+    and "enum class ShadeFloor(val id: String)" in v273_deck
+    and "const val MAX_ROWS: Int = 8" in v273_deck
+    and "fun chromeRows(" in v273_deck
+    and "fun reachableRouteIds(" in v273_deck
+    and "const val VERB_SOURCE_PREFIX: String = \"source:\"" in v273_deck
+    and "fun chromeRows(" in v273_deck
+    # The service applies every verb, and opening a subscription dials nothing.
+    and "ShadeDeck.isSourceVerb(verb) -> {" in files["vpn"]
+    and "repo.openShadeRouteSource(sourceId)" in files["vpn"]
+    and "verb == NotificationRoutePicker.CONTROL_NEXT -> repo.cycleShadeRoutePage()" in files["vpn"]
+    and "fun cycleShadeRoutePage()" in files["repo"]
+    and "fun openShadeRouteSource(sourceId: String)" in files["repo"]
+    and "routeSourcePlans = if (" in files["vpn"]
+    and "sourcePlans = state.routeSourcePlans" in files["notifier"],
+)
+
+check(
+    "V273 the chapter, the four host-JVM tests and the README record the pass",
+    "# MARBLE_EXPRESSIVE_WAVE_AND_SHADE_DECK_V273" in v273_doc
+    and "## ۱. موج" in v273_doc
+    and "## ۵. جدول اجرا" in v273_doc
+    and "## ۶. تست" in v273_doc
+    and "## ۷. آنچه عمداً انجام نشد" in v273_doc
+    and "V273 is the newest chapter: `docs/EXPRESSIVE_WAVE_AND_SHADE_DECK_V273.md`" in files["readme"]
+    and "class MarbleWaveFrameV273Test" in v273_wave_test
+    and "class NetworkCouncilV273Test" in v273_council_test
+    and "class SubscriptionPlanV273Test" in v273_plan_test
+    and "class ShadeDeckV273Test" in v273_deck_test,
 )
 
 failed = [name for name, passed in checks if not passed]

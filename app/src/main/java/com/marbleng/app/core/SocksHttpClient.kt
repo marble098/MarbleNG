@@ -40,6 +40,21 @@ data class SampledTransfer(
     val headers: Map<String, String> = emptyMap()
 )
 
+/**
+ * MARBLE_SUBSCRIPTION_PLAN_V273 — a management response with its headers.
+ *
+ * The tunnel path used to return the body and throw the headers away, which is precisely where a
+ * panel puts `subscription-userinfo` (upload/download/total/expire). A refresh while the VPN was
+ * connected therefore *erased the plan* rather than updating it: the fetch succeeded, the bytes
+ * were stored, and the quota and the expiry were left at zero because the only copy of them was
+ * in a header this client had already discarded. The body is still what the caller mostly wants;
+ * the headers are what makes a subscription a plan.
+ */
+data class TextResponse(
+    val text: String,
+    val headers: Map<String, String> = emptyMap()
+)
+
 data class SurvivalVerdict(
     val survived: Boolean,
     val handshakeOk: Boolean,
@@ -74,7 +89,22 @@ object SocksHttpClient {
         maxBytes: Int = 8 * 1024 * 1024,
         redirectsLeft: Int = 5,
         userAgent: String = "MarbleNG/1"
-    ): String {
+    ): String = getTextUrlResponse(port, url, timeoutMs, maxBytes, redirectsLeft, userAgent).text
+
+    /**
+     * The same request, keeping the response headers.
+     *
+     * Redirects are followed exactly as [getTextUrl] follows them, and the headers of the *final*
+     * response are the ones returned — which is the one a panel stamps with its plan.
+     */
+    fun getTextUrlResponse(
+        port: Int,
+        url: String,
+        timeoutMs: Int = 30_000,
+        maxBytes: Int = 8 * 1024 * 1024,
+        redirectsLeft: Int = 5,
+        userAgent: String = "MarbleNG/1"
+    ): TextResponse {
         require(redirectsLeft >= 0) { "Too many redirects" }
 
         val target = URL(url)
@@ -102,7 +132,7 @@ object SocksHttpClient {
         if (probe.status in 300..399) {
             val location = probe.headers["location"] ?: error("HTTPS redirect without Location")
             require(redirectsLeft > 0) { "Too many redirects" }
-            return getTextUrl(
+            return getTextUrlResponse(
                 port,
                 URL(target, location).toString(),
                 timeoutMs,
@@ -113,7 +143,10 @@ object SocksHttpClient {
         }
 
         require(probe.status in 200..299) { "HTTPS ${probe.status} from ${target.host}" }
-        return probe.body.toString(Charsets.UTF_8)
+        return TextResponse(
+            text = probe.body.toString(Charsets.UTF_8),
+            headers = probe.headers
+        )
     }
 
     fun connectLatency(

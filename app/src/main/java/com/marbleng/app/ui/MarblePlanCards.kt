@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.PlanStatus
 import com.marbleng.app.model.Subscription
@@ -207,35 +208,143 @@ internal fun MarblePlanPlate(
 }
 
 /**
- * The bar: a rail in the tone at 14 % and a fill in the same tone at full strength.
+ * MARBLE_SERVER_PLAN_V273 — the compact plan a **list header** prints, under its own title.
  *
- * Drawn as two boxes rather than a Canvas so the fill can be a fraction of the rail with the same
- * corner radius at both ends — the fill's own curve is what makes it read as a *measure* rather than
- * a progress bar with the standard square start.
+ * The sheet's plate is 4 rows tall and deserves them; a group header is 64 dp and cannot borrow
+ * that. This strip is the same facts at list scale, in one place and one width:
+ *
+ * ```
+ * 3.2 GB / 20.0 GB                                       24%
+ * ~~~~~~~~~~~~~~~ wave, 5 dp ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * 16.8 GB left · Expires in 6 days · 1405-08-16
+ * ```
+ *
+ * Three rules, all inherited from [PlanStatus.summarize] rather than decided here:
+ *
+ *  1. **A quota gets a rail; no quota gets a sentence.** A panel that reports no ceiling must not
+ *     draw `0 %` beside a subscription that simply has no cap.
+ *  2. **Nothing reported is a sentence with a verb in it** — "Quota not reported · Refresh this
+ *     subscription to fetch its plan" — because the V272 header showed *nothing at all* in that
+ *     case, which reads as a bug rather than as missing data.
+ *  3. **The tone comes from the plan, not from the row.** A subscription expiring tomorrow is loud
+ *     on a calm page, and a healthy one never competes with the live route for attention.
  */
 @Composable
-private fun PlanUsageBar(fraction: Float, tint: Color) {
-    val safe = fraction.coerceIn(0f, 1f)
-    Box(
-        modifier = Modifier
+internal fun ServerPlanStrip(
+    summary: PlanStatus.Summary,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val accent = planToneColor(summary.tone)
+    Column(
+        modifier = modifier
             .fillMaxWidth()
-            .height(7.dp)
-            .clip(CircleShape)
-            .background(tint.copy(alpha = 0.14f))
-            .testTag("server-plan-bar")
+            .testTag("server-plan-strip"),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        if (safe > 0f) {
-            Box(
-                modifier = Modifier
-                    // A fill narrower than its own corner radius looks like a dot, so the floor is
-                    // one point of travel rather than one percent of the rail.
-                    .fillMaxWidth(safe.coerceAtLeast(0.02f))
-                    .height(7.dp)
-                    .clip(CircleShape)
-                    .background(tint)
+        if (summary.hasQuota) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = faDigits(summary.usedLabel),
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                PlanChip(
+                    label = faDigits(summary.percentLabel),
+                    tint = accent,
+                    tag = "server-plan-strip-percent"
+                )
+            }
+            MarbleWaveRail(
+                progress = summary.fraction,
+                modifier = Modifier.fillMaxWidth(),
+                color = accent,
+                trackColor = accent.copy(alpha = 0.16f),
+                height = 5.dp,
+                tag = "server-plan-strip-rail"
+            )
+        } else {
+            Text(
+                text = "${trx(PlanStatus.UNKNOWN_QUOTA)} · ${trx(PlanStatus.UNKNOWN_PLAN_HINT)}",
+                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        // A strip whose panel reported nothing already said so in one sentence above; a second
+        // line repeating "Expiry not reported" under it is noise, not honesty.
+        if (summary.reported) Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("server-plan-strip-expiry"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            val days = faDigits(trx(summary.daysLabel))
+            val text = buildString {
+                if (summary.hasQuota && summary.remainingLabel.isNotBlank()) {
+                    append(faDigits(summary.remainingLabel))
+                    append(" ")
+                    append(trx("left"))
+                    append(" · ")
+                }
+                if (summary.hasExpiry) {
+                    append(trx(if (summary.expired) "Expired" else "Expires"))
+                    append(" ")
+                    append(days)
+                    if (summary.expiryDateLabel.isNotBlank()) {
+                        append(" · ")
+                        append(faDigits(summary.expiryDateLabel))
+                    }
+                } else {
+                    append(trx(PlanStatus.UNKNOWN_EXPIRY))
+                }
+            }
+            Text(
+                text = text,
+                color = if (summary.expired) accent else colors.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = if (summary.expired || summary.tone == PlanStatus.Tone.WARN) {
+                        FontWeight.Bold
+                    } else {
+                        FontWeight.Medium
+                    }
+                ),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
+}
+
+/**
+ * The bar: the product's wave, drawn at the plan plate's own 7 dp height.
+ *
+ * MARBLE_EXPRESSIVE_WAVE_V273 — V260 drew this as two rounded boxes and V273 routes it through
+ * [MarbleWaveRail], because a quota rail is a loading/progress rail like any other and the report
+ * asked for one wave everywhere. The frame is unchanged (full width, 7 dp, the plan's tone), the
+ * fill is the same clamped fraction, and `server-plan-bar` still names the node the V260 tests
+ * look for.
+ */
+@Composable
+private fun PlanUsageBar(fraction: Float, tint: Color) {
+    MarbleWaveRail(
+        progress = fraction.coerceIn(0f, 1f),
+        modifier = Modifier.fillMaxWidth(),
+        color = tint,
+        trackColor = tint.copy(alpha = 0.14f),
+        height = 7.dp,
+        tag = "server-plan-bar"
+    )
 }
 
 /** A small pill: the percentage, or the state word. Tonal, never a solid fill. */

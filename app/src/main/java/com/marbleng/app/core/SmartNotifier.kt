@@ -90,12 +90,27 @@ data class ConnectionNotificationState(
     val showRoutePicker: Boolean = true,
     val showCycleVerbs: Boolean = true,
     val pickerStyle: String = ShadePickerStyle.DEFAULT.id,
-    val pickerLevel: String = ShadeLevel.SERVERS.id,
+    val pickerLevel: String = ShadeFloor.SERVERS.id,
+    /**
+     * MARBLE_SHADE_DECK_V273 — which subscription the servers floor has *opened*.
+     *
+     * Empty means "whatever is live". The studio had no such notion: its servers floor was
+     * hard-wired to the live subscription, which is why a library of six subscriptions could only
+     * ever be browsed one server deep. This is session state, like the floor and the page.
+     */
+    val pickerScopeSourceId: String = "",
     val pickerPage: Int = 0,
     val pickerRows: Int = NotificationRoutePicker.DEFAULT_STUDIO_ROWS,
     val showRoutePing: Boolean = true,
     /** Measured latency per route id, already formatted: an unmeasured route is simply absent. */
-    val routePingLabels: Map<String, String> = emptyMap()
+    val routePingLabels: Map<String, String> = emptyMap(),
+
+    /**
+     * MARBLE_SERVER_PLAN_V273 — one short plan per subscription id, for the deck's sources floor:
+     * `42% · in 6 days`. A subscription whose panel never reported a plan is absent, and its row
+     * prints its server count alone.
+     */
+    val routeSourcePlans: Map<String, String> = emptyMap()
 ) {
     fun signature(language: NotificationLanguage): String = buildString {
         append(status.name).append('|')
@@ -113,10 +128,20 @@ data class ConnectionNotificationState(
         // gate would swallow exactly the taps the studio exists to answer.
         append('|').append(showRoutePicker).append('|').append(showCycleVerbs)
         append('|').append(pickerStyle).append('|').append(pickerLevel)
+        append('|').append(pickerScopeSourceId)
         append('|').append(pickerPage).append('|').append(pickerRows)
         append('|').append(showRoutePing)
         append('|').append(
             routePingLabels.entries
+                .sortedBy { it.key }
+                .joinToString(",") { "${it.key}=${it.value}" }
+                .hashCode()
+        )
+        // MARBLE_SERVER_PLAN_V273 — a refreshed plan is a different message: a subscription that
+        // crossed 90 % of its ceiling, or ran out of days, has to reach the reader without her
+        // reopening the shade.
+        append('|').append(
+            routeSourcePlans.entries
                 .sortedBy { it.key }
                 .joinToString(",") { "${it.key}=${it.value}" }
                 .hashCode()
@@ -738,18 +763,24 @@ class SmartNotifier(
                     cap = NotificationRoutePicker.DEFAULT_CAP
                 )
             )
-            ShadePickerStyle.STUDIO -> NotificationRoutePicker.studio(
-                NotificationRoutePicker.StudioInput(
-                    routes = state.routes,
-                    currentId = state.routeId,
-                    currentSourceId = state.routeSourceId,
-                    level = ShadeLevel.fromId(state.pickerLevel),
+            // MARBLE_SHADE_DECK_V273 — the studio's replacement. The deck reserves room for
+            // its own chrome inside one hard row budget (so SystemUI can no longer clip the row a
+            // reader is paging towards), opens a subscription instead of blind-dialling its first
+            // server, and makes every page reachable from one pager row.
+            ShadePickerStyle.STUDIO -> ShadeDeck.view(
+                routes = state.routes,
+                currentId = state.routeId,
+                currentSourceId = state.routeSourceId,
+                state = ShadeDeckState(
+                    floor = ShadeFloor.fromId(state.pickerLevel),
+                    scopeSourceId = state.pickerScopeSourceId,
                     page = state.pickerPage,
-                    rowBudget = state.pickerRows,
-                    showPing = state.showRoutePing,
-                    pingLabels = state.routePingLabels,
-                    chrome = NotificationCopy.shadeChrome(language)
-                )
+                    rows = state.pickerRows,
+                    showPing = state.showRoutePing
+                ),
+                chrome = NotificationCopy.shadeChrome(language),
+                pingLabels = if (state.showRoutePing) state.routePingLabels else emptyMap(),
+                sourcePlans = state.routeSourcePlans
             ).rows
         }
     }
@@ -767,7 +798,10 @@ class SmartNotifier(
         if (verb.isBlank()) return null
         val intent = Intent(context, MarbleVpnService::class.java)
             .setAction(MarbleVpnService.ACTION_SHADE_CONTROL)
-            .setData(Uri.parse("marbleng://shade/$verb"))
+            // MARBLE_SHADE_DECK_V273 — a deck verb can carry a payload (`source:<id>`), and a
+            // subscription id is arbitrary text. It travels percent-encoded in the data URI and
+            // verbatim in the extra, so `Uri.parse` can never truncate it at a slash or a space.
+            .setData(Uri.parse("marbleng://shade/" + Uri.encode(verb)))
             .putExtra(MarbleVpnService.EXTRA_SHADE_CONTROL, verb)
         return PendingIntent.getService(
             context,

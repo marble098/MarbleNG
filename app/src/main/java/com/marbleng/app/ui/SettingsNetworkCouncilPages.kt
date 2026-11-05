@@ -205,6 +205,73 @@ fun SettingsNetworkCouncilPage(
             }
         }
 
+        // MARBLE_FILTER_LAB_V273 — the page's new centre of gravity.
+        //
+        // The V236 page could report interference only as one adjective on the DPI seat, because
+        // the scanner measured one handshake and no names. The lab's rows are printed here
+        // one target at a time — which host, which SNI, how the handshake ended, which resolver
+        // rewrote which name, which site was answered with a policy page — so "filtering" on this
+        // page is never a claim without a line of evidence under it.
+        if (evidence != null) {
+            item(key = "council-filter-lab") {
+                val lab = evidence.filter
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MarbleSectionHeader(
+                        title = trx("Filtering lab"),
+                        badge = trx(lab.verdict.label),
+                        badgeColor = filterVerdictColor(lab.verdict)
+                    )
+                    if (!lab.measured) {
+                        MarbleEmptyState(
+                            title = trx("No filtration test ran"),
+                            body = trx(
+                                "Run the check again on a live link: the lab dials six TLS targets, asks every reachable resolver for three names and fetches two plain pages."
+                            ),
+                            glyph = MarbleGlyph.RADAR,
+                            tint = colors.tertiary
+                        )
+                    } else {
+                        MarbleCard {
+                            lab.tls.forEachIndexed { index, probe ->
+                                if (index > 0) MarbleDivider()
+                                CouncilMetricRow(
+                                    label = probe.sni,
+                                    value = tlsProbeValue(probe),
+                                    tone = tlsProbeTone(probe)
+                                )
+                            }
+                            lab.dnsNames.forEach { check ->
+                                MarbleDivider()
+                                CouncilMetricRow(
+                                    label = check.name,
+                                    value = dnsCheckValue(check),
+                                    tone = when (check.verdict) {
+                                        NetworkCouncil.DnsVerdict.BLOCKED -> colors.error
+                                        NetworkCouncil.DnsVerdict.DIFFERENT -> colors.warning
+                                        NetworkCouncil.DnsVerdict.AGREE -> colors.success
+                                        else -> colors.onSurface
+                                    }
+                                )
+                            }
+                            lab.blockPages.forEach { page ->
+                                MarbleDivider()
+                                CouncilMetricRow(
+                                    label = page.host,
+                                    value = if (page.intercepted) {
+                                        trx("Policy page") + " · HTTP " + faDigits("${page.statusCode}") +
+                                            if (page.bodyMarker.isNotBlank()) " · ${page.bodyMarker}" else ""
+                                    } else {
+                                        trx("No policy page") + " · HTTP " + faDigits("${page.statusCode}")
+                                    },
+                                    tone = if (page.intercepted) colors.error else colors.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (plan != null) {
             item(key = "council-changes") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -633,4 +700,50 @@ private fun kbps(value: Int): String = when {
     value <= 0 -> "—"
     value >= 1_000 -> "${(value / 1_000.0).roundToInt()} Mbps"
     else -> "$value kbps"
+}
+
+/**
+ * MARBLE_FILTER_LAB_V273 — the lab's one colour rule.
+ *
+ * A verdict is a colour, and the colour comes from the verdict, never from the seat that happened
+ * to speak first: "filtered" is red, "partial" is amber, "clean" is green, and "not measured"
+ * stays the page's own ink because an unmeasured lab has nothing to shout about.
+ */
+@Composable
+private fun filterVerdictColor(verdict: NetworkCouncil.FilterVerdict): Color {
+    val colors = MaterialTheme.colorScheme
+    return when (verdict) {
+        NetworkCouncil.FilterVerdict.FILTERED -> colors.error
+        NetworkCouncil.FilterVerdict.UNREACHABLE -> colors.error
+        NetworkCouncil.FilterVerdict.SUSPECT -> colors.warning
+        NetworkCouncil.FilterVerdict.CLEAN -> colors.success
+        NetworkCouncil.FilterVerdict.UNMEASURED -> colors.onSurfaceVariant
+    }
+}
+
+/** One TLS row: the outcome in words, the deadline it took, and the name the filter would read. */
+private fun tlsProbeValue(probe: NetworkCouncil.TlsProbe): String {
+    val latency = if (probe.latencyMs > 0) " · ${probe.latencyMs} ms" else ""
+    val certificate = if (probe.reachable && !probe.certificateOk) " · no certificate" else ""
+    return probe.outcome.label + latency + certificate
+}
+
+@Composable
+private fun tlsProbeTone(probe: NetworkCouncil.TlsProbe): Color {
+    val colors = MaterialTheme.colorScheme
+    return when {
+        probe.reachable && probe.certificateOk -> colors.success
+        probe.reachable -> colors.warning
+        probe.outcome == NetworkCouncil.TlsOutcome.RESET -> colors.error
+        probe.outcome == NetworkCouncil.TlsOutcome.TIMEOUT -> colors.warning
+        else -> colors.onSurfaceVariant
+    }
+}
+
+/** One name row: the verdict, then the two answers that produced it. */
+private fun dnsCheckValue(check: NetworkCouncil.DnsNameCheck): String {
+    val first = check.firstAnswer.ifBlank { "—" }
+    val second = check.secondAnswer.ifBlank { "" }
+    val pair = if (second.isBlank() || second == first) first else "$first vs $second"
+    return check.verdict.label + " · " + pair
 }

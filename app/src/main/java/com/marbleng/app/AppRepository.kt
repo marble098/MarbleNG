@@ -3956,81 +3956,131 @@ private fun postToMain(block: () -> Unit) {
             }
 
     // ------------------------------------------------------------------------------------------
-    // MARBLE_SHADE_STUDIO_V249 — where the shade's route control is standing.
+    // MARBLE_SHADE_DECK_V273 — where the shade's route control is standing.
     // ------------------------------------------------------------------------------------------
 
     /**
-     * The floor and the page the studio is showing.
+     * The floor, the opened subscription and the page the deck is showing.
      *
-     * Both are *session* state and deliberately not settings. They answer "where is the user
+     * All three are *session* state and deliberately not settings. They answer "where is the user
      * browsing right now", and the honest answer after a reconnect — or after a phone that was off
      * for a day — is the servers of the live subscription, page one. Persisting them would open the
      * shade on page four of a subscription that is no longer live, which is a bookmark, not a
      * control.
+     *
+     * [shadeRouteScopeState] is the V273 addition and the one that makes the deck a browser: the
+     * studio had no way to say "open Provider B", so a library of six subscriptions was browsable
+     * one server deep and every other server in it was unreachable from the shade.
      */
-    private val shadeRouteLevelState = mutableStateOf(ShadeLevel.SERVERS)
+    private val shadeRouteLevelState = mutableStateOf(ShadeFloor.SERVERS)
+    private val shadeRouteScopeState = mutableStateOf("")
     private val shadeRoutePageState = mutableStateOf(0)
 
-    val shadeRouteLevel: ShadeLevel get() = shadeRouteLevelState.value
+    val shadeRouteLevel: ShadeFloor get() = shadeRouteLevelState.value
+    val shadeRouteScope: String get() = shadeRouteScopeState.value
     val shadeRoutePage: Int get() = shadeRoutePageState.value
 
     /**
      * The floor control: servers ⇄ subscriptions. The page resets with the floor, because page
-     * three of a forty-server subscription means nothing on a six-subscription floor.
+     * three of a forty-server subscription means nothing on a six-subscription floor; the opened
+     * subscription is *kept*, so stepping back onto the servers floor returns to the subscription
+     * the reader was in rather than to the live one they did not ask for.
      *
-     * These three mutators write snapshot state directly instead of through [postToMain], and that
-     * is deliberate: the tunnel service calls them from its control worker and re-publishes the
+     * These mutators write snapshot state directly instead of through [postToMain], and that is
+     * deliberate: the tunnel service calls them from its control worker and re-publishes the
      * notification in the *same* call, so a write that lands on the next main-loop turn would draw
-     * the shade as it was before the tap. One `Int` and one enum in a `MutableState` is a legal
-     * write from any thread, and unlike [selectProfile] there is nothing else to sequence — no
-     * persistence, no flow, no second state that has to agree.
+     * the shade as it was before the tap. One `Int` and two short values in a `MutableState` is a
+     * legal write from any thread, and unlike [selectProfile] there is nothing else to sequence —
+     * no persistence, no flow, no second state that has to agree.
      */
     fun flipShadeRouteLevel() {
-        shadeRouteLevelState.value = ShadeLevel.other(shadeRouteLevelState.value)
+        shadeRouteLevelState.value = ShadeFloor.other(shadeRouteLevelState.value)
+        shadeRoutePageState.value = 0
+    }
+
+    /** "Open this subscription": the sources floor's row verb, and what the studio could not do. */
+    fun openShadeRouteSource(sourceId: String) {
+        shadeRouteLevelState.value = ShadeFloor.SERVERS
+        shadeRouteScopeState.value = sourceId.trim()
+        shadeRoutePageState.value = 0
+    }
+
+    /** "← Live": leave the opened subscription and stand on the live one again. */
+    fun clearShadeRouteScope() {
+        shadeRouteLevelState.value = ShadeFloor.SERVERS
+        shadeRouteScopeState.value = ""
         shadeRoutePageState.value = 0
     }
 
     /**
-     * One page turn. The studio clamps the page against the library when it draws, so a library
-     * that shrank between the tap and the redraw cannot leave the shade on a page that does not
-     * exist; [stepShadeRoutePage] clamps here too so the state itself never says "page 9 of 2".
+     * One page turn. The deck clamps the page against the library when it draws, so a library that
+     * shrank between the tap and the redraw cannot leave the shade on a page that does not exist;
+     * this clamps here too so the state itself never says "page 9 of 2".
      */
     fun stepShadeRoutePage(delta: Int) {
         if (delta == 0) return
-        val budget = ShadeControlDefaults.rowChoice(settings.shadeControl.rows)
-        val items = shadeRouteItemCount(shadeRouteLevelState.value)
-        shadeRoutePageState.value = NotificationRoutePicker.clampPage(
+        val geometry = shadeDeckGeometry()
+        shadeRoutePageState.value = ShadeDeck.clampPage(
             shadeRoutePageState.value + delta,
-            items,
-            budget
+            geometry.itemCount,
+            geometry.dataRows
         )
-    }
-
-    /** Back to the floor and page the studio starts on: a new route, or the tunnel going down. */
-    fun resetShadeRouteControl() {
-        shadeRouteLevelState.value = ShadeLevel.SERVERS
-        shadeRoutePageState.value = 0
     }
 
     /**
-     * How many rows the studio would list on [level].
+     * The deck's one pager row, applied: advance one page, wrapping from the last back to the first.
      *
-     * This has to agree with [NotificationRoutePicker.studio] or the page control lies: the studio
-     * lists the *live subscription's* servers and widens to the whole library only when that
-     * subscription has a single server, so counting every route in the library here would let
-     * "next page" count pages that are not there — a button that moves and changes nothing.
+     * The deck spends a *single* row on paging (chrome is part of the height budget, so two rows of
+     * arrows would cost a server), and a single forward row only reaches every page if it wraps.
      */
-    fun shadeRouteItemCount(level: ShadeLevel): Int {
-        val routes = notificationPickerRoutes()
-        if (routes.isEmpty()) return 0
-        if (level == ShadeLevel.SOURCES) return routes.map { it.sourceId }.distinct().size
-        val currentSource = NotificationRouteCycle.currentSource(
-            routes,
-            activeProfileId.ifBlank { selectedProfileId },
-            activeProfileSourceId.ifBlank { selectedProfileSourceId }
+    fun cycleShadeRoutePage() {
+        val geometry = shadeDeckGeometry()
+        if (geometry.pageCount <= 1) return
+        shadeRoutePageState.value = (geometry.page + 1) % geometry.pageCount
+    }
+
+    /** Back to where the deck starts: the live subscription's servers, page one, nothing opened. */
+    fun resetShadeRouteControl() {
+        shadeRouteLevelState.value = ShadeFloor.SERVERS
+        shadeRouteScopeState.value = ""
+        shadeRoutePageState.value = 0
+    }
+
+    /** The deck's geometry for the current library and the standing state. */
+    fun shadeDeckGeometry(): ShadeDeckLayout = ShadeDeck.layout(
+        routes = notificationPickerRoutes(),
+        currentId = activeProfileId.ifBlank { selectedProfileId },
+        currentSourceId = activeProfileSourceId.ifBlank { selectedProfileSourceId },
+        state = ShadeDeckState(
+            floor = shadeRouteLevelState.value,
+            scopeSourceId = shadeRouteScopeState.value,
+            page = shadeRoutePageState.value,
+            rows = ShadeControlDefaults.rowChoice(settings.shadeControl.rows),
+            showPing = settings.shadeControl.showPing
         )
-        val scoped = routes.count { it.sourceId == currentSource }
-        return if (scoped > 1) scoped else routes.size
+    )
+
+    /**
+     * How many rows the deck lists on [level], with the standing scope applied.
+     *
+     * Kept as a public question because the settings page's preview asks it; the answer comes from
+     * [ShadeDeck.layout] so the number the shade draws and the number this page counts cannot
+     * disagree.
+     */
+    fun shadeRouteItemCount(level: ShadeFloor): Int {
+        val geometry = shadeDeckGeometry()
+        if (level == geometry.floor) return geometry.itemCount
+        return ShadeDeck.layout(
+            routes = notificationPickerRoutes(),
+            currentId = activeProfileId.ifBlank { selectedProfileId },
+            currentSourceId = activeProfileSourceId.ifBlank { selectedProfileSourceId },
+            state = ShadeDeckState(
+                floor = level,
+                scopeSourceId = shadeRouteScopeState.value,
+                page = 0,
+                rows = ShadeControlDefaults.rowChoice(settings.shadeControl.rows)
+            )
+        ).itemCount
     }
 
     /**
@@ -4054,6 +4104,41 @@ private fun postToMain(block: () -> Unit) {
             val ms = result.latencyMs
             if (result.success <= 0 || ms <= 0.0 || ms >= RouteProbe.UNREACHABLE) return@forEach
             labels[id] = NotificationCopy.latency(ms.roundToInt())
+        }
+        return labels
+    }
+
+    /**
+     * MARBLE_SERVER_PLAN_V273 — one short plan per subscription, for the shade's sources floor.
+     *
+     * This is the same [PlanStatus.summarize] the Servers page's strip draws, cut down to the two
+     * numbers that change a decision: how much of the ceiling is spent, and how long is left. The
+     * strings are already in the reader's language (the day label goes through the same translator
+     * the notification's own copy uses), because `RemoteViews` gets no second chance to translate
+     * anything at draw time.
+     *
+     * A subscription whose panel never reported a plan is *absent* from the map. That is the whole
+     * point: the deck prints its server count alone, rather than telling a reader that a library
+     * with an unreported plan has spent 0 % of 0 bytes.
+     */
+    fun notificationSourcePlans(): Map<String, String> {
+        val list = subscriptions
+        if (list.isEmpty()) return emptyMap()
+        val now = System.currentTimeMillis()
+        val language = NotificationCopy.languageFor(
+            settings.appLanguage.id,
+            java.util.Locale.getDefault().language
+        )
+        val persian = language == NotificationLanguage.FA
+        val labels = HashMap<String, String>(list.size)
+        list.forEach { subscription ->
+            val summary = PlanStatus.summarize(subscription, now, persian = persian)
+            if (!summary.reported) return@forEach
+            labels[subscription.id] = buildString {
+                if (summary.hasQuota) append(summary.percentLabel)
+                if (summary.hasQuota && summary.hasExpiry) append(" · ")
+                if (summary.hasExpiry) append(NotificationCopy.translate(summary.daysLabel, language))
+            }
         }
         return labels
     }
@@ -5750,16 +5835,23 @@ private fun postToMain(block: () -> Unit) {
             "Remote subscriptions must use HTTPS"
         }
         val livePort = liveSocksPortOrZero()
+        // MARBLE_SUBSCRIPTION_PLAN_V273 — the tunnel path keeps the response headers now. V145
+        // through V272 built this payload from the body alone, so every refresh performed while
+        // the VPN was up silently dropped `subscription-userinfo`: the plan's used/total bytes and
+        // its expiry came back as zero and the Servers page had nothing to print. The header is on
+        // the *response*, not in the body, so the only fix is to stop throwing it away.
         val throughSocks: ((String, String) -> DpiAwareFetcher.Payload)? =
             if (livePort > 0) {
                 { candidate, agent ->
+                    val response = SocksHttpClient.getTextUrlResponse(
+                        livePort,
+                        candidate,
+                        maxBytes = MAX_SUBSCRIPTION_BYTES,
+                        userAgent = agent
+                    )
                     DpiAwareFetcher.Payload(
-                        text = SocksHttpClient.getTextUrl(
-                            livePort,
-                            candidate,
-                            maxBytes = MAX_SUBSCRIPTION_BYTES,
-                            userAgent = agent
-                        )
+                        text = response.text,
+                        userInfo = response.headers[SUBSCRIPTION_USERINFO_HEADER].orEmpty()
                     )
                 }
             } else {
@@ -5813,13 +5905,15 @@ private fun postToMain(block: () -> Unit) {
                             allowDirect = false,
                             preferSocks = true,
                             throughSocks = { linkUrl, agent ->
+                                val response = SocksHttpClient.getTextUrlResponse(
+                                    port,
+                                    linkUrl,
+                                    maxBytes = MAX_SUBSCRIPTION_BYTES,
+                                    userAgent = agent
+                                )
                                 DpiAwareFetcher.Payload(
-                                    text = SocksHttpClient.getTextUrl(
-                                        port,
-                                        linkUrl,
-                                        maxBytes = MAX_SUBSCRIPTION_BYTES,
-                                        userAgent = agent
-                                    )
+                                    text = response.text,
+                                    userInfo = response.headers[SUBSCRIPTION_USERINFO_HEADER].orEmpty()
                                 )
                             }
                         )
@@ -5889,6 +5983,14 @@ private fun postToMain(block: () -> Unit) {
     }
 
     private companion object {
+        /**
+         * MARBLE_SUBSCRIPTION_PLAN_V273 — the one header name both transports read. The plain
+         * HTTP path reads it through [DpiAwareFetcher]; the tunnel path reads it through
+         * [SocksHttpClient.getTextUrlResponse], which lowercases every header name — so the key
+         * has to be the lowercase spelling in both.
+         */
+        const val SUBSCRIPTION_USERINFO_HEADER: String = "subscription-userinfo"
+
         /**
          * MARBLE_IP_IDENTITY_V251 — the IP page's own refresh window and witness budget. Short
          * enough that a network change is noticed, long enough that tapping the tab twice is not

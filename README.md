@@ -73,7 +73,20 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-**V271 is the newest chapter: `docs/ANDROID_PLATFORM_DIRECTORY_V271.md`.** Release run #380
+**V273 is the newest chapter: `docs/EXPRESSIVE_WAVE_AND_SHADE_DECK_V273.md`.** Four reports, four
+broken contracts, and each one measured rather than argued: the Expressive wave is now the product's
+only progress idiom and is inscribed in the exact frame it is drawn in (the platform composable wraps
+a fixed 240 dp `Spacer`, so a caller `fillMaxWidth()` could never fill a card); the network council
+finally *measures* censorship with a six-target TLS matrix, a three-name/four-resolver DNS
+cross-check and a policy-page fetch, and a measured verdict now moves the fragment strategy, mux
+padding, the hijack guard and the core workload; the Servers page prints a subscription's spent
+volume and remaining time because both root causes are gone (the tunnel refresh discarded
+`subscription-userinfo`, and the plan was drawn as a zero-width sibling of the title); and the
+notification's route control is a deck with a hard eight-row budget that includes its own chrome,
+one wrapping pager row, subscriptions you *enter* instead of blind-dialling, and each subscription's
+plan on its row.
+
+**V271: `docs/ANDROID_PLATFORM_DIRECTORY_V271.md`.** Release run #380
 installed `platforms;android-37.0` and then failed its own check with "missing android.jar after
 installation": the path was assembled as `$ANDROID_SDK_ROOT/${package#platforms;}`, which is
 `$ANDROID_SDK_ROOT/android-37.0`, one directory above where `sdkmanager` writes it. The SDK step is

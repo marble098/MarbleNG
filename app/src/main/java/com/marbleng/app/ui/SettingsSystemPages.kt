@@ -43,7 +43,9 @@ import com.marbleng.app.core.NotificationCopy
 import com.marbleng.app.core.NotificationLanguage
 import com.marbleng.app.core.NotificationRouteCycle
 import com.marbleng.app.core.NotificationRoutePicker
-import com.marbleng.app.core.ShadeLevel
+import com.marbleng.app.core.ShadeDeck
+import com.marbleng.app.core.ShadeDeckState
+import com.marbleng.app.core.ShadeFloor
 import com.marbleng.app.model.ShadeControlDefaults
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
@@ -773,18 +775,21 @@ private fun NotificationPreviewCard(repo: AppRepository) {
                     ShadeControlDefaults.styleId(s.shadeControl.style) ==
                     ShadeControlDefaults.STYLE_STUDIO
                 ) {
-                    NotificationRoutePicker.studio(
-                        NotificationRoutePicker.StudioInput(
-                            routes = previewRoutes,
-                            currentId = repo.selectedProfileId,
-                            currentSourceId = repo.selectedProfileSourceId,
-                            level = ShadeLevel.SERVERS,
+                    // MARBLE_SHADE_DECK_V273 — the preview is the deck itself, not a lookalike:
+                    // a settings page that drew a different list from the one the shade posts is
+                    // how the old preview ended up promising nine rows the item could not hold.
+                    ShadeDeck.view(
+                        routes = previewRoutes,
+                        currentId = repo.selectedProfileId,
+                        currentSourceId = repo.selectedProfileSourceId,
+                        state = ShadeDeckState(
+                            floor = ShadeFloor.SERVERS,
                             page = 0,
-                            rowBudget = s.shadeControl.rows,
-                            showPing = s.shadeControl.showPing,
-                            pingLabels = repo.notificationShadePingLabels(),
-                            chrome = NotificationCopy.shadeChrome(shadeLanguage)
-                        )
+                            rows = s.shadeControl.rows,
+                            showPing = s.shadeControl.showPing
+                        ),
+                        chrome = NotificationCopy.shadeChrome(shadeLanguage),
+                        pingLabels = repo.notificationShadePingLabels()
                     ).rows
                 } else {
                     NotificationRoutePicker.build(

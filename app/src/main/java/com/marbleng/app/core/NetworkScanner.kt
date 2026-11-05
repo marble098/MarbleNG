@@ -57,13 +57,70 @@ object NetworkScanner {
     val IPV6_ANCHOR: String = "2606:4700:4700::1111"
     val DNS_PROBE_NAME: String = "cloudflare.com"
 
+    // MARBLE_FILTER_LAB_V273 — the three families of test the V236 scanner declared and never
+    // ran. Every target below is dialled for real; nothing is inferred from a name.
+
+    /** One TLS target: the host, the SNI the middlebox would read, and whether policy hits it. */
+    data class TlsTarget(
+        val host: String,
+        val port: Int = 443,
+        val sni: String = host,
+        /**
+         * True for names a filtered path is expected to act on. The classification is not a claim
+         * about the network — it is what lets the council tell "this country filters these names"
+         * (only the flagged ones died) from "this link is broken" (the open control died too).
+         */
+        val routinelyFiltered: Boolean = false
+    )
+
+    /**
+     * The TLS matrix: three targets that must answer on any working link, three that a filtering
+     * path routinely kills. Six handshakes, run in parallel, bounded by [TLS_TIMEOUT_MS] each.
+     */
+    val TLS_TARGETS: List<TlsTarget> = listOf(
+        TlsTarget("www.gstatic.com"),
+        TlsTarget("cloudflare.com"),
+        TlsTarget("github.com"),
+        TlsTarget("telegram.org", routinelyFiltered = true),
+        TlsTarget("www.youtube.com", routinelyFiltered = true),
+        TlsTarget("x.com", routinelyFiltered = true)
+    )
+
+    /** Names asked on every reachable resolver, so one rewritten record cannot hide. */
+    val DNS_CHECK_NAMES: List<String> = listOf("telegram.org", "www.youtube.com", "x.com")
+
+    /** Hosts asked for a plain HTTP page: an intercepted answer serves policy instead of a site. */
+    val BLOCK_PAGE_TARGETS: List<TlsTarget> = listOf(
+        TlsTarget("www.youtube.com", port = 80, routinelyFiltered = true),
+        TlsTarget("www.gstatic.com", port = 80)
+    )
+
+    /** Substrings that only appear on an interception page, never on the real site. */
+    val BLOCK_PAGE_MARKERS: List<String> = listOf(
+        "10.10.34",
+        "internet.ir",
+        "blocked",
+        "access denied",
+        "filtering",
+        "محدود",
+        "فیلتر"
+    )
+
+    const val TLS_TIMEOUT_MS: Int = 2_000
+    const val BLOCK_PAGE_TIMEOUT_MS: Int = 1_500
+
     const val TCP_SAMPLES_PER_ANCHOR: Int = 3
     const val TCP_TIMEOUT_MS: Int = 1_500
     const val DNS_TIMEOUT_MS: Int = 1_500
     const val PORT_TIMEOUT_MS: Int = 1_200
     const val UDP_TIMEOUT_MS: Int = 1_400
     const val FAMILY_TIMEOUT_MS: Int = 2_000
-    const val TOTAL_BUDGET_MS: Int = 16_000
+    /**
+     * The stated budget. V236 promised ~15 s; the filtration lab adds six TLS handshakes, three
+     * names across four resolvers and two policy-page fetches, all of them parallel and each
+     * individually timed out, so the worst case is ~24 s and the typical scan is unchanged.
+     */
+    const val TOTAL_BUDGET_MS: Int = 24_000
 
     data class Stage(val label: String, val fraction: Float, val done: Int = 0, val total: Int = 0)
 
@@ -109,10 +166,28 @@ object NetworkScanner {
         onStage(Stage("UDP and QUIC", 0.76f))
 
         val mtu = probeMtu()
-        onStage(Stage("MTU and fragmentation", 0.88f))
+        onStage(Stage("MTU and fragmentation", 0.8f))
+
+        // MARBLE_FILTER_LAB_V273 — the lab runs last, after the cheap evidence is in, so a slow
+        // handshake can never delay the numbers the rest of the page already has.
+        val tls = probeTlsMatrix()
+        onStage(Stage("TLS handshake matrix", 0.86f, tls.count { it.reachable }, tls.size))
+
+        val nameChecks = probeDnsNames((resolvers + DNS_PUBLIC).distinct().take(4))
+        onStage(Stage("DNS cross-check", 0.92f, nameChecks.count { it.verdict != NetworkCouncil.DnsVerdict.UNMEASURED }, nameChecks.size))
+
+        val blockPages = probeBlockPages()
+        onStage(Stage("Policy pages", 0.95f, blockPages.count { it.intercepted }, blockPages.size))
 
         val family = dialFamilies()
-        onStage(Stage("IPv4 and IPv6", 0.97f))
+        onStage(Stage("IPv4 and IPv6", 0.98f))
+
+        val filter = NetworkCouncil.FilterEvidence(
+            tls = tls,
+            dnsNames = nameChecks,
+            blockPages = blockPages,
+            rstInjected = reachability?.injectedResetSuspected == true
+        )
 
         val pathMtu = mtu.first
         val evidence = NetworkCouncil.NetworkEvidence(
@@ -132,6 +207,19 @@ object NetworkScanner {
                 pathMtu = pathMtu,
                 mtuConfidence = mtu.second
             ),
+            // The PORTS seat reads `httpsTargets`; before V273 the scanner never wrote it, so the
+            // "TCP answers but TLS does not" finding it is written to raise could never fire. The
+            // lab's matrix is that field's honest source: every handshake it actually dialled.
+            httpsTargets = tls.map { probe ->
+                NetworkCouncil.HttpsProbe(
+                    host = probe.host,
+                    port = probe.port,
+                    reachable = probe.reachable,
+                    latencyMs = probe.latencyMs
+                )
+            },
+            sniSuspicion = filter.sniFiltering,
+            filter = filter,
             device = captureDevice(context),
             throughputDownKbps = environment.linkDownKbps,
             capturedAtMs = System.currentTimeMillis()
@@ -535,6 +623,258 @@ object NetworkScanner {
         }
         if (largest == 0) return 0 to 0.0
         return largest to (answered.toDouble() / MTU_LADDER.size.toDouble())
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // MARBLE_FILTER_LAB_V273 — the lab
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * Dial every TLS target for real and report how each handshake ended.
+     *
+     * This is the measurement the DPI seat was built around and never received. A completed
+     * handshake proves the path carries a modern ClientHello; a reset proves something in the
+     * path read it and hung up; a deadline proves it was dropped; a refusal proves the destination
+     * is not listening (which is not censorship at all). Those four are different verdicts and
+     * the whole point of this function is that it never collapses them into one boolean.
+     */
+    fun probeTlsMatrix(): List<NetworkCouncil.TlsProbe> {
+        if (TLS_TARGETS.isEmpty()) return emptyList()
+        val pool = pool(TLS_TARGETS.size, "marble-filter-tls")
+        return try {
+            val tasks = TLS_TARGETS.map { target -> Callable { dialTls(target) } }
+            pool.invokeAll(tasks, (TLS_TIMEOUT_MS + 900).toLong(), TimeUnit.MILLISECONDS)
+                .mapNotNull { future ->
+                    if (future.isCancelled) null else runCatching { future.get() }.getOrNull()
+                }
+        } catch (_: Exception) {
+            emptyList()
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
+    /**
+     * One handshake, with the SNI name set explicitly.
+     *
+     * `endpointIdentificationAlgorithm = "HTTPS"` is deliberate: it makes the platform verify the
+     * certificate against the name, so a middlebox that answers with its own certificate is a
+     * failure here even though the socket "connected". The certificate is reported separately from
+     * the outcome because a *successful* handshake with a bad certificate is a different (and much
+     * more worrying) finding than a reset.
+     */
+    private fun dialTls(target: TlsTarget): NetworkCouncil.TlsProbe {
+        val started = System.currentTimeMillis()
+        var raw: Socket? = null
+        var tls: javax.net.ssl.SSLSocket? = null
+        fun elapsed(): Int = (System.currentTimeMillis() - started).toInt().coerceAtLeast(0)
+        return try {
+            val socket = Socket()
+            raw = socket
+            socket.tcpNoDelay = true
+            socket.connect(InetSocketAddress(target.host, target.port), TLS_TIMEOUT_MS)
+            val context = runCatching { javax.net.ssl.SSLContext.getDefault() }.getOrElse {
+                javax.net.ssl.SSLContext.getInstance("TLS").apply { init(null, null, null) }
+            }
+            val secured = context.socketFactory
+                .createSocket(socket, target.host, target.port, true) as javax.net.ssl.SSLSocket
+            tls = secured
+            secured.soTimeout = TLS_TIMEOUT_MS
+            runCatching {
+                secured.sslParameters = secured.sslParameters.apply {
+                    endpointIdentificationAlgorithm = "HTTPS"
+                    serverNames = listOf(javax.net.ssl.SNIHostName(target.sni))
+                }
+            }
+            secured.startHandshake()
+            val certificateOk = runCatching { secured.session.peerCertificates.isNotEmpty() }
+                .getOrDefault(false)
+            NetworkCouncil.TlsProbe(
+                host = target.host,
+                port = target.port,
+                sni = target.sni,
+                outcome = NetworkCouncil.TlsOutcome.COMPLETED,
+                latencyMs = elapsed(),
+                certificateOk = certificateOk,
+                routinelyFiltered = target.routinelyFiltered
+            )
+        } catch (error: Throwable) {
+            NetworkCouncil.TlsProbe(
+                host = target.host,
+                port = target.port,
+                sni = target.sni,
+                outcome = classifyTlsFailure(error),
+                latencyMs = elapsed(),
+                certificateOk = false,
+                routinelyFiltered = target.routinelyFiltered
+            )
+        } finally {
+            runCatching { tls?.close() }
+            runCatching { raw?.close() }
+        }
+    }
+
+    /**
+     * The four deaths a handshake can have, told apart.
+     *
+     * A `SocketException` whose message says "reset" is an injected RST (or a real one, which is
+     * the destination's own right); a `SocketTimeoutException` is silence; a `ConnectException` is
+     * a refusal; and an `SSLHandshakeException` that wraps an I/O reset is still a reset. The order
+     * of the branches matters: the platform likes to wrap everything, so the cause chain is walked
+     * before the message is trusted.
+     */
+    internal fun classifyTlsFailure(error: Throwable): NetworkCouncil.TlsOutcome {
+        val chain = generateSequence(error) { it.cause }.toList()
+        val messages = chain.mapNotNull { it.message?.lowercase() }
+        val reset = messages.any { it.contains("reset") || it.contains("broken pipe") || it.contains("econnreset") }
+        return when {
+            chain.any { it is java.net.UnknownHostException } -> NetworkCouncil.TlsOutcome.DNS_FAILED
+            chain.any { it is java.net.SocketTimeoutException } -> NetworkCouncil.TlsOutcome.TIMEOUT
+            chain.any { it is java.net.ConnectException } && !reset -> NetworkCouncil.TlsOutcome.REFUSED
+            reset -> NetworkCouncil.TlsOutcome.RESET
+            chain.any { it is java.net.NoRouteToHostException } -> NetworkCouncil.TlsOutcome.TIMEOUT
+            chain.any { it is javax.net.ssl.SSLException } -> NetworkCouncil.TlsOutcome.HANDSHAKE_FAILED
+            chain.any { it is java.io.IOException } -> NetworkCouncil.TlsOutcome.TIMEOUT
+            else -> NetworkCouncil.TlsOutcome.HANDSHAKE_FAILED
+        }
+    }
+
+    /**
+     * Ask the same names on every resolver the scan can reach and compare the *answers*, not the
+     * resolvers' reputations.
+     *
+     * A block-page address on one resolver while another returns a real one is proof of rewriting;
+     * two different real addresses are only a CDN and stay a suspicion ([NetworkCouncil.DnsVerdict.DIFFERENT]).
+     * That distinction was missing from V236, whose single-name comparison called any difference a
+     * hijack.
+     */
+    fun probeDnsNames(servers: List<String>): List<NetworkCouncil.DnsNameCheck> {
+        val resolvers = servers.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(4)
+        if (resolvers.isEmpty() || DNS_CHECK_NAMES.isEmpty()) return emptyList()
+        val pool = pool(minOf(DNS_CHECK_NAMES.size, 4), "marble-filter-dns")
+        return try {
+            val tasks = DNS_CHECK_NAMES.map { name ->
+                Callable {
+                    val answers = resolvers.map { server ->
+                        val started = System.currentTimeMillis()
+                        val reply = sendDnsQuery(server, name, 0, DNS_TIMEOUT_MS)
+                        val parsed = reply?.let { runCatching { DnsWireCodec.parseDetailed(it) }.getOrNull() }
+                        Triple(
+                            server,
+                            parsed?.addresses?.firstOrNull()?.hostAddress.orEmpty(),
+                            (System.currentTimeMillis() - started).toInt().coerceAtLeast(0)
+                        )
+                    }
+                    classifyName(name, answers)
+                }
+            }
+            pool.invokeAll(tasks, (DNS_TIMEOUT_MS + 1_000).toLong(), TimeUnit.MILLISECONDS)
+                .mapNotNull { future ->
+                    if (future.isCancelled) null else runCatching { future.get() }.getOrNull()
+                }
+        } catch (_: Exception) {
+            emptyList()
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
+    /** The comparison rule, pure enough to pin in a test: answers in, one verdict out. */
+    internal fun classifyName(
+        name: String,
+        answers: List<Triple<String, String, Int>>
+    ): NetworkCouncil.DnsNameCheck {
+        val answered = answers.filter { it.second.isNotBlank() }
+        val blockPage = answered.firstOrNull { IranNetworkRegistry.isBlockPageAddress(it.second) }
+        val honest = answered.filter { !IranNetworkRegistry.isBlockPageAddress(it.second) }
+        val first = blockPage ?: honest.firstOrNull() ?: answered.firstOrNull()
+        val second = honest.firstOrNull { it.first != first?.first } ?: answered.firstOrNull { it.first != first?.first }
+        val verdict = when {
+            answered.isEmpty() -> NetworkCouncil.DnsVerdict.NO_ANSWER
+            blockPage != null -> NetworkCouncil.DnsVerdict.BLOCKED
+            honest.map { it.second }.distinct().size > 1 -> NetworkCouncil.DnsVerdict.DIFFERENT
+            else -> NetworkCouncil.DnsVerdict.AGREE
+        }
+        return NetworkCouncil.DnsNameCheck(
+            name = name,
+            firstServer = first?.first.orEmpty(),
+            firstAnswer = first?.second.orEmpty(),
+            secondServer = second?.first.orEmpty(),
+            secondAnswer = second?.second.orEmpty(),
+            blockPageServer = blockPage?.first.orEmpty(),
+            answeredServers = answered.size,
+            verdict = verdict
+        )
+    }
+
+    /**
+     * Fetch a plain HTTP page from two hosts and look for a policy answer.
+     *
+     * A filtered path does not have to reset the connection: it can answer 403/451, redirect to a
+     * portal, or return a page that says the site is blocked. Any of the three is caught here, and
+     * the marker that matched is reported so the finding can quote it instead of asserting it.
+     */
+    fun probeBlockPages(): List<NetworkCouncil.BlockPageProbe> {
+        if (BLOCK_PAGE_TARGETS.isEmpty()) return emptyList()
+        val pool = pool(BLOCK_PAGE_TARGETS.size, "marble-filter-pages")
+        return try {
+            val tasks = BLOCK_PAGE_TARGETS.map { target -> Callable { fetchPolicyPage(target) } }
+            pool.invokeAll(tasks, (BLOCK_PAGE_TIMEOUT_MS + 600).toLong(), TimeUnit.MILLISECONDS)
+                .mapNotNull { future ->
+                    if (future.isCancelled) null else runCatching { future.get() }.getOrNull()
+                }
+        } catch (_: Exception) {
+            emptyList()
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
+    private fun fetchPolicyPage(target: TlsTarget): NetworkCouncil.BlockPageProbe {
+        val started = System.currentTimeMillis()
+        fun elapsed(): Int = (System.currentTimeMillis() - started).toInt().coerceAtLeast(0)
+        return try {
+            Socket().use { socket ->
+                socket.tcpNoDelay = true
+                socket.connect(InetSocketAddress(target.host, target.port), BLOCK_PAGE_TIMEOUT_MS)
+                socket.soTimeout = BLOCK_PAGE_TIMEOUT_MS
+                val request = "GET / HTTP/1.1\r\n" +
+                    "Host: ${target.host}\r\n" +
+                    "User-Agent: Mozilla/5.0 (Linux; Android 14) MarbleNG/1.0\r\n" +
+                    "Accept: text/html\r\n" +
+                    "Connection: close\r\n\r\n"
+                socket.getOutputStream().apply {
+                    write(request.toByteArray(Charsets.US_ASCII))
+                    flush()
+                }
+                val buffer = ByteArray(2_048)
+                val read = socket.getInputStream().read(buffer)
+                if (read <= 0) {
+                    NetworkCouncil.BlockPageProbe(target.host, intercepted = false, latencyMs = elapsed())
+                } else {
+                    val response = String(buffer, 0, read, Charsets.ISO_8859_1)
+                    val status = response.lineSequence().firstOrNull()
+                        ?.split(' ')?.getOrNull(1)?.toIntOrNull() ?: 0
+                    val location = response.lineSequence()
+                        .firstOrNull { it.startsWith("Location:", ignoreCase = true) }
+                        ?.substringAfter(':')?.trim().orEmpty()
+                    val lower = response.lowercase()
+                    val marker = BLOCK_PAGE_MARKERS.firstOrNull { lower.contains(it) }.orEmpty()
+                    val intercepted = status == 451 || status == 403 ||
+                        (status in 300..399 && marker.isNotBlank()) || marker.isNotBlank()
+                    NetworkCouncil.BlockPageProbe(
+                        host = target.host,
+                        statusCode = status,
+                        redirectHost = location,
+                        bodyMarker = marker,
+                        intercepted = intercepted,
+                        latencyMs = elapsed()
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            NetworkCouncil.BlockPageProbe(target.host, intercepted = false, latencyMs = elapsed())
+        }
     }
 
     private fun pool(size: Int, name: String) = Executors.newFixedThreadPool(size.coerceIn(1, 12)) { runnable ->
