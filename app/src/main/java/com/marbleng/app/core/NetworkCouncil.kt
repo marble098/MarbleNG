@@ -114,6 +114,15 @@ object NetworkCouncil {
         val latencyMs: Int = 0
     )
 
+    /** One HTTPS reachability probe: did TLS over this host:port actually complete? */
+    data class HttpsProbe(
+        val host: String,
+        val port: Int = 443,
+        val reachable: Boolean = false,
+        val latencyMs: Int = 0,
+        val http2: Boolean = false
+    )
+
     data class PathEvidence(
         val ipv4Ok: Boolean = false,
         val ipv4Ms: Int = 0,
@@ -142,6 +151,17 @@ object NetworkCouncil {
         val ports: List<PortEvidence> = emptyList(),
         val path: PathEvidence = PathEvidence(),
         val device: DeviceEvidence = DeviceEvidence(),
+        /**
+         * HTTPS reachability measured against real targets: a TCP handshake to 443 is not the
+         * same thing as TLS completing — a middlebox can answer the handshake and drop the
+         * ClientHello, which is exactly what filtering looks like.
+         */
+        val httpsTargets: List<HttpsProbe> = emptyList(),
+        /**
+         * TCP 443 answers but TLS never completes, repeatedly, across targets — the classic
+         * SNI inspection signature. Set by the scanner; the council never guesses it.
+         */
+        val sniSuspicion: Boolean = false,
         val throughputDownKbps: Int = 0,
         val capturedAtMs: Long = 0L
     )
@@ -256,6 +276,11 @@ object NetworkCouncil {
         val ipv6Ok: Boolean = false,
         val pathMtu: Int = 0,
         val mtuConfidence: Double = 0.0,
+        /** How many HTTPS targets were probed and how many answered honestly. */
+        val httpsProbed: Int = 0,
+        val httpsOk: Int = 0,
+        /** TCP 443 answers but TLS keeps failing across targets — SNI inspection territory. */
+        val sniSuspicion: Boolean = false,
         val score: Int = 0,
         val grade: String = "C"
     )
@@ -351,6 +376,8 @@ object NetworkCouncil {
 
         val tcpPorts = evidence.ports.filter { it.protocol == PortProtocol.TCP }
         val openPorts = tcpPorts.count { it.open }
+        val httpsProbed = evidence.httpsTargets.size
+        val httpsOk = evidence.httpsTargets.count { it.reachable }
 
         val latencyScore = when {
             median <= 0.0 -> 50
@@ -442,6 +469,9 @@ object NetworkCouncil {
             dnsMedianMs = dnsMedian,
             openPorts = openPorts,
             probedPorts = tcpPorts.size,
+            httpsProbed = httpsProbed,
+            httpsOk = httpsOk,
+            sniSuspicion = evidence.sniSuspicion,
             tlsOk = evidence.path.tlsCompleted,
             injectedReset = evidence.path.injectedReset,
             quicOk = evidence.path.quicOk,
@@ -498,6 +528,15 @@ object NetworkCouncil {
                 CouncilSeverity.GOOD,
                 "${radio.transport.label} link",
                 if (radio.vpnActive) "Another VPN is already in front of this app." else ""
+            )
+        }
+
+        if (radio.captivePortal) {
+            findings += CouncilFinding(
+                CouncilSeat.RADIO,
+                CouncilSeverity.CRITICAL,
+                "Captive portal controls the link",
+                "A portal page owns this link and no request reaches the internet until it is opened in a browser and accepted. No tunnel knob can fix that, so the scan stays small on purpose and no protection is bought for a link the portal can still rewrite."
             )
         }
 
@@ -773,6 +812,32 @@ object NetworkCouncil {
         val dead = evidence.dns.filter { !it.answered }
         val healthy = evidence.dns.filter { it.answered && !it.blockPage }.sortedBy { it.latencyMs }
 
+        val answers = healthy.map { it.answer }.filter { it.isNotBlank() }.distinct()
+        if (answers.size > 1 && evidence.dns.size > 1) {
+            findings += CouncilFinding(
+                CouncilSeat.DNS,
+                CouncilSeverity.WARNING,
+                "Resolvers disagree on the same names",
+                evidence.dns.joinToString(" · ") { entry ->
+                    "${entry.server} said ${entry.answer.ifBlank { "nothing" }}"
+                } + " — two honest resolvers do not give different answers for one name; something is rewriting responses."
+            )
+            proposals += Proposal(
+                TuningField.DNS_HIJACK,
+                "true",
+                CouncilSeat.DNS,
+                60,
+                "Different resolvers returned different answers for the same name: the hijack guard must treat every answer as suspect."
+            )
+            proposals += Proposal(
+                TuningField.DNS_FAKE_IP,
+                "true",
+                CouncilSeat.DNS,
+                56,
+                "A fake-IP pool keeps a rewritten answer from ever reaching an application."
+            )
+        }
+
         val severity = when {
             tampered.isNotEmpty() -> CouncilSeverity.CRITICAL
             dead.size == evidence.dns.size -> CouncilSeverity.CRITICAL
@@ -918,6 +983,46 @@ object NetworkCouncil {
             "Open: ${open.joinToString(", ") { it.toString() }.ifBlank { "none" }}" +
                 (if (closed.isNotEmpty()) " · filtered: ${closed.joinToString(", ")}" else "")
         )
+
+        val https = evidence.httpsTargets
+        if (https.isNotEmpty()) {
+            val httpsOpen = https.count { it.reachable }
+            val httpsDead = https.filterNot { it.reachable }
+            findings += CouncilFinding(
+                CouncilSeat.PORTS,
+                when {
+                    httpsOpen == https.size -> CouncilSeverity.GOOD
+                    httpsOpen > 0 -> CouncilSeverity.WARNING
+                    else -> CouncilSeverity.CRITICAL
+                },
+                when {
+                    httpsOpen == https.size -> "Every HTTPS target answered"
+                    httpsOpen > 0 -> "${httpsOpen} of ${https.size} HTTPS targets answered"
+                    else -> "No HTTPS target answered"
+                },
+                https.joinToString(" · ") { probe ->
+                    "${probe.host}:${probe.port} · ${if (probe.reachable) "TLS completed in ${probe.latencyMs}ms" else "no TLS"}" +
+                        if (probe.http2) " · h2" else ""
+                }
+            )
+            // TCP 443 answering while TLS over 443 dies is the signature of a middlebox that is
+            // inspecting the handshake: it lets the TCP handshake through and kills the ClientHello.
+            if (port443?.open == true && httpsDead.any { it.port == 443 }) {
+                findings += CouncilFinding(
+                    CouncilSeat.PORTS,
+                    CouncilSeverity.WARNING,
+                    "TCP 443 answers but TLS over it does not",
+                    "The port is open and the handshake to it is not: something in the middle is reading SNI and resetting the connection."
+                )
+                proposals += Proposal(
+                    TuningField.FRAGMENT,
+                    FragmentStrategy.RECORD.id,
+                    CouncilSeat.PORTS,
+                    66,
+                    "TCP carries but TLS does not: splitting the ClientHello across TLS records is the first thing to try before the heavier treatments."
+                )
+            }
+        }
 
         val fastOpen = port443?.open == true && metrics.medianRttMs in 1.0..150.0
         proposals += Proposal(
@@ -1131,6 +1236,16 @@ object NetworkCouncil {
             "A completed handshake and a reset are different verdicts: only the second justifies the heavy treatment."
         )
 
+        // TCP answers but TLS dies, again and again, across targets: a middlebox reading SNI.
+        if (evidence.sniSuspicion && !path.injectedReset) {
+            findings += CouncilFinding(
+                CouncilSeat.DPI,
+                CouncilSeverity.WARNING,
+                "SNI interference suspected",
+                "TCP 443 answers but the TLS handshake does not complete: something in the path is inspecting the ClientHello and resetting what it does not like."
+            )
+        }
+
         val strategy = when {
             path.injectedReset -> FragmentStrategy.FULL
             !path.tlsCompleted -> FragmentStrategy.RECORD
@@ -1172,7 +1287,9 @@ object NetworkCouncil {
         val hot = thermal >= 3
         val downKbps = maxOf(evidence.throughputDownKbps, evidence.radio.linkDownKbps)
 
+        val censored = evidence.radio.captivePortal || evidence.sniSuspicion || evidence.dns.any { it.blockPage }
         val power = when {
+            evidence.radio.captivePortal -> PowerProfile.EFFICIENT
             hot || lowBattery -> PowerProfile.EFFICIENT
             device.memoryMb in 1..2_499L -> PowerProfile.BALANCED
             metrics.medianRttMs in 1.0..60.0 && metrics.jitterMs <= 15.0 &&
@@ -1180,15 +1297,17 @@ object NetworkCouncil {
             metrics.medianRttMs <= 130.0 && metrics.jitterMs <= 30.0 -> PowerProfile.TURBO
             else -> PowerProfile.BALANCED
         }
+        val interferenceTail = if (censored) " · interference detected on this link: the cores run the stealth workload" else ""
         findings += CouncilFinding(
             CouncilSeat.CORE,
             when {
                 hot -> CouncilSeverity.WARNING
                 power == PowerProfile.EXTREME -> CouncilSeverity.GOOD
+                censored -> CouncilSeverity.WARNING
                 else -> CouncilSeverity.NOTICE
             },
             "Device: $cores cores · ${if (device.memoryMb > 0) "${device.memoryMb} MB" else "memory unknown"} · " +
-                "thermal $thermal",
+                "thermal $thermal$interferenceTail",
             "The core profile is projected from the device and the measured path, never from a fixed default."
         )
         proposals += Proposal(
@@ -1208,7 +1327,9 @@ object NetworkCouncil {
             }
         )
 
+        val dnsTampered = evidence.dns.any { it.blockPage }
         val workload = when {
+            evidence.radio.captivePortal || evidence.sniSuspicion || dnsTampered -> WorkloadProfile.STEALTH
             evidence.path.injectedReset -> WorkloadProfile.STEALTH
             metrics.jitterMs > 45.0 || metrics.lossPercent > 4.0 -> WorkloadProfile.STABILITY
             downKbps >= 20_000 -> WorkloadProfile.STREAMING
@@ -1227,7 +1348,7 @@ object NetworkCouncil {
             }
         )
 
-        val wantMux = muxSafe && metrics.medianRttMs > 120.0 && !evidence.path.injectedReset
+        val wantMux = muxSafe && metrics.medianRttMs > 120.0 && !evidence.path.injectedReset && !evidence.sniSuspicion
         proposals += Proposal(
             TuningField.MUX,
             wantMux.toString(),
