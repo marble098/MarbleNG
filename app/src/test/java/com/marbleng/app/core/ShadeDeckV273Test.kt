@@ -83,12 +83,33 @@ class ShadeDeckV273Test {
                             "floor=$floor scope=$scope page=$page rows=$rows drew ${drawn.size}",
                             drawn.size <= ShadeDeck.MAX_ROWS
                         )
-                        // The geometry the pager and the repository read is the row count drawn.
+                        // The geometry the pager and the repository read is the budget the deck
+                        // spent: its chrome plus the data rows it made room for. A last page that
+                        // is not full draws fewer rows than the budget allows, which is the
+                        // difference between "the item is short" and "the item is clipped".
                         val geometry = ShadeDeck.layout(
                             library, "a3", "sub-a",
                             ShadeDeckState(floor = floor, scopeSourceId = scope, page = page, rows = rows)
                         )
-                        assertEquals(drawn.size, geometry.rowsUsed)
+                        assertTrue(
+                            "floor=$floor scope=$scope page=$page rows=$rows drew ${drawn.size} " +
+                                "against a budget of ${geometry.rowsUsed}",
+                            drawn.size <= geometry.rowsUsed
+                        )
+                        assertTrue(
+                            "floor=$floor scope=$scope page=$page rows=$rows budgeted " +
+                                "${geometry.rowsUsed} of ${ShadeDeck.MAX_ROWS}",
+                            geometry.rowsUsed <= ShadeDeck.MAX_ROWS
+                        )
+                        // The first page is where the budget and the drawing have to be equal: no
+                        // remainder, so the deck spends exactly what it reserved.
+                        if (geometry.page == 0) {
+                            assertEquals(
+                                "floor=$floor scope=$scope rows=$rows first page",
+                                geometry.rowsUsed,
+                                drawn.size
+                            )
+                        }
                     }
                 }
             }

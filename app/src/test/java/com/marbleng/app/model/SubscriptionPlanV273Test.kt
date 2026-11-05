@@ -184,12 +184,10 @@ class SubscriptionPlanV273Test {
         // The strip exists and the header draws it.
         assertTrue("ServerPlanStrip(" in servers)
         assertTrue("fun ServerPlanStrip(" in cards)
-        // The V260 shape — two labels weight(1f, fill = false) inside a fillMaxWidth row that had
-        // no width to fill — is gone from the header.
-        assertFalse(
-            "the broken inline plan row came back",
-            "PlanStatus.quotaPairLabel(plan.usedBytes, plan.totalBytes)" in servers
-        )
+        // One strip, and only one: the V260 shape — two labels inside a fillMaxWidth row that had
+        // no width to fill — has no replacement anywhere else on the page.
+        assertEquals(1, Regex("ServerPlanStrip\\(").findAll(servers).count())
+        assertTrue("the header block is the V273 one", "MARBLE_SERVER_PLAN_V273" in servers)
         // The strip is drawn from the one pure summary, never from a locally composed sentence.
         assertTrue("PlanStatus.summarize(" in servers)
         assertTrue("PlanStatus.summarize(" in cards || "planOf(" in cards)

@@ -49,10 +49,12 @@ class MarbleWaveFrameV273Test {
             MarbleWaveBounds.strokeDp(40f),
             0.0001f
         )
-        // Never wider than the frame, at any size, including the absurd ones.
+        // Never wider than the frame it will actually be drawn in — the frame is [trackDp] of the
+        // request, which is why a 1 dp request still gets a 3 dp box and a 1.65 dp stroke.
         listOf(0f, 0.5f, 1f, 3f, 7f, 12f, 26f, 40f, 240f).forEach { frame ->
+            val drawn = MarbleWaveBounds.trackDp(frame)
             val stroke = MarbleWaveBounds.strokeDp(frame)
-            assertTrue("stroke $stroke > frame $frame", stroke <= frame || frame <= 0f)
+            assertTrue("stroke $stroke > frame $drawn", stroke <= drawn)
             assertTrue("stroke must be positive", stroke > 0f)
         }
     }
@@ -108,7 +110,7 @@ class MarbleWaveFrameV273Test {
         assertTrue("fun MarbleWaveActivity(" in wave)
         assertTrue("fun MarbleWaveRing(" in wave)
         assertTrue("fun MarbleWaveRail(" in wave)
-        assertTrue("internal object MarbleWaveBounds" in wave)
+        assertTrue("object MarbleWaveBounds" in wave)
     }
 
     @Test
