@@ -105,7 +105,10 @@ make_platform() {
 
     mkdir -p "$sdk/platforms/$name"
     printf 'dex\n' > "$sdk/platforms/$name/android.jar"
-    printf 'AndroidVersion.ApiLevel=%s\nPkg.Desc=Android SDK Platform\n' "$api" \
+    # The real file: a decimal API level, exactly as Google publishes it for
+    # platforms;android-37.0 (the integer-only model of this file is what let
+    # the source.properties bug through the first V271 fixture run).
+    printf 'Pkg.UserSrc=false\nPkg.Revision=1\nAndroidVersion.ApiLevel=%s.0\n' "$api" \
         > "$sdk/platforms/$name/source.properties"
 }
 
@@ -126,7 +129,7 @@ for package in "$@"; do
                 wrong-api)
                     mkdir -p "$sdk/platforms/android-$api.0"
                     printf 'dex\n' > "$sdk/platforms/android-$api.0/android.jar"
-                    printf 'AndroidVersion.ApiLevel=36\n' \
+                    printf 'Pkg.UserSrc=false\nAndroidVersion.ApiLevel=36.1\n' \
                         > "$sdk/platforms/android-$api.0/source.properties"
                     ;;
                 # An IDE-style inconsistent location AGP will not resolve.
@@ -291,7 +294,7 @@ for package in "$@"; do
         platforms\;*)
             mkdir -p "$ANDROID_SDK_ROOT/platforms/android-37.0"
             printf "dex\n" > "$ANDROID_SDK_ROOT/platforms/android-37.0/android.jar"
-            printf "AndroidVersion.ApiLevel=37\n" > "$ANDROID_SDK_ROOT/platforms/android-37.0/source.properties"
+            printf "AndroidVersion.ApiLevel=37.0\n" > "$ANDROID_SDK_ROOT/platforms/android-37.0/source.properties"
             ;;
     esac
 done

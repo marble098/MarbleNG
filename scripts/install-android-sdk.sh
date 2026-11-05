@@ -123,6 +123,14 @@ sdk_root() {
 
 # The API level a platform directory declares in its own source.properties.
 # Empty (and non-zero) when the file is absent, unreadable or says nothing.
+#
+# The value is a DECIMAL, not an integer, for a platform that carries a minor:
+# Google publishes `AndroidVersion.ApiLevel=37.0` for platforms;android-37.0
+# (and `=37` for the legacy unversioned package). This is not a detail - the
+# first V271 run read `37.0`, the integer-only pattern matched nothing, and a
+# perfectly good install was reported as "no usable platform". Offline fixtures
+# are worth what their model of the real file is worth: this one is now pinned
+# to the published file, decimal and all.
 declared_api() {
     local dir="$1"
     local file="$dir/source.properties"
@@ -132,13 +140,25 @@ declared_api() {
 
     api="$(
         tr -d '\r' < "$file" |
-            sed -n 's/^AndroidVersion\.ApiLevel[[:space:]]*=[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' |
+            sed -n 's/^AndroidVersion\.ApiLevel[[:space:]]*=[[:space:]]*\([0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)[[:space:]]*$/\1/p' |
             tail -n 1
     )"
 
     [[ -n "$api" ]] || return 1
 
     printf '%s\n' "$api"
+}
+
+# declared_api_matches <declared> <api>: "37" and "37.0" are both API 37, and
+# "36.1" is not API 37.
+declared_api_matches() {
+    local declared="$1"
+    local api="$2"
+
+    [[ "$declared" == "$api" ]] && return 0
+    [[ "$declared" == "$api".* ]] && return 0
+
+    return 1
 }
 
 # The numeric minor in `android-<api>.<minor>`, 1000 for the legacy unversioned
@@ -178,7 +198,7 @@ locate_platform() {
     expected="$platforms/${package#platforms;}"
 
     if [[ -n "$package" && -d "$expected" && -s "$expected/android.jar" ]] &&
-        [[ "$(declared_api "$expected" || true)" == "$api" ]]; then
+        declared_api_matches "$(declared_api "$expected" || true)" "$api"; then
         printf '%s\n' "$expected"
         return 0
     fi
@@ -198,9 +218,9 @@ locate_platform() {
 
         declared="$(declared_api "$dir" || true)"
 
-        # Accept "37" and "37.0" from source.properties: the minor is carried by
-        # the directory name, the file states the API level.
-        [[ "$declared" == "$api" || "$declared" == "$api".* ]] || continue
+        # Accept "37" and "37.0" from source.properties: the file states the API
+        # level as a decimal, the directory name carries the minor.
+        declared_api_matches "$declared" "$api" || continue
 
         candidates+=( "${rank}|${dir}" )
     done
@@ -438,7 +458,11 @@ self_test() {
 
     platform_root="$work/sdk/platforms"
 
-    # A platform directory that claims an API in its own source.properties.
+    # A platform directory that declares an API in its own source.properties.
+    # The file is written the way Google publishes it: a decimal API level for
+    # a minor-versioned platform (37.0), an integer for the legacy name (37).
+    # These cases were integer-only once, and the real decimal file therefore
+    # passed unnoticed through a green fixture run and failed on a runner.
     make_platform() {
         local dir="$1"
         local api="$2"
@@ -448,7 +472,7 @@ self_test() {
         if [[ "$jar" == yes ]]; then
             printf 'dex\n' > "$dir/android.jar"
         fi
-        printf 'AndroidVersion.ApiLevel=%s\nPkg.Desc=Android SDK Platform\n' "$api" \
+        printf 'Pkg.UserSrc=false\nPkg.Revision=1\nAndroidVersion.ApiLevel=%s\n' "$api" \
             > "$dir/source.properties"
     }
 
@@ -475,9 +499,10 @@ self_test() {
         fi
     }
 
-    # 1. The package's own directory, exactly where sdkmanager puts it.
+    # 1. The package's own directory, exactly where sdkmanager puts it, with the
+    #    decimal API level Google publishes for a minor-versioned platform.
     rm -rf "$work/sdk"
-    make_platform "$platform_root/android-37.0" 37
+    make_platform "$platform_root/android-37.0" 37.0
     ANDROID_SDK_ROOT="$work/sdk"
     expect_selected "$platform_root/android-37.0" \
         "$(locate_platform 37 "platforms;android-37.0" || true)"
@@ -493,8 +518,8 @@ self_test() {
     #    the same API is installed and declares it: usable, and preferred by
     #    the highest minor.
     rm -rf "$work/sdk"
-    make_platform "$platform_root/android-37.1" 37
-    make_platform "$platform_root/android-37.2" 37
+    make_platform "$platform_root/android-37.1" 37.1
+    make_platform "$platform_root/android-37.2" 37.2
     ANDROID_SDK_ROOT="$work/sdk"
     expect_selected "$platform_root/android-37.2" \
         "$(locate_platform 37 "platforms;android-37.0" || true)"
@@ -502,30 +527,31 @@ self_test() {
     # 4. A directory that carries the right name but declares another API is a
     #    stale or half-written install, not a platform.
     rm -rf "$work/sdk"
-    make_platform "$platform_root/android-37.0" 36
+    make_platform "$platform_root/android-37.0" 36.1
     ANDROID_SDK_ROOT="$work/sdk"
     expect_none "$(locate_platform 37 "platforms;android-37.0" || true)"
 
     # 5. No android.jar is no platform, whatever source.properties claims.
     rm -rf "$work/sdk"
-    make_platform "$platform_root/android-37.0" 37 no
+    make_platform "$platform_root/android-37.0" 37.0 no
     ANDROID_SDK_ROOT="$work/sdk"
     expect_none "$(locate_platform 37 "platforms;android-37.0" || true)"
 
     # 6. An inconsistent location (android-37.0-2) is named, never silently used:
     #    AGP only resolves platforms/android-<api>[.<minor>].
     rm -rf "$work/sdk"
-    make_platform "$platform_root/android-37.0-2" 37
+    make_platform "$platform_root/android-37.0-2" 37.0
     ANDROID_SDK_ROOT="$work/sdk"
     expect_none "$(locate_platform 37 "platforms;android-37.0" || true)"
 
     # 7. Preview directories are not stable platforms.
     rm -rf "$work/sdk"
-    make_platform "$platform_root/android-37.2-beta3" 37
+    make_platform "$platform_root/android-37.2-beta3" 37.2
     ANDROID_SDK_ROOT="$work/sdk"
     expect_none "$(locate_platform 37 "platforms;android-37.0" || true)"
 
-    # 8. The legacy unversioned name is still a platform, ranked after a minor.
+    # 8. The legacy unversioned name is still a platform (declaring an integer),
+    #    ranked after a minor.
     rm -rf "$work/sdk"
     make_platform "$platform_root/android-37" 37
     ANDROID_SDK_ROOT="$work/sdk"
@@ -550,7 +576,13 @@ self_test() {
         exit 1
     fi
 
-    ok "platform locator: 9 cases, reads source.properties, never assembles a path from a package ID"
+    # 10. A decimal minor that is not this API is not this API: 36.1 is not 37.
+    rm -rf "$work/sdk"
+    make_platform "$platform_root/android-37.0" 36.1
+    ANDROID_SDK_ROOT="$work/sdk"
+    expect_none "$(locate_platform 37 "platforms;android-37.0" || true)"
+
+    ok "platform locator: 10 cases, reads the decimal source.properties, never assembles a path from a package ID"
 }
 
 # ==============================================================================

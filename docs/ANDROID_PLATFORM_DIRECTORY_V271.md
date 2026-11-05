@@ -31,7 +31,9 @@ filesystem where the platform actually landed. A candidate directory is accepted
 
 1. it contains a non-empty `android.jar`;
 2. its own `source.properties` declares the API level `compileSdk` names — which also rejects a
-   stale or half-written directory left by an interrupted install;
+   stale or half-written directory left by an interrupted install. That file states the level as a
+   **decimal** for a minor-versioned platform (`AndroidVersion.ApiLevel=37.0`, as Google publishes
+   it) and as an integer for the legacy name (`=37`); both mean API 37, and `36.1` does not;
 3. its name is one Gradle can consume, `android-<api>` or `android-<api>.<minor>`, because
    `ANDROID_PLATFORM` is handed to `app/build.gradle.kts`, which rejects anything else;
 4. it is reachable: the exact directory the resolved package ID implies first, then the highest
@@ -54,6 +56,27 @@ The rule this restores is the one V270 taught: a path assembled from an identifi
 where an installer put a file. The catalog is the authority on package IDs; the filesystem is the
 authority on paths.
 
+## The second failure, which the first fixtures missed
+
+The first push of this change failed its own verification on the hosted runner, in exactly the step
+it was written for:
+
+```
+Installed platforms;android-37.0, but no usable Android platform exists for compileSdk 37 on this machine.
+```
+
+Nothing was wrong with the install, the path or the decimal — the *parser* was. `source.properties`
+for `platforms;android-37.0` declares `AndroidVersion.ApiLevel=37.0`, and the pattern accepted
+integers only, so it read nothing, every directory was rejected, and the failure path reported an
+empty SDK. The offline fixtures could not have caught it: they wrote `AndroidVersion.ApiLevel=37`,
+because that is what the integer-era file looked like. A fixture is worth exactly what its model of
+the real artefact is worth, and this one modelled the file wrong.
+
+Both halves are now pinned to the published file: the parser accepts `<api>` or `<api>.<minor>` and
+compares the major (`declared_api_matches`), and every fixture — the end-to-end fake `sdkmanager`
+and the locator's own cases — writes `AndroidVersion.ApiLevel=37.0`, the decimal, as the real
+package does. There is also a case that `36.1` is not API 37.
+
 ## Verification
 
 `bash scripts/test-android-sdk-install.sh` drives the installer end to end against a fake
@@ -69,7 +92,7 @@ authority on paths.
 - a missing pinned NDK fails the step after a successful platform install;
 - a failing `sdkmanager` is retried three times and then reported.
 
-`bash scripts/install-android-sdk.sh --self-test` covers the locator alone (nine cases, including
-preview and legacy names). Source verification runs both on every pull request, and
+`bash scripts/install-android-sdk.sh --self-test` covers the locator alone (ten cases, including
+the published decimal `ApiLevel`, a decimal that is another API, preview and legacy names). Source verification runs both on every pull request, and
 `scripts/system-integrity-check.py` asserts that `build.yml` delegates to the script, that no
 workflow builds a platform path from a package ID, and that the fixtures and this chapter exist.

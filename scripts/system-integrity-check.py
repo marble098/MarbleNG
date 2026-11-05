@@ -6639,6 +6639,12 @@ check(
     and "ndkVersion" in v271_installer
     # It asks the filesystem instead of assuming a layout.
     and "source.properties" in v271_installer
+    # The published file carries a DECIMAL API level for a minor-versioned
+    # platform (AndroidVersion.ApiLevel=37.0); an integer-only reader rejects a
+    # good install, which is what the first hosted run of this change did.
+    and "declared_api_matches_MISSING" in v271_installer
+    and "[0-9][0-9]*\\(\\.[0-9][0-9]*\\)" in v271_installer
+    and "AndroidVersion.ApiLevel" in v271_installer
     and "android.jar" in v271_installer
     and "basename -- \"$platform_dir\"" in v271_installer
     # Gradle's naming rule: android-<api> or android-<api>.<minor>, nothing else.
@@ -6665,6 +6671,8 @@ check(
     and 'fail "stdout carried something that is not an assignment' in v271_fixture
     and "other-minor" in v271_fixture
     and "misplaced" in v271_fixture
+    # The fixtures write the file the way Google publishes it, decimal and all.
+    and "AndroidVersion.ApiLevel=%s.0" in v271_fixture
     and "scripts/test-android-sdk-install.sh" in files["verify"]
     and "Android SDK install fixtures" in files["verify"]
     and "--self-test" in v271_installer,
