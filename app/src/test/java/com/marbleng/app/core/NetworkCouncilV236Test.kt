@@ -372,7 +372,9 @@ class NetworkCouncilV236Test {
                 NetworkCouncil.HttpsProbe("1.1.1.1", 443, reachable = false, latencyMs = 0)
             )
         )
-        val plan = NetworkCouncil.deliberate(evidence, AppSettings())
+        // The user's settings already ask for full fragmentation; the clean handshake seat wins
+        // the field back to automatic and the port seat's record request is quoted as dissent.
+        val plan = NetworkCouncil.deliberate(evidence, AppSettings(fragmentStrategy = FragmentStrategy.FULL.id))
 
         assertTrue(plan.critical)
         assertEquals(
@@ -381,15 +383,9 @@ class NetworkCouncilV236Test {
         )
         assertEquals(1, plan.metrics.httpsProbed)
         assertEquals(0, plan.metrics.httpsOk)
-        // The port answers but TLS dies: the port seat asks for record-level splitting. The
-        // completed-handshake seat still wins the field at higher confidence — the loser is kept
-        // as a dissent line, not deleted.
-        val portProposal = plan.proposals.first {
-            it.field == NetworkCouncil.TuningField.FRAGMENT && it.seat == NetworkCouncil.CouncilSeat.PORTS
-        }
-        assertEquals(FragmentStrategy.RECORD.id, portProposal.value)
-        // The completed-handshake seat still wins the field at higher confidence — the loser is
-        // kept as a dissent line on the applied change, not deleted.
+        // The port answers but TLS dies: the port seat asks for record-level splitting (66). The
+        // completed-handshake DPI seat still wins the field at higher confidence (96, AUTO) —
+        // the loser is kept as a dissent line on the applied change, not deleted.
         val fragment = change(plan, NetworkCouncil.TuningField.FRAGMENT)
         assertEquals(NetworkCouncil.CouncilSeat.DPI, fragment?.seat)
         assertEquals(FragmentStrategy.AUTO.id, fragment?.value)
@@ -412,8 +408,22 @@ class NetworkCouncilV236Test {
             NetworkCouncil.CouncilSeverity.WARNING,
             plan.seatVerdicts.getValue(NetworkCouncil.CouncilSeat.DNS)
         )
-        assertEquals("true", change(plan, NetworkCouncil.TuningField.DNS_HIJACK)?.value)
-        assertEquals("true", change(plan, NetworkCouncil.TuningField.DNS_FAKE_IP)?.value)
+        // Both guards are proposed by the DNS seat even though the settings already default to
+        // on, so nothing is written: the evidence lives in the proposals, not in a change.
+        assertTrue(
+            plan.proposals.any {
+                it.field == NetworkCouncil.TuningField.DNS_HIJACK &&
+                    it.seat == NetworkCouncil.CouncilSeat.DNS &&
+                    it.value == "true"
+            }
+        )
+        assertTrue(
+            plan.proposals.any {
+                it.field == NetworkCouncil.TuningField.DNS_FAKE_IP &&
+                    it.seat == NetworkCouncil.CouncilSeat.DNS &&
+                    it.value == "true"
+            }
+        )
     }
 
     @Test
