@@ -111,17 +111,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          yes | sdkmanager --licenses >/dev/null || true
+          # sdkmanager closes its input as soon as licenses are accepted. Keep
+          # that expected SIGPIPE from `yes` out of the Actions log.
+          yes 2>/dev/null | sdkmanager --licenses >/dev/null || true
 
-          # MARBLE_RUNNER_DISK_HEADROOM_V268 — the platform installed here is the
-          # one app/build.gradle.kts compiles against, read from that file. It
-          # used to be a hard-coded 'platforms;android-36' while compileSdk had
-          # already moved to 37, which only worked because the runner image
-          # happened to ship android-37; the disk reclaimer now deletes every
-          # platform the build does not name, so the build has to install its
-          # own.
+          # Read both SDK pins from the Gradle file that owns them. API 37 has
+          # occasionally been published only on a preview channel while the
+          # stable repository index catches up, and hosted images may already
+          # contain the exact platform even when the remote package is absent.
           compile_sdk="$(
             sed -n 's/^[[:space:]]*compileSdk[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+              app/build.gradle.kts | tail -n 1
+          )"
+          ndk_version="$(
+            sed -n 's/^[[:space:]]*ndkVersion[[:space:]]*=[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' \
               app/build.gradle.kts | tail -n 1
           )"
 
@@ -129,23 +132,57 @@ jobs:
             echo "::error::Could not read compileSdk from app/build.gradle.kts."
             exit 1
           fi
+          if [[ ! "$ndk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Could not read ndkVersion from app/build.gradle.kts."
+            exit 1
+          fi
 
-          echo "Installing platforms;android-${compile_sdk} (compileSdk), build-tools;36.0.0, ndk;28.2.13676358"
+          packages=( 'build-tools;36.0.0' "ndk;${ndk_version}" )
+          platform_dir="$ANDROID_SDK_ROOT/platforms/android-${compile_sdk}"
+          if [[ -s "$platform_dir/android.jar" ]]; then
+            echo "Using the preinstalled compileSdk platform android-${compile_sdk}"
+          else
+            packages+=("platforms;android-${compile_sdk}")
+          fi
 
-          sdkmanager \
-            "platforms;android-${compile_sdk}" \
-            'build-tools;36.0.0' \
-            'ndk;28.2.13676358'
+          echo "Installing ${packages[*]}"
+          installed=false
+          for attempt in 1 2 3; do
+            # Include preview channel packages: stable pins are still selected
+            # exactly, while this also covers a platform transitioning from
+            # preview to stable in Google's repository.
+            if sdkmanager --channel=3 "${packages[@]}"; then
+              installed=true
+              break
+            fi
+            if (( attempt < 3 )); then
+              echo "SDK package resolution failed (attempt ${attempt}/3); refreshing cached repository metadata and retrying."
+              rm -rf "$HOME/.android/cache"
+              sleep $((attempt * 10))
+            fi
+          done
 
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" \
+          if [[ "$installed" != true ]]; then
+            echo "::error::Could not install the pinned Android SDK packages after three attempts. Available compileSdk platform directories:"
+            find "$ANDROID_SDK_ROOT/platforms" -mindepth 1 -maxdepth 1 -type d -printf '  %f\n' 2>/dev/null || true
+            echo "::error::Check the Android repository's availability for platforms;android-${compile_sdk}."
+            exit 1
+          fi
+
+          if [[ ! -s "$platform_dir/android.jar" ]]; then
+            echo "::error::compileSdk platform android-${compile_sdk} is missing android.jar after installation."
+            exit 1
+          fi
+
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${ndk_version}" \
             >> "$GITHUB_ENV"
 
-          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/28.2.13676358" \
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${ndk_version}" \
             >> "$GITHUB_ENV"
 
-          # The image points this at an NDK the reclaimer deleted; the pinned NDK
-          # is now the only one on the runner, so the pointer follows it.
-          echo "ANDROID_NDK_LATEST_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" \
+          # The image may point this at an NDK the reclaimer deleted; always
+          # redirect consumers to the exact Gradle-pinned version installed above.
+          echo "ANDROID_NDK_LATEST_HOME=$ANDROID_SDK_ROOT/ndk/${ndk_version}" \
             >> "$GITHUB_ENV"
 
       # ========================================================================
