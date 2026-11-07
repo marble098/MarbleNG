@@ -3466,7 +3466,7 @@ check(
     "notifier.alert(\n                    SmartNotificationKind.CORE" in files["repo"]
     and '"App update available"' in files["repo"]
     # The post-update notice was a silent-channel alert with no action.
-    and "SmartNotifier(context) { language }.restoreNotice()" in files["receiver"]
+    and "SmartNotifier(context, languageSource = { language }).restoreNotice()" in files["receiver"]
     and "fun restoreNotice(language: NotificationLanguage = resolveLanguage())" in files["notifier"]
     and "NotificationCopy.actionRestore(language)" in files["notifier"],
 )
