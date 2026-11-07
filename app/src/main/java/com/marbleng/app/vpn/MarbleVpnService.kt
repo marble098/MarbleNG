@@ -49,6 +49,7 @@ import com.marbleng.app.core.NotificationCycleKind
 import com.marbleng.app.core.ShadeDeck
 import com.marbleng.app.core.ShadeFloor
 import com.marbleng.app.core.SmartNotificationKind
+import com.marbleng.app.core.NotificationTheme
 import com.marbleng.app.core.SmartNotifier
 import com.marbleng.app.core.TransportTelemetry
 import com.marbleng.app.core.TcpStressMonitor
@@ -477,9 +478,17 @@ class MarbleVpnService : VpnService() {
         xray = app.xray
         singBox = app.repo.singBox
         diag = RuntimeDiagnostics(this)
-        notifier = SmartNotifier(this) {
-            (activeSettings ?: (application as MarbleApplication).repo.settings).appLanguage
-        }
+        notifier = SmartNotifier(
+            this,
+            languageSource = {
+                (activeSettings ?: (application as MarbleApplication).repo.settings).appLanguage
+            },
+            themeSource = {
+                NotificationTheme.fromId(
+                    (activeSettings ?: (application as MarbleApplication).repo.settings).notificationTheme
+                )
+            }
+        )
         notifier.ensureChannels()
         routeOptimizer = ContinuousRouteOptimizer(app.repo.intelligence, ProfileFlapGuard(iranAware = true))
         tuner = ConnectionTuner(xray, app.repo.intelligence)

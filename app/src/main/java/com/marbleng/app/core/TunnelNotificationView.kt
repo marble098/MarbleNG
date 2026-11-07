@@ -44,6 +44,7 @@ internal object TunnelNotificationView {
         context: Context,
         state: ConnectionNotificationState,
         language: NotificationLanguage,
+        theme: NotificationTheme,
         title: String,
         routeLine: String,
         ping: String,
@@ -60,12 +61,12 @@ internal object TunnelNotificationView {
         val compact = RemoteViews(context.packageName, layout)
         val expanded = RemoteViews(context.packageName, layout)
 
-        paint(context, compact, state, title, routeLine, ping, down, up, big = false)
-        paint(context, expanded, state, title, routeLine, ping, down, up, big = true)
+        paint(context, compact, state, theme, title, routeLine, ping, down, up, big = false)
+        paint(context, expanded, state, theme, title, routeLine, ping, down, up, big = true)
         // MARBLE_NOTIFICATION_PICKER_V238 — the picker lives only in the expanded item: the
         // collapsed view keeps one row of state, the opened shade offers the full route control.
         if (picker.isNotEmpty() && pickerIntent != null) {
-            attachPicker(context, expanded, language, picker, pickerIntent)
+            attachPicker(context, expanded, language, theme, picker, pickerIntent)
         } else {
             expanded.setViewVisibility(R.id.notif_picker, View.GONE)
             expanded.removeAllViews(R.id.notif_picker)
@@ -82,13 +83,14 @@ internal object TunnelNotificationView {
         context: Context,
         views: RemoteViews,
         language: NotificationLanguage,
+        theme: NotificationTheme,
         rows: List<NotificationRoutePicker.PickerRow>,
         pickerIntent: (NotificationRoutePicker.PickerRow) -> PendingIntent?
     ) {
         val night = isNight(context)
         val sectionColor = if (night) SECTION_NIGHT else SECTION_DAY
         val rowColor = if (night) TITLE_NIGHT else TITLE_DAY
-        val activeColor = if (night) ACTIVE_NIGHT else ACTIVE_DAY
+        val activeColor = if (night) theme.chipNight else theme.chipDay
 
         views.removeAllViews(R.id.notif_picker)
         if (rows.isEmpty()) {
@@ -155,6 +157,7 @@ internal object TunnelNotificationView {
         context: Context,
         views: RemoteViews,
         state: ConnectionNotificationState,
+        theme: NotificationTheme,
         title: String,
         routeLine: String,
         ping: String,
@@ -165,7 +168,7 @@ internal object TunnelNotificationView {
         val night = isNight(context)
         val titleColor = if (night) TITLE_NIGHT else TITLE_DAY
         val secondaryColor = if (night) SECONDARY_NIGHT else SECONDARY_DAY
-        val chipColor = if (night) CHIP_TEXT_NIGHT else CHIP_TEXT_DAY
+        val chipColor = if (night) theme.chipNight else theme.chipDay
 
         views.setImageViewResource(R.id.notif_badge, badgeDrawable(state.status))
         views.setTextViewText(R.id.notif_title, title)

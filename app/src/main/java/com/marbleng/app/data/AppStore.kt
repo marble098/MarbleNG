@@ -8,6 +8,7 @@ import com.marbleng.app.core.Tun2SocksPolicy
 import com.marbleng.app.core.TunnelCore
 import com.marbleng.app.core.parseCoreEngine
 import com.marbleng.app.core.parseTunnelCore
+import com.marbleng.app.core.NotificationTheme
 import com.marbleng.app.jitter.JitterAutoTuner
 import com.marbleng.app.model.*
 import org.json.JSONArray
@@ -527,6 +528,9 @@ class AppStore(context: Context) {
         notifyConnectionEvents = prefs.getBoolean("notifyConnectionEvents", false),
         notifyRecoveryEvents = prefs.getBoolean("notifyRecoveryEvents", true),
         notifyPrivacyWarnings = prefs.getBoolean("notifyPrivacyWarnings", true),
+        notificationTheme = NotificationTheme.fromId(
+            prefs.getString("notificationTheme", "brand")
+        ).id,
         notifyNetworkChanges = prefs.getBoolean("notifyNetworkChanges", false),
         notifySubscriptionEvents = prefs.getBoolean("notifySubscriptionEvents", true),
         notifyCoreUpdates = prefs.getBoolean("notifyCoreUpdates", true),
@@ -900,6 +904,8 @@ class AppStore(context: Context) {
         .putInt("notificationCooldownSec", s.notificationCooldownSec.coerceIn(5, 300))
         .putBoolean("notifyPrivacyHeadsUp", s.notifyPrivacyHeadsUp)
         .putBoolean("notificationSessionTimer", s.notificationSessionTimer)
+        // MARBLE_NOTIFICATION_THEME_V276 — stored through the same normaliser the load reads.
+        .putString("notificationTheme", NotificationTheme.fromId(s.notificationTheme).id)
         // MARBLE_SHADE_STUDIO_V249 — written through the same normalizers the load uses.
         .putBoolean("notificationShadePicker", s.shadeControl.picker)
         .putBoolean("notificationShadeCycle", s.shadeControl.cycle)

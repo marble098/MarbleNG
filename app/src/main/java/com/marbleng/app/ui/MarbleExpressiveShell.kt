@@ -246,14 +246,25 @@ fun MarbleConnectPill(
 
     val shape = RoundedCornerShape(corner.coerceAtLeast(0.dp))
 
+    // MARBLE_CONNECT_ISLAND_V276 — the pill wears a soft state-coloured glow behind one fixed
+    // tonal surface: the halo breathes with the phase, the island never changes size, and only
+    // the corners and the colour move between states.
+    val glow by animateFloatAsState(
+        targetValue = when {
+            phase == ConnectPhase.CONNECTED -> 0.30f
+            working -> 0.15f
+            else -> 0f
+        },
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "connectPillGlow"
+    )
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             // One height in every phase: a connect must not push the rows below the pill down.
             .height(82.dp)
             .scale(pressScale)
-            .clip(shape)
-            .background(tone)
             .clickable(
                 enabled = pressable,
                 role = Role.Button,
@@ -266,16 +277,33 @@ fun MarbleConnectPill(
             .semantics {
                 contentDescription = title
                 stateDescription = spokenState
-            }
-            .padding(horizontal = ConnectPillMotion.insetDp(inset.value).dp)
-            .padding(horizontal = 20.dp),
+            },
         contentAlignment = Alignment.Center
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        // The halo: wider than the island so it shows above and below the pill, clipped to the
+        // same spring-morphing corners so it can never poke outside the pill's silhouette.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(90.dp)
+                .clip(shape)
+                .background(tone.copy(alpha = glow))
+        )
+        // The tonal island: one surface per phase, its padding the only thing that breathes.
+        Box(
+            modifier = Modifier
+                .padding(
+                    horizontal = ConnectPillMotion.insetDp(inset.value).dp + 20.dp
+                )
+                .clip(shape)
+                .background(tone),
+            contentAlignment = Alignment.Center
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             if (working) {
                 Box(
                     modifier = Modifier
@@ -366,6 +394,7 @@ fun MarbleConnectPill(
                     }
                 }
             }
+        }
 
             // The mark reserves its space in every phase, including the two working ones: the
             // weighted text column never has to re-measure when a spinner replaces an emblem.
