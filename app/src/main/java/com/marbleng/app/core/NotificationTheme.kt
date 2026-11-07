@@ -23,66 +23,66 @@ data class NotificationTheme(
     val chipDay: Int,
     /** Telemetry chips on a dark surface. */
     val chipNight: Int
-)
+) {
+    companion object {
+        const val DEFAULT_ID = "brand"
 
-object NotificationTheme {
-    const val DEFAULT_ID = "brand"
-
-    /** Every theme the product ships; the settings row draws them in this order. */
-    val all: List<NotificationTheme> = listOf(
-        NotificationTheme(
-            id = "brand",
-            nameEn = "Brand",
-            nameFa = "برند",
-            accent = 0xFF0066CC.toInt(),
-            chipDay = 0xFF0B5BC4.toInt(),
-            chipNight = 0xFF8FC0FF.toInt()
-        ),
-        NotificationTheme(
-            id = "teal",
-            nameEn = "Teal",
-            nameFa = "فیروزی",
-            accent = 0xFF007A7A.toInt(),
-            chipDay = 0xFF0B8A8A.toInt(),
-            chipNight = 0xFF8FD0D0.toInt()
-        ),
-        NotificationTheme(
-            id = "amber",
-            nameEn = "Amber",
-            nameFa = "عنبری",
-            accent = 0xFFB8860B.toInt(),
-            chipDay = 0xFFC27C00.toInt(),
-            chipNight = 0xFFE8A15C.toInt()
-        ),
-        NotificationTheme(
-            id = "rose",
-            nameEn = "Rose",
-            nameFa = "گلابی",
-            accent = 0xFFC2185B.toInt(),
-            chipDay = 0xFFAD1457.toInt(),
-            chipNight = 0xFFEC407A.toInt()
-        ),
-        NotificationTheme(
-            id = "slate",
-            nameEn = "Slate",
-            nameFa = "سلتی",
-            accent = 0xFF37474F.toInt(),
-            chipDay = 0xFF455A64.toInt(),
-            chipNight = 0xFF90A4AE.toInt()
-        ),
-        NotificationTheme(
-            id = "violet",
-            nameEn = "Violet",
-            nameFa = "بنفش",
-            accent = 0xFF6A1B9A.toInt(),
-            chipDay = 0xFF8E24AA.toInt(),
-            chipNight = 0xFFCE93D8.toInt()
+        /** Every theme the product ships; the settings row draws them in this order. */
+        val all: List<NotificationTheme> = listOf(
+            NotificationTheme(
+                id = "brand",
+                nameEn = "Brand",
+                nameFa = "برند",
+                accent = 0xFF0066CC.toInt(),
+                chipDay = 0xFF0B5BC4.toInt(),
+                chipNight = 0xFF8FC0FF.toInt()
+            ),
+            NotificationTheme(
+                id = "teal",
+                nameEn = "Teal",
+                nameFa = "فیروزی",
+                accent = 0xFF007A7A.toInt(),
+                chipDay = 0xFF0B8A8A.toInt(),
+                chipNight = 0xFF8FD0D0.toInt()
+            ),
+            NotificationTheme(
+                id = "amber",
+                nameEn = "Amber",
+                nameFa = "عنبری",
+                accent = 0xFFB8860B.toInt(),
+                chipDay = 0xFFC27C00.toInt(),
+                chipNight = 0xFFE8A15C.toInt()
+            ),
+            NotificationTheme(
+                id = "rose",
+                nameEn = "Rose",
+                nameFa = "گلابی",
+                accent = 0xFFC2185B.toInt(),
+                chipDay = 0xFFAD1457.toInt(),
+                chipNight = 0xFFEC407A.toInt()
+            ),
+            NotificationTheme(
+                id = "slate",
+                nameEn = "Slate",
+                nameFa = "سلتی",
+                accent = 0xFF37474F.toInt(),
+                chipDay = 0xFF455A64.toInt(),
+                chipNight = 0xFF90A4AE.toInt()
+            ),
+            NotificationTheme(
+                id = "violet",
+                nameEn = "Violet",
+                nameFa = "بنفش",
+                accent = 0xFF6A1B9A.toInt(),
+                chipDay = 0xFF8E24AA.toInt(),
+                chipNight = 0xFFCE93D8.toInt()
+            )
         )
-    )
 
-    fun default(): NotificationTheme = all.first { it.id == DEFAULT_ID }
+        fun default(): NotificationTheme = all.first { it.id == DEFAULT_ID }
 
-    /** Normalises a stored id: unknown values fall back to the brand theme instead of nothing. */
-    fun fromId(raw: String?): NotificationTheme =
-        all.firstOrNull { it.id.equals(raw?.trim(), ignoreCase = true) } ?: default()
+        /** Normalises a stored id: unknown values fall back to the brand theme instead of nothing. */
+        fun fromId(raw: String?): NotificationTheme =
+            all.firstOrNull { it.id.equals(raw?.trim(), ignoreCase = true) } ?: default()
+    }
 }
