@@ -32,6 +32,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import com.marbleng.app.AppRepository
@@ -46,6 +47,7 @@ import com.marbleng.app.core.NotificationRoutePicker
 import com.marbleng.app.core.ShadeDeck
 import com.marbleng.app.core.ShadeDeckState
 import com.marbleng.app.core.ShadeFloor
+import com.marbleng.app.core.NotificationTheme
 import com.marbleng.app.model.ShadeControlDefaults
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
@@ -447,6 +449,33 @@ fun SettingsNotificationsPage(
             }
         }
 
+        item(key = "notification-theme") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleSectionHeader(
+                    title = trx("Theme of the ongoing item"),
+                    badge = trx("THEME"),
+                    badgeColor = colors.primary
+                )
+                MarbleCard {
+                    val themes = NotificationTheme.all
+                    MarbleSegmentedControl(
+                        options = themes.map { it.id to "${it.nameEn} · ${it.nameFa}" },
+                        selected = s.notificationTheme,
+                        onSelect = { id ->
+                            repo.updateSettings(
+                                s.copy(notificationTheme = NotificationTheme.fromId(id).id)
+                            )
+                        }
+                    )
+                    MarbleSectionFooter(
+                        text = trx(
+                            "The tunnel item and its chips are repainted in the chosen colour on the next update."
+                        )
+                    )
+                }
+            }
+        }
+
         item(key = "notification-channels") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(
@@ -654,6 +683,7 @@ fun SettingsNotificationsPage(
 private fun NotificationPreviewCard(repo: AppRepository) {
     val colors = MaterialTheme.colorScheme
     val s = repo.settings
+    val theme = NotificationTheme.fromId(s.notificationTheme)
     val status = when (repo.state) {
         "CONNECTED" -> ConnectionStatus.PROTECTED
         "CONNECTING" -> ConnectionStatus.CONNECTING
@@ -687,7 +717,7 @@ private fun NotificationPreviewCard(repo: AppRepository) {
             ) {
                 MarbleRowIcon(
                     glyph = MarbleGlyph.BELL,
-                    tint = colors.primary,
+                    tint = Color(theme.accent),
                     size = 30.dp,
                     glyphSize = 16.dp
                 )

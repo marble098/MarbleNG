@@ -154,7 +154,8 @@ data class ConnectionNotificationState(
 
 class SmartNotifier(
     private val context: Context,
-    private val languageSource: () -> String = { "" }
+    private val languageSource: () -> String = { "" },
+    private val themeSource: () -> NotificationTheme = { NotificationTheme.default() }
 ) {
     private val manager = context.getSystemService(NotificationManager::class.java)
 
@@ -269,6 +270,7 @@ class SmartNotifier(
         language: NotificationLanguage = resolveLanguage()
     ): Notification {
         ensureChannels(language)
+        val theme = themeSource()
         val title = NotificationCopy.statusTitle(state.status, language)
         val route = state.routeName.trim()
         val source = state.subscriptionName.trim()
@@ -296,6 +298,7 @@ class SmartNotifier(
             context = context,
             state = state,
             language = language,
+            theme = theme,
             title = NotificationCopy.ellipsize(title, NotificationCopy.TITLE_MAX),
             routeLine = NotificationCopy.ellipsize(secondLine, NotificationCopy.TEXT_MAX),
             ping = NotificationCopy.latency(state.pingMs),
@@ -306,7 +309,7 @@ class SmartNotifier(
         )
         val builder = NotificationCompat.Builder(context, CHANNEL_CONNECTION)
             .setSmallIcon(R.drawable.ic_notification)
-            .setColor(ACCENT)
+            .setColor(theme.accent)
             // The text fields stay: they are the accessibility stream, the fallback for every
             // surface that cannot inflate a RemoteViews layout, and what a screen reader reads.
             .setContentTitle(NotificationCopy.ellipsize(title, NotificationCopy.TITLE_MAX))
@@ -401,10 +404,11 @@ class SmartNotifier(
      */
     fun connectionNotification(title: String, text: String, ongoing: Boolean): Notification {
         val language = resolveLanguage()
+        val theme = themeSource()
         ensureChannels(language)
         return NotificationCompat.Builder(context, CHANNEL_CONNECTION)
             .setSmallIcon(R.drawable.ic_notification)
-            .setColor(ACCENT)
+            .setColor(theme.accent)
             .setContentTitle(NotificationCopy.ellipsize(title, NotificationCopy.TITLE_MAX))
             .setContentText(NotificationCopy.ellipsize(text, NotificationCopy.TEXT_MAX))
             .setSubText(statusSubText(text))
@@ -679,7 +683,7 @@ class SmartNotifier(
     private fun publicVersion(language: NotificationLanguage, ongoing: Boolean): Notification =
         NotificationCompat.Builder(context, CHANNEL_CONNECTION)
             .setSmallIcon(R.drawable.ic_notification)
-            .setColor(ACCENT)
+            .setColor(themeSource().accent)
             .setContentTitle("MarbleNG")
             .setContentText(
                 NotificationCopy.t(

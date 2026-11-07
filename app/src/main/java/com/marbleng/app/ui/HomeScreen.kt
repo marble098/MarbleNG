@@ -167,7 +167,6 @@ fun HomeScreen(
         }
     }
     var showQuickLogs by rememberSaveable { mutableStateOf(false) }
-    var showCalendar by rememberSaveable { mutableStateOf(false) }
 
     val triggerHomePing: () -> Unit = {
         if (repo.probeActive || repo.probeCancelling) {
@@ -330,15 +329,6 @@ fun HomeScreen(
                         )
                     }
 
-                    // MARBLE_PERSIAN_CALENDAR_TRUTH_V275 — one quiet line between the heading
-                    // and the hero: the Jalali date, today's occasion, a warm dot only on a
-                    // verified official holiday, and the month one tap away. A day with nothing
-                    // on it prints nothing extra — the calendar states facts, it does not
-                    // decorate. (13 Aban keeps its dot and never the holiday colour.)
-                    MarbleTodayLine(
-                        nowMs = System.currentTimeMillis(),
-                        onOpenCalendar = { showCalendar = true }
-                    )
                 }
 
                 HomeSection.CONNECT -> item(key = "home-hero") {
@@ -520,13 +510,6 @@ fun HomeScreen(
         QuickLogsSheet(
             repo = repo,
             onDismiss = { showQuickLogs = false }
-        )
-    }
-
-    if (showCalendar) {
-        PersianCalendarSheet(
-            nowMs = System.currentTimeMillis(),
-            onDismiss = { showCalendar = false }
         )
     }
 }

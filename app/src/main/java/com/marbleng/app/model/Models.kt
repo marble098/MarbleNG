@@ -1422,6 +1422,11 @@ data class AppSettings(
     val notifyPrivacyHeadsUp: Boolean = true,
     val notificationSessionTimer: Boolean = true,
 
+    // MARBLE_NOTIFICATION_THEME_V276 — the colour the ongoing tunnel item is painted in. Valid
+    // ids are [com.marbleng.app.core.NotificationTheme.all]; [com.marbleng.app.core.NotificationTheme.fromId]
+    // normalises whatever is stored, so an id a newer build retired falls back to the brand theme.
+    val notificationTheme: String = "brand",
+
     // MARBLE_SHADE_STUDIO_V249 — the shade's route control, in the user's hands. V234 added two
     // verbs and V238 added a list of rows, and neither could be turned off, shortened or shaped:
     // the notification decided for everybody. Five settings answer that, and every default is what

@@ -153,7 +153,13 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
 
     // MARBLE_NOTIFICATION_COUNCIL_V231 — the notifier speaks the language the app speaks, resolved
     // lazily so a language change in Settings reaches the next notification, not the next launch.
-    private val notifier = SmartNotifier(context) { settings.appLanguage }
+    // MARBLE_NOTIFICATION_THEME_V276 — the shade's accent follows the same setting the Notifications
+    // page writes, resolved lazily so a theme change reaches the next repost, not the next launch.
+    private val notifier = SmartNotifier(
+        context = context,
+        languageSource = { settings.appLanguage },
+        themeSource = { NotificationTheme.fromId(settings.notificationTheme) }
+    )
 
     private fun normalizeLibrarySourceFilter(id: String): String = when {
         id == "all" -> "all"
