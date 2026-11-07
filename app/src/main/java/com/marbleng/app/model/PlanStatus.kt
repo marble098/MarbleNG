@@ -366,6 +366,43 @@ object JalaliCalendar {
         return ofJdn(jdn)
     }
 
+    /**
+     * MARBLE_PERSIAN_CALENDAR_TRUTH_V275 — the day-count of one Jalali month, so a month grid
+     * can be laid out (and a holiday table validated) without going through a Gregorian
+     * calendar at all: months 1–6 have 31 days, 7–11 have 30, and Esfand has 29 — plus one in
+     * a leap year, which is the one number [isLeapYear] exists to answer.
+     */
+    fun daysInMonth(year: Int, month: Int): Int = when {
+        month in 1..6 -> 31
+        month in 7..11 -> 30
+        month == 12 -> if (isLeapYear(year)) 30 else 29
+        else -> 0
+    }
+
+    /**
+     * MARBLE_PERSIAN_CALENDAR_TRUTH_V275 — a Jalali year is leap when `jalCal` reports it zero
+     * years past a leap break (the flag is "years since the last leap year", the same reading
+     * jalaali-js's `isLeapJalaaliYear` makes). 1403, 1408 and 1412 are leap; 1404–1407 are not.
+     */
+    fun isLeapYear(year: Int): Boolean = jalCal(year).leap == 0
+
+    /**
+     * MARBLE_PERSIAN_CALENDAR_TRUTH_V275 — the Julian day number of a Jalali date, the inverse
+     * of [ofJdn]. A month grid needs the weekday of day 1 and the weekday of every cell after
+     * it; going Jalali → JDN → weekday keeps the whole grid inside the calendar's own integer
+     * arithmetic, with no Gregorian `Calendar` and no timezone, so it is provable on the JVM.
+     */
+    fun jdnOf(year: Int, month: Int, day: Int): Int {
+        val march = jalCal(year).march
+        val nowruzJdn = jdnOfGregorian(year + 621, 3, march)
+        val offset = if (month <= 6) {
+            (month - 1) * 31 + day - 1
+        } else {
+            186 + (month - 7) * 30 + day - 1
+        }
+        return nowruzJdn + offset
+    }
+
     private fun jdnOf(epochMs: Long, zone: TimeZone): Int {
         val calendar = Calendar.getInstance(zone).apply { timeInMillis = epochMs }
         return jdnOfGregorian(
@@ -394,7 +431,15 @@ object JalaliCalendar {
         } else {
             jy -= 1
             k += 179
-            if (jalCal(jy).leap == 1) k += 1
+            // MARBLE_PERSIAN_CALENDAR_TRUTH_V275 — the leap adjustment belongs to the year the
+            // date came *from* (the one this `else` just stepped back to is its December), not
+            // the year it stepped back from. The port checked `jalCal(jy).leap == 1` on the
+            // already-decremented year, which is "one year past a leap year" — so Esfand 30 of
+            // every leap year (1408-12-30, 1412-12-30, …) round-tripped as 12-29. jalaali-js
+            // reads the flag of the *pre-decrement* year, where `leap == 1` means exactly
+            // "the year we stepped back into was leap". `PersianCalendarV275Test` pins both
+            // leap-year Esfand 30s this build carries a verified table for.
+            if (jalCal(jy + 1).leap == 1) k += 1
         }
         return Date(jy, 7 + div(k, 30), mod(k, 30) + 1)
     }

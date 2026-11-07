@@ -405,6 +405,65 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
             else -> BugCheck("Local SOCKS listener", BugSeverity.INFO, "Skipped because ${coreState.label} is stopped")
         }
 
+        // MARBLE_BUGFINDER_RECENT_FAILURES_V274 — Bug Finder used to answer only for the
+        // instant it ran in. After the app settled back to DISCONNECTED, every current-state
+        // check passed while the retained timeline still held the BLOCKED→CONNECTING loop that
+        // had just burned through six failure generations: pass=11, warn=1, fail=0 on a night
+        // the debug log plainly showed kill-switch holds. A scan that goes green because the
+        // failure *stopped* is not a scan, so this check reads the timeline the same way the
+        // reader does — what happened after the last clean stop?
+        val latestBlocked = allRuntime.lastIndexOf("VPN | blocked")
+        val latestFailureGeneration = allRuntime.lastIndexOf("VPN | failure-generation")
+        val latestExitedBeforeReady = maxOf(
+            allRuntime.lastIndexOf("HEV | exited-before-ready"),
+            allRuntime.lastIndexOf("TUN2SOCKS | exited-before-ready")
+        )
+        val latestCleanStop = maxOf(
+            allRuntime.lastIndexOf("VPN | runtime-clean"),
+            allRuntime.lastIndexOf("VPN | command | action=com.marbleng.STOP")
+        )
+        val latestFailureEvidence = maxOf(
+            latestBlocked,
+            latestFailureGeneration,
+            latestExitedBeforeReady
+        )
+        val sinceClean = allRuntime.substring(maxOf(0, latestCleanStop))
+        val sinceCleanLines = sinceClean.lines()
+        val blockedEchoes = sinceCleanLines.count { "VPN | blocked |" in it }
+        val latchEvidence = sinceCleanLines.count {
+            "stop-latch-consumed" in it || "exited-before-ready" in it
+        }
+        val failuresAfterLastClean = latestFailureEvidence > -1 && latestFailureEvidence > latestCleanStop
+        checks += when {
+            failuresAfterLastClean && appState == "DISCONNECTED" -> BugCheck(
+                "Recent failure timeline",
+                BugSeverity.FAIL,
+                "The retained timeline holds $blockedEchoes kill-switch blocked event(s) and " +
+                    "$latchEvidence datapath exit(s) after the last clean stop • the state is " +
+                    "quiet now because the session ended, not because it recovered",
+                "Read CONNECTION / ENGINE EVENT TIMELINE below: the core-stop → BLOCKED → " +
+                    "recovery sequence and its reason are the root cause to fix"
+            )
+            failuresAfterLastClean && appState == "CONNECTED" -> BugCheck(
+                "Recent failure timeline",
+                BugSeverity.WARN,
+                "The current route is up, but the retained timeline holds $blockedEchoes blocked " +
+                    "event(s) after the last clean stop • it recovered after failing",
+                "Keep the timeline open if the route drops again; the failure reason is preserved below"
+            )
+            failuresAfterLastClean -> BugCheck(
+                "Recent failure timeline",
+                BugSeverity.WARN,
+                "$blockedEchoes blocked event(s) follow the last clean stop in the retained timeline",
+                "Read CONNECTION / ENGINE EVENT TIMELINE below for the failure reason"
+            )
+            else -> BugCheck(
+                "Recent failure timeline",
+                BugSeverity.PASS,
+                "No kill-switch failure follows the last clean stop in the retained timeline"
+            )
+        }
+
         checks += BugCheck(
             "Bug Finder traffic policy",
             BugSeverity.PASS,
@@ -1134,11 +1193,19 @@ class BugFinder(private val context: Context, private val xray: XrayManager, pri
 
         val candidates = text.lineSequence()
             .filter { line ->
+                // MARBLE_DATAPATH_STOP_ACK_V274 — a clean datapath exit is one the service
+                // either asked for (`stopRequested=true`, the new acknowledged-stop key) or
+                // watched during a normal disconnect (the pre-V274 spelling kept so an older
+                // retained log still reads truthfully). Both carry `code=0` and neither is a
+                // failure, so neither belongs in the problem index.
                 val cleanHevExit =
-                    line.contains("HEV | run-exit", true) &&
+                    (line.contains("HEV | run-exit", true) ||
+                        line.contains("TUN2SOCKS | run-exit", true)) &&
                         line.contains("code=0", true) &&
-                        line.contains("runningFlag=false", true) &&
-                        line.contains("xrayAlive=false", true)
+                        (line.contains("stopRequested=true", true) ||
+                            (line.contains("runningFlag=false", true) &&
+                                (line.contains("xrayAlive=false", true) ||
+                                    line.contains("coreAlive=false", true))))
                 val benignNoise =
                     line.contains("proxy/socks: failed to read request > EOF", true) ||
                         (line.contains("HTTPUpgrade transport", true) && line.contains("deprecated", true)) ||

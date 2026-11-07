@@ -54,6 +54,7 @@ import com.marbleng.app.core.TransportTelemetry
 import com.marbleng.app.core.TcpStressMonitor
 import com.marbleng.app.core.TcpStressTelemetryPolicy
 import com.marbleng.app.core.TurboBackoffPolicy
+import com.marbleng.app.core.DatapathLifecyclePolicy
 import com.marbleng.app.core.DatapathStop
 import com.marbleng.app.core.Tun2SocksPolicy
 import com.marbleng.app.core.TunnelCore
@@ -252,6 +253,27 @@ class MarbleVpnService : VpnService() {
     @Volatile private var hevFd = -1
     private val hevFdLock = Any()
     private val datapathOwnsFd = AtomicBoolean(false)
+
+    // MARBLE_DATAPATH_STOP_ACK_V274 — the run/stop handshake that ends the exit-before-ready loop.
+    //
+    // A finished native run is the only thing that can say "I was stopped", and the stopper is
+    // the only thing that can say "I asked". These four flags are that conversation, held once
+    // per process instead of inferred from `hevActive` and descriptor ownership, which is what
+    // let a stale quit walk into a core that had already finalized and arm HEV's sticky
+    // `SYNC_STOP` latch — the 2 ms `run-exit | code=0` the recovery run then tripped on.
+    //
+    //  - [datapathRunEpoch] increments once per native run *attempt* (the latch retry re-enters
+    //    under a fresh epoch, so an acknowledged stop can never be claimed by the wrong run);
+    //  - [datapathRunInFlight] is true only while the native call blocks — the stopper signals
+    //    the core solely inside that window, and never after it, because a quit delivered to an
+    //    idle HEV is the latch. A stop that lands before the entry is answered by the worker's
+    //    own `isRouteCurrent` re-check (every stopper invalidates the route first), so no
+    //    signal is ever spent on a core that is not running;
+    //  - [datapathStopTarget] records the epoch a delivered stop was aiming at, so the worker
+    //    can tell "I exited because I was told" from "I exited on my own".
+    private val datapathRunEpoch = AtomicInteger(0)
+    private val datapathRunInFlight = AtomicBoolean(false)
+    private val datapathStopTarget = AtomicInteger(-1)
 
     /**
      * MARBLE_TUN2SOCKS_CORE_V222 — the datapath this session actually runs. It is resolved once
@@ -1530,6 +1552,31 @@ class MarbleVpnService : VpnService() {
             return
         }
 
+        // MARBLE_DATAPATH_STOP_ACK_V274 — the datapath only dials the core's loopback SOCKS
+        // inbound once that inbound exists. During recovery the port has just been re-bound (or
+        // the core has just died again); a datapath pointed at it either way logs a burst of
+        // `connect: connection refused` that reads like a server fault and was user-visible as
+        // failed loads. The gate runs *before* the ready timer is armed and before `hevActive`
+        // is raised, so a bounded wait can never let the timer publish a ready state for a
+        // datapath that has not started. It asks nothing of the network beyond a loopback
+        // connect, and abandons with the engine's name in the reason when the core is gone.
+        val socksGateOutcome = awaitSocksInbound(socksPort)
+        if (socksGateOutcome != SocksGateOutcome.READY) {
+            if (isCurrent(session)) {
+                handleFailure(
+                    session,
+                    DatapathLifecyclePolicy.coreStoppedReason(activeEngine).let { reason ->
+                        if (socksGateOutcome == SocksGateOutcome.DEAD_PORT_CORE_ALIVE) {
+                            "$reason — its inbound never answered on 127.0.0.1:$socksPort"
+                        } else {
+                            reason
+                        }
+                    }
+                )
+            }
+            return
+        }
+
         val app = application as MarbleApplication
 
         recoveryScheduled.set(false)
@@ -1573,51 +1620,175 @@ class MarbleVpnService : VpnService() {
 
         diag.event(
             tunnelCore.name, "run-enter",
-            "session" to session, "hevFd" to hevFd, "xrayAlive" to coreAlive,
+            "session" to session, "hevFd" to hevFd, "coreAlive" to coreAlive,
             "tunnelCore" to tunnelCore.id
         )
-        val result = runCatching {
-            when (tunnelCore) {
-                TunnelCore.HEV -> HevTunnel.run(cfg, hevFd)
-                TunnelCore.TUN2SOCKS -> {
-                    val plan = tun2socks ?: return@runCatching -10002
-                    Tun2SocksTunnel.run(
-                        proxy = plan.proxy,
-                        mtu = plan.mtu,
-                        tunFd = plan.tunFd,
-                        udpTimeoutSec = plan.udpTimeoutSec,
-                        tcpSendBuffer = plan.tcpSendBufferBytes,
-                        tcpReceiveBuffer = plan.tcpReceiveBufferBytes,
-                        moderateReceiveBuffer = plan.moderateReceiveBuffer,
-                        logLevel = plan.logLevel,
-                        logPath = plan.logPath
-                    ).also { code ->
-                        if (code != 0) {
-                            diag.event(
-                                "TUN2SOCKS", "native-refused",
-                                "session" to session, "code" to code,
-                                "reason" to Tun2SocksTunnel.lastError()
-                            )
+
+        // MARBLE_DATAPATH_STOP_ACK_V274 — the loop a latched run gets out of.
+        //
+        // One root failure used to become two: the recovery's own teardown quit arrived after
+        // the previous native run had finalized, HEV stored it as its sticky `SYNC_STOP`, and the
+        // recovery's run consumed it — `code=0` in 2 ms, `exited-before-ready`, a fresh failure
+        // generation, another recovery, the same poison. The epoch/target handshake below makes
+        // an *asked-for* exit an acknowledgement instead of a failure, and a *latched* no-op
+        // (clean, instant, unrequested) a re-entry: the latch is consumed by the run that
+        // tripped it, so the second entry starts with a clean slate. Only an exit that is
+        // neither of those is a failure the reader should be shown.
+        var attempt = 0
+        var code = 0
+        var stopWasRequested = false
+        var latchExhausted = false
+        var runElapsedMs = 0L
+        while (true) {
+            attempt++
+            val myEpoch = datapathRunEpoch.incrementAndGet()
+            datapathRunInFlight.set(true)
+            if (!isRouteCurrent(session, generation)) {
+                // Every stopper — handleFailure, the autopilot switch, cleanupRuntime —
+                // invalidates the route (generation bump and/or session clear) *before* it
+                // stops the datapath, so this re-check is what answers a stop that landed in
+                // the window between fd adoption and the native entry: the run is abandoned
+                // without touching any core state, which a core signal in that window never
+                // could do (an idle HEV turns it into the next run's stop latch).
+                datapathRunInFlight.set(false)
+                hevActive = false
+                diag.event(
+                    tunnelCore.name, "run-abandoned-before-native",
+                    "session" to session, "epoch" to myEpoch,
+                    "reason" to "the route was invalidated while the run was entering the core"
+                )
+                return
+            }
+            val runStartedNs = System.nanoTime()
+            val result = runCatching {
+                when (tunnelCore) {
+                    TunnelCore.HEV -> HevTunnel.run(cfg, hevFd)
+                    TunnelCore.TUN2SOCKS -> {
+                        val plan = tun2socks ?: return@runCatching -10002
+                        Tun2SocksTunnel.run(
+                            proxy = plan.proxy,
+                            mtu = plan.mtu,
+                            tunFd = plan.tunFd,
+                            udpTimeoutSec = plan.udpTimeoutSec,
+                            tcpSendBuffer = plan.tcpSendBufferBytes,
+                            tcpReceiveBuffer = plan.tcpReceiveBufferBytes,
+                            moderateReceiveBuffer = plan.moderateReceiveBuffer,
+                            logLevel = plan.logLevel,
+                            logPath = plan.logPath
+                        ).also { exitCode ->
+                            if (exitCode != 0) {
+                                diag.event(
+                                    "TUN2SOCKS", "native-refused",
+                                    "session" to session, "code" to exitCode,
+                                    "reason" to Tun2SocksTunnel.lastError()
+                                )
+                            }
                         }
                     }
                 }
             }
+            runElapsedMs = (System.nanoTime() - runStartedNs) / 1_000_000L
+            datapathRunInFlight.set(false)
+            code = result.getOrElse {
+                diag.error(tunnelCore.name, "jni-run-exception", it, "session" to session, "hevFd" to hevFd)
+                -10001
+            }
+            stopWasRequested = datapathStopTarget.get() == myEpoch
+            diag.event(
+                tunnelCore.name, "run-exit",
+                "session" to session, "code" to code, "elapsedMs" to runElapsedMs,
+                "runningFlag" to running.get(), "coreAlive" to coreAlive,
+                "stopRequested" to stopWasRequested, "attempt" to attempt, "epoch" to myEpoch
+            )
+            val reading = DatapathLifecyclePolicy.readingOf(code, stopWasRequested, runElapsedMs, attempt)
+            if (reading.kind == DatapathLifecyclePolicy.ExitKind.LATCHED_NOOP) {
+                diag.event(
+                    tunnelCore.name, "stop-latch-consumed",
+                    "session" to session, "code" to code, "elapsedMs" to runElapsedMs,
+                    "attempt" to attempt, "epoch" to myEpoch,
+                    "reason" to "a stale stop reached an idle core and armed its SYNC_STOP latch; " +
+                        "re-entering the run once with a clean latch"
+                )
+                continue
+            }
+            latchExhausted = reading.latchExhausted
+            break
         }
         hevActive = false
-        val code = result.getOrElse {
-            diag.error(tunnelCore.name, "jni-run-exception", it, "session" to session, "hevFd" to hevFd)
-            -10001
-        }
-        diag.event(
-            tunnelCore.name, "run-exit",
-            "session" to session, "code" to code, "runningFlag" to running.get(), "xrayAlive" to coreAlive
-        )
 
         if (isCurrent(session)) {
-            if (!tunReadyPublished.get()) {
-                diag.event(tunnelCore.name, "exited-before-ready", "session" to session, "code" to code)
+            if (stopWasRequested) {
+                // An acknowledged stop is not a failure: the caller that asked for it owns the
+                // outcome, and filing a second failure generation here is what doubled every
+                // root cause on the worst night ("Xray core stopped" followed 34 ms later by
+                // "hev-socks5-tunnel stopped (0)").
+                diag.event(
+                    tunnelCore.name, "stopped-by-request",
+                    "session" to session, "code" to code, "attempt" to attempt
+                )
+            } else {
+                if (!tunReadyPublished.get()) {
+                    diag.event(
+                        tunnelCore.name, "exited-before-ready",
+                        "session" to session, "code" to code,
+                        "elapsedMs" to runElapsedMs, "attempt" to attempt,
+                        "latchExhausted" to latchExhausted
+                    )
+                }
+                if (!recoveryScheduled.get()) {
+                    handleFailure(
+                        session,
+                        if (latchExhausted) {
+                            "${DatapathLifecyclePolicy.datapathStoppedReason(tunnelCore, code)} • " +
+                                "its stop latch consumed the run twice"
+                        } else {
+                            DatapathLifecyclePolicy.datapathStoppedReason(tunnelCore, code)
+                        }
+                    )
+                }
             }
-            if (!recoveryScheduled.get()) handleFailure(session, "${TunnelCoreInfo.displayName(tunnelCore)} stopped ($code)")
+        }
+    }
+
+    /** The bounded outcome of the datapath's loopback SOCKS gate. */
+    private enum class SocksGateOutcome {
+        READY,
+        DEAD_PORT_CORE_ALIVE,
+        CORE_GONE
+    }
+
+    /**
+     * MARBLE_DATAPATH_STOP_ACK_V274 — waits, bounded, for the core's loopback SOCKS inbound to
+     * answer a TCP connect. Asks nothing of the network beyond loopback, opens no proxy session,
+     * and never outlives [DatapathLifecyclePolicy.SOCKS_GATE_TIMEOUT_MS].
+     */
+    private fun awaitSocksInbound(port: Int): SocksGateOutcome {
+        val deadline = System.currentTimeMillis() + DatapathLifecyclePolicy.SOCKS_GATE_TIMEOUT_MS
+        while (true) {
+            val opened = runCatching {
+                java.net.Socket().use { socket ->
+                    socket.connect(
+                        java.net.InetSocketAddress("127.0.0.1", port),
+                        DatapathLifecyclePolicy.SOCKS_GATE_CONNECT_TIMEOUT_MS
+                    )
+                }
+                true
+            }.getOrDefault(false)
+            when (DatapathLifecyclePolicy.socksGateVerdict(opened, coreAlive)) {
+                DatapathLifecyclePolicy.SocksGateVerdict.PROCEED -> return SocksGateOutcome.READY
+                DatapathLifecyclePolicy.SocksGateVerdict.ABANDON -> return SocksGateOutcome.CORE_GONE
+                DatapathLifecyclePolicy.SocksGateVerdict.RETRY -> {
+                    if (System.currentTimeMillis() >= deadline) {
+                        return SocksGateOutcome.DEAD_PORT_CORE_ALIVE
+                    }
+                    try {
+                        Thread.sleep(DatapathLifecyclePolicy.SOCKS_GATE_POLL_MS)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        return SocksGateOutcome.CORE_GONE
+                    }
+                }
+            }
         }
     }
 
@@ -1630,7 +1801,7 @@ private fun startProxyMonitor(session: String, port: Int, generation: Int) {
 
             while (isRouteCurrent(session, generation) && activeMode == MODE_PROXY) {
                 if (!coreAlive) {
-                    handleFailure(session, "Xray local proxy stopped")
+                    handleFailure(session, DatapathLifecyclePolicy.localProxyStoppedReason(activeEngine))
                     return@execute
                 }
                 val routeProbeNow = routeProbeRequested.getAndSet(false)
@@ -1693,7 +1864,20 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 if (!sleepQuietly(1_000L)) return@execute
                 if (!isRouteCurrent(session, generation) || !hevActive) break
                 if (!coreAlive) {
-                    handleFailure(session, "Xray core stopped")
+                    // MARBLE_DATAPATH_STOP_ACK_V274 — the reason names the engine that was
+                    // actually selected and, for sing-box, carries the child's exit code: the
+                    // night this loop was diagnosed, every sing-box death was filed as
+                    // "Xray core stopped" with no evidence attached.
+                    val coreDeathReason = DatapathLifecyclePolicy.coreStoppedReason(activeEngine)
+                        .let { reason ->
+                            if (activeEngine == CoreEngine.SINGBOX) {
+                                singBox.coreDeathEvidence().takeIf { it.isNotBlank() }
+                                    ?.let { evidence -> "$reason ($evidence)" } ?: reason
+                            } else {
+                                reason
+                            }
+                        }
+                    handleFailure(session, coreDeathReason)
                     return@execute
                 }
 
@@ -1744,7 +1928,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                                     "session" to session,
                                     "txWithoutRxBytes" to txWithoutRxBytes,
                                     "stallMs" to (nowMs - txWithoutRxSince),
-                                    "xrayAlive" to coreAlive)
+                                    "coreAlive" to coreAlive)
 
                                 if (confirmRouteUnavailable(session, port, generation)) {
                                     diag.event(
@@ -2991,7 +3175,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     "ROUTE", "probe-advisory-miss-held",
                     "session" to session,
                     "trafficRecent" to true,
-                    "xrayAlive" to coreAlive,
+                    "coreAlive" to coreAlive,
                     "hevActive" to hevActive
                 )
                 return false
@@ -3052,7 +3236,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                         "ROUTE", "probe-failure-held",
                         "session" to session,
                         "trafficRecent" to trafficRecentlyMoved,
-                        "xrayAlive" to coreAlive,
+                        "coreAlive" to coreAlive,
                         "hevActive" to hevActive
                     )
                 }
@@ -3455,6 +3639,17 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             return
         }
 
+        // MARBLE_DATAPATH_STOP_ACK_V274 — the guard above has never matched a sentence the
+        // product actually emits: the datapath's own exit reasons begin with
+        // "hev-socks5-tunnel stopped" and "tun2socks stopped", so the teardown echo of a run
+        // that had already been stopped opened a *second* failure generation 34 ms after the
+        // first one — the doubling that turned one dead core into a BLOCKED↔CONNECTING loop.
+        // The acknowledged-stop handshake now prevents the echo at its source; this engine-aware
+        // check is the second line of defence for any path that still reaches here.
+        if (recoveryScheduled.get() && DatapathLifecyclePolicy.isDatapathEcho(reason)) {
+            return
+        }
+
         val app =
             application as
                 MarbleApplication
@@ -3489,8 +3684,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 reason,
             "killSwitchHold" to
                 holdTun,
-            "xrayAlive" to
+            "coreAlive" to
                 coreAlive,
+            "engine" to
+                activeEngine.id,
             "hevFd" to
                 hevFd,
             "tunOpen" to
@@ -4220,37 +4417,72 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
      */
     private fun stopDatapath() {
         val core = activeTunnelCore
-        // The datapath is live if its flag says so, or if its worker still holds the descriptor —
-        // the window between adopting the descriptor and entering the native run is real, and a
-        // cleanup that lands inside it has to stop the run rather than walk past it.
-        val live = hevActive || datapathOwnsFd.get()
-        when (TunnelShutdownPolicy.stopPlan(core, live)) {
-            DatapathStop.NONE ->
-                diag.event(
-                    "TUNNEL", "datapath-stop-skipped",
-                    "session" to activeSession, "tunnelCore" to core.id,
-                    "hevActive" to hevActive, "datapathOwnsFd" to datapathOwnsFd.get(),
-                    "hevFd" to hevFd
-                )
-            DatapathStop.QUIT -> {
-                diag.event(
-                    "TUNNEL", "datapath-stop",
-                    "session" to activeSession, "tunnelCore" to core.id,
-                    "hevFd" to hevFd, "join" to false
-                )
-                runCatching { HevTunnel.quit() }
-                    .onFailure { diag.error("HEV", "quit-failed", it, "session" to activeSession) }
+        // MARBLE_DATAPATH_STOP_ACK_V274 — a stop is delivered to the core only while a native
+        // run of that core is actually blocking, and never otherwise.
+        //
+        // V223 fixed the wrong-core quit (tun2socks sessions no longer call HevTunnel.quit) but
+        // kept the old liveness test — `hevActive || datapathOwnsFd` — and the second flag stays
+        // raised until the worker's `finally` releases it, long after the native run has
+        // returned. Every failure that began on the datapath worker's own thread (a stalled
+        // route, a stats outage) therefore forwarded one more quit into an already-finalized
+        // HEV, which ORs its sticky `SYNC_STOP` into `tsync`: the *next* `hev_socks5_tunnel_run`
+        // consumes the bit and returns 0 without running anything. That is the 2 ms
+        // `run-exit | code=0 | exited-before-ready` the recovery kept dying on, and the
+        // BLOCKED→CONNECTING→BLOCKED loop is just that poison repeating.
+        //
+        // The window between adopting the descriptor and entering the native run is still real,
+        // so a stop that lands there is answered by the worker's own `isRouteCurrent` re-check
+        // at the native entry instead of a core signal: the run is abandoned without touching
+        // any core state at all, which a quit in that window never could be.
+        if (datapathRunInFlight.get()) {
+            val targetedEpoch = datapathRunEpoch.get()
+            when (TunnelShutdownPolicy.stopPlan(core, datapathActive = true)) {
+                DatapathStop.QUIT -> {
+                    datapathStopTarget.set(targetedEpoch)
+                    diag.event(
+                        "TUNNEL", "datapath-stop",
+                        "session" to activeSession, "tunnelCore" to core.id,
+                        "hevFd" to hevFd, "join" to false, "epoch" to targetedEpoch
+                    )
+                    runCatching { HevTunnel.quit() }
+                        .onFailure { diag.error("HEV", "quit-failed", it, "session" to activeSession) }
+                }
+                DatapathStop.QUIT_AND_JOIN -> {
+                    datapathStopTarget.set(targetedEpoch)
+                    val joined = runCatching { Tun2SocksTunnel.stopAndWait() }.getOrDefault(false)
+                    diag.event(
+                        "TUN2SOCKS", if (joined) "datapath-stop-ack" else "datapath-stop-timeout",
+                        "session" to activeSession,
+                        "hevFd" to hevFd,
+                        "timeoutMs" to Tun2SocksTunnel.STOP_TIMEOUT_MS,
+                        "epoch" to targetedEpoch
+                    )
+                }
+                DatapathStop.NONE -> Unit
             }
-            DatapathStop.QUIT_AND_JOIN -> {
-                val joined = runCatching { Tun2SocksTunnel.stopAndWait() }.getOrDefault(false)
-                diag.event(
-                    "TUN2SOCKS", if (joined) "datapath-stop-ack" else "datapath-stop-timeout",
-                    "session" to activeSession,
-                    "hevFd" to hevFd,
-                    "timeoutMs" to Tun2SocksTunnel.STOP_TIMEOUT_MS
-                )
-            }
+            return
         }
+        if (datapathOwnsFd.get()) {
+            // Pre-run (the worker is between fd adoption and the native entry; its own
+            // `isRouteCurrent` re-check answers this stop by abandoning) or concluded (the run
+            // returned and the worker is unwinding; releaseDatapathFd closes the descriptor).
+            // A core signal is wrong in both windows: before the entry and after the return it
+            // reaches an idle HEV, which stores it as the sticky `SYNC_STOP` the *next* run
+            // trips over. Nothing is signalled; the event says why.
+            diag.event(
+                "TUNNEL", "datapath-stop-without-signal",
+                "session" to activeSession, "tunnelCore" to core.id,
+                "epoch" to datapathRunEpoch.get(),
+                "reason" to "no native run is blocking; a signal now would arm the next run's stop latch"
+            )
+            return
+        }
+        diag.event(
+            "TUNNEL", "datapath-stop-skipped",
+            "session" to activeSession, "tunnelCore" to core.id,
+            "hevActive" to hevActive, "datapathOwnsFd" to datapathOwnsFd.get(),
+            "hevFd" to hevFd
+        )
     }
 
     /**

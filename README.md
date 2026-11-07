@@ -70,10 +70,22 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
   lands mid-fetch can no longer fail a release (and a reader is told which digest disagreed if the
   source itself is inconsistent).
 - **Material 3 Expressive Home and seven-hub Settings** — twenty-three scattered Settings tiles are consolidated into seven cohesive broader Bento hubs (`Appearance & interface`, `Connection & core`, `Routing & bypass`, `Ping & smart auto`, `DNS & privacy`, `Subscriptions & backup`, `System & diagnostics`) with an inline morphing sub-topic switcher (`SettingsUmbrellaTopicBar`) and full-depth search, while Home replaces every non-Expressive border, circle halo and spreadsheet grid line with official `MaterialShapes` polygons, `Morph` transitions, asymmetric Bento telemetry and Google's Expressive `LoadingIndicator`.
+- **A Persian calendar that tells the truth** — one quiet line on Home prints the Jalali date and today's occasion, and one tap opens the month: official holidays come from a recorded 1404–1412 table (the lunar days *are* the table, never an approximation), Friday is the only weekend, and commemorations like 13 Aban — Student Day — keep their name and their dot but never the holiday colour. The Jalali converter's Esfand-30-of-a-leap-year bug is fixed, so the last day of 1408 and 1412 finally round-trips.
+- **A stop that is acknowledged, not punished** — a tunnel datapath run that exits *because Marble asked it to stop* is now an acknowledgement, not a second failure; a stale HEV stop-latch (the 2 ms `run-exit | code=0` that used to loop BLOCKED↔CONNECTING) is consumed once and re-entered; the datapath waits for the core's SOCKS listener before it dials; and every failure reason names the engine that actually stopped — `sing-box core stopped`, never `Xray core stopped` on a sing-box session.
 
 ## The expressive shell: one control, one decision
 
-**V273 is the newest chapter: `docs/EXPRESSIVE_WAVE_AND_SHADE_DECK_V273.md`.** Four reports, four
+**V275 is the newest chapter: `docs/PERSIAN_CALENDAR_TRUTH_V275.md`.** The Persian calendar
+declared 13 Aban an official holiday — it is Student Day, a commemoration — and several
+occasion days were missing altogether. Both are fixed by rebuilding the calendar on a
+recorded official table (1404–1412, lunar days transcribed rather than approximated, Friday
+the only weekend, commemorations named but never coloured as holidays), and by fixing the
+Jalali converter bug that folded Esfand 30 of every leap year onto 12-29. **V274: `docs/DATAPATH_STOP_ACK_V274.md`**
+ends the BLOCKED↔CONNECTING loop: an asked-for stop is an
+acknowledgement, the HEV `SYNC_STOP` latch is consumed exactly once, the datapath gates on
+the core's SOCKS listener, and failure reasons name the engine that stopped.
+
+**V273: `docs/EXPRESSIVE_WAVE_AND_SHADE_DECK_V273.md`.** Four reports, four
 broken contracts, and each one measured rather than argued: the Expressive wave is now the product's
 only progress idiom and is inscribed in the exact frame it is drawn in (the platform composable wraps
 a fixed 240 dp `Spacer`, so a caller `fillMaxWidth()` could never fill a card); the network council
