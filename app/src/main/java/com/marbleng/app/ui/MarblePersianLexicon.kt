@@ -52,6 +52,16 @@ private fun faTranslateRaw(text: String): String {
 
 private val FaLexicon: Map<String, String> = mapOf(
 
+    // ─── MARBLE_PERSIAN_CALENDAR_TRUTH_V275 ──────────────────────────────────────────────────
+    // The today line and the calendar sheet. A holiday is a holiday because a verified table
+    // says so, and a commemoration says what it is — the words keep that distinction.
+    "Previous month" to "ماه قبل",
+    "Next month" to "ماه بعد",
+    "No occasion on this day" to "این روز مناسبتی نداره",
+    "Official holiday" to "تعطیل رسمی",
+    "Commemoration — not an official holiday" to "مناسبت — تعطیل رسمی نیست",
+    "Coming up" to "روزهای پیش رو",
+
     // ─── MARBLE_LUMEN_DOCK_V256 / MARBLE_HOME_WIDGETS_V256 ───────────────────────────────────
     // The dock's ladder, the three connection styles and the four Home switches. Warm, second
     // person, the same voice the rest of the dictionary speaks.
@@ -3513,6 +3523,15 @@ internal fun isFaLexiconKey(text: String): Boolean =
     FaEffectiveLexicon.containsKey(text) || FaLexiconLower.containsKey(text.lowercase())
 
 private val FaPatterns: List<Pair<Regex, (MatchResult) -> String>> = listOf(
+    // MARBLE_PERSIAN_CALENDAR_TRUTH_V275 — the sheet's coverage note and day distances.
+    Regex("""^Official holidays verified (\d+)–(\d+)$""") to { m ->
+        "تعطیلات رسمی ${m.groupValues[1]} تا ${m.groupValues[2]} تأیید شده"
+    },
+    Regex("""^Lunar holidays beyond (\d+) are not guessed$""") to { m ->
+        "تعطیلات قمری بعد از ${m.groupValues[1]} حدس زده نمی‌شن"
+    },
+    Regex("""^in 1 day$""") to { _ -> "فردا" },
+    Regex("""^in (\d+) days?$""") to { m -> "${m.groupValues[1]} روز دیگه" },
     Regex("""^(\d+) servers$""") to { m -> "${m.groupValues[1]} سرور" },
 
     Regex("""^(\d+) groups$""") to { m -> "${m.groupValues[1]} گروه" },

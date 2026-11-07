@@ -359,7 +359,15 @@ object SingBoxConfigBuilder {
 
                     .put("unified_delay", JSONObject().put("enabled", settings.singBoxUnifiedDelay))
                     .apply {
-                        if (settings.singBoxCacheFile && !forTest) {
+                        // MARBLE_SINGBOX_FAKEIP_CACHE_V274 — a fakeip route *requires* the cache
+                        // file. The retained core log of a failing night carried a burst of
+                        // `router: missing fakeip record, try enable experimental.cache_file`:
+                        // fakeip answers are handed out per session, and without the cache a
+                        // restarted core cannot map a fake address a still-open connection
+                        // holds. The toggle therefore only governs the non-fakeip case; when the
+                        // DNS path is armed the cache is not an option, it is the other half of
+                        // the feature.
+                        if ((settings.singBoxCacheFile || FakeIpPolicy.isDnsPathArmed(settings)) && !forTest) {
                             put(
                                 "cache_file",
                                 JSONObject()

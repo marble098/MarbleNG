@@ -1708,8 +1708,10 @@ check(
     and "fun stopPlan(core: TunnelCore, datapathActive: Boolean): DatapathStop" in files["shutdownPolicy"]
     and "fun mayCloseDescriptor(datapathOwnsFd: Boolean): Boolean" in files["shutdownPolicy"]
     and "const val REASON_SIGNALED: Int = 2" in files["shutdownPolicy"]
-    # ... and the service asks it instead of poking both cores.
-    and "TunnelShutdownPolicy.stopPlan(core, live)" in files["vpn"]
+    # ... and the service asks it instead of poking both cores. (V274 narrowed the ask to the
+    # one window a signal is meaningful in — inside the in-flight guard — so the call passes
+    # the guard's own truth instead of the old OR of two flags that outlive the run.)
+    and "TunnelShutdownPolicy.stopPlan(core, datapathActive = true)" in files["vpn"]
     and "DatapathStop.QUIT_AND_JOIN" in files["vpn"]
     and "Tun2SocksTunnel.stopAndWait()" in files["vpn"]
     and "runCatching { HevTunnel.quit() }\n        runCatching { Tun2SocksTunnel.quit() }" not in files["vpn"]
@@ -6705,6 +6707,94 @@ check(
 # guessing at it; the Servers page prints a subscription's plan; and the
 # shade's route control is a deck whose budget includes its own chrome.
 # ---------------------------------------------------------------------------
+# MARBLE_DATAPATH_STOP_ACK_V274 + MARBLE_PERSIAN_CALENDAR_TRUTH_V275 — the newest passes.
+v274_policy = read("app/src/main/java/com/marbleng/app/core/DatapathLifecyclePolicy.kt")
+v274_test = read("app/src/test/java/com/marbleng/app/core/DatapathStopAckV274Test.kt")
+v274_doc = read("docs/DATAPATH_STOP_ACK_V274.md")
+v275_calendar = read("app/src/main/java/com/marbleng/app/model/PersianCalendar.kt")
+v275_jalali = read("app/src/main/java/com/marbleng/app/model/PlanStatus.kt")
+v275_ui = read("app/src/main/java/com/marbleng/app/ui/PersianCalendarUi.kt")
+v275_home = read("app/src/main/java/com/marbleng/app/ui/HomeScreen.kt")
+v275_lexicon = read("app/src/main/java/com/marbleng/app/ui/MarblePersianLexicon.kt")
+v275_glyphs = read("app/src/main/java/com/marbleng/app/ui/MarbleGlyphArt.kt")
+v275_test = read("app/src/test/java/com/marbleng/app/model/PersianCalendarV275Test.kt")
+v275_doc = read("docs/PERSIAN_CALENDAR_TRUTH_V275.md")
+
+check(
+    "V274 a datapath stop is an acknowledgement, a latch is consumed once, and reasons name the engine",
+    # The decisions live in one device-free place, and the thresholds are pinned.
+    "object DatapathLifecyclePolicy" in v274_policy
+    and "const val LATCHED_NOOP_MAX_MS: Long = 250L" in v274_policy
+    and "const val LATCH_RETRIES: Int = 1" in v274_policy
+    and "const val SOCKS_GATE_TIMEOUT_MS: Long = 2_500L" in v274_policy
+    and "enum class ExitKind" in v274_policy
+    and "fun readingOf(" in v274_policy
+    and "fun isDatapathEcho(" in v274_policy
+    and "fun socksGateVerdict(" in v274_policy
+    # ... the service runs the handshake: the epoch in-flight guard, the latch retry, the
+    # acknowledged stop that files a diagnostic instead of a failure, and the echo guard in
+    # the failure path.
+    and "datapathRunEpoch" in files["vpn"]
+    and "datapathRunInFlight" in files["vpn"]
+    and "datapathStopTarget" in files["vpn"]
+    and "DatapathLifecyclePolicy.readingOf(" in files["vpn"]
+    and "stopped-by-request" in files["vpn"]
+    and "stop-latch-consumed" in files["vpn"]
+    and "run-abandoned-before-native" in files["vpn"]
+    and "DatapathLifecyclePolicy.isDatapathEcho(" in files["vpn"]
+    and "singBox.coreDeathEvidence()" in files["vpn"]
+    and "fun coreDeathEvidence(" in files["singBox"]
+    and "val exitCode: Int?" in files["singBoxSession"]
+    # Bug Finder reads the loop: the timeline check exists, and an acknowledged tun2socks
+    # stop is clean by definition.
+    and "Recent failure timeline" in files["bug"]
+    and "MARBLE_DATAPATH_STOP_ACK_V274" in files["bug"]
+    # The rules are pinned by a device-free test, written down in a chapter, and named in
+    # the README.
+    and "class DatapathStopAckV274Test" in v274_test
+    and "MARBLE_DATAPATH_STOP_ACK_V274" in v274_doc
+    and "DATAPATH_STOP_ACK_V274.md" in files["readme"],
+)
+check(
+    "V275 the Persian calendar tells the truth: a table, not an approximation",
+    # The truth lives in one model: the marker, the recorded table and its honest edges.
+    "MARBLE_PERSIAN_CALENDAR_TRUTH_V275" in v275_calendar
+    and "const val TABLE_FIRST_YEAR: Int = 1404" in v275_calendar
+    and "const val TABLE_LAST_YEAR: Int = 1412" in v275_calendar
+    and "private const val HOLIDAY_TABLE: String" in v275_calendar
+    and "fun holidayCoverage(year: Int): Boolean" in v275_calendar
+    and "fun isOfficialHoliday(year: Int, month: Int, day: Int): Boolean" in v275_calendar
+    and "fun occasionsOn(year: Int, month: Int, day: Int)" in v275_calendar
+    and "fun upcoming(" in v275_calendar
+    # 13 Aban is a commemoration: the complaint's exact sentence, pinned in code.
+    and '"STUDENT_DAY"' in v275_calendar
+    and "13 Aban $year must never carry an official occasion" in v275_test
+    # The commemorations exist and are never official.
+    and '"PERSIAN_GULF_DAY"' in v275_calendar
+    and '"TEACHERS_DAY"' in v275_calendar
+    and '"YALDA"' in v275_calendar
+    # The converter bug is fixed and the helpers the calendar stands on exist.
+    and "jalCal(jy + 1).leap == 1" in v275_jalali
+    and "fun daysInMonth(year: Int, month: Int): Int" in v275_jalali
+    and "fun isLeapYear(year: Int): Boolean" in v275_jalali
+    and "fun jdnOf(year: Int, month: Int, day: Int): Int" in v275_jalali
+    and "esfandThirtyOfALeapYearRoundTripsInsteadOfFoldingOntoTwentyNine" in v275_test
+    # The UI: the today line on Home, the sheet, the glyph, and the Persian voice.
+    and "fun MarbleTodayLine(" in v275_ui
+    and "fun PersianCalendarSheet(" in v275_ui
+    and "MarbleTodayLine(" in v275_home
+    and "PersianCalendarSheet(" in v275_home
+    and "MarbleGlyph.CALENDAR" in v275_glyphs
+    and '"Previous month" to "ماه قبل"' in v275_lexicon
+    and '"Official holiday" to "تعطیل رسمی"' in v275_lexicon
+    and '"Commemoration — not an official holiday" to "مناسبت — تعطیل رسمی نیست"' in v275_lexicon
+    and '^in (\\d+) days?$' in v275_lexicon
+    # The truth is written down.
+    and "class PersianCalendarV275Test" in v275_test
+    and "MARBLE_PERSIAN_CALENDAR_TRUTH_V275" in v275_doc
+    and "PERSIAN_CALENDAR_TRUTH_V275.md" in files["readme"]
+    and "V275 is the newest chapter: `docs/PERSIAN_CALENDAR_TRUTH_V275.md`" in files["readme"],
+)
 v273_wave = read("app/src/main/java/com/marbleng/app/ui/MarbleWave.kt")
 v273_deck = read("app/src/main/java/com/marbleng/app/core/ShadeDeck.kt")
 v273_council = read("app/src/main/java/com/marbleng/app/core/NetworkCouncil.kt")
@@ -6817,7 +6907,8 @@ check(
     and "## ۵. جدول اجرا" in v273_doc
     and "## ۶. تست" in v273_doc
     and "## ۷. آنچه عمداً انجام نشد" in v273_doc
-    and "V273 is the newest chapter: `docs/EXPRESSIVE_WAVE_AND_SHADE_DECK_V273.md`" in files["readme"]
+    and "V273: `docs/EXPRESSIVE_WAVE_AND_SHADE_DECK_V273.md`" in files["readme"]
+    and "V274: `docs/DATAPATH_STOP_ACK_V274.md`" in files["readme"]
     and "class MarbleWaveFrameV273Test" in v273_wave_test
     and "class NetworkCouncilV273Test" in v273_council_test
     and "class SubscriptionPlanV273Test" in v273_plan_test

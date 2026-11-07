@@ -36,6 +36,14 @@ class SingBoxProcessSession private constructor(
 ) : Closeable {
     val isAlive: Boolean get() = child.isAlive
 
+    /**
+     * MARBLE_DATAPATH_STOP_ACK_V274 — the child's exit code once it is dead, so a failure
+     * reason can say *why* the core went down instead of only that it did. `null` while the
+     * process still runs, and for a death whose code could not be read.
+     */
+    val exitCode: Int?
+        get() = if (child.isAlive) null else runCatching { child.exitValue() }.getOrNull()
+
     @Volatile var readiness: StartReadiness = StartReadiness(
         inboundUp = false, controllerUp = false, controllerAwaited = false,
         phase = "starting", elapsedMs = 0L

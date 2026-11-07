@@ -44,6 +44,21 @@ class SingBoxManager(
 
     val measurementCoreCeiling: Int get() = measurementCeiling
 
+    /**
+     * MARBLE_DATAPATH_STOP_ACK_V274 — one line of evidence for a core that died on its own.
+     *
+     * The telemetry loop used to report a dead sing-box as the fixed sentence "Xray core
+     * stopped" — the wrong engine, and no evidence. This returns the child's exit code when a
+     * session object is still held and the process behind it is gone, so the BLOCKED reason a
+     * user (and Bug Finder) reads names the engine and the code.
+     */
+    fun coreDeathEvidence(): String {
+        val current = session ?: return ""
+        if (current.isAlive) return ""
+        val exit = current.exitCode
+        return if (exit != null) "process exited with code $exit" else "process is no longer running"
+    }
+
     init {
         grantMeasurementSlots(MeasurementCoreBudget.read(context))
     }

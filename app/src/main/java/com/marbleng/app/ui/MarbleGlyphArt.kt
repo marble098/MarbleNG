@@ -91,7 +91,10 @@ internal enum class MarbleGlyph {
     BELL,
     SHARE,
     EYE,
-    EYE_OFF
+    EYE_OFF,
+
+    // MARBLE_PERSIAN_CALENDAR_TRUTH_V275 — the today line and the calendar sheet's own mark.
+    CALENDAR
 }
 
 /**
@@ -681,6 +684,18 @@ internal fun DrawScope.drawMarbleGlyph(
                         style = fine
                     )
                     line(4.4f, 4.4f, 19.6f, 19.6f)
+                }
+
+                MarbleGlyph.CALENDAR -> {
+                    // MARBLE_PERSIAN_CALENDAR_TRUTH_V275 — one plate, two hangers, a header
+                    // rule and two marked days: a calendar that reads at 16 dp.
+                    roundRect(4.2f, 5.6f, 15.6f, 14.2f, 2.6f)
+                    line(4.2f, 10.2f, 19.8f, 10.2f)
+                    line(8.7f, 3.4f, 8.7f, 7f)
+                    line(15.3f, 3.4f, 15.3f, 7f)
+                    dot(9f, 14.4f, 1.05f)
+                    dot(12f, 14.4f, 1.05f)
+                    dot(15f, 14.4f, 1.05f)
                 }
             }
         }
