@@ -45,7 +45,7 @@ class MarblePackageReplacedReceiver : BroadcastReceiver() {
             val language = runCatching {
                 (context.applicationContext as? MarbleApplication)?.repo?.settings?.appLanguage
             }.getOrNull() ?: ""
-            SmartNotifier(context) { language }.restoreNotice()
+            SmartNotifier(context, languageSource = { language }).restoreNotice()
         }
     }
 }
