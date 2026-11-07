@@ -156,9 +156,9 @@ object PersianCalendar {
      */
     private val SOLAR_OCCASIONS: Map<Int, List<Occasion>> = mapOf(
         // 10 Farvardin — National Persian Gulf Day.
-        10 to listOf(Occasion("PERSIAN_GULF_DAY", "روز ملی خلیج فارس", "National Persian Gulf Day", false, false)),
+        110 to listOf(Occasion("PERSIAN_GULF_DAY", "روز ملی خلیج فارس", "National Persian Gulf Day", false, false)),
         // 29 Farvardin — Army Day.
-        101 to listOf(Occasion("ARMY_DAY", "روز ارتش", "Army Day", false, false)),
+        129 to listOf(Occasion("ARMY_DAY", "روز ارتش", "Army Day", false, false)),
         // 12 Ordibehesht — Teacher's Day (martyrdom of Motahhari).
         212 to listOf(Occasion("TEACHERS_DAY", "روز معلم", "Teacher's Day", false, false)),
         // 20 Mehr — Hafez Day.

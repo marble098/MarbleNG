@@ -6768,7 +6768,7 @@ check(
     and "fun upcoming(" in v275_calendar
     # 13 Aban is a commemoration: the complaint's exact sentence, pinned in code.
     and '"STUDENT_DAY"' in v275_calendar
-    and "13 Aban $year must not be an official holiday" in v275_test
+    and "13 Aban $year must never carry an official occasion" in v275_test
     # The commemorations exist and are never official.
     and '"PERSIAN_GULF_DAY"' in v275_calendar
     and '"TEACHERS_DAY"' in v275_calendar

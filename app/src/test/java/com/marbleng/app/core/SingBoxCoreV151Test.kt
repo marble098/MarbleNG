@@ -329,7 +329,11 @@ class SingBoxCoreV151Test {
                 linkProfile(VLESS_LINK),
                 AppSettings(
                     singBoxUnifiedDelay = false,
-                    singBoxCacheFile = false
+                    singBoxCacheFile = false,
+                    // MARBLE_SINGBOX_FAKEIP_CACHE_V274 — the cache toggle only governs the
+                    // non-fakeip case: with the DNS path armed the cache is the other half of
+                    // the feature, so asking for "no cache" has to disarm the path too.
+                    dnsFakeIpEnabled = false
                 )
             ).json
         )
@@ -341,6 +345,23 @@ class SingBoxCoreV151Test {
             "the cache file must be absent, not merely disabled",
             off.getJSONObject("experimental").has("cache_file")
         )
+    }
+
+    @Test
+    fun aFakeIpRouteForcesTheCacheFileEvenWhenTheToggleIsOff() {
+        // MARBLE_SINGBOX_FAKEIP_CACHE_V274 — the retained core log of the failing night
+        // carried `router: missing fakeip record, try enable experimental.cache_file`: fakeip
+        // answers are handed out per session, and without the cache a restarted core cannot
+        // map a fake address a still-open connection holds.
+        val config = JSONObject(
+            build(
+                linkProfile(VLESS_LINK),
+                AppSettings(singBoxCacheFile = false)
+            ).json
+        )
+        val cache = config.getJSONObject("experimental").getJSONObject("cache_file")
+        assertTrue(cache.getBoolean("enabled"))
+        assertTrue("the fakeip mappings must survive a core restart", cache.getBoolean("store_fakeip"))
     }
 
     @Test

@@ -33,14 +33,24 @@ class PersianCalendarV275Test {
     // ── 13 Aban: a commemoration, never a holiday ────────────────────────────────────────────
 
     @Test
-    fun thirteenAbanIsNotAnOfficialHolidayInAnyCoveredYear() {
-        // The exact day the product lied about, in every year the table covers.
+    fun thirteenAbanIsNeverAnOfficialHolidayOccasionInAnyCoveredYear() {
+        // The exact day the product lied about, in every year the table covers: no table row,
+        // no solar rule, nothing at all may mark Student Day official.
         for (year in PersianCalendar.TABLE_FIRST_YEAR..PersianCalendar.TABLE_LAST_YEAR) {
-            assertFalse(
-                "13 Aban $year must not be an official holiday",
+            assertTrue(
+                "13 Aban $year must never carry an official occasion",
+                PersianCalendar.occasionsOn(year, 8, 13).none { it.official }
+            )
+            // The only way 13 Aban is a day off is the one way every working day can be: it
+            // fell on a Friday (1407). That is the weekend, not a Student Day holiday.
+            assertEquals(
+                "13 Aban $year is a day off only when it is a Friday",
+                PersianCalendar.isFriday(year, 8, 13),
                 PersianCalendar.isOfficialHoliday(year, 8, 13)
             )
         }
+        // The day of the complaint itself: Wednesday 13 Aban 1405, a working day.
+        assertFalse(PersianCalendar.isOfficialHoliday(1405, 8, 13))
     }
 
     @Test
