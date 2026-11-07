@@ -188,6 +188,7 @@ private fun CalendarDayCell(
  * Friday — and a commemoration such as 13 Aban keeps its dot but never the holiday colour.
  * Beyond the table's last year the sheet says so instead of guessing the moon.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun PersianCalendarSheet(
     nowMs: Long,
