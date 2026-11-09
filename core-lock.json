@@ -1,16 +1,16 @@
 {
   "xray": {
     "repo": "XTLS/Xray-core",
-    "tag": "v26.10.31",
-    "commit": "a4a3dff5b20c2faae567b742c172c7b95e75c083",
-    "publishedAt": "2026-10-31T13:37:42Z",
+    "tag": "v26.11.9",
+    "commit": "676eaf66f8f05d4d558ee7a74b4736623d3feeb9",
+    "publishedAt": "2026-11-09T05:31:16Z",
     "prerelease": false
   },
   "hev": {
     "repo": "heiher/hev-socks5-tunnel",
     "tag": "snapshot",
-    "commit": "8e3b4cd7168fe64b64f8b58537b5623fb6a7074d",
-    "publishedAt": "2026-11-06T18:46:27Z",
+    "commit": "786edc86f92e17e91d180f43f1f70cd323f6a243",
+    "publishedAt": "2026-11-08T17:52:37Z",
     "prerelease": true
   },
   "singbox": {
@@ -34,6 +34,6 @@
     "publishedAt": "2026-07-12T09:48:53Z",
     "prerelease": false
   },
-  "updated": "2026-11-08",
+  "updated": "2026-11-09",
   "rule": "latest-published"
 }
