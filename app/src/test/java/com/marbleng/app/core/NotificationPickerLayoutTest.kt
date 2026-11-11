@@ -9,7 +9,6 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.test.core.app.ApplicationProvider
 import com.marbleng.app.R
-import com.marbleng.app.model.ConnectionStatus
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,7 +28,7 @@ class NotificationPickerLayoutTest {
                 NotificationRoutePicker.PickerRow(NotificationRoutePicker.RowKind.OPEN_APP, "Open", "open:all")
             )
             val shade = TunnelNotificationView.build(
-                context, ConnectionNotificationState(status = ConnectionStatus.CONNECTED),
+                context, ConnectionNotificationState(status = ConnectionStatus.PROTECTED),
                 language, NotificationTheme.default(), "Connected", "Node", "42 ms", "1 KB/s", "0 KB/s",
                 picker = rows,
                 pickerIntent = { row -> PendingIntent.getActivity(context, row.actionId.hashCode(),
