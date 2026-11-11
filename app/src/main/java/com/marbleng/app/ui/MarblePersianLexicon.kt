@@ -51,6 +51,7 @@ private fun faTranslateRaw(text: String): String {
 }
 
 private val FaLexicon: Map<String, String> = mapOf(
+    "Uses downloaded Iran lists plus exact domestic domain suffixes. Brand substrings never bypass the tunnel." to "از فهرست‌های دانلودشدهٔ ایران و پسوند دقیق دامنه‌های داخلی استفاده می‌کند؛ وجود نام برند در آدرس باعث خروج از تونل نمی‌شود.",
 
     // ─── MARBLE_LUMEN_DOCK_V256 / MARBLE_HOME_WIDGETS_V256 ───────────────────────────────────
     // The dock's ladder, the three connection styles and the four Home switches. Warm, second

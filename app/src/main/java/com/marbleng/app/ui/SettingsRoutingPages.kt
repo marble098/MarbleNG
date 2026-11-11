@@ -1274,9 +1274,12 @@ fun SettingsSplitTunnelPage(
     val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
     val s = repo.settings
+    val persian = LocalMarbleStrings.current.language == MarbleLanguage.FA
     var query by rememberSaveable { mutableStateOf("") }
     var installed by remember { mutableStateOf<List<InstalledAppRow>>(emptyList()) }
     var reviewDomestic by remember { mutableStateOf(false) }
+    var appsLoaded by remember { mutableStateOf(false) }
+    var approvedDomestic by remember { mutableStateOf<Set<String>>(emptySet()) }
     val domesticApps = remember(installed) {
         val matches = IranAppCatalog.suggestions(installed.map { it.packageName })
         installed.filter { it.packageName in matches }
@@ -1284,13 +1287,25 @@ fun SettingsSplitTunnelPage(
     if (reviewDomestic) {
         AlertDialog(
             onDismissRequest = { reviewDomestic = false },
-            title = { Text(if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) "بررسی برنامه‌های پیشنهادی" else "Review suggested apps") },
+            title = { Text(if (persian) "بررسی برنامه‌های پیشنهادی" else "Review suggested apps") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text(if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl)
+                    Text(if (persian)
                         "این بررسی فقط روی گوشی انجام می‌شود و همهٔ برنامه‌های ایرانی را تضمین نمی‌کند. با تأیید، برنامه‌های زیر بدون VPN کار می‌کنند. فهرست قبلی در حالت «فقط انتخاب‌شده‌ها» جایگزین می‌شود. برای اعمال، اتصال را دوباره برقرار کنید."
                     else "Checked locally; this is not a complete nationality detector. Confirming lets these apps bypass the VPN. An existing only-selected list will be replaced. Reconnect to apply.")
-                    domesticApps.forEach { Text("${it.label}\n${it.packageName}") }
+                    domesticApps.forEach { app ->
+                        MarbleSwitchRow(
+                            title = app.label, subtitle = app.packageName,
+                            checked = app.packageName in approvedDomestic,
+                            onCheckedChange = { checked ->
+                                approvedDomestic = if (checked) approvedDomestic + app.packageName
+                                    else approvedDomestic - app.packageName
+                            }
+                        )
+                    }
+                    if (domesticApps.isEmpty()) Text(if (persian)
+                        "برنامهٔ شناخته‌شده‌ای پیدا نشد؛ می‌توانید دستی انتخاب کنید."
+                    else "No known matches; you can select apps manually.")
                 }
             },
             confirmButton = {
@@ -1301,15 +1316,15 @@ fun SettingsSplitTunnelPage(
                     else emptySet()
                     repo.updateSettings(latest.copy(
                         splitTunnelMode = SplitTunnelMode.BYPASS_SELECTED,
-                        splitTunnelPackages = (existing + domesticApps.map { it.packageName }).sorted().joinToString(",")
+                        splitTunnelPackages = (existing + approvedDomestic).sorted().joinToString(",")
                     ))
                     reviewDomestic = false
-                }, enabled = domesticApps.isNotEmpty()) {
-                    Text(if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) "تأیید خروج از VPN" else "Confirm bypass")
+                }, enabled = approvedDomestic.isNotEmpty()) {
+                    Text(if (persian) "تأیید خروج از VPN" else "Confirm bypass")
                 }
             },
             dismissButton = { TextButton(onClick = { reviewDomestic = false }) {
-                Text(if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) "انصراف" else "Cancel")
+                Text(if (persian) "انصراف" else "Cancel")
             } }
         )
     }
@@ -1342,6 +1357,11 @@ fun SettingsSplitTunnelPage(
                     .sortedBy { it.label.lowercase() }
             }.getOrDefault(emptyList())
         }
+        appsLoaded = true
+    }
+
+    LaunchedEffect(installed) {
+        approvedDomestic = domesticApps.map { it.packageName }.toSet()
     }
 
     val selectedRows = remember(installed, selectedPackages) {
@@ -1375,11 +1395,18 @@ fun SettingsSplitTunnelPage(
         item(key = "domestic-app-review") {
             MarbleCard {
                 MarbleListItem(
-                    title = "بررسی محلی برنامه‌های ایرانی / Review domestic apps",
-                    subtitle = "${domesticApps.size} پیشنهاد • بدون ارسال اطلاعات • تأیید پیش از اعمال / Local suggestions; review before bypass",
+                    title = if (persian) "بررسی محلی برنامه‌های ایرانی" else "Review domestic apps",
+                    subtitle = if (!appsLoaded) {
+                        if (persian) "در حال خواندن برنامه‌های قابل مشاهده…" else "Reading visible apps…"
+                    } else if (persian) "${faDigits(domesticApps.size.toString())} پیشنهاد • بدون ارسال اطلاعات • تأیید پیش از اعمال"
+                    else "${domesticApps.size} local suggestions • Review before bypass",
                     glyph = MarbleGlyph.ROUTE,
                     iconTint = colors.secondary,
-                    onClick = { reviewDomestic = true }
+                    enabled = appsLoaded,
+                    onClick = {
+                        approvedDomestic = domesticApps.map { it.packageName }.toSet()
+                        reviewDomestic = true
+                    }
                 )
             }
         }

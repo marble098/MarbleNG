@@ -1,6 +1,9 @@
 package com.marbleng.app.ui
 
 import android.app.Application
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -23,6 +26,7 @@ class DirectTouchLensTest {
     @Test fun heldLensMovesToTheFingerWithoutWaitingForTheSpring() {
         val target = mutableStateOf(10f)
         compose.setContent {
+            Box(Modifier.fillMaxSize()) {
             GlassLensIndicator(
                 targetLeftPx = target.value, diameter = 44.dp,
                 trackInsetPx = 2f, verticalInsetPx = 2f,
@@ -30,6 +34,7 @@ class DirectTouchLensTest {
                 dark = false, reduced = false, dragging = true,
                 backdrop = {}, tag = "held-lens"
             )
+            }
         }
         val before = compose.onNodeWithTag("held-lens").fetchSemanticsNode().boundsInRoot.left
         compose.mainClock.autoAdvance = false
