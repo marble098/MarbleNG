@@ -38,12 +38,17 @@ class DirectTouchLensTest {
             }
         }
         val before = compose.onNodeWithTag("held-lens").fetchSemanticsNode().boundsInRoot.left
-        compose.mainClock.autoAdvance = false
-        compose.runOnIdle { target.value = 110f }
-        // One frame schedules recomposition; the second applies its graphics layer.
-        // 32 ms is well below a spring settling time, so a spring-chased target fails.
-        compose.mainClock.advanceTimeBy(32L)
+        // Let the rule deliver snapshot notifications as well as frame callbacks.
+        // Pausing only the Compose clock leaves Android's draw/notification queue
+        // unsynchronised on Robolectric. Assert a frame budget instead of stalling it.
+        val started = compose.mainClock.currentTime
+        compose.runOnIdle {
+            target.value = 110f
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        }
         compose.waitForIdle()
+        val elapsed = compose.mainClock.currentTime - started
+        assertTrue("direct manipulation must not wait for a spring ($elapsed ms)", elapsed <= 96L)
         val after = compose.onNodeWithTag("held-lens").fetchSemanticsNode().boundsInRoot.left
         assertTrue(compose.onNodeWithTag("held-lens").fetchSemanticsNode().boundsInRoot.width > 0f)
         assertEquals("held layer: before=$before after=$after", 100f, after - before, 1f)
