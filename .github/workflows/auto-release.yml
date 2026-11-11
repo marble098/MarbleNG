@@ -1,0 +1,104 @@
+# MARBLE_AUTO_RELEASE_V278
+name: Auto release on merge
+
+# Every merge into main becomes a signed draft release without anyone typing a version.
+# This workflow only chooses the version (scripts/auto-release-plan.sh: the size of the
+# change since the last release decides patch / minor / major, the clock decides the
+# versionCode) and then dispatches "Build signed Android APKs" with those two inputs —
+# the same workflow, the same collision guard, the same signing and the same *draft*
+# release a manual run produces. Nothing here publishes: a person still presses Publish.
+#
+# Put "[skip release]" in the merge commit message to merge without building.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  # workflow_dispatch of build.yml, and reading the run it starts.
+  actions: write
+
+# One release at a time. Merges that arrive while a build is running wait here; GitHub
+# keeps only the newest waiting run, and that run plans from the tip of main, so several
+# quick merges become one release that contains all of them.
+concurrency:
+  group: marbleng-auto-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Plan the version and build the draft release
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
+
+    steps:
+      - name: Checkout the tip of main with every tag
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Choose the next version from the size of the change
+        id: plan
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet --tags --force origin
+          bash scripts/auto-release-plan.sh
+          {
+            echo '### Automatic release plan'
+            echo
+            echo '| | |'
+            echo '| --- | --- |'
+            sed -n 's/^\([a-z_]*\)=\(.*\)$/| \1 | `\2` |/p' "$GITHUB_OUTPUT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start the signed build
+        id: dispatch
+        if: steps.plan.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_NAME: ${{ steps.plan.outputs.version_name }}
+          VERSION_CODE: ${{ steps.plan.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          newest_run() {
+            gh run list --workflow build.yml --event workflow_dispatch --branch main \
+              --limit 1 --json databaseId --jq '.[0].databaseId // 0'
+          }
+          before="$(newest_run)"
+          gh workflow run build.yml --ref main \
+            -f "version_name=$VERSION_NAME" -f "version_code=$VERSION_CODE"
+
+          run_id=0
+          for _ in $(seq 1 30); do
+            sleep 5
+            run_id="$(newest_run)"
+            if (( run_id > before )); then break; fi
+          done
+          if (( run_id <= before )); then
+            echo "::error::The build for $VERSION_NAME was dispatched but its run did not appear."
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "Build run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Holding this job until the build ends is what makes the concurrency group above
+      # serialize releases: the next plan runs only after this tag exists.
+      - name: Wait for the draft release
+        if: steps.plan.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+          VERSION_NAME: ${{ steps.plan.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          gh run watch "$RUN_ID" --interval 30 --exit-status >/dev/null
+          echo "Draft release v$VERSION_NAME is ready for review." | tee -a "$GITHUB_STEP_SUMMARY"

@@ -239,6 +239,7 @@ class RuntimeDiagnostics(private val context: Context) {
                 recentEvents(250).forEach(::writeExternal)
                 writeExternal("=== ANDROID HISTORICAL PROCESS EXITS ===")
                 historicalExitSnapshot().forEach(::writeExternal)
+                primeNativeLogOffsets()
                 writeExternal("=== LIVE STREAM ===")
             } else {
                 if (debugEnabled) writeExternal("${Instant.now()} | DIAG | debug-mode-disabled")
@@ -293,13 +294,30 @@ class RuntimeDiagnostics(private val context: Context) {
                             exit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
                             exit.reason == ApplicationExitInfo.REASON_ANR)
                     ) {
-                        val trace = runCatching {
-                            exit.traceInputStream?.bufferedReader()?.use { it.readText().take(40_000) }
-                        }.getOrNull()?.takeIf { it.isNotBlank() }
-                            ?: findTombstoneNear(ctx, exit.timestamp)?.take(40_000)
-                        if (!trace.isNullOrBlank()) {
-                            add("  --- exit trace ---")
-                            trace.lines().take(60).forEach { add("  $it") }
+                        // MARBLE_LIVE_STREAM_TRUTH_V278 — a native crash arrives as a protobuf
+                        // tombstone; its readable part is the strings inside it.
+                        val raw = runCatching {
+                            exit.traceInputStream?.use { input ->
+                                val buffer = java.io.ByteArrayOutputStream()
+                                val chunk = ByteArray(16_384)
+                                while (buffer.size() < 400_000) {
+                                    val read = input.read(chunk)
+                                    if (read <= 0) break
+                                    buffer.write(chunk, 0, read)
+                                }
+                                buffer.toByteArray()
+                            }
+                        }.getOrNull()
+                        if (raw != null && raw.isNotEmpty() && !NativeLogMirror.looksLikeText(raw)) {
+                            add("  --- exit trace (native tombstone, readable fields) ---")
+                            NativeLogMirror.printableRuns(raw).forEach { add("  ${redact(it).take(400)}") }
+                        } else {
+                            val trace = raw?.toString(Charsets.UTF_8)?.take(40_000)?.takeIf { it.isNotBlank() }
+                                ?: findTombstoneNear(ctx, exit.timestamp)?.take(40_000)
+                            if (!trace.isNullOrBlank()) {
+                                add("  --- exit trace ---")
+                                trace.lines().take(60).forEach { add("  $it") }
+                            }
                         }
                     }
                 }
@@ -316,6 +334,11 @@ class RuntimeDiagnostics(private val context: Context) {
             val heapUsed = rt.totalMemory() - rt.freeMemory()
             val threadSnapshot = Thread.getAllStackTraces().keys
             val stateCounts = threadSnapshot.groupingBy { it.state.name }.eachCount()
+            // Which pools the threads belong to, so "threads=100, RUNNABLE=59" names its owners.
+            val families = NamedThreads.census(threadSnapshot.map { it.name })
+            val runnableFamilies = NamedThreads.census(
+                threadSnapshot.filter { it.state == Thread.State.RUNNABLE }.map { it.name }
+            )
             val am = runCatching { ctx.getSystemService(ActivityManager::class.java) }.getOrNull()
             val pssKb = runCatching {
                 am?.getProcessMemoryInfo(intArrayOf(Process.myPid()))?.firstOrNull()?.totalPss
@@ -325,24 +348,49 @@ class RuntimeDiagnostics(private val context: Context) {
                 "${Instant.now()} | HEARTBEAT | pid=${Process.myPid()} | " +
                     "cpuMs=${Process.getElapsedCpuTime()} | heapUsed=$heapUsed | " +
                     "heapMax=${rt.maxMemory()} | nativeHeap=${Debug.getNativeHeapAllocatedSize()} | " +
-                    "pssKb=$pssKb | threads=${threadSnapshot.size} | states=$stateCounts"
+                    "pssKb=$pssKb | threads=${threadSnapshot.size} | states=$stateCounts | " +
+                    "families=$families | runnable=$runnableFamilies"
             )
         }
+
+        private val mirroredLogs = listOf(
+            "xray.log" to "XRAY_RAW",
+            "hev-native.log" to "HEV_NATIVE_RAW",
+            "tun2socks.log" to "TUN2SOCKS_RAW"
+        )
 
         private fun mirrorNativeLogs() {
             val ctx = appContext ?: return
             val logs = File(ctx.filesDir, "logs")
-            mirrorFile(File(logs, "xray.log"), "XRAY_RAW")
-            mirrorFile(File(logs, "hev-native.log"), "HEV_NATIVE_RAW")
-            mirrorFile(File(logs, "tun2socks.log"), "TUN2SOCKS_RAW")
+            mirroredLogs.forEach { (name, tag) -> mirrorFile(File(logs, name), tag) }
+        }
+
+        // MARBLE_LIVE_STREAM_TRUTH_V278 — the live stream starts at the end of what the cores
+        // had already written; see NativeLogMirror. What was skipped is said, not hidden.
+        private fun primeNativeLogOffsets() {
+            val ctx = appContext ?: return
+            val logs = File(ctx.filesDir, "logs")
+            watchedOffsets.clear()
+            mirroredLogs.forEach { (name, tag) ->
+                val file = File(logs, name)
+                if (!file.isFile) return@forEach
+                val length = file.length()
+                watchedOffsets[file.absolutePath] = NativeLogMirror.sessionStartOffset(length)
+                if (length > 0L) {
+                    writeExternal(
+                        "${Instant.now()} | DIAG | native-log-backlog-skipped | tag=$tag | " +
+                            "bytes=$length | lastModified=${Instant.ofEpochMilli(file.lastModified())} | " +
+                            "reason=written before this debug session; only new lines are mirrored"
+                    )
+                }
+            }
         }
 
         private fun mirrorFile(file: File, tag: String) {
             if (!file.isFile) return
             val key = file.absolutePath
-            var offset = watchedOffsets[key] ?: 0L
             val length = file.length()
-            if (length < offset) offset = 0L
+            var offset = NativeLogMirror.resumeOffset(watchedOffsets[key], length)
             if (length <= offset) {
                 watchedOffsets[key] = offset
                 return
