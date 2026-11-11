@@ -103,7 +103,11 @@ internal object TunnelNotificationView {
         } else {
             R.layout.notification_picker_row
         }
-        for (row in rows) {
+        // Routes remain a vertical list; navigation occupies a compact two-column footer.
+        // Previously every page/floor/open action cost another full-width row.
+        val controls = rows.filter { it.kind == NotificationRoutePicker.RowKind.CONTROL ||
+            it.kind == NotificationRoutePicker.RowKind.OPEN_APP }
+        for (row in rows - controls.toSet()) {
             val child = RemoteViews(context.packageName, rowLayout)
             val label = NotificationCopy.ellipsize(
                 NotificationRoutePicker.rowLabel(row.label),
@@ -151,6 +155,26 @@ internal object TunnelNotificationView {
             }
             views.addView(R.id.notif_picker, child)
         }
+        for (pair in controls.chunked(2)) {
+            val footer = RemoteViews(context.packageName, R.layout.notification_picker_controls)
+            footer.setInt(R.id.picker_controls, "setLayoutDirection",
+                if (language == NotificationLanguage.FA) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR)
+            val ids = listOf(R.id.picker_control_first, R.id.picker_control_second)
+            ids.forEachIndexed { index, id ->
+                val row = pair.getOrNull(index)
+                footer.setViewVisibility(id, if (row == null) View.INVISIBLE else View.VISIBLE)
+                if (row != null) {
+                    footer.setTextViewText(id, NotificationRoutePicker.rowLabel(row.label))
+                    footer.setContentDescription(id, row.label)
+                    footer.setTextColor(id, activeColor)
+                    pickerIntent(row)?.let { footer.setOnClickPendingIntent(id, it) }
+                }
+            }
+            views.addView(R.id.notif_picker, footer)
+        }
+        // While browsing, routes and controls own the height budget; rates are still
+        // available in the app, and must not push the last action outside SystemUI.
+        views.setViewVisibility(R.id.notif_telemetry_row, View.GONE)
     }
 
     private fun paint(

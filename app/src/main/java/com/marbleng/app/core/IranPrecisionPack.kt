@@ -163,10 +163,10 @@ object IranPrecisionPack {
         GeoPrecision.ENHANCED, GeoPrecision.MAXIMUM -> listOf(TLD_SUFFIX)
     }
 
-    fun keywords(precision: GeoPrecision): List<String> = when (precision) {
-        GeoPrecision.STANDARD, GeoPrecision.ENHANCED -> emptyList()
-        GeoPrecision.MAXIMUM -> KEYWORDS
-    }
+    // Brand substrings (e.g. alibaba or bale) also occur in unrelated foreign
+    // domains. Never emit keyword rules that can silently bypass the tunnel.
+    @Suppress("UNUSED_PARAMETER")
+    fun keywords(precision: GeoPrecision): List<String> = emptyList()
 
     fun domains(precision: GeoPrecision): List<String> =
         entries(precision).map { it.domain.trim().lowercase() }.filter { it.isNotBlank() }.distinct()

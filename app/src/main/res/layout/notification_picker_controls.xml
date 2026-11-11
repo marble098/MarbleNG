@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/picker_controls"
+    android:layout_width="match_parent"
+    android:layout_height="40dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical">
+    <TextView
+        android:id="@+id/picker_control_first"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_marginEnd="4dp"
+        android:background="@drawable/notif_picker_row_bg"
+        android:fontFamily="@font/vazirmatn_medium"
+        android:textSize="12sp"
+        android:gravity="center"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:paddingHorizontal="8dp" />
+    <TextView
+        android:id="@+id/picker_control_second"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:background="@drawable/notif_picker_row_bg"
+        android:fontFamily="@font/vazirmatn_medium"
+        android:textSize="12sp"
+        android:gravity="center"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:paddingHorizontal="8dp" />
+</LinearLayout>

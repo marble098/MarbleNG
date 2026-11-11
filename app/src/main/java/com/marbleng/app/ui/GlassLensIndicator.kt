@@ -55,8 +55,8 @@ import com.marbleng.app.model.LiquidLens
  * `graphicsLayer` blocks and in the draw phase:
  *
  * ```kotlin
- * translationX = travel.value                                   // layer phase
- * scaleX = LiquidLens.deformation(travel.velocity).scaleX       // layer phase
+ * translationX = if (dragging) targetLeftPx else travel.value                                   // layer phase
+ * scaleX = LiquidLens.deformation(if (dragging) 0f else travel.velocity).scaleX       // layer phase
  * backdrop(travel.value)                                        // draw phase
  * ```
  *
@@ -87,6 +87,7 @@ internal fun GlassLensIndicator(
     prism: Color,
     dark: Boolean,
     reduced: Boolean,
+    dragging: Boolean = false,
     /**
      * Repaints the capsule's material as it would appear if the lens's own origin were the
      * capsule's. Nothing else in this file knows how the bar is painted — the lens samples the
@@ -113,10 +114,12 @@ internal fun GlassLensIndicator(
         }
     }
 
-    // First measurement seats the lens with no flight; every later selection travels on the spring.
-    LaunchedEffect(targetLeftPx, measured, settleSpec) {
+    // Direct manipulation is not an animation: render the finger coordinate immediately.
+    // Keep the spring synchronised while held so release settles from the last touch,
+    // not from the previous tab. Only taps and release use the spring.
+    LaunchedEffect(targetLeftPx, measured, settleSpec, dragging) {
         if (!measured) return@LaunchedEffect
-        if (!seated.value) {
+        if (!seated.value || dragging) {
             travel.snapTo(targetLeftPx)
             seated.value = true
             return@LaunchedEffect
@@ -142,8 +145,8 @@ internal fun GlassLensIndicator(
         modifier = modifier
             .size(diameter)
             .graphicsLayer {
-                translationX = travel.value
-                val deformation = LiquidLens.deformation(travel.velocity)
+                translationX = if (dragging) targetLeftPx else travel.value
+                val deformation = LiquidLens.deformation(if (dragging) 0f else travel.velocity)
                 scaleX = deformation.scaleX
                 scaleY = deformation.scaleY
                 transformOrigin = TransformOrigin.Center
@@ -163,7 +166,7 @@ internal fun GlassLensIndicator(
                 .drawWithContent {
                     // `backdrop` is a `DrawScope.(Float) -> Unit`, i.e. a Function2: calling it with
                     // the draw scope explicitly is the same call the extension syntax would make.
-                    backdrop(this, travel.value)
+                    backdrop(this, if (dragging) targetLeftPx else travel.value)
                     drawContent()
                 }
         )

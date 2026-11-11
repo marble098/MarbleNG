@@ -6076,11 +6076,11 @@ check(
     and "LiquidLens.GLASS_ARC_START_DEG" in v262_lens_ui
     and "LiquidLens.GLASS_HOTSPOT_ALPHA" in v262_lens_ui
     and "LiquidLens.GLASS_FROST_ALPHA" in v262_lens_ui
-    and "backdrop(this, travel.value)" in v262_lens_ui
+    and "backdrop(this, if (dragging) targetLeftPx else travel.value)" in v262_lens_ui
     # …and its travel, its stretch and its opacity are read in the layer, never in composition.
     and "val travel = remember { Animatable(0f) }" in v262_lens_ui
-    and "translationX = travel.value" in v262_lens_ui
-    and "LiquidLens.deformation(travel.velocity)" in v262_lens_ui
+    and "translationX = if (dragging) targetLeftPx else travel.value" in v262_lens_ui
+    and "LiquidLens.deformation(if (dragging) 0f else travel.velocity)" in v262_lens_ui
     and "animateTo(targetLeftPx, settleSpec)" in v262_lens_ui
     and "snap()" in v262_lens_ui
     # The models own the numbers: a composable that restated the pane's 0.55 would drift from

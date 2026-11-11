@@ -320,6 +320,7 @@ internal fun LiquidLensNavigationBar(
                 if (lensVisible) {
                     GlassLensIndicator(
                         targetLeftPx = lensLeftPx,
+                        dragging = heldLensLeftPx.value != null,
                         diameter = diameterDp.dp,
                         trackInsetPx = trackInsetPx,
                         verticalInsetPx = verticalInsetPx,
@@ -451,7 +452,7 @@ internal fun DrawScope.drawCapsuleMaterial(
     // 1. The ground.
     drawPath(
         path = outline,
-        color = surface.copy(alpha = if (dark) 0.88f else GlassDock.SURFACE_ALPHA)
+        color = surface.copy(alpha = if (dark) 0.74f else GlassDock.SURFACE_ALPHA * 0.88f)
     )
     if (dark) {
         clipPath(outline) {

@@ -7,6 +7,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.marbleng.app.core.IranAppCatalog
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -697,7 +702,7 @@ private fun precisionHint(level: GeoPrecision): String = when (level) {
     GeoPrecision.ENHANCED ->
         "Also keeps the .ir suffix and a curated set of domestic banks, shops and messengers direct."
     GeoPrecision.MAXIMUM ->
-        "Also matches well-known domestic brand names inside longer addresses. Widest reach, and the one to pick when a site still takes the tunnel."
+        "Uses downloaded Iran lists plus exact domestic domain suffixes. Brand substrings never bypass the tunnel."
 }
 
 /**
@@ -1271,6 +1276,43 @@ fun SettingsSplitTunnelPage(
     val s = repo.settings
     var query by rememberSaveable { mutableStateOf("") }
     var installed by remember { mutableStateOf<List<InstalledAppRow>>(emptyList()) }
+    var reviewDomestic by remember { mutableStateOf(false) }
+    val domesticApps = remember(installed) {
+        val matches = IranAppCatalog.suggestions(installed.map { it.packageName })
+        installed.filter { it.packageName in matches }
+    }
+    if (reviewDomestic) {
+        AlertDialog(
+            onDismissRequest = { reviewDomestic = false },
+            title = { Text(if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) "بررسی برنامه‌های پیشنهادی" else "Review suggested apps") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl)
+                        "این بررسی فقط روی گوشی انجام می‌شود و همهٔ برنامه‌های ایرانی را تضمین نمی‌کند. با تأیید، برنامه‌های زیر بدون VPN کار می‌کنند. فهرست قبلی در حالت «فقط انتخاب‌شده‌ها» جایگزین می‌شود. برای اعمال، اتصال را دوباره برقرار کنید."
+                    else "Checked locally; this is not a complete nationality detector. Confirming lets these apps bypass the VPN. An existing only-selected list will be replaced. Reconnect to apply.")
+                    domesticApps.forEach { Text("${it.label}\n${it.packageName}") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val latest = repo.settings
+                    val existing = if (latest.splitTunnelMode == SplitTunnelMode.BYPASS_SELECTED)
+                        latest.splitTunnelPackages.split(',', '\n', ' ').filter { it.isNotBlank() }.toSet()
+                    else emptySet()
+                    repo.updateSettings(latest.copy(
+                        splitTunnelMode = SplitTunnelMode.BYPASS_SELECTED,
+                        splitTunnelPackages = (existing + domesticApps.map { it.packageName }).sorted().joinToString(",")
+                    ))
+                    reviewDomestic = false
+                }, enabled = domesticApps.isNotEmpty()) {
+                    Text(if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) "تأیید خروج از VPN" else "Confirm bypass")
+                }
+            },
+            dismissButton = { TextButton(onClick = { reviewDomestic = false }) {
+                Text(if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) "انصراف" else "Cancel")
+            } }
+        )
+    }
 
     val selectedPackages = remember(s.splitTunnelPackages) {
         s.splitTunnelPackages
@@ -1330,6 +1372,17 @@ fun SettingsSplitTunnelPage(
         ),
         onBack = onBack
     ) {
+        item(key = "domestic-app-review") {
+            MarbleCard {
+                MarbleListItem(
+                    title = "بررسی محلی برنامه‌های ایرانی / Review domestic apps",
+                    subtitle = "${domesticApps.size} پیشنهاد • بدون ارسال اطلاعات • تأیید پیش از اعمال / Local suggestions; review before bypass",
+                    glyph = MarbleGlyph.ROUTE,
+                    iconTint = colors.secondary,
+                    onClick = { reviewDomestic = true }
+                )
+            }
+        }
         item(key = "split-mode") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(title = trx("Who uses the tunnel"))
