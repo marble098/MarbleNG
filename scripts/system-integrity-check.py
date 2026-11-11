@@ -6832,6 +6832,89 @@ check(
     and "class ShadeDeckV273Test" in v273_deck_test,
 )
 
+# ---------------------------------------------------------------------------
+# MARBLE_AUTO_RELEASE_V278 — a merge chooses its own version and builds a draft; the debug
+# report stops replaying old core logs; HEV sessions get stack headroom.
+v278_auto = read(".github/workflows/auto-release.yml")
+v278_plan = read("scripts/auto-release-plan.sh")
+v278_fixture = read("scripts/test-auto-release-plan.sh")
+v278_doc = read("docs/AUTO_RELEASE_AND_CRASH_TRUTH_V278.md")
+v278_mirror = read("app/src/main/java/com/marbleng/app/core/NativeLogMirror.kt")
+v278_gate = read("app/src/main/java/com/marbleng/app/core/RecentKeyGate.kt")
+v278_threads = read("app/src/main/java/com/marbleng/app/core/NamedThreads.kt")
+v278_hev = read("app/src/main/java/com/marbleng/app/core/HevTunnelPolicy.kt")
+v278_test = read("app/src/test/java/com/marbleng/app/core/DiagnosticsTruthV278Test.kt")
+
+check(
+    "V278 every merge to main plans a version and dispatches the signed draft build",
+    "MARBLE_AUTO_RELEASE_V278" in v278_auto
+    and re.search(r"on:\n  push:\n    branches:\n      - main\n", v278_auto) is not None
+    and "bash scripts/auto-release-plan.sh" in v278_auto
+    and "gh workflow run build.yml --ref main" in v278_auto
+    and '"version_name=$VERSION_NAME"' in v278_auto
+    and '"version_code=$VERSION_CODE"' in v278_auto
+    and "gh run watch" in v278_auto
+    and "group: marbleng-auto-release" in v278_auto
+    and "cancel-in-progress: false" in v278_auto
+    and "actions: write" in v278_auto
+    and "contents: write" not in v278_auto
+    and "gh release" not in v278_auto
+    and "draft" in v278_auto,
+)
+check(
+    "V278 the version rule is change-weighted, carried decimally and never moves a code back",
+    "MARBLE_AUTO_RELEASE_V278" in v278_plan
+    and "MARBLE_RELEASE_MINOR_LINES:-3000" in v278_plan
+    and "MARBLE_RELEASE_MAJOR_LINES:-20000" in v278_plan
+    and "git diff --numstat" in v278_plan
+    and "':(exclude)docs'" in v278_plan
+    and "':(exclude)app/src/test'" in v278_plan
+    and "if (( patch > 9 ))" in v278_plan
+    and "version_code=$((previous_code + 1))" in v278_plan
+    and "code_ceiling=2100000000" in v278_plan
+    and "gh release" not in v278_plan
+    and "git push" not in v278_plan
+    and "scripts/test-auto-release-plan.sh" in files["verify"]
+    and "expect carry" in v278_fixture
+    and "monotonic code" in v278_fixture,
+)
+check(
+    "V278 a debug session's live stream starts at the end of the cores' existing logs",
+    "MARBLE_LIVE_STREAM_TRUTH_V278" in v278_mirror
+    and "fun sessionStartOffset" in v278_mirror
+    and "fun resumeOffset" in v278_mirror
+    and "fun printableRuns" in v278_mirror
+    and "primeNativeLogOffsets()" in files["diag"]
+    and files["diag"].find("primeNativeLogOffsets()") < files["diag"].find('writeExternal("=== LIVE STREAM ===")')
+    and "native-log-backlog-skipped" in files["diag"]
+    and "NativeLogMirror.resumeOffset(watchedOffsets[key], length)" in files["diag"]
+    and "NativeLogMirror.printableRuns(raw)" in files["diag"]
+    and "var offset = watchedOffsets[key] ?: 0L" not in files["diag"],
+)
+check(
+    "V278 HEV session stacks have headroom and the datapath thread has a name",
+    "MARBLE_HEV_STACK_HEADROOM_V278" in v278_hev
+    and integer_constant(v278_hev, "TASK_STACK_SIZE_64BIT") >= 2 * integer_constant(v278_hev, "TASK_STACK_SIZE")
+    and integer_constant(v278_hev, "TASK_STACK_SIZE_32BIT") > integer_constant(v278_hev, "TASK_STACK_SIZE")
+    and 'add("  task-stack-size: $taskStackSize")' in v278_hev
+    and "taskStackSize = HevTunnelPolicy.taskStackSize(android.os.Process.is64Bit())" in files["vpn"]
+    and 'NamedThreads.factory("marble-vpn-data")' in files["vpn"]
+    and "private val connectionWorker = Executors.newSingleThreadExecutor()" not in files["vpn"]
+    and "fun census" in v278_threads
+    and "stopDatapath(oldSession)" in files["vpn"],
+)
+check(
+    "V278 start-up work is entered once and the pass is documented and tested",
+    "MARBLE_STARTUP_DEDUP_V278" in v278_gate
+    and files["repo"].count("startupGate.tryEnter(") == 2
+    and "check-deferred-offline" in files["repo"]
+    and "class DiagnosticsTruthV278Test" in v278_test
+    and "MARBLE_AUTO_RELEASE_V278" in v278_doc
+    and "MARBLE_HEV_STACK_HEADROOM_V278" in v278_doc
+    and "V278: `docs/AUTO_RELEASE_AND_CRASH_TRUTH_V278.md`" in files["readme"]
+    and "MARBLE_AUTO_RELEASE_V278" in files["readme"],
+)
+
 failed = [name for name, passed in checks if not passed]
 
 print("=== MarbleNG SYSTEM INTEGRITY ===")

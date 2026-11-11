@@ -17,6 +17,7 @@ import com.marbleng.app.core.ActiveRouteQuality
 import com.marbleng.app.core.AddressFamilyPolicy
 import com.marbleng.app.core.AdaptiveProbeCadence
 import com.marbleng.app.core.BenchmarkEngine
+import com.marbleng.app.core.NamedThreads
 import com.marbleng.app.core.ConnectionTuner
 import com.marbleng.app.core.ContinuousRouteOptimizer
 import com.marbleng.app.core.ConnectivityDiagnosticsObserver
@@ -295,13 +296,16 @@ class MarbleVpnService : VpnService() {
     private val routeGeneration = AtomicInteger(0)
     private val startCommandGeneration = AtomicInteger(0)
 
-    private val connectionWorker = Executors.newSingleThreadExecutor()
+    // MARBLE_NAMED_WORKERS_V278 — the datapath blocks inside HevTunnel.run on connectionWorker,
+    // so a native crash there used to be reported against an anonymous "pool-64-thread-1".
+    // Names are kept within the 15 characters a tombstone shows.
+    private val connectionWorker = Executors.newSingleThreadExecutor(NamedThreads.factory("marble-vpn-data"))
 
-    private val controlWorker = Executors.newSingleThreadExecutor()
+    private val controlWorker = Executors.newSingleThreadExecutor(NamedThreads.factory("marble-vpn-ctl"))
 
-    private val timerWorker = Executors.newSingleThreadScheduledExecutor()
+    private val timerWorker = Executors.newSingleThreadScheduledExecutor(NamedThreads.factory("marble-vpn-tmr"))
 
-    private val monitorWorker = Executors.newFixedThreadPool(4)
+    private val monitorWorker = Executors.newFixedThreadPool(4, NamedThreads.factory("marble-vpn-mon"))
 
     private lateinit var xray: XrayManager
     private lateinit var singBox: SingBoxManager
@@ -1512,7 +1516,8 @@ class MarbleVpnService : VpnService() {
                 ipv6 = ipv6RouteCaptured,
                 logFilePath = diag.hevLog.absolutePath,
                 datapath = datapath,
-                fastOpen = settings.tcpFastOpenEnabled
+                fastOpen = settings.tcpFastOpenEnabled,
+                taskStackSize = HevTunnelPolicy.taskStackSize(android.os.Process.is64Bit())
             )
         } else {
             ""
@@ -4363,7 +4368,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         optimizerScanRequested.set(false)
         dataStallGuard.reset()
         if (::routeOptimizer.isInitialized) routeOptimizer.reset(System.currentTimeMillis())
-        stopDatapath()
+        stopDatapath(oldSession)
         hevActive = false
         releaseLowLatencyWifiLock()
         coreStop()
@@ -4424,7 +4429,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
      * only do that once the core has said it stopped. HEV blocks in its own loop and owns no
      * descriptor it did not open, so it is only signalled, exactly as before.
      */
-    private fun stopDatapath() {
+    private fun stopDatapath(sessionHint: String = "") {
+        // cleanupRuntime clears activeSession before it stops the datapath; the hint keeps the
+        // stop events attributable to the session that is being torn down.
+        val stopSession = sessionHint.ifBlank { activeSession }
         val core = activeTunnelCore
         // MARBLE_DATAPATH_STOP_ACK_V274 — a stop is delivered to the core only while a native
         // run of that core is actually blocking, and never otherwise.
@@ -4450,18 +4458,18 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                     datapathStopTarget.set(targetedEpoch)
                     diag.event(
                         "TUNNEL", "datapath-stop",
-                        "session" to activeSession, "tunnelCore" to core.id,
+                        "session" to stopSession, "tunnelCore" to core.id,
                         "hevFd" to hevFd, "join" to false, "epoch" to targetedEpoch
                     )
                     runCatching { HevTunnel.quit() }
-                        .onFailure { diag.error("HEV", "quit-failed", it, "session" to activeSession) }
+                        .onFailure { diag.error("HEV", "quit-failed", it, "session" to stopSession) }
                 }
                 DatapathStop.QUIT_AND_JOIN -> {
                     datapathStopTarget.set(targetedEpoch)
                     val joined = runCatching { Tun2SocksTunnel.stopAndWait() }.getOrDefault(false)
                     diag.event(
                         "TUN2SOCKS", if (joined) "datapath-stop-ack" else "datapath-stop-timeout",
-                        "session" to activeSession,
+                        "session" to stopSession,
                         "hevFd" to hevFd,
                         "timeoutMs" to Tun2SocksTunnel.STOP_TIMEOUT_MS,
                         "epoch" to targetedEpoch
@@ -4480,7 +4488,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             // trips over. Nothing is signalled; the event says why.
             diag.event(
                 "TUNNEL", "datapath-stop-without-signal",
-                "session" to activeSession, "tunnelCore" to core.id,
+                "session" to stopSession, "tunnelCore" to core.id,
                 "epoch" to datapathRunEpoch.get(),
                 "reason" to "no native run is blocking; a signal now would arm the next run's stop latch"
             )
@@ -4488,7 +4496,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         }
         diag.event(
             "TUNNEL", "datapath-stop-skipped",
-            "session" to activeSession, "tunnelCore" to core.id,
+            "session" to stopSession, "tunnelCore" to core.id,
             "hevActive" to hevActive, "datapathOwnsFd" to datapathOwnsFd.get(),
             "hevFd" to hevFd
         )

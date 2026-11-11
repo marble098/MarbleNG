@@ -109,9 +109,11 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
         get() = if (activeCoreEngine == CoreEngine.SINGBOX) singBox.lastStartError else xray.lastStartError
 
     private val store = AppStore(context)
-    private val io = Executors.newFixedThreadPool(3)
+    private val io = Executors.newFixedThreadPool(3, NamedThreads.factory("marble-repo-io"))
 
-    private val statusWorker = Executors.newSingleThreadExecutor()
+    private val statusWorker = Executors.newSingleThreadExecutor(NamedThreads.factory("marble-status"))
+
+    private val startupGate = RecentKeyGate()
 
     private val warmupWorker = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "marble-connect-warmup").apply { isDaemon = true }
@@ -133,7 +135,7 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
     private var settingsWritePending: AppSettings? = null
     private var settingsWriteFuture: ScheduledFuture<*>? = null
 
-    private val iranScanner = Executors.newSingleThreadExecutor()
+    private val iranScanner = Executors.newSingleThreadExecutor(NamedThreads.factory("marble-iran"))
     private val iranScanInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private val iranPolicyGeneration = java.util.concurrent.atomic.AtomicLong(0L)
 
@@ -1786,9 +1788,11 @@ class AppRepository(private val context: Context, val xray: XrayManager) {
                     "latest" to release.version
                 )
             } catch (error: Throwable) {
+                // A lookup that cannot resolve is the device being offline (or the tunnel coming
+                // up), not a broken updater; it is retried on the next foreground.
                 diagnostics.event(
                     "UPDATE",
-                    "check-failed",
+                    if (error is java.net.UnknownHostException) "check-deferred-offline" else "check-failed",
                     "type" to error::class.java.simpleName,
                     "message" to (error.message ?: "").take(160)
                 )
@@ -2215,6 +2219,13 @@ fun resetTelemetry() {
             .distinct()
 
         if (candidates.isEmpty()) return
+        // MARBLE_STARTUP_DEDUP_V278 — same double entry as scanIranMode: one warmup per host set.
+        if (!startupGate.tryEnter(
+                "warm|" + candidates.joinToString(","),
+                System.currentTimeMillis(),
+                RecentKeyGate.STARTUP_WINDOW_MS
+            )
+        ) return
         warmupWorker.execute {
             runCatching {
                 ConnectWarmup.warm(candidates, settings)
@@ -2234,6 +2245,12 @@ fun resetTelemetry() {
 
         if (policy == IranModePolicy.ALWAYS_ON || policy == IranModePolicy.OFF) {
             val generation = iranPolicyGeneration.get()
+            // MARBLE_STARTUP_DEDUP_V278 — init and the network listener's first callback both
+            // land here within a millisecond; the second pass rebuilt the same state and logged
+            // the same line. The key carries everything the state is built from.
+            val bypassKey = "iran|$policy|$generation|$networkKey|" +
+                "${settings.iranModeCountermeasures}|${settings.iranDomesticDirect}"
+            if (!startupGate.tryEnter(bypassKey, now, RecentKeyGate.STARTUP_WINDOW_MS)) return
             val baseState = if (policy == IranModePolicy.ALWAYS_ON) {
                 IranModeState(
                     active = true,

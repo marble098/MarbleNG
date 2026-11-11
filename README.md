@@ -75,7 +75,13 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
-**V275 is the newest chapter: `docs/PERSIAN_CALENDAR_TRUTH_V275.md`.** The Persian calendar
+**V278: `docs/AUTO_RELEASE_AND_CRASH_TRUTH_V278.md`** — every merge now chooses its own
+version from the size of the change and builds the signed APKs as a draft release; HEV session
+stacks get real headroom above the upstream floor (the guard-page `SIGSEGV`), the debug
+report's live stream no longer replays days-old core logs, native tombstones are printed
+readably, and start-up no longer runs the Iran-mode pass and the warmup twice.
+
+**V275: `docs/PERSIAN_CALENDAR_TRUTH_V275.md`.** The Persian calendar
 declared 13 Aban an official holiday — it is Student Day, a commemoration — and several
 occasion days were missing altogether. Both are fixed by rebuilding the calendar on a
 recorded official table (1404–1412, lunar days transcribed rather than approximated, Friday
@@ -1670,9 +1676,24 @@ When a newer semantic version exists:
 
 ## Versioning
 
-App release versions are chosen manually; pushes and merges do not create APKs, tags,
-or releases. To build, open **Actions → Build signed Android APKs → Run workflow**,
-select the source branch (normally `main`), and enter both:
+Every merge into `main` builds a signed **draft** release on its own
+(`MARBLE_AUTO_RELEASE_V278`, `.github/workflows/auto-release.yml`). The version is chosen by
+`scripts/auto-release-plan.sh` from the size of the change since the last release — lines
+added plus removed in what ships inside the APK; docs, tests and CI do not count:
+
+| changed lines | bump | example |
+| --- | --- | --- |
+| fewer than 3000 | patch | `11.7.0 → 11.7.1`, `11.6.9 → 11.7.0` |
+| 3000 – 19999 | minor | `11.7.4 → 11.8.0` |
+| 20000 or more | major | `11.7.4 → 12.0.0` |
+
+The versionCode is the current Unix time, or one more than the highest recorded code if the
+clock is behind it. Releases are built one at a time; merges that land during a build are
+folded into the next release. Add `[skip release]` to a merge commit message to skip the build.
+Nothing is published automatically: the result is a draft to review and publish by hand.
+
+A release can still be built by hand: open **Actions → Build signed Android APKs → Run
+workflow**, select the source branch (normally `main`), and enter both:
 
 - `version_name`: a numeric semantic version such as `11.5.1` (without `v`). The APK
   versionName is exactly this value and the Git tag is `v11.5.1`.

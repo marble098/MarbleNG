@@ -95,6 +95,12 @@ class SocketFlightV168Test {
         assertEquals("524288", sections.getValue("misc").getValue("udp-recv-buffer-size"))
         assertEquals("12000", sections.getValue("misc").getValue("max-session-count"))
 
+        val roomy = HevTunnelPolicy.buildConfig(
+            10808, 9000, true, "/x.log", datapath,
+            taskStackSize = HevTunnelPolicy.taskStackSize(is64Bit = true)
+        )
+        assertEquals("262144", parseSections(roomy).getValue("misc").getValue("task-stack-size"))
+
         assertTrue(1500 * HevTunnelPolicy.UDP_COPY_BUFFER_NUMS <= 65_536)
         assertTrue(HevTunnelPolicy.CONNECT_TIMEOUT_MS < 16_000)
     }

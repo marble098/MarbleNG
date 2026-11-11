@@ -44,6 +44,12 @@ jobs:
         shell: bash
         run: bash scripts/test-release-version.sh
 
+      # MARBLE_AUTO_RELEASE_V278 — the rule that picks a merge's version (change size ->
+      # patch/minor/major, decimal carry, monotonic versionCode), against a throwaway repo.
+      - name: Automatic release plan fixtures
+        shell: bash
+        run: bash scripts/test-auto-release-plan.sh
+
       # MARBLE_LATEST_VERSION_RULE_V235 — the one update rule (newest *published* version wins,
       # beta or release) proven offline against recorded release lists: a stable published after
       # a beta wins, a beta after a stable wins, a draft never wins, same-instant ties break by
