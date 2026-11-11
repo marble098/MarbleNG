@@ -5,7 +5,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.AbsoluteAlignment
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
@@ -53,4 +58,26 @@ class DirectTouchLensTest {
         assertTrue(compose.onNodeWithTag("held-lens").fetchSemanticsNode().boundsInRoot.width > 0f)
         assertEquals("held layer: before=$before after=$after", 100f, after - before, 1f)
     }
+    @Test fun heldLensUsesPhysicalCoordinatesInRtl() {
+        val target = mutableStateOf(10f)
+        compose.setContent {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                Box(Modifier.fillMaxSize()) {
+                    GlassLensIndicator(
+                        targetLeftPx = target.value, diameter = 44.dp,
+                        trackInsetPx = 2f, verticalInsetPx = 2f,
+                        accent = Color.Cyan, prism = Color.Blue,
+                        dark = true, reduced = false, dragging = true,
+                        backdrop = {}, modifier = Modifier.align(AbsoluteAlignment.CenterLeft), tag = "rtl-lens"
+                    )
+                }
+            }
+        }
+        val before = compose.onNodeWithTag("rtl-lens").fetchSemanticsNode().boundsInRoot.left
+        compose.runOnIdle { target.value = 110f }
+        compose.waitForIdle()
+        val after = compose.onNodeWithTag("rtl-lens").fetchSemanticsNode().boundsInRoot.left
+        assertEquals("RTL finger coordinates still move right", 100f, after - before, 1f)
+    }
+
 }

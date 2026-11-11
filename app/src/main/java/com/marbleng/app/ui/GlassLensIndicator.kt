@@ -7,11 +7,12 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -23,6 +24,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -46,7 +48,7 @@ import com.marbleng.app.model.LiquidLens
  * |---|---|---|
  * | backdrop | the capsule's **own material**, replayed at the lens's position and blurred at `RenderEffect.createBlurEffect(12f, 12f, CLAMP)` (through Compose's `Modifier.blur`) | a lens has to show the surface it is sitting on, not a flat tint: this is the "frosted" half of the material. API 31+ only; below it the glass falls back to a soft radial frost, because the alternative is a solid disc pretending to be clear |
  * | prism wash | selected-tab and secondary palette colours at [LiquidLens.GLASS_ACCENT_ALPHA] / [LiquidLens.GLASS_PRISM_ALPHA] | a vivid, refracted hue says *which* destination is active without obscuring its glyph |
- * | pane | white at [LiquidLens.GLASS_ALPHA_LIGHT] (0.55), or 0.22 on a dark page | the body of the glass; the row's ink is printed **over** this, never under it |
+ * | pane | palette-tinted translucent glass, with stronger highlights on a light page | the body of the glass; the row's ink is printed **over** this, never under it |
  * | caustic | radial, transparent at the axis, bright at the perimeter | light refracted through a curved rim lands on the rim |
  * | refraction band | a short vertical gradient at the top | the pane has a thickness, and light enters it there |
  * | specular rim | 1.5dp stroke, gradient 0.95 → 0.15 from top-left to bottom-right | a glass edge is incandescent where the light hits it and all but gone opposite |
@@ -107,6 +109,10 @@ internal fun GlassLensIndicator(
     // Keep a snapshot read in the layer/draw phases during direct manipulation.
     // A captured Float alone can leave a cached graphics layer at the previous target.
     val heldPosition = rememberUpdatedState(targetLeftPx.takeIf { dragging })
+    // Retain the last rendered finger position even if the last snap coroutine is cancelled
+    // by release. Otherwise a quick swipe can spring from an older position and visibly jump.
+    val lastHeld = remember { arrayOfNulls<Float>(1) }
+    SideEffect { if (dragging) lastHeld[0] = targetLeftPx }
     // A left edge of zero is "not measured yet", never a legal resting place: both inner insets are
     // at least 2dp, so the first real target is always positive.
     val measured = targetLeftPx > 0.5f
@@ -132,6 +138,8 @@ internal fun GlassLensIndicator(
             seated.value = true
             return@LaunchedEffect
         }
+        lastHeld[0]?.let { travel.snapTo(it) }
+        lastHeld[0] = null
         travel.animateTo(targetLeftPx, settleSpec)
     }
 
@@ -155,7 +163,7 @@ internal fun GlassLensIndicator(
             // Direct touch is placement, not a cached rendering transform. The lambda
             // invalidates placement only (not measurement/composition), keeping coordinates
             // and drawing in agreement even when no spring frame is being produced.
-            .offset { IntOffset(heldPosition.value?.roundToInt() ?: 0, 0) }
+            .absoluteOffset { IntOffset(heldPosition.value?.roundToInt() ?: 0, 0) }
             .graphicsLayer {
                 translationX = if (heldPosition.value == null) travel.value else 0f
                 val deformation = LiquidLens.deformation(if (heldPosition.value != null) 0f else travel.velocity)
@@ -234,9 +242,10 @@ internal fun GlassLensIndicator(
                 center = center
             )
 
-            // The pane itself.
+            // A tinted pane keeps the glass in the active palette, even in light themes.
+            // White remains in the small specular highlights, not across the whole lens.
             drawCircle(
-                color = Color.White.copy(alpha = paneAlpha),
+                color = lerp(accent, Color.White, if (dark) 0.25f else 0.52f).copy(alpha = paneAlpha * 0.65f),
                 radius = radius,
                 center = center
             )
@@ -288,6 +297,18 @@ internal fun GlassLensIndicator(
                 radius = (radius - rimPx / 2f).coerceAtLeast(0f),
                 center = center,
                 style = Stroke(width = rimPx)
+            )
+
+            // A coloured caustic at the lower edge suggests light refracting through the glass.
+            val causticCenter = Offset(center.x + radius * 0.35f, center.y + radius * 0.65f)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(prism.copy(alpha = if (dark) 0.32f else 0.22f), Color.Transparent),
+                    center = causticCenter,
+                    radius = radius * 0.8f
+                ),
+                radius = radius,
+                center = center
             )
 
             // The meniscus: the second hairline that gives the glass a thickness.

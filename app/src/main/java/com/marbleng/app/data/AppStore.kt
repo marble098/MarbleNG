@@ -478,7 +478,7 @@ class AppStore(context: Context) {
 
         pingTimeoutSec = PingBudget.timeoutSec(prefs.getInt("pingTimeoutSec", 5)),
         pingSamples = PingBudget.samples(prefs.getInt("pingSamples", 3)),
-        pingConcurrency = PingBudget.concurrency(prefs.getInt("pingConcurrency", 16)),
+        pingConcurrency = PingBudget.concurrency(prefs.getInt("pingConcurrency", PingBudget.CONCURRENCY_MAX)),
 
         pingSpeedCustom = prefs.getBoolean("pingSpeedCustom", false),
         pingSpeedPercent = PingSpeed.percent(prefs.getInt("pingSpeedPercent", PingSpeed.DEFAULT_PERCENT)),
@@ -486,10 +486,12 @@ class AppStore(context: Context) {
         pingParallelMode = if (prefs.contains("pingParallelMode")) {
             runCatching { PingParallelMode.valueOf(prefs.getString("pingParallelMode", "") ?: "") }
                 .getOrDefault(PingParallelMode.AUTO)
-        } else if (prefs.getInt("pingConcurrency", 16) != 16) {
-            PingParallelMode.MANUAL
+        } else if (prefs.contains("pingConcurrency")) {
+            // Preserve the old inference for existing installs without a mode.
+            if (prefs.getInt("pingConcurrency", 16) != 16) PingParallelMode.MANUAL
+            else PingParallelMode.AUTO
         } else {
-            PingParallelMode.AUTO
+            PingParallelMode.MANUAL
         },
 
         nodeSortMode = enumValue("nodeSortMode", NodeSortMode.DEFAULT),

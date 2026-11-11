@@ -6080,7 +6080,7 @@ check(
     # …and its travel, its stretch and its opacity are read in the layer, never in composition.
     and "val travel = remember { Animatable(0f) }" in v262_lens_ui
     and "translationX = if (heldPosition.value == null) travel.value else 0f" in v262_lens_ui
-    and ".offset { IntOffset(heldPosition.value?.roundToInt() ?: 0, 0) }" in v262_lens_ui
+    and ".absoluteOffset { IntOffset(heldPosition.value?.roundToInt() ?: 0, 0) }" in v262_lens_ui
     and "LiquidLens.deformation(if (heldPosition.value != null) 0f else travel.velocity)" in v262_lens_ui
     and "animateTo(targetLeftPx, settleSpec)" in v262_lens_ui
     and "snap()" in v262_lens_ui

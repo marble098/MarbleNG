@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
@@ -29,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -1289,7 +1291,7 @@ fun SettingsSplitTunnelPage(
             onDismissRequest = { reviewDomestic = false },
             title = { Text(if (persian) "بررسی برنامه‌های پیشنهادی" else "Review suggested apps") },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
+                Column(Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.55f).dp).verticalScroll(rememberScrollState())) {
                     Text(if (persian)
                         "این بررسی فقط روی گوشی انجام می‌شود و همهٔ برنامه‌های ایرانی را تضمین نمی‌کند. با تأیید، برنامه‌های زیر بدون VPN کار می‌کنند. فهرست قبلی در حالت «فقط انتخاب‌شده‌ها» جایگزین می‌شود. برای اعمال، اتصال را دوباره برقرار کنید."
                     else "Checked locally; this is not a complete nationality detector. Confirming lets these apps bypass the VPN. An existing only-selected list will be replaced. Reconnect to apply.")

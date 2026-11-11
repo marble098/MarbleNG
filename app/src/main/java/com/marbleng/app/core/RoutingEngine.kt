@@ -789,14 +789,14 @@ object RoutingEngine {
 
         if (precisionActive(settings) && domainForMatch != null) {
             val category = IranPrecisionPack.categoryOf(domainForMatch, precision)
-            val byTld = domainForMatch == IranPrecisionPack.TLD_SUFFIX ||
-                domainForMatch.endsWith("." + IranPrecisionPack.TLD_SUFFIX)
+            val matchedTld = IranPrecisionPack.domesticSuffix(domainForMatch, precision)
+            val byTld = matchedTld != null
             val byKeyword = IranPrecisionPack.keywords(precision)
                 .any { it.length >= 4 && domainForMatch.contains(it) }
             if (category != null || byTld || byKeyword) {
                 val detail = when {
                     category != null -> "${category.label} • ${IranPrecisionPack.summary(precision)}"
-                    byTld -> "Domestic TLD (.${IranPrecisionPack.TLD_SUFFIX})"
+                    byTld -> "Domestic TLD (.$matchedTld)"
                     else -> "Domestic brand keyword"
                 }
                 steps += RouteStep(

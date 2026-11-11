@@ -16,6 +16,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -207,10 +209,11 @@ internal fun LiquidLensNavigationBar(
     // ([heldLensLeftPx]) through the same [LiquidLens.lensLeftPx] clamp, so the glass is *under the
     // finger* for the whole drag; release clears the held value and the lens springs to the slot
     // that is now selected.
+    val currentDragSelect = rememberUpdatedState(onDragSelect)
     val dragModifier = Modifier.pointerInput(slotCount, onDragSelect != null, height, trackInset) {
         // Null means "this bar is display-only" (a preview, a screenshot of the material): the
         // handler detaches rather than swallowing a drag the page behind it could have used.
-        val select = onDragSelect ?: return@pointerInput
+        if (currentDragSelect.value == null) return@pointerInput
         var emitted = -1
 
         fun nearest(xPx: Float): Int {
@@ -245,17 +248,17 @@ internal fun LiquidLensNavigationBar(
         detectHorizontalDragGestures(
             onDragStart = { start ->
                 emitted = nearest(start.x)
-                if (emitted >= 0) select(emitted)
+                if (emitted >= 0) currentDragSelect.value?.invoke(emitted)
                 lensLeftFor(start.x)?.let { heldLensLeftPx.value = it }
             },
             onHorizontalDrag = { change, _ ->
                 change.consume()
+                lensLeftFor(change.position.x)?.let { heldLensLeftPx.value = it }
                 val index = nearest(change.position.x)
                 if (index >= 0 && index != emitted) {
                     emitted = index
-                    select(index)
+                    currentDragSelect.value?.invoke(index)
                 }
-                lensLeftFor(change.position.x)?.let { heldLensLeftPx.value = it }
             },
             onDragEnd = {
                 // The finger lifted: the lens is no longer held, and it springs from wherever the
@@ -347,7 +350,7 @@ internal fun LiquidLensNavigationBar(
                                 }
                             }
                         },
-                        modifier = Modifier.align(Alignment.CenterStart),
+                        modifier = Modifier.align(AbsoluteAlignment.CenterLeft),
                         tag = lensTag
                     )
                 }

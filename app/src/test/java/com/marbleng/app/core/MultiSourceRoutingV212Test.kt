@@ -248,6 +248,17 @@ class MultiSourceRoutingV212Test {
         assertFalse(tagsOnly.steps.any { it.title == "Domestic precision" })
     }
 
+    @Test
+    fun newPrecisionDestinationsAreEmittedAndSimulatedWithoutKeywords() {
+        val rules = JSONArray()
+        RoutingEngine.applyPrecisionRules(rules, AppSettings(), mutableSetOf())
+        val text = rules.toString()
+        assertTrue(text.contains("domain:blubank.com"))
+        assertTrue(text.contains("domain:xn--mgba3a4f16a"))
+        assertFalse(text.contains("keyword:"))
+        assertEquals(RoutingOutbound.DIRECT, RoutingEngine.simulate(AppSettings(), "api.blubank.com").verdict)
+    }
+
     private fun twoSources(readyFiles: String): AppSettings = AppSettings(
         geoAssetSourceIds = "chocolate4u-iran,loyalsoldier",
         geoMultiSourceEnabled = true,

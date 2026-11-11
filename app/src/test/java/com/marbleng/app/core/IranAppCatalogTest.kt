@@ -11,4 +11,11 @@ class IranAppCatalogTest {
         )))
         assertTrue(IranAppCatalog.suggestions(emptyList()).isEmpty())
     }
+    @Test fun bankingAndDomesticAppsAreExactReviewSuggestions() {
+        val known = listOf("com.pmb.mobile", "ir.bmi.bam.nativeweb", "mob.banking.android.sepah",
+            "com.samanpr.blu", "com.mydigipay.app.android", "ir.torob", "net.telewebion")
+        assertEquals(known.toSet(), IranAppCatalog.suggestions(known + listOf(
+            "com.pmb.mobile.fake", "com.example.bank", "ir.unknown.bank", "net.telewebion.fake"
+        )))
+    }
 }

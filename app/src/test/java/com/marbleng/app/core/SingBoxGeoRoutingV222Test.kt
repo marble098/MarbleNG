@@ -383,6 +383,14 @@ class SingBoxGeoRoutingV222Test {
     )
 
     @Test
+    fun domesticPrecisionAddsOnlyExplicitSuffixesToSingBox() {
+        val text = config(settings(), emptyMap()).getJSONObject("route").getJSONArray("rules").toString()
+        assertTrue(text.contains("blubank.com"))
+        assertTrue(text.contains("xn--mgba3a4f16a"))
+        assertFalse(text.contains("domain_keyword"))
+    }
+
+    @Test
     fun theConfigReferencesEveryGeneratedSetWithItsOwnFormatAndPath() {
         val snapshot = index(fixtureSite(), fixtureIp())
         val out = temporary.newFolder("geo-config")
