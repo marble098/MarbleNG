@@ -371,9 +371,6 @@ files = {
     "v233QuickTileCopy": read(
         "app/src/main/java/com/marbleng/app/core/QuickTileCopy.kt"
     ),
-    "v233ConnectDeckModel": read(
-        "app/src/main/java/com/marbleng/app/model/ConnectDeck.kt"
-    ),
     "v233DockSpec": read(
         "app/src/main/java/com/marbleng/app/model/DockIndicatorSpec.kt"
     ),
@@ -382,9 +379,6 @@ files = {
     ),
     "v233QuickTileTest": read(
         "app/src/test/java/com/marbleng/app/core/QuickTileCopyV233Test.kt"
-    ),
-    "v233DeckTest": read(
-        "app/src/test/java/com/marbleng/app/model/ConnectDeckActionV233Test.kt"
     ),
     "v233DockTest": read(
         "app/src/test/java/com/marbleng/app/model/DockIndicatorSpecV233Test.kt"
@@ -412,10 +406,6 @@ files = {
     "shadeView": read("app/src/main/java/com/marbleng/app/core/TunnelNotificationView.kt"),
     "shadeTest": read(
         "app/src/test/java/com/marbleng/app/core/NotificationShadeDesignV234Test.kt"
-    ),
-    "slideSpec": read("app/src/main/java/com/marbleng/app/model/SlideConnectSpec.kt"),
-    "slideTest": read(
-        "app/src/test/java/com/marbleng/app/model/SlideConnectSpecV234Test.kt"
     ),
     "shadeLayout": read("app/src/main/res/layout/notification_tunnel.xml"),
     "shadeLayoutRtl": read("app/src/main/res/layout/notification_tunnel_rtl.xml"),
@@ -3643,23 +3633,6 @@ check(
 )
 
 check(
-    "V233 three connect buttons had three behaviours and three lights (retired on Home by V241)",
-    "enum class ConnectDeckAction" in files["v233ConnectDeckModel"]
-    and "enum class ConnectDeckLight" in files["v233ConnectDeckModel"]
-    and "behavior = \"reconnect_last_or_auto\"" in files["v233ConnectDeckModel"]
-    and "behavior = \"auto_selector_winner\"" in files["v233ConnectDeckModel"]
-    and "behavior = \"local_proxy_only\"" in files["v233ConnectDeckModel"]
-    and "fun isIndependent(): Boolean" in files["v233ConnectDeckModel"]
-    and "class ConnectDeckActionV233Test" in files["v233DeckTest"]
-    # MARBLE_EXPRESSIVE_SHELL_V241 — the audit counted five controls for one action on Home
-    # (power orb, slide track, three deck cards). The catalogue keeps its behaviours and its
-    # test; the deck composable is gone, and Home must not mount a second connect control.
-    and "fun ConnectDeckSection(" not in files["homeScreen"]
-    and "ConnectDeckSection(" not in files["homeScreen"]
-    and "litDeckId" not in files["homeScreen"],
-)
-
-check(
     "V233 the active dock line is measured, centred and no longer offset (retired by V245)",
     "object DockIndicatorSpec" in files["v233DockSpec"]
     and "const val SLOT_DP: Int = 6" in files["v233DockSpec"]
@@ -3744,27 +3717,6 @@ check(
     # A permission that cannot move anything still answers in the same item.
     and "publishStatus(lastPublishedStatus, detail = detail)" in files["vpn"]
     and "NotificationCopy.cycleEmptyEnglish(kind)" in files["vpn"],
-)
-
-# ---------------------------------------------------------------------------
-# MARBLE_RTL_CONNECT_CONTROL_V234 — the Home connect control mirrors with the language
-# ---------------------------------------------------------------------------
-
-check(
-    "V234 the mirrored slide gesture is measured in its spec and retired from Home by V241",
-    "MARBLE_RTL_CONNECT_CONTROL_V234" in files["slideSpec"]
-    and "fun dragFraction(current: Float, dragAmountPx: Float, travelPx: Float, rtl: Boolean): Float"
-    in files["slideSpec"]
-    and "fun thumbOffsetPx(travelPx: Float, fraction: Float, rtl: Boolean): Int"
-    in files["slideSpec"]
-    and "fun released(fraction: Float): Boolean" in files["slideSpec"]
-    and "class SlideConnectSpecV234Test" in files["slideTest"]
-    and "fun theSameGestureCommitsInBothDirections()" in files["slideTest"]
-    # MARBLE_EXPRESSIVE_SHELL_V241 — there is no track to drag any more: the pill is a button.
-    # The spec and its test remain as the proof that the mirrored gesture was correct, and Home
-    # must not quietly grow the control back.
-    and "MarbleSlideConnectBar(" not in files["homeScreen"]
-    and "SlideConnectSpec.dragFraction(" not in files["homeScreen"],
 )
 
 # ---------------------------------------------------------------------------

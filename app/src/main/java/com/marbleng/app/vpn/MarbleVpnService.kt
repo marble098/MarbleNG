@@ -4325,6 +4325,10 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
                 "Xray rejected this server configuration • check protocol/TLS settings"
             "failed to load config files" in lower ->
                 "Xray rejected the generated configuration"
+            // Safety net: a hardening refusal is a local-settings conflict, not a
+            // server verdict — never surface the raw exception class to the user.
+            "socks hardening failed" in lower ->
+                "Local proxy settings conflict • check LAN access and the HTTP port in Settings, then reconnect"
             compact.length > 240 -> compact.take(237) + "…"
             else -> compact.ifBlank { "Connection could not be started" }
         }

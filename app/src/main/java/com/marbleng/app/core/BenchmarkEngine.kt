@@ -714,22 +714,6 @@ class BenchmarkEngine(
         loadedLatencyMs = m.loadedLatency, failureReason = m.failureReason.take(180)
     )
 
-    private fun materiallyBetter(candidate: Measurement, baseline: Measurement): Boolean {
-        if (candidate.success <= 0) return false
-        if (baseline.success <= 0) return true
-        if (candidate.success + 20 < baseline.success) return false
-        val latencyGain = (baseline.latency - candidate.latency) / max(1.0, baseline.latency)
-        val speedGain = if (baseline.speed > 32.0 * 1024.0) {
-            (candidate.speed - baseline.speed) / baseline.speed
-        } else if (candidate.speed > baseline.speed + 128.0 * 1024.0) 1.0 else 0.0
-        val jitterSafe = baseline.jitter <= 0.0 || candidate.jitter <= 0.0 || candidate.jitter <= baseline.jitter * 1.35 + 4.0
-        val tailSafe = baseline.p95Latency <= 0.0 || candidate.p95Latency <= 0.0 || candidate.p95Latency <= baseline.p95Latency * 1.18 + 10.0
-        val jitterGain = if (baseline.jitter > 0.0 && candidate.jitter >= 0.0) (baseline.jitter - candidate.jitter) / baseline.jitter else 0.0
-        return (latencyGain >= 0.10 && candidate.speed >= baseline.speed * 0.82 && jitterSafe && tailSafe) ||
-            (speedGain >= 0.22 && candidate.latency <= baseline.latency * 1.12 && jitterSafe) ||
-            (jitterGain >= 0.20 && candidate.latency <= baseline.latency * 1.10 && tailSafe) ||
-            candidate.success >= baseline.success + 25
-    }
 
     private fun linkEvidenceFor(profileId: String): LinkEvidence =
         runCatching { intelligence?.linkEvidenceFor(profileId) }.getOrNull() ?: LinkEvidence.UNKNOWN
@@ -1014,8 +998,6 @@ class BenchmarkEngine(
         p.scheme.equals("hysteria2", true) || p.scheme.equals("wireguard", true) ||
             p.transport.contains("hysteria", true) || p.transport.equals("mkcp", true) || p.transport.equals("kcp", true)
 
-    private fun canMux(p: ProxyProfile): Boolean =
-        p.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss") && !isUdpNative(p)
 
     private fun benchmarkPort(index: Int): Int =
         BASE_PORT + (index.coerceAtLeast(0) % BENCHMARK_PORT_SLOTS) * 4

@@ -4605,10 +4605,6 @@ private fun postToMain(block: () -> Unit) {
 
     private var disconnectWatchdogToken: Long = 0L
 
-    private fun clearBenchmarks(ids: Set<String>) = postToMain {
-        benchmarks = benchmarks.filterNot { it.profileId in ids }
-        persistBenchmarks()
-    }
 
     private fun rememberedBenchmarks(): List<BenchmarkResult> {
         val liveIds = profiles.mapTo(mutableSetOf()) { it.id }

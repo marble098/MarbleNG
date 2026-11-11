@@ -60,7 +60,7 @@ object JitterAutoTuner {
             lossiest <= 0.0 ->
                 "loss-free sweep • jitter picked ${winner.mtu}"
             else ->
-                "candidates up to ${"%.1f".format(lossiest)}% loss • ${winner.mtu} jitter ${winner.jitterMs.toInt()} ms"
+                "candidates up to ${"%.1f".format(Locale.US, lossiest)}% loss • ${winner.mtu} jitter ${winner.jitterMs.toInt()} ms"
         }
         return Recommendation(mtu = winner.mtu, reason = reason)
     }

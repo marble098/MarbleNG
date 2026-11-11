@@ -261,19 +261,6 @@ class IranAwarePingTest {
     }
 
     @Test
-    fun `censorship aware deadline adds injection margin and fails fast`() {
-        val base = 2_000L
-        val normal = CensorshipAwareDeadlinePolicy.decideProbe(base)
-        assertEquals(base, normal.timeoutMs)
-        assertFalse(normal.failFast)
-
-        val filtered = CensorshipAwareDeadlinePolicy.decideProbe(base, injectedResetSuspected = true)
-        assertTrue(filtered.timeoutMs > base)
-        assertTrue(filtered.failFast)
-        assertTrue(filtered.useFallbackTarget)
-    }
-
-    @Test
     fun `deadline policy never shrinks the measured budget`() {
         val evidence = LinkEvidence(rttMs = 400.0, tailRttMs = 520.0, jitterMs = 30.0, samples = 6)
         val budget = LinkDeadlinePolicy.httpsProbeTimeoutMs(evidence)

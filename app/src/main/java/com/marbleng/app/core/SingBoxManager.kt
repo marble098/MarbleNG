@@ -190,6 +190,7 @@ class SingBoxManager(
                     )
                 }
             } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
             }
         }, "marble-singbox-ctrl").apply { isDaemon = true; start() }
     }

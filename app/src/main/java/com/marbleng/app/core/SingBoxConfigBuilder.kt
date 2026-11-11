@@ -589,12 +589,6 @@ private fun removeKeys(
         return null
     }
 
-    private fun hasCertificatePinning(outbound: JSONObject): Boolean {
-        val tls = outbound.optJSONObject("streamSettings")?.optJSONObject("tlsSettings")
-            ?: return false
-        return tls.optString("pinnedPeerCertSha256").isNotBlank() ||
-            tls.optString("verifyPeerCertByName").isNotBlank()
-    }
 
     private fun translate(root: JSONObject, settings: AppSettings, notes: MutableList<String>, forTest: Boolean = false): List<JSONObject> {
         val outbounds = root.getJSONArray("outbounds")
@@ -1106,12 +1100,6 @@ private fun removeKeys(
             inbounds.put(http)
         }
         return inbounds
-    }
-
-    private fun applyInboundSniff(inbound: JSONObject, settings: AppSettings) {
-        // MARBLE_SINGBOX_SNIFF_V111 — inbound-level sniff and sniff_override_destination
-        // were deprecated in sing-box 1.11.0 and removed in 1.13.0 (decode config error on inbounds[0]).
-        // Packet sniffing is now handled via route.rules actions ("action": "sniff").
     }
 
     private fun inboundUsers(settings: AppSettings): JSONArray? {

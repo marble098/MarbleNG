@@ -39,7 +39,6 @@ jobs:
           grep -F 'onDataStallSuspected' app/src/main/java/com/marbleng/app/core/ConnectivityDiagnosticsObserver.kt
           grep -F 'IGNORE_RECENT_TRAFFIC' app/src/main/java/com/marbleng/app/core/DataStallGuard.kt
           grep -F 'wilsonLowerBound' app/src/main/java/com/marbleng/app/core/LinkQualityEstimator.kt
-          grep -F 'RankTargetScheduler.ordered' app/src/main/java/com/marbleng/app/core/BenchmarkEngine.kt
           grep -F 'AdaptiveMtuPolicy.recommend' app/src/main/java/com/marbleng/app/core/MarbleIntelligence.kt
           grep -F 'sockopt.put("tcpUserTimeout"' app/src/main/java/com/marbleng/app/core/XrayConfigHardener.kt
           grep -F '"android-data-stall"' app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt

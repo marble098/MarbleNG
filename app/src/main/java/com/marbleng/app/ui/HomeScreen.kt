@@ -677,19 +677,6 @@ private fun HomeStatusChip(
  * reason, a measurement that is running, and "nothing measured yet". The previous stage spread these
  * four across a chip, a subtitle and a caption and never said which one was the answer.
  */
-private fun pingStageLabel(repo: AppRepository, connected: Boolean): String {
-    val state = if (connected) repo.connectionPingState else repo.selectedPingState
-    val latency = if (connected) repo.connectionPingMs else repo.selectedPingMs
-    val failure = if (connected) repo.connectionPingFailure else repo.selectedPingFailure
-    val live = if (connected) repo.livePingMs else 0
-    return when {
-        repo.probeActive || state == ConnectionPingState.MEASURING -> "\u2026"
-        state == ConnectionPingState.FAILED -> failure.ifBlank { "\u2014" }
-        latency > 0 -> "$latency ms"
-        live > 0 -> "$live ms"
-        else -> "\u2014"
-    }
-}
 
 internal fun headlineFor(connected: Boolean, connecting: Boolean, disconnecting: Boolean): String =
     when {

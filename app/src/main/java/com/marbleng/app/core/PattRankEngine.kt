@@ -17,7 +17,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.exp
 
 class PattRankEngine(
     private val context: Context,
@@ -410,9 +409,4 @@ class PattRankEngine(
         )
     }
 
-    private fun nativeScore(ok: Boolean, latencyMs: Double): Double {
-        if (!ok || !latencyMs.isFinite() || latencyMs <= 0.0) return -1.0
-        val latency = 100.0 * exp(-latencyMs.coerceAtMost(5_000.0) / 240.0)
-        return (45.0 + latency * 0.55).coerceIn(0.0, 100.0)
-    }
 }
