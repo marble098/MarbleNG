@@ -3,7 +3,7 @@
 ## Review
 
 - The dock had layered glass but its spring chased **every pointer update**, making direct
-  manipulation feel heavy. Held positions now render directly in both the layer and backdrop;
+  manipulation feel heavy. Held positions now use a placement-only offset and a matching backdrop;
   the spring is synchronised while held and used only to settle on release. The capsule's
   ground is less opaque, leaving the existing rim, caustic, refraction and magnification legible.
   This is a glass-material treatment, not a claim of true screen-backdrop refraction.

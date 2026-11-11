@@ -7,6 +7,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -29,6 +30,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.LiquidLens
@@ -56,13 +59,14 @@ import com.marbleng.app.model.LiquidLens
  * `graphicsLayer` blocks and in the draw phase:
  *
  * ```kotlin
- * translationX = heldPosition.value ?: travel.value                                   // layer phase
+ * translationX = if (heldPosition.value == null) travel.value else 0f                                   // layer phase
  * scaleX = LiquidLens.deformation(if (heldPosition.value != null) 0f else travel.velocity).scaleX       // layer phase
  * backdrop(travel.value)                                        // draw phase
  * ```
  *
- * A drag, a tap and a spring recovery therefore invalidate drawing, never composition, and never
- * layout: the lens is a fixed-size node that is *translated*, not a `width` that is re-measured.
+ * Spring recovery invalidates drawing; held touch invalidates placement through the lambda
+ * offset below. Neither remeasures the fixed-size lens. Direct placement also keeps hit-test and
+ * accessibility coordinates current without requiring a graphics-layer draw to update them.
  * The same animated `velocity` is what produces the squash and stretch
  * ([LiquidLens.deformation]): 15 % wider and 8 % shorter at full throw, settling back to 1,1 with
  * the spring's own damping rather than on a timer.
@@ -148,8 +152,12 @@ internal fun GlassLensIndicator(
     Box(
         modifier = modifier
             .size(diameter)
+            // Direct touch is placement, not a cached rendering transform. The lambda
+            // invalidates placement only (not measurement/composition), keeping coordinates
+            // and drawing in agreement even when no spring frame is being produced.
+            .offset { IntOffset(heldPosition.value?.roundToInt() ?: 0, 0) }
             .graphicsLayer {
-                translationX = heldPosition.value ?: travel.value
+                translationX = if (heldPosition.value == null) travel.value else 0f
                 val deformation = LiquidLens.deformation(if (heldPosition.value != null) 0f else travel.velocity)
                 scaleX = deformation.scaleX
                 scaleY = deformation.scaleY
