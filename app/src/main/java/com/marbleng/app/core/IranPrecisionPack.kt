@@ -1,6 +1,8 @@
 package com.marbleng.app.core
 
 import com.marbleng.app.model.GeoPrecision
+import java.net.IDN
+import java.util.Locale
 
 object IranPrecisionPack {
     enum class Category(val label: String) {
@@ -22,6 +24,8 @@ object IranPrecisionPack {
     data class Entry(val category: Category, val domain: String)
 
     val TLD_SUFFIX: String = "ir"
+    // .ایران in DNS wire form.
+    private val DOMESTIC_SUFFIXES = listOf(TLD_SUFFIX, "xn--mgba3a4f16a")
 
     val ENTRIES: List<Entry> = listOf(
 
@@ -32,6 +36,7 @@ object IranPrecisionPack {
         Entry(Category.PAYMENT, "pec.ir"),
         Entry(Category.PAYMENT, "sepordeh.com"),
         Entry(Category.PAYMENT, "zarinpal.com"),
+        Entry(Category.PAYMENT, "mydigipay.com"),
         Entry(Category.PAYMENT, "idpay.ir"),
         Entry(Category.PAYMENT, "payping.ir"),
         Entry(Category.PAYMENT, "nextpay.org"),
@@ -50,6 +55,9 @@ object IranPrecisionPack {
         Entry(Category.BANK, "postbank.ir"),
         Entry(Category.BANK, "bpi.ir"),
         Entry(Category.BANK, "sb24.com"),
+        Entry(Category.BANK, "blubank.com"),
+        Entry(Category.BANK, "agri-bank.com"),
+        Entry(Category.BANK, "parsian-bank.com"),
         Entry(Category.BANK, "karafarinbank.com"),
         Entry(Category.BANK, "edbi.ir"),
         Entry(Category.BANK, "bank-maskan.ir"),
@@ -66,6 +74,7 @@ object IranPrecisionPack {
         Entry(Category.GOVERNMENT, "adliran.ir"),
 
         Entry(Category.MESSENGER, "bale.ir"),
+        Entry(Category.MESSENGER, "bale.ai"),
         Entry(Category.MESSENGER, "eitaa.com"),
         Entry(Category.MESSENGER, "rubika.ir"),
         Entry(Category.MESSENGER, "gap.im"),
@@ -78,6 +87,10 @@ object IranPrecisionPack {
         Entry(Category.MOBILITY, "snappfood.ir"),
         Entry(Category.MOBILITY, "snappmarket.com"),
         Entry(Category.MOBILITY, "snapptrip.com"),
+        Entry(Category.MOBILITY, "snapp-box.com"),
+        Entry(Category.MOBILITY, "snapp.cab"),
+        Entry(Category.MOBILITY, "snapp.taxi"),
+        Entry(Category.MOBILITY, "cdnsnapptrip.com"),
         Entry(Category.MOBILITY, "tapsi.ir"),
         Entry(Category.MOBILITY, "alibaba.ir"),
         Entry(Category.MOBILITY, "flightio.com"),
@@ -87,6 +100,7 @@ object IranPrecisionPack {
         Entry(Category.COMMERCE, "digistyle.com"),
         Entry(Category.COMMERCE, "divar.ir"),
         Entry(Category.COMMERCE, "sheypoor.com"),
+        Entry(Category.COMMERCE, "divarcdn.com"),
         Entry(Category.COMMERCE, "basalam.com"),
         Entry(Category.COMMERCE, "torob.com"),
         Entry(Category.COMMERCE, "emalls.ir"),
@@ -97,6 +111,7 @@ object IranPrecisionPack {
         Entry(Category.COMMERCE, "19kala.com"),
 
         Entry(Category.APP_STORE, "cafebazaar.ir"),
+        Entry(Category.APP_STORE, "cafebazaar.org"),
         Entry(Category.APP_STORE, "myket.ir"),
         Entry(Category.APP_STORE, "getapp.ir"),
 
@@ -160,7 +175,7 @@ object IranPrecisionPack {
 
     fun suffixes(precision: GeoPrecision): List<String> = when (precision) {
         GeoPrecision.STANDARD -> emptyList()
-        GeoPrecision.ENHANCED, GeoPrecision.MAXIMUM -> listOf(TLD_SUFFIX)
+        GeoPrecision.ENHANCED, GeoPrecision.MAXIMUM -> DOMESTIC_SUFFIXES
     }
 
     // Brand substrings (e.g. alibaba or bale) also occur in unrelated foreign
@@ -185,14 +200,23 @@ object IranPrecisionPack {
             add("${domains(precision).size} domains")
             val keys = keywords(precision).size
             if (keys > 0) add("$keys keywords")
-            add("${suffixes(precision).size} TLD")
+            add("${suffixes(precision).size} TLDs")
         }.joinToString(" • ")
     }
 
+    private fun normalizeHost(rawHost: String): String = runCatching {
+        IDN.toASCII(rawHost.trim().trimEnd('.'), IDN.USE_STD3_ASCII_RULES).lowercase(Locale.ROOT)
+    }.getOrDefault("")
+
+    fun domesticSuffix(rawHost: String, precision: GeoPrecision): String? {
+        val host = normalizeHost(rawHost)
+        return suffixes(precision).firstOrNull { host == it || host.endsWith(".$it") }
+    }
+
     fun matches(rawHost: String, precision: GeoPrecision): Boolean {
-        val host = rawHost.trim().trimEnd('.').lowercase()
+        val host = normalizeHost(rawHost)
         if (host.isEmpty() || precision == GeoPrecision.STANDARD) return false
-        if (host == TLD_SUFFIX || host.endsWith(".$TLD_SUFFIX")) return true
+        if (domesticSuffix(host, precision) != null) return true
         for (domain in domains(precision)) {
             if (host == domain || host.endsWith(".$domain")) return true
         }
@@ -203,7 +227,7 @@ object IranPrecisionPack {
     }
 
     fun categoryOf(rawHost: String, precision: GeoPrecision): Category? {
-        val host = rawHost.trim().trimEnd('.').lowercase()
+        val host = normalizeHost(rawHost)
         if (host.isEmpty() || precision == GeoPrecision.STANDARD) return null
         return entries(precision).firstOrNull { entry ->
             host == entry.domain || host.endsWith("." + entry.domain)

@@ -23,6 +23,7 @@ import com.marbleng.app.model.AutoServerScope
 import com.marbleng.app.model.AutoServerStrategy
 import com.marbleng.app.model.DelayTest
 import com.marbleng.app.model.HomePingAction
+import com.marbleng.app.model.PingParallelMode
 import com.marbleng.app.model.PingSpeed
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.autoServerScopeEnum
@@ -125,11 +126,16 @@ fun SettingsPingTestingPage(
                     MarbleNumberStepperRow(
                         title = trx("Parallel Sweep Workers"),
                         value = s.pingConcurrency,
+                        subtitle = if (s.pingParallelMode == PingParallelMode.AUTO) {
+                            trx("Automatic mode is active; changing this value switches to manual")
+                        } else {
+                            trx("Speed, device limits and test method can reduce the actual worker count")
+                        },
                         range = 2..64,
                         step = 2,
                         glyph = MarbleGlyph.SPARK,
                         iconTint = colors.warning,
-                        onValueChange = { repo.updateSettings(s.copy(pingConcurrency = it)) }
+                        onValueChange = { repo.updateSettings(s.copy(pingConcurrency = it, pingParallelMode = PingParallelMode.MANUAL)) }
                     )
                     MarbleDivider()
                     MarbleSwitchRow(

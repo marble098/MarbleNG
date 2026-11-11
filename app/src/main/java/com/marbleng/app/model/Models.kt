@@ -1367,9 +1367,9 @@ data class AppSettings(
 
     val pingTimeoutSec: Int = 5,
     val pingSamples: Int = 3,
-    val pingConcurrency: Int = 16,
+    val pingConcurrency: Int = PingBudget.CONCURRENCY_MAX,
 
-    val pingParallelMode: PingParallelMode = PingParallelMode.AUTO,
+    val pingParallelMode: PingParallelMode = PingParallelMode.MANUAL,
 
     val pingSpeedCustom: Boolean = false,
     val pingSpeedPercent: Int = PingSpeed.DEFAULT_PERCENT,

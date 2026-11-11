@@ -143,7 +143,7 @@ class PingSpeedTest {
         val defaults = AppSettings()
         assertEquals(5, defaults.pingTimeoutSec)
         assertEquals(3, defaults.pingSamples)
-        assertEquals(16, defaults.pingConcurrency)
+        assertEquals(PingBudget.CONCURRENCY_MAX, defaults.pingConcurrency)
         assertEquals(false, defaults.pingSpeedCustom)
         assertEquals(PingSpeed.DEFAULT_PERCENT, defaults.pingSpeedPercent)
     }

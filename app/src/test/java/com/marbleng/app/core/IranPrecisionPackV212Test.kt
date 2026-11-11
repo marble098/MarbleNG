@@ -35,7 +35,7 @@ class IranPrecisionPackV212Test {
 
     @Test
     fun enhancedIsTheTldPlusTheCuratedDomainsAndNoKeywords() {
-        assertEquals(listOf("ir"), IranPrecisionPack.suffixes(GeoPrecision.ENHANCED))
+        assertEquals(listOf("ir", "xn--mgba3a4f16a"), IranPrecisionPack.suffixes(GeoPrecision.ENHANCED))
         assertTrue(IranPrecisionPack.keywords(GeoPrecision.ENHANCED).isEmpty())
         assertTrue(IranPrecisionPack.domains(GeoPrecision.ENHANCED).isNotEmpty())
         assertTrue(IranPrecisionPack.summary(GeoPrecision.ENHANCED).contains("domains"))
@@ -77,6 +77,19 @@ class IranPrecisionPackV212Test {
         assertTrue(IranPrecisionPack.matches(domain, GeoPrecision.ENHANCED))
         assertTrue(IranPrecisionPack.matches("api.$domain", GeoPrecision.ENHANCED))
         assertFalse(IranPrecisionPack.matches("${domain}x.example", GeoPrecision.ENHANCED))
+    }
+
+    @Test
+    fun internationalizedCountrySuffixAndNewServicesUseLabelBoundaries() {
+        for (host in listOf("example.ایران", "EXAMPLE.XN--MGBA3A4F16A.",
+            "api.blubank.com", "static.divarcdn.com", "bale.ai", "snapp.cab")) {
+            assertTrue(host, IranPrecisionPack.matches(host, GeoPrecision.ENHANCED))
+        }
+        for (host in listOf("example.ایران.evil", "notblubank.com", "bale.ai.evil",
+            "snapp.cab.evil", "xn--mgba3a4f16a.example")) {
+            assertFalse(host, IranPrecisionPack.matches(host, GeoPrecision.MAXIMUM))
+        }
+        assertFalse(IranPrecisionPack.matches("example.ایران", GeoPrecision.STANDARD))
     }
 
     @Test

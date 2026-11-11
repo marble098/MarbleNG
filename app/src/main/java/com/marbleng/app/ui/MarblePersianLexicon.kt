@@ -2366,6 +2366,8 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Outbound JSON Configuration" to "پیکربندی JSON خروجی",
     "Packet Datapath" to "مسیر بسته‌ها",
     "Pad multiplexed frames against packet-size fingerprinting" to "فریم‌های مولتیپلکس رو پر کن تا اندازه بسته لو نره",
+    "Automatic mode is active; changing this value switches to manual" to "حالت خودکار فعال است؛ تغییر مقدار، حالت دستی را فعال می‌کند",
+    "Speed, device limits and test method can reduce the actual worker count" to "سرعت، محدودیت دستگاه و روش آزمون ممکن است تعداد واقعی آزمون‌های هم‌زمان را کاهش دهند",
     "Parallel Sweep Workers" to "کارگرهای پیمایش موازی",
     "Password (optional)" to "رمز عبور (اختیاری)",
     "Paste Links or JSON" to "چسبوندن لینک‌ها یا JSON",

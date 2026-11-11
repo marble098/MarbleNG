@@ -6,6 +6,16 @@ import org.junit.Assert.assertTrue
 
 class PingParallelTest {
     @Test
+    fun `fresh settings request the maximum for both test methods`() {
+        val settings = AppSettings()
+        assertEquals(PingParallelMode.MANUAL, settings.pingParallelMode)
+        assertEquals(PingBudget.CONCURRENCY_MAX, settings.pingConcurrency)
+        for (method in ProbeMethod.entries) {
+            assertEquals(PingBudget.CONCURRENCY_MAX, settings.pingWorkers(1, 512L, method))
+        }
+    }
+
+    @Test
     fun `one core device runs two at once`() {
         assertEquals(2, PingParallel.recommend(1, 4_096L, ProbeMethod.TCP_PING))
     }
