@@ -17,6 +17,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -349,7 +350,7 @@ internal fun LiquidLensNavigationBar(
                                 }
                             }
                         },
-                        modifier = Modifier.align(Alignment.CenterLeft),
+                        modifier = Modifier.align(AbsoluteAlignment.CenterLeft),
                         tag = lensTag
                     )
                 }

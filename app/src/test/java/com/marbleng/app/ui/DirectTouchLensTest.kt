@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -67,7 +68,7 @@ class DirectTouchLensTest {
                         trackInsetPx = 2f, verticalInsetPx = 2f,
                         accent = Color.Cyan, prism = Color.Blue,
                         dark = true, reduced = false, dragging = true,
-                        backdrop = {}, modifier = Modifier.align(Alignment.CenterLeft), tag = "rtl-lens"
+                        backdrop = {}, modifier = Modifier.align(AbsoluteAlignment.CenterLeft), tag = "rtl-lens"
                     )
                 }
             }
