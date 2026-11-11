@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -18,7 +19,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], application = Application::class)
+@Config(sdk = [35], qualifiers = "w360dp-h740dp", application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class DirectTouchLensTest {
     @get:Rule val compose = createComposeRule()
@@ -39,8 +40,12 @@ class DirectTouchLensTest {
         val before = compose.onNodeWithTag("held-lens").fetchSemanticsNode().boundsInRoot.left
         compose.mainClock.autoAdvance = false
         compose.runOnIdle { target.value = 110f }
-        compose.mainClock.advanceTimeByFrame()
+        // One frame schedules recomposition; the second applies its graphics layer.
+        // 32 ms is well below a spring settling time, so a spring-chased target fails.
+        compose.mainClock.advanceTimeBy(32L)
+        compose.waitForIdle()
         val after = compose.onNodeWithTag("held-lens").fetchSemanticsNode().boundsInRoot.left
-        assertEquals(100f, after - before, 1f)
+        assertTrue(compose.onNodeWithTag("held-lens").fetchSemanticsNode().boundsInRoot.width > 0f)
+        assertEquals("held layer: before=$before after=$after", 100f, after - before, 1f)
     }
 }
