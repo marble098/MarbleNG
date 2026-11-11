@@ -65,13 +65,13 @@ class SweepWidthTest {
 
     @Test
     fun theXrayRealDelayPoolScalesWithTheDial() {
-        assertEquals(4, width(cpus = 8, speedFactor = 1.0))
+        assertEquals(6, width(cpus = 8, speedFactor = 1.0))
         assertEquals(2, width(cpus = 2, speedFactor = 1.0))
 
-        assertEquals(6, width(cpus = 8, speedFactor = 1.5))
+        assertEquals(8, width(cpus = 8, speedFactor = 1.5))
         assertEquals(3, width(cpus = 2, speedFactor = 1.5))
 
-        assertEquals(2, width(cpus = 8, speedFactor = 0.5))
+        assertEquals(3, width(cpus = 8, speedFactor = 0.5))
 
         assertEquals(8, width(cpus = 8, speedFactor = 2.0, xrayChildCeiling = 8))
         assertEquals(5, width(cpus = 8, speedFactor = 2.0, xrayChildCeiling = 5))
@@ -80,9 +80,10 @@ class SweepWidthTest {
     }
 
     @Test
-    fun theLegacyLadderKeepsItsUnscaledEnvelope() {
-        assertEquals(4, width(v2rayStyleDelay = true, tcpWorkers = 24, speedFactor = 2.0))
-        assertEquals(2, width(v2rayStyleDelay = true, tcpWorkers = 1, speedFactor = 0.5))
+    fun delayOnlySweepUsesTheGrantedCoreBudget() {
+        assertEquals(8, width(v2rayStyleDelay = true, tcpWorkers = 24, speedFactor = 2.0))
+        assertEquals(4, width(v2rayStyleDelay = true, tcpWorkers = 24, xrayChildCeiling = 4))
+        assertEquals(1, width(v2rayStyleDelay = true, tcpWorkers = 1, speedFactor = 0.5))
     }
 
     @Test

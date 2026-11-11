@@ -128,7 +128,7 @@ class MultiSourceRoutingV212Test {
             AppSettings(geoPrecision = GeoPrecision.MAXIMUM.id),
             "proxy"
         )
-        assertTrue(maximum.toString().contains("keyword:${IranPrecisionPack.KEYWORDS.first()}"))
+        assertFalse(maximum.toString().contains("keyword:"))
 
         val standard = JSONArray()
         RoutingEngine.applyUserRules(

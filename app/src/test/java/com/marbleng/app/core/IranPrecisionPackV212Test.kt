@@ -46,10 +46,13 @@ class IranPrecisionPackV212Test {
     }
 
     @Test
-    fun maximumAddsTheBrandStems() {
-        assertEquals(IranPrecisionPack.KEYWORDS, IranPrecisionPack.keywords(GeoPrecision.MAXIMUM))
+    fun maximumNeverLeaksForeignBrandLookalikes() {
+        assertTrue(IranPrecisionPack.keywords(GeoPrecision.MAXIMUM).isEmpty())
+        for (host in listOf("alibaba.com", "bale.example", "snapp.evil.example", "notdigikala.com", "digikala.com.evil.example")) {
+            assertFalse(host, IranPrecisionPack.matches(host, GeoPrecision.MAXIMUM))
+        }
         assertTrue(IranPrecisionPack.KEYWORDS.size >= 20)
-        assertTrue(IranPrecisionPack.summary(GeoPrecision.MAXIMUM).contains("keywords"))
+        assertFalse(IranPrecisionPack.summary(GeoPrecision.MAXIMUM).contains("keywords"))
 
         assertEquals(
             IranPrecisionPack.domains(GeoPrecision.ENHANCED),

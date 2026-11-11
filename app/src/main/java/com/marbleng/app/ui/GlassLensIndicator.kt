@@ -7,12 +7,14 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -28,6 +30,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.LiquidLens
@@ -55,13 +59,14 @@ import com.marbleng.app.model.LiquidLens
  * `graphicsLayer` blocks and in the draw phase:
  *
  * ```kotlin
- * translationX = travel.value                                   // layer phase
- * scaleX = LiquidLens.deformation(travel.velocity).scaleX       // layer phase
+ * translationX = if (heldPosition.value == null) travel.value else 0f                                   // layer phase
+ * scaleX = LiquidLens.deformation(if (heldPosition.value != null) 0f else travel.velocity).scaleX       // layer phase
  * backdrop(travel.value)                                        // draw phase
  * ```
  *
- * A drag, a tap and a spring recovery therefore invalidate drawing, never composition, and never
- * layout: the lens is a fixed-size node that is *translated*, not a `width` that is re-measured.
+ * Spring recovery invalidates drawing; held touch invalidates placement through the lambda
+ * offset below. Neither remeasures the fixed-size lens. Direct placement also keeps hit-test and
+ * accessibility coordinates current without requiring a graphics-layer draw to update them.
  * The same animated `velocity` is what produces the squash and stretch
  * ([LiquidLens.deformation]): 15 % wider and 8 % shorter at full throw, settling back to 1,1 with
  * the spring's own damping rather than on a timer.
@@ -87,6 +92,7 @@ internal fun GlassLensIndicator(
     prism: Color,
     dark: Boolean,
     reduced: Boolean,
+    dragging: Boolean = false,
     /**
      * Repaints the capsule's material as it would appear if the lens's own origin were the
      * capsule's. Nothing else in this file knows how the bar is painted — the lens samples the
@@ -98,6 +104,9 @@ internal fun GlassLensIndicator(
 ) {
     val travel = remember { Animatable(0f) }
     val seated = remember { mutableStateOf(false) }
+    // Keep a snapshot read in the layer/draw phases during direct manipulation.
+    // A captured Float alone can leave a cached graphics layer at the previous target.
+    val heldPosition = rememberUpdatedState(targetLeftPx.takeIf { dragging })
     // A left edge of zero is "not measured yet", never a legal resting place: both inner insets are
     // at least 2dp, so the first real target is always positive.
     val measured = targetLeftPx > 0.5f
@@ -113,10 +122,12 @@ internal fun GlassLensIndicator(
         }
     }
 
-    // First measurement seats the lens with no flight; every later selection travels on the spring.
-    LaunchedEffect(targetLeftPx, measured, settleSpec) {
+    // Direct manipulation is not an animation: render the finger coordinate immediately.
+    // Keep the spring synchronised while held so release settles from the last touch,
+    // not from the previous tab. Only taps and release use the spring.
+    LaunchedEffect(targetLeftPx, measured, settleSpec, dragging) {
         if (!measured) return@LaunchedEffect
-        if (!seated.value) {
+        if (!seated.value || dragging) {
             travel.snapTo(targetLeftPx)
             seated.value = true
             return@LaunchedEffect
@@ -141,9 +152,13 @@ internal fun GlassLensIndicator(
     Box(
         modifier = modifier
             .size(diameter)
+            // Direct touch is placement, not a cached rendering transform. The lambda
+            // invalidates placement only (not measurement/composition), keeping coordinates
+            // and drawing in agreement even when no spring frame is being produced.
+            .offset { IntOffset(heldPosition.value?.roundToInt() ?: 0, 0) }
             .graphicsLayer {
-                translationX = travel.value
-                val deformation = LiquidLens.deformation(travel.velocity)
+                translationX = if (heldPosition.value == null) travel.value else 0f
+                val deformation = LiquidLens.deformation(if (heldPosition.value != null) 0f else travel.velocity)
                 scaleX = deformation.scaleX
                 scaleY = deformation.scaleY
                 transformOrigin = TransformOrigin.Center
@@ -163,7 +178,7 @@ internal fun GlassLensIndicator(
                 .drawWithContent {
                     // `backdrop` is a `DrawScope.(Float) -> Unit`, i.e. a Function2: calling it with
                     // the draw scope explicitly is the same call the extension syntax would make.
-                    backdrop(this, travel.value)
+                    backdrop(this, heldPosition.value ?: travel.value)
                     drawContent()
                 }
         )

@@ -1060,9 +1060,11 @@ internal fun sweepWidth(
     method == ProbeMethod.TCP_PING -> PingBudget.concurrency(tcpWorkers)
     method == ProbeMethod.URL_TEST || engine == CoreEngine.SINGBOX ->
         tcpWorkers.coerceIn(1, singBoxCeiling.coerceIn(1, 64))
-    v2rayStyleDelay -> tcpWorkers.coerceIn(2, 4)
+    // Delay-only sweeps do not transfer payloads. Use the existing device-granted
+    // child budget instead of the legacy four-core cap; thermal throttling still applies.
+    v2rayStyleDelay -> tcpWorkers.coerceIn(1, xrayChildCeiling.coerceIn(1, 8))
     else -> {
-        val base = cpus.coerceIn(2, 4)
+        val base = cpus.coerceIn(2, 6)
 
         val factor = if (speedFactor.isFinite()) speedFactor else 1.0
         val scaled = (base * factor).roundToInt()
