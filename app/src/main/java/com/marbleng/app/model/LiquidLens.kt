@@ -67,6 +67,12 @@ object LiquidLens {
     /** `RenderEffect.createBlurEffect(12f, 12f, CLAMP)` — the backdrop sample's radius, in pixels. */
     const val GLASS_BLUR_RADIUS_PX: Float = 12f
 
+    /** MARBLE_HARMONY_V279 — the live page sample gets a deeper frost than the material replay. */
+    const val BACKDROP_BLUR_RADIUS_PX: Float = 28f
+
+    /** Pane body multiplier: clearer glass, with the glyph still printed above it. */
+    const val PANE_BODY_FRACTION: Float = 0.48f
+
     /** The rim: 1.5dp, incandescent at the top-left, translucent at the bottom-right. */
     const val GLASS_RIM_DP: Float = 1.5f
     const val GLASS_RIM_START_ALPHA: Float = 0.95f

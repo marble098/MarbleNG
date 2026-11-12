@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
 import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.MarbleRowIconShape
 import com.marbleng.app.ui.theme.MarbleTheme
 import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
 import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
@@ -702,23 +703,15 @@ internal fun MarbleExpressiveTile(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(iconSize)
-                        .graphicsLayer { rotationZ = badgeSpin }
-                        .clip(marbleExpressiveShape(motif))
-                        .background(tint.copy(alpha = if (containerOverride != null) 0.22f else 0.18f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MarbleGlyphIcon(
-                        glyph = glyph,
-                        color = tint,
-                        modifier = Modifier
-                            .size(if (featured) 26.dp else 21.dp)
-                            .graphicsLayer { rotationZ = -badgeSpin },
-                        weight = 1.12f
-                    )
-                }
+                // MARBLE_HARMONY_V279 — Home and Settings share one row-icon treatment:
+                // same rounded chip, same wash, same optical glyph weight. The expressive
+                // watermark still carries the card's personality; the icon stays upright.
+                MarbleRowIcon(
+                    glyph = glyph,
+                    tint = tint,
+                    size = iconSize,
+                    glyphSize = if (featured) 26.dp else 22.dp
+                )
                 Spacer(Modifier.weight(1f))
                 if (indexBadge.isNotBlank()) {
                     Text(

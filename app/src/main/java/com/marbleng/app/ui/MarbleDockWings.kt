@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.ConnectControl
 import com.marbleng.app.model.ConnectPhase
+import com.marbleng.app.model.ConnectPulse
 import com.marbleng.app.model.ConnectionPingState
 import com.marbleng.app.model.DockSize
 import com.marbleng.app.model.DockStudio
@@ -295,15 +296,53 @@ internal fun MarbleDockPowerButton(
     }
     val description = trx(state.actionKey)
     val spokenState = trx(state.stateKey)
+    val motion = marbleMotion()
+    val pulse = if (ConnectPulse.active(phase, motion.loops)) {
+        val transition = rememberInfiniteTransition(label = "dockPowerPulse")
+        val value by transition.animateFloat(
+            initialValue = 0f, targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(ConnectPulse.PERIOD_MS)),
+            label = "dockPowerPulsePhase"
+        )
+        value
+    } else 0f
+    val halo by animateFloatAsState(
+        targetValue = if (phase == ConnectPhase.CONNECTED) 1f else 0f,
+        label = "dockPowerHalo"
+    )
 
-    FilledIconButton(
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier.size(side.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (halo > 0.01f) {
+            Canvas(
+                Modifier
+                    .size((side + 12).dp)
+                    .align(Alignment.Center)
+                    .testTag("dock-power-halo")
+            ) {
+                val edge = size.minDimension / 2f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            container.copy(alpha = ConnectPulse.haloAlpha(ConnectPulse.breath(pulse), halo)),
+                            Color.Transparent
+                        ),
+                        radius = edge
+                    ),
+                    radius = edge
+                )
+            }
+        }
+        FilledIconButton(
         onClick = {
             haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
             onToggle()
         },
         // A closing tunnel has no verb: the button is disabled rather than a dead tap.
         enabled = state.pressable,
-        modifier = modifier
+        modifier = Modifier
             .size(side.dp)
             .semantics {
                 contentDescription = description
@@ -344,6 +383,7 @@ internal fun MarbleDockPowerButton(
                 )
             }
         }
+    }
     }
 }
 
@@ -400,16 +440,18 @@ internal fun MarbleCenterSpringTrigger(
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "centerTriggerLive"
     )
-    val breath = if (!motion.still && phase == ConnectPhase.CONNECTED) {
-        val transition = rememberInfiniteTransition(label = "centerBreath")
+    // MARBLE_HARMONY_V279 — one heartbeat vocabulary with Home's pill. The animation is
+    // consumed only by the halo Canvas below: no animated size, padding or measured child.
+    val pulsePhase = if (ConnectPulse.active(phase, motion.loops)) {
+        val transition = rememberInfiniteTransition(label = "centerConnectedPulse")
         val value by transition.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 1_800, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
+                animation = tween(durationMillis = ConnectPulse.PERIOD_MS, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Restart
             ),
-            label = "centerBreathPhase"
+            label = "centerPulsePhase"
         )
         value
     } else {
@@ -467,10 +509,26 @@ internal fun MarbleCenterSpringTrigger(
                     .matchParentSize()
                     .testTag("dock-center-halo")
             ) {
+                val edge = (size.minDimension / 2f - 1.dp.toPx()).coerceAtLeast(0f)
+                val breath = ConnectPulse.breath(pulsePhase)
                 drawCircle(
-                    color = knob.copy(alpha = 0.14f * live * (1f - breath * 0.45f)),
-                    radius = (this.size.minDimension / 2f - 1.dp.toPx()).coerceAtLeast(0f)
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            knob.copy(alpha = ConnectPulse.haloAlpha(breath, live)),
+                            knob.copy(alpha = ConnectPulse.haloAlpha(breath, live) * 0.45f),
+                            Color.Transparent
+                        ),
+                        radius = edge.coerceAtLeast(1f)
+                    ),
+                    radius = edge
                 )
+                if (ConnectPulse.active(phase, motion.loops)) {
+                    drawCircle(
+                        color = knob.copy(alpha = ConnectPulse.ringAlpha(pulsePhase, live)),
+                        radius = edge * ConnectPulse.ringRadiusFraction(pulsePhase),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+                    )
+                }
             }
         }
 

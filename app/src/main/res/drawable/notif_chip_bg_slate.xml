@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MARBLE_HARMONY_V279 — slate theme wash; text colour is painted from NotificationTheme. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="12dp" />
+    <solid android:color="#2437474F" />
+</shape>

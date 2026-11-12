@@ -222,6 +222,10 @@ class NotificationCopyV231Test {
             base.signature(language),
             base.signature(NotificationLanguage.FA)
         )
+        assertNotEquals(
+            base.signature(language, "brand"),
+            base.signature(language, "teal")
+        )
         assertTrue(base.ongoing)
         assertFalse(base.copy(status = ConnectionStatus.DISCONNECTED).ongoing)
     }

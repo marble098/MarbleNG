@@ -124,6 +124,7 @@ internal fun LiquidLensNavigationBar(
     barTag: String = "liquid-lens-bar",
     lensTag: String = "lumen-glass-lens",
     onDragSelect: ((Int) -> Unit)? = null,
+    backdropSource: MarbleDockBackdrop? = null,
     content: @Composable RowScope.(LiquidLensSlotReporter) -> Unit
 ) {
     if (slotCount <= 0) return
@@ -190,6 +191,7 @@ internal fun LiquidLensNavigationBar(
     val capsuleWidthPx = row.width + trackInsetPx * 2f
     val pillShape = RoundedCornerShape(corner)
     val cornerPx = with(density) { minOf(corner, height / 2f).toPx() }
+    val capsuleBounds = remember { mutableStateOf(Rect.Zero) }
     // MARBLE_LUMEN_RIPPLE_CLIP — the capsule's outline expressed in the *row's* coordinates: the
     // row is inset by one track inset from the pill on each side, so the stadium reaches one
     // `trackInsetPx` past the row's left and right edges. Clipping the row with it confines every
@@ -291,12 +293,22 @@ internal fun LiquidLensNavigationBar(
                 )
         )
 
-        // 2. The pill and its row. The material is painted first, the children after it, and
-        //    nothing is clipped.
+        // 2. The pill and its row. V279 replays the live page through this capsule before the
+        //    translucent material; children (and every glyph) stay outside the blurred layer.
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .onPlaced { capsuleBounds.value = it.boundsInRoot() }
                 .drawWithContent {
+                    if (backdropSource != null && MarbleDockBackdrop.supported) {
+                        val radius = minOf(cornerPx, size.height / 2f, size.width / 2f)
+                        val window = Path().apply {
+                            addRoundRect(RoundRect(0f, 0f, size.width, size.height, radius, radius))
+                        }
+                        androidx.compose.ui.graphics.drawscope.clipPath(window) {
+                            backdropSource.draw(this, capsuleBounds.value)
+                        }
+                    }
                     drawCapsuleMaterial(
                         width = size.width,
                         height = size.height,
@@ -455,7 +467,7 @@ internal fun DrawScope.drawCapsuleMaterial(
     // 1. The ground.
     drawPath(
         path = outline,
-        color = surface.copy(alpha = if (dark) 0.74f else GlassDock.SURFACE_ALPHA * 0.88f)
+        color = surface.copy(alpha = if (dark) GlassDock.SURFACE_ALPHA_DARK else GlassDock.SURFACE_ALPHA)
     )
     if (dark) {
         clipPath(outline) {
@@ -469,9 +481,9 @@ internal fun DrawScope.drawCapsuleMaterial(
             drawRect(
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        highlight.copy(alpha = 0.22f),
+                        highlight.copy(alpha = 0.14f),
                         Color.Transparent,
-                        second.copy(alpha = 0.18f)
+                        second.copy(alpha = 0.10f)
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(width, height)
@@ -481,9 +493,9 @@ internal fun DrawScope.drawCapsuleMaterial(
             drawRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = if (dark) 0.06f else 0.10f),
+                        Color.White.copy(alpha = if (dark) 0.04f else 0.07f),
                         Color.Transparent,
-                        Color.Black.copy(alpha = if (dark) 0.12f else 0.07f)
+                        Color.Black.copy(alpha = if (dark) 0.08f else 0.04f)
                     )
                 ),
                 size = Size(width, height)

@@ -18,6 +18,42 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class NotificationPickerLayoutTest {
+    @Test fun expandedTunnelOffersThemedActionsOnlyWhenRouteDeckIsAbsent() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val theme = NotificationTheme.fromId("teal")
+        val primary = PendingIntent.getActivity(context, 7601,
+            Intent("test.primary").setPackage(context.packageName),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val open = PendingIntent.getActivity(context, 7602,
+            Intent("test.open").setPackage(context.packageName),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val actions = TunnelShadeActions(primary, "Disconnect", open, "Open MarbleNG")
+        val shade = TunnelNotificationView.build(
+            context, ConnectionNotificationState(status = ConnectionStatus.PROTECTED),
+            NotificationLanguage.EN, theme, "Protected", "Node", "42 ms", "1 KB/s", "0 KB/s",
+            quickActions = actions
+        )
+        val expanded = shade.expanded.apply(context, FrameLayout(context))
+        assertEquals(View.VISIBLE, expanded.findViewById<View>(R.id.notif_quick_actions).visibility)
+        assertEquals("Disconnect", expanded.findViewById<android.widget.TextView>(R.id.notif_action_primary).text)
+        assertEquals("Open MarbleNG", expanded.findViewById<android.widget.TextView>(R.id.notif_action_open).text)
+        assertTrue(expanded.findViewById<View>(R.id.notif_action_primary).hasOnClickListeners())
+        assertTrue(expanded.findViewById<View>(R.id.notif_action_open).hasOnClickListeners())
+        val compact = shade.compact.apply(context, FrameLayout(context))
+        assertEquals(View.GONE, compact.findViewById<View>(R.id.notif_quick_actions).visibility)
+
+        val pickerRows = listOf(NotificationRoutePicker.PickerRow(
+            NotificationRoutePicker.RowKind.SERVER, "Node", "select:node"))
+        val withPicker = TunnelNotificationView.build(
+            context, ConnectionNotificationState(status = ConnectionStatus.PROTECTED),
+            NotificationLanguage.EN, theme, "Protected", "Node", "42 ms", "1 KB/s", "0 KB/s",
+            picker = pickerRows,
+            pickerIntent = { primary },
+            quickActions = actions
+        ).expanded.apply(context, FrameLayout(context))
+        assertEquals(View.GONE, withPicker.findViewById<View>(R.id.notif_quick_actions).visibility)
+    }
+
     @Test fun footersInflateInBothDirectionsAndDoNotCompeteWithTelemetry() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         for (language in NotificationLanguage.entries) {

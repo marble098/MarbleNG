@@ -120,7 +120,8 @@ internal fun MarbleLumenDock(
     centerProud: Boolean = false,
     leading: (@Composable RowScope.() -> Unit)? = null,
     center: (@Composable () -> Unit)? = null,
-    trailing: (@Composable RowScope.() -> Unit)? = null
+    trailing: (@Composable RowScope.() -> Unit)? = null,
+    backdropSource: MarbleDockBackdrop? = null
 ) {
     if (tabs.isEmpty()) return
 
@@ -193,6 +194,7 @@ internal fun MarbleLumenDock(
                 dark = colors.surface.luminance() < 0.5f,
                 accent = tabs.getOrNull(selection)?.accent ?: colors.primary,
                 reduced = motion.still,
+                backdropSource = backdropSource,
                 modifier = Modifier.fillMaxSize(),
                 // A drag moves the selection to the slot under the finger *and* holds the lens
                 // under the finger while it lasts (MARBLE_LUMEN_DOCK_V265): a lens that travels on

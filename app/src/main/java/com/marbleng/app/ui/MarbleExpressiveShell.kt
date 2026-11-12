@@ -54,6 +54,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -95,6 +99,7 @@ import com.marbleng.app.model.ConnectControl
 import com.marbleng.app.model.ConnectModeChip
 import com.marbleng.app.model.ConnectPhase
 import com.marbleng.app.model.ConnectPillMotion
+import com.marbleng.app.model.ConnectPulse
 import com.marbleng.app.model.LogLevel
 import com.marbleng.app.model.QuickLogLine
 import com.marbleng.app.model.ServerHealth
@@ -258,6 +263,16 @@ fun MarbleConnectPill(
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "connectPillGlow"
     )
+    // V279: the same bounded heartbeat as the dock, painted inside the pill's fixed 82dp box.
+    val heartbeat = if (ConnectPulse.active(phase, motion.loops)) {
+        val transition = rememberInfiniteTransition(label = "homeConnectedPulse")
+        val value by transition.animateFloat(
+            initialValue = 0f, targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(ConnectPulse.PERIOD_MS)),
+            label = "homePulsePhase"
+        )
+        value
+    } else 0f
 
     Box(
         modifier = modifier
@@ -289,6 +304,20 @@ fun MarbleConnectPill(
                 .clip(shape)
                 .background(tone.copy(alpha = glow))
         )
+        if (phase == ConnectPhase.CONNECTED) {
+            Canvas(
+                modifier = Modifier.fillMaxWidth().height(82.dp).testTag("home-connect-pulse")
+            ) {
+                val inset = 3.dp.toPx() + ConnectPulse.ringRadiusFraction(heartbeat) * 5.dp.toPx()
+                drawRoundRect(
+                    color = tone.copy(alpha = ConnectPulse.ringAlpha(heartbeat, 0.7f)),
+                    topLeft = Offset(inset, inset),
+                    size = Size(size.width - inset * 2f, size.height - inset * 2f),
+                    cornerRadius = CornerRadius(corner.toPx(), corner.toPx()),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx())
+                )
+            }
+        }
         // The tonal island: one surface per phase, its padding the only thing that breathes.
         Box(
             modifier = Modifier

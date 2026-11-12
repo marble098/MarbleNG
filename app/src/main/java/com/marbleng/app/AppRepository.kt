@@ -2099,6 +2099,21 @@ fun resetTelemetry() {
         }
         notifier.ensureChannels()
         if (!v.smartNotificationsEnabled) notifier.cancelOptional()
+        val shadePresentationChanged = previous.appLanguage != settings.appLanguage ||
+            previous.notificationTheme != settings.notificationTheme ||
+            previous.notificationLiveStats != settings.notificationLiveStats ||
+            previous.notificationSessionTimer != settings.notificationSessionTimer ||
+            previous.shadeControl != settings.shadeControl
+        if (shadePresentationChanged && state in setOf("CONNECTED", "CONNECTING", "BLOCKED")) {
+            runCatching {
+                context.startService(
+                    Intent(context, MarbleVpnService::class.java)
+                        .setAction(MarbleVpnService.ACTION_REFRESH_NOTIFICATION)
+                )
+            }.onFailure { error ->
+                diagnostics.event("NOTIFICATION", "shade-refresh-request-failed", "reason" to (error.message ?: "startService"))
+            }
+        }
         refreshIntelligenceStatus()
     }
 

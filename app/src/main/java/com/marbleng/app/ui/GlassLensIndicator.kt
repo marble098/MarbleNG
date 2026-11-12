@@ -245,7 +245,7 @@ internal fun GlassLensIndicator(
             // A tinted pane keeps the glass in the active palette, even in light themes.
             // White remains in the small specular highlights, not across the whole lens.
             drawCircle(
-                color = lerp(accent, Color.White, if (dark) 0.25f else 0.52f).copy(alpha = paneAlpha * 0.65f),
+                color = lerp(accent, Color.White, if (dark) 0.25f else 0.52f).copy(alpha = paneAlpha * LiquidLens.PANE_BODY_FRACTION),
                 radius = radius,
                 center = center
             )

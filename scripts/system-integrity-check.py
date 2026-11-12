@@ -3334,7 +3334,8 @@ check(
     and "fun statusSubText(status: ConnectionStatus, language: NotificationLanguage): String"
     in files["notificationCopy"]
     and "data class ConnectionNotificationState(" in files["notifier"]
-    and "fun signature(language: NotificationLanguage): String" in files["notifier"],
+    and "fun signature(" in files["notifier"]
+    and "themeId: String = NotificationTheme.DEFAULT_ID" in files["notifier"],
 )
 
 check(
@@ -3360,7 +3361,7 @@ check(
 check(
     "V231 an unchanged status never reaches SystemUI",
     "class ConnectionSignatureGate" in files["notificationCopy"]
-    and "connectionGate.allow(state.signature(language), now)" in files["notifier"]
+    and "connectionGate.allow(state.signature(language, themeSource().id), now)" in files["notifier"]
     and "if (!connectionGate.allow(" in files["notifier"],
 )
 
@@ -6094,7 +6095,7 @@ check(
     and "## ۷. آنچه عمداً انجام نشد" in v262_doc
     and "## ۸. تست" in v262_doc
     and "LIQUID_LENS_NAV_V262.md" in files["readme"]
-    and "LIQUID_LENS_NAV_V262.md` is the newest chapter" in files["readme"],
+    and "LIQUID_LENS_NAV_V262.md` is the previous lens chapter" in files["readme"],
 )
 
 # ---------------------------------------------------------------------------
@@ -6865,6 +6866,73 @@ check(
     and "MARBLE_HEV_STACK_HEADROOM_V278" in v278_doc
     and "V278: `docs/AUTO_RELEASE_AND_CRASH_TRUTH_V278.md`" in files["readme"]
     and "MARBLE_AUTO_RELEASE_V278" in files["readme"],
+)
+
+# V279 — connected motion, filled navigation, live backdrop sampling and adaptive shade actions.
+v279_pulse = read("app/src/main/java/com/marbleng/app/model/ConnectPulse.kt")
+v279_glyph = read("app/src/main/java/com/marbleng/app/ui/MarbleGlyphArt.kt")
+v279_nav = read("app/src/main/java/com/marbleng/app/ui/NavigationItemView.kt")
+v279_app = read("app/src/main/java/com/marbleng/app/ui/MarbleApp.kt")
+v279_bar = read("app/src/main/java/com/marbleng/app/ui/LiquidLensNavigationBar.kt")
+v279_backdrop = read("app/src/main/java/com/marbleng/app/ui/MarbleDockBackdrop.kt")
+v279_dock = read("app/src/main/java/com/marbleng/app/ui/MarbleDockWings.kt")
+v279_home_shell = read("app/src/main/java/com/marbleng/app/ui/MarbleExpressiveShell.kt")
+v279_notification = read("app/src/main/java/com/marbleng/app/core/TunnelNotificationView.kt")
+v279_notifier = read("app/src/main/java/com/marbleng/app/core/SmartNotifier.kt")
+v279_service = read("app/src/main/java/com/marbleng/app/vpn/MarbleVpnService.kt")
+v279_repo = read("app/src/main/java/com/marbleng/app/AppRepository.kt")
+v279_layout = read("app/src/main/res/layout/notification_tunnel.xml")
+v279_layout_rtl = read("app/src/main/res/layout/notification_tunnel_rtl.xml")
+v279_model_test = read("app/src/test/java/com/marbleng/app/model/ConnectPulseV279Test.kt")
+v279_notif_test = read("app/src/test/java/com/marbleng/app/core/NotificationPickerLayoutTest.kt")
+v279_doc = read("docs/HARMONY_AND_SHADE_V279.md")
+
+check(
+    "V279 selected destinations fill their glyphs without changing the dock geometry",
+    "drawSolidMarbleGlyph" in v279_glyph
+    and "fill: Float = 0f" in v279_glyph
+    and "fill = glyphFill" in v279_nav
+    and "fill = if (isSelected) 1f else 0f" in v279_app,
+)
+check(
+    "V279 the lens samples a live page and pauses during scrolling or wide-rail mode",
+    "rememberGraphicsLayer()" in v279_backdrop
+    and "BlurEffect" in v279_backdrop
+    and "BACKDROP_BLUR_RADIUS_PX" in v279_backdrop
+    and "dockBackdrop.capture()" in v279_app
+    and "!wide && !contentScrolling" in v279_app
+    and "backdropSource.draw" in v279_bar,
+)
+check(
+    "V279 connected controls breathe only in the connected phase and keep fixed bounds",
+    "PERIOD_MS: Int = 2_400" in v279_pulse
+    and "phase == ConnectPhase.CONNECTED && loops" in v279_pulse
+    and "ConnectPulse.active" in v279_dock
+    and 'testTag("dock-power-halo")' in v279_dock
+    and 'testTag("home-connect-pulse")' in v279_home_shell
+    and "class ConnectPulseV279Test" in v279_model_test,
+)
+check(
+    "V279 quick actions respect the route deck and refresh when visible settings change",
+    "notif_quick_actions" in v279_layout
+    and "notif_quick_actions" in v279_layout_rtl
+    and "picker.isEmpty()" in v279_notification
+    and "TunnelShadeActions" in v279_notifier
+    and "signature(language, themeSource().id)" in v279_notifier
+    and "ACTION_REFRESH_NOTIFICATION" in v279_service
+    and "shadePresentationChanged" in v279_repo
+    and "expandedTunnelOffersThemedActionsOnlyWhenRouteDeckIsAbsent" in v279_notif_test
+    and all(f"notif_chip_bg_{theme}.xml" in " ".join(
+        str(path) for path in (ROOT / "app/src/main/res/drawable").glob(f"notif_chip_bg_{theme}.xml")
+    ) for theme in ("brand", "teal", "amber", "rose", "slate", "violet")),
+)
+check(
+    "V279 the harmony chapter, README crown and regression tests are recorded",
+    "MARBLE_HARMONY_V279" in v279_pulse
+    and "MARBLE_HARMONY_V279" in v279_doc
+    and "V279: `docs/HARMONY_AND_SHADE_V279.md`" in files["readme"]
+    and "class ConnectPulseV279Test" in v279_model_test
+    and "expandedTunnelOffersThemedActionsOnlyWhenRouteDeckIsAbsent" in v279_notif_test,
 )
 
 failed = [name for name, passed in checks if not passed]

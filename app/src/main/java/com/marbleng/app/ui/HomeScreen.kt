@@ -79,6 +79,7 @@ import com.marbleng.app.model.applyTo
 import com.marbleng.app.model.connectModeChipOf
 import com.marbleng.app.model.parseHomePingAction
 import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.MarbleRowIconShape
 import com.marbleng.app.ui.theme.MarbleTheme
 import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
 import com.marbleng.app.ui.theme.MARBLE_CHROME_FLIGHT_MS
@@ -954,9 +955,9 @@ private fun HomeMetricBentoTile(
         ) {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(marbleExpressiveShape(motif))
-                    .background(pair.badge.copy(alpha = 0.20f)),
+                    .size(MarbleSpec.ROW_ICON_SIZE_DP.dp)
+                    .clip(MarbleRowIconShape)
+                    .background(pair.badge.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center
             ) {
                 if (loading) {
@@ -967,8 +968,8 @@ private fun HomeMetricBentoTile(
                     MarbleGlyphIcon(
                         glyph = glyph,
                         color = pair.badge,
-                        modifier = Modifier.size(19.dp),
-                        weight = 1.12f
+                        modifier = Modifier.size(22.dp),
+                        weight = 1.08f
                     )
                 }
             }
@@ -1091,20 +1092,12 @@ private fun HomeTelemetryCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .clip(marbleExpressiveShape(MarbleExpressiveMotif.DIAMOND))
-                        .background(colors.secondary.copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MarbleGlyphIcon(
-                        glyph = MarbleGlyph.LINK,
-                        color = colors.secondary,
-                        modifier = Modifier.size(16.dp),
-                        weight = 1.1f
-                    )
-                }
+                MarbleRowIcon(
+                    glyph = MarbleGlyph.LINK,
+                    tint = colors.secondary,
+                    size = 32.dp,
+                    glyphSize = 18.dp
+                )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "${strings.socksProxyLabel} · 127.0.0.1:$socksPort",
@@ -1154,12 +1147,7 @@ private fun HomeReading(
             .padding(horizontal = 9.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        MarbleGlyphIcon(
-            glyph = glyph,
-            color = tint,
-            modifier = Modifier.size(14.dp),
-            weight = 1.1f
-        )
+        MarbleRowIcon(glyph = glyph, tint = tint, size = 24.dp, glyphSize = 14.dp)
         Text(
             text = value,
             color = colors.onSurface,

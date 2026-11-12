@@ -92,6 +92,8 @@ class MarbleVpnService : VpnService() {
     companion object {
         const val ACTION_START = "com.marbleng.START"
         const val ACTION_STOP = "com.marbleng.STOP"
+        /** V279: settings changed the visible shade; refresh the existing foreground item. */
+        const val ACTION_REFRESH_NOTIFICATION = "com.marbleng.REFRESH_NOTIFICATION"
 
         const val ACTION_TUNE = "com.marbleng.TUNE"
 
@@ -485,11 +487,11 @@ class MarbleVpnService : VpnService() {
         notifier = SmartNotifier(
             this,
             languageSource = {
-                (activeSettings ?: (application as MarbleApplication).repo.settings).appLanguage
+                (application as MarbleApplication).repo.settings.appLanguage
             },
             themeSource = {
                 NotificationTheme.fromId(
-                    (activeSettings ?: (application as MarbleApplication).repo.settings).notificationTheme
+                    (application as MarbleApplication).repo.settings.notificationTheme
                 )
             }
         )
@@ -533,6 +535,13 @@ class MarbleVpnService : VpnService() {
         return runCatching {
             diag.event("VPN", "command", "action" to intent?.action, "startId" to startId, "flags" to flags)
             when (intent?.action) {
+                ACTION_REFRESH_NOTIFICATION -> {
+                    if (lastPublishedStatus != ConnectionStatus.DISCONNECTED) {
+                        publishStatus(lastPublishedStatus)
+                    } else {
+                        diag.event("VPN", "notification-refresh-ignored", "reason" to "disconnected")
+                    }
+                }
                 ACTION_STOP -> {
                     startCommandGeneration.incrementAndGet()
 
@@ -4654,7 +4663,9 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         detail: String = ""
     ): ConnectionNotificationState {
         val repo = (application as MarbleApplication).repo
-        val current = activeSettings ?: repo.settings
+        // Notification preferences are live presentation settings, not the connection snapshot;
+        // a theme or shade-control change must repaint the ongoing item without reconnecting.
+        val current = repo.settings
         val iran = repo.iranMode
         return ConnectionNotificationState(
             status = status,
