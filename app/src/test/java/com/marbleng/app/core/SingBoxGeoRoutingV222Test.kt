@@ -3,6 +3,9 @@ package com.marbleng.app.core
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.RoutingMode
+import com.marbleng.app.model.RoutingOutbound
+import com.marbleng.app.model.RoutingRule
+import com.marbleng.app.model.RoutingRuleKind
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -337,7 +340,22 @@ class SingBoxGeoRoutingV222Test {
             coreEngineId = "singbox",
             routingMode = RoutingMode.CUSTOM,
             customRoutingEnabled = true,
-            routingRulesJson = RoutingEngine.serializeRules(RoutingPresets.materialize(RoutingPresets.Preset.RUSSIA_DIRECT)),
+            routingRulesJson = RoutingEngine.serializeRules(
+                listOf(
+                    RoutingRule(
+                        id = "ru-domains",
+                        kind = RoutingRuleKind.GEOSITE,
+                        matcher = "ru",
+                        outbound = RoutingOutbound.DIRECT
+                    ),
+                    RoutingRule(
+                        id = "ru-ips",
+                        kind = RoutingRuleKind.GEOIP,
+                        matcher = "ru",
+                        outbound = RoutingOutbound.DIRECT
+                    )
+                )
+            ),
             routeDirectDomains = "geosite:google,example.org",
             routeBlockIps = "geoip:cn"
         )

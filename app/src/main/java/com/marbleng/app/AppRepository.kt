@@ -5390,46 +5390,103 @@ private fun postToMain(block: () -> Unit) {
     fun routingAssetStatus(): RoutingAssetStatus = xray.routingAssetStatus()
 
     /**
-     * MARBLE_ROUTING_REBUILD_V254 — the mode and the rule-list switch are written together.
+     * MARBLE_ROUTING_CLARITY_V280 — one writer for the routing decision.
      *
-     * The page used to expose `routingMode` (four choices) and `customRoutingEnabled` (a separate
-     * switch) as two independent controls. Three of their four combinations were states a person
-     * could reach but no rule in the app could explain: "Custom rules only" with the list switched
-     * off, or a live rule list behind "Proxy all". Every mode change now goes through
-     * [RoutingOverview.decide], which keeps the two flags describing the same decision.
+     * The page offers two outcomes (Iranian sites direct, or everything through the tunnel) and
+     * this is the only function that writes them. It changes the mode and `iranDomesticDirect`
+     * together, so the switch that the Iran-mode card also shows can never disagree with the
+     * policy, and it never touches the hand-made rules: they always run, and they are edited in
+     * one place.
      */
-    fun setRoutingMode(mode: RoutingMode) {
-        val next = RoutingOverview.decide(settings, mode)
+    fun setRoutingPolicy(policy: RoutingOverview.Policy) {
+        val next = RoutingOverview.applyPolicy(settings, policy)
         if (next == settings) return
         updateSettings(next)
-        message = "Routing: ${RoutingOverview.summary(mode)}"
+        message = "Routing • ${RoutingOverview.summary(policy)}"
+    }
+
+    /** The ad/tracker list is a policy layer of its own, so it has a switch of its own. */
+    fun setAdBlocking(enabled: Boolean) {
+        if (settings.routeBlockAds == enabled) return
+        updateSettings(settings.copy(routeBlockAds = enabled))
+        message = if (enabled) "Ads and trackers are blocked" else "The ad list is off"
     }
 
     /**
-     * MARBLE_ROUTING_REBUILD_V254 — one switch for "do my own rules run at all".
+     * MARBLE_ROUTING_CLARITY_V280 — the five lists the old expert sheet wrote.
      *
-     * Turning it on moves the mode to [RoutingMode.CUSTOM]; turning it off leaves the rule list
-     * exactly as written and returns to the geo policy, so nothing a person typed is thrown away.
+     * The core still reads `routeDirectDomains`, `routeDirectIps`, `routeProxyDomains`,
+     * `routeBlockDomains` and `routeBlockIps`, but the page no longer offers a box for each one:
+     * they were a second way to say what a rule already says, and the two could contradict each
+     * other. A reader who still has entries gets one action that turns every list into ordinary
+     * rules (in the order the core reads the lists) and empties the boxes, so from then on there is
+     * a single place where routing intent lives.
      */
-    fun setCustomRoutingEnabled(enabled: Boolean) {
-        val next = if (enabled) {
-            RoutingOverview.decide(settings, RoutingMode.CUSTOM)
-        } else {
-            settings.copy(
-                customRoutingEnabled = false,
-                routingMode = if (settings.routingMode == RoutingMode.CUSTOM) {
-                    RoutingMode.GEO_DIRECT
-                } else {
-                    settings.routingMode
-                }
+    fun importLegacyRoutingLists() {
+        fun tokens(raw: String): List<String> = raw
+            .split(',', '\n', '\r', ';')
+            .map { it.trim() }
+            .filter { it.isNotBlank() && !it.equals("private", true) }
+
+        fun domainRule(raw: String, outbound: com.marbleng.app.model.RoutingOutbound, remark: String) =
+            RoutingEngine.newRule().copy(
+                kind = com.marbleng.app.model.RoutingRuleKind.DOMAIN,
+                matcher = raw,
+                outbound = outbound,
+                remark = remark
             )
+
+        fun addressRule(raw: String, outbound: com.marbleng.app.model.RoutingOutbound, remark: String) =
+            if (raw.startsWith("geoip:", true)) {
+                val tag = raw.substringAfter(':').trim()
+                if (tag.equals("private", true)) {
+                    null
+                } else {
+                    RoutingEngine.newRule().copy(
+                        kind = com.marbleng.app.model.RoutingRuleKind.GEOIP,
+                        matcher = tag,
+                        outbound = outbound,
+                        remark = remark
+                    )
+                }
+            } else {
+                RoutingEngine.newRule().copy(
+                    kind = com.marbleng.app.model.RoutingRuleKind.IP,
+                    matcher = raw,
+                    outbound = outbound,
+                    remark = remark
+                )
+            }
+
+        val blocked = com.marbleng.app.model.RoutingOutbound.BLOCK
+        val tunnel = com.marbleng.app.model.RoutingOutbound.PROXY
+        val direct = com.marbleng.app.model.RoutingOutbound.DIRECT
+        val additions = buildList {
+            tokens(settings.routeBlockDomains).forEach { add(domainRule(it, blocked, "Blocked site")) }
+            tokens(settings.routeBlockIps).forEach { raw ->
+                addressRule(raw, blocked, "Blocked address")?.let(::add)
+            }
+            tokens(settings.routeProxyDomains).forEach {
+                add(domainRule(it, tunnel, "Always through the tunnel"))
+            }
+            tokens(settings.routeDirectDomains).forEach { add(domainRule(it, direct, "Direct site")) }
+            tokens(settings.routeDirectIps).forEach { raw ->
+                addressRule(raw, direct, "Direct address")?.let(::add)
+            }
         }
-        updateSettings(next)
-        message = if (enabled) {
-            "Your own rules run now • ${RoutingEngine.effectiveRules(next).size} rules"
-        } else {
-            "Your own rules are paused • they stay saved"
-        }
+        if (additions.isEmpty()) return
+        val merged = RoutingEngine.effectiveRules(settings) + additions
+        updateSettings(
+            settings.copy(
+                routingRulesJson = RoutingEngine.serializeRules(merged),
+                routeDirectDomains = "",
+                routeDirectIps = "",
+                routeProxyDomains = "",
+                routeBlockDomains = "",
+                routeBlockIps = ""
+            )
+        )
+        message = "Moved ${additions.size} entries into your rules"
     }
 
     fun applyGeoAssetSource(sourceId: String) {
@@ -5491,24 +5548,6 @@ private fun postToMain(block: () -> Unit) {
         updateSettings(settings.copy(routingRulesJson = RoutingEngine.serializeRules(rules)))
     }
 
-    /**
-     * MARBLE_ROUTING_REBUILD_V254 — a preset installs rules *and* turns the rule list on.
-     *
-     * Applying "Recommended" while `customRoutingEnabled` was off wrote three rules that never ran,
-     * and the page still showed them as the policy. The preset now decides the mode through the
-     * same seam every other write uses, so the chips, the switch and the core agree.
-     */
-    fun applyRoutingPreset(preset: RoutingPresets.Preset) {
-        val next = RoutingOverview.decide(settings, RoutingMode.CUSTOM)
-            .copy(routingRulesJson = RoutingEngine.serializeRules(RoutingPresets.materialize(preset)))
-        updateSettings(next)
-        message = when {
-            state != "DISCONNECTED" ->
-                "${preset.title} saved • reconnect to apply it to the active tunnel"
-            else -> "${preset.title} applied • ${preset.rules.size} rules"
-        }
-    }
-
     /** MARBLE_ROUTING_REBUILD_V254 — one row of the rebuilt list: pause it without losing it. */
     fun setRoutingRuleEnabled(ruleId: String, enabled: Boolean) {
         val rules = RoutingEngine.effectiveRules(settings).map { rule ->
@@ -5537,18 +5576,24 @@ private fun postToMain(block: () -> Unit) {
     fun simulateRoute(host: String): RoutingEngine.RouteSimulation? {
         val clean = host.trim()
         if (clean.isEmpty()) return null
-        return RoutingEngine.simulate(settings, clean)
+        val status = routingAssetStatus()
+        return RoutingEngine.simulate(settings, clean, status.geoIpReady, status.geoSiteReady)
     }
 
+    /**
+     * MARBLE_ROUTING_CLARITY_V280 — the one-tap Iran setup.
+     *
+     * It writes the policy through the same seam as the page and seeds the flags the country layer
+     * needs. It no longer seeds a rule list: those rules restated `geoip:ir` and `geosite:ir`,
+     * which the policy already emits, and since rules now always run the copies would only make
+     * the list longer than the decision it describes.
+     */
     fun applyIranRoutingPreset(prepareAssets: Boolean = true) {
         updateSettings(
-            RoutingOverview.decide(settings, RoutingMode.GEO_DIRECT).copy(
+            RoutingOverview.applyPolicy(settings, RoutingOverview.Policy.IRAN_DIRECT).copy(
                 geoAssetSourceId = RoutingDefaults.SOURCE_CHOCOLATE4U,
                 geoIpUrl = RoutingDefaults.GEOIP_URL,
                 geoSiteUrl = RoutingDefaults.GEOSITE_URL,
-                routingRulesJson = RoutingEngine.serializeRules(
-                    RoutingPresets.materialize(RoutingPresets.Preset.RECOMMENDED)
-                ),
                 routeGeoIpTags = RoutingDefaults.GEOIP_DIRECT_TAGS,
                 routeGeoSiteTags = RoutingDefaults.GEOSITE_DIRECT_TAGS,
                 routeBypassPrivate = true,
@@ -5561,11 +5606,11 @@ private fun postToMain(block: () -> Unit) {
 
         when {
             state != "DISCONNECTED" ->
-                message = "Iran routing preset saved • reconnect to apply it to the active tunnel"
+                message = "Iran routing saved • reconnect to apply it to the active tunnel"
             prepareAssets && !busy ->
                 prepareRoutingAssets(force = false)
             else ->
-                message = "Iran routing preset saved"
+                message = "Iran routing saved"
         }
     }
 

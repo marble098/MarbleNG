@@ -236,7 +236,7 @@ class MultiSourceRoutingV212Test {
     fun theSimulatorAnswersWithThePrecisionLayerWhenThatIsWhatDecided() {
         val curated = IranPrecisionPack.ENTRIES.first().domain
         val sim = RoutingEngine.simulate(AppSettings(), curated)
-        val step = sim.steps.firstOrNull { it.title == "Domestic precision" }
+        val step = sim.steps.firstOrNull { it.title == "Domestic sites" }
         assertTrue("the precision layer reported itself", step != null)
         assertEquals(true, step?.matched)
         assertEquals(RoutingOutbound.DIRECT, sim.verdict)
@@ -245,7 +245,7 @@ class MultiSourceRoutingV212Test {
             AppSettings(geoPrecision = GeoPrecision.STANDARD.id),
             curated
         )
-        assertFalse(tagsOnly.steps.any { it.title == "Domestic precision" })
+        assertFalse(tagsOnly.steps.any { it.title == "Domestic sites" })
     }
 
     @Test
