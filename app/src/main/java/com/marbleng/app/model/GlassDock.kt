@@ -126,7 +126,10 @@ object GlassDock {
      * to the screen) while the glyphs keep their contrast on every surface the app can draw: the
      * navy default, the four palettes, AMOLED black, and the flat interface.
      */
-    const val SURFACE_ALPHA: Float = 0.72f
+    const val SURFACE_ALPHA: Float = 0.64f
+
+    /** MARBLE_HARMONY_V279: dark glass needs a little more body, still inside the same band. */
+    const val SURFACE_ALPHA_DARK: Float = 0.66f
 
     /** The aperture is a little clearer than the bar — it is the window, not the frame. */
     const val LENS_ALPHA: Float = 0.16f

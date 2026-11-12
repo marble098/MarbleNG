@@ -112,7 +112,10 @@ data class ConnectionNotificationState(
      */
     val routeSourcePlans: Map<String, String> = emptyMap()
 ) {
-    fun signature(language: NotificationLanguage): String = buildString {
+    fun signature(
+        language: NotificationLanguage,
+        themeId: String = NotificationTheme.DEFAULT_ID
+    ): String = buildString {
         append(status.name).append('|')
         append(routeName).append('|')
         append(subscriptionName).append('|')
@@ -122,6 +125,7 @@ data class ConnectionNotificationState(
         append('|').append(showTimer).append('|').append(sessionStartedAtMs)
         append('|').append(iranModeLabel).append('|').append(detail)
         append('|').append(language.id)
+        append('|').append(themeId)
         append('|').append(routes.map { it.id }.joinToString(",").hashCode())
         // MARBLE_SHADE_STUDIO_V249 — the control is part of what the shade shows, so a flipped
         // switch, a turned page or a newly measured ping has to re-post the item. Without these the
@@ -294,6 +298,21 @@ class SmartNotifier(
             "MarbleNG · ${state.iranModeLabel.take(NotificationCopy.SUB_TEXT_MAX)}"
         }
 
+        val routeRows = shadeRouteRows(state, language)
+        val quickActions = if (state.ongoing && routeRows.isEmpty()) {
+            TunnelShadeActions(
+                primary = if (state.status == ConnectionStatus.BLOCKED) reconnectIntent(language) else stopServiceIntent(),
+                primaryLabel = if (state.status == ConnectionStatus.BLOCKED) {
+                    NotificationCopy.actionReconnect(language)
+                } else {
+                    NotificationCopy.actionDisconnect(language)
+                },
+                openApp = openAppIntent(NotificationRoute.DASHBOARD, language),
+                openLabel = NotificationCopy.shadeChrome(language).openApp
+            )
+        } else {
+            null
+        }
         val shade = TunnelNotificationView.build(
             context = context,
             state = state,
@@ -304,8 +323,9 @@ class SmartNotifier(
             ping = NotificationCopy.latency(state.pingMs),
             down = "↓ ${NotificationCopy.rate(state.downBps)}",
             up = "↑ ${NotificationCopy.rate(state.upBps)}",
-            picker = shadeRouteRows(state, language),
-            pickerIntent = { row -> pickerIntent(row) }
+            picker = routeRows,
+            pickerIntent = { row -> pickerIntent(row) },
+            quickActions = quickActions
         )
         val builder = NotificationCompat.Builder(context, CHANNEL_CONNECTION)
             .setSmallIcon(R.drawable.ic_notification)
@@ -448,7 +468,7 @@ class SmartNotifier(
         language: NotificationLanguage = resolveLanguage()
     ): Boolean {
         val now = SystemClock.elapsedRealtime()
-        if (!connectionGate.allow(state.signature(language), now)) return false
+        if (!connectionGate.allow(state.signature(language, themeSource().id), now)) return false
         val note = connectionNotification(state, language)
         return runCatching {
             manager.notify(id, note)

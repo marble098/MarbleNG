@@ -27,9 +27,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -115,10 +117,17 @@ internal fun DrawScope.drawMarbleGlyph(
     glyph: MarbleGlyph,
     tint: Color,
     weight: Float = 1f,
-    mirror: Boolean = false
+    mirror: Boolean = false,
+    /** MARBLE_HARMONY_V279: 0 is the outline vocabulary; 1 is its solid navigation twin. */
+    fill: Float = 0f
 ) {
     val minSide = size.minDimension
     if (minSide <= 0f) return
+    val solid = fill.coerceIn(0f, 1f)
+    if (solid > 0f && drawSolidMarbleGlyph(glyph, tint.copy(alpha = tint.alpha * solid), mirror)) {
+        if (solid >= 0.999f) return
+    }
+    val outlineTint = tint.copy(alpha = tint.alpha * (1f - solid))
 
     val unit = minSide / MarbleGlyphGrid
     // The stroke is quoted in grid units but floored in device pixels: a glyph drawn inside a 9 dp
@@ -130,10 +139,10 @@ internal fun DrawScope.drawMarbleGlyph(
         cap = StrokeCap.Round,
         join = StrokeJoin.Round
     )
-    val soft = tint.copy(alpha = tint.alpha * .55f)
+    val soft = outlineTint.copy(alpha = outlineTint.alpha * .55f)
 
     fun line(x1: Float, y1: Float, x2: Float, y2: Float, width: Float = strokeUnits) {
-        drawLine(tint, Offset(x1, y1), Offset(x2, y2), width, StrokeCap.Round)
+        drawLine(outlineTint, Offset(x1, y1), Offset(x2, y2), width, StrokeCap.Round)
     }
 
     fun softLine(x1: Float, y1: Float, x2: Float, y2: Float) {
@@ -160,7 +169,7 @@ internal fun DrawScope.drawMarbleGlyph(
         style: Stroke = stroke
     ) {
         drawRoundRect(
-            color = tint,
+            color = outlineTint,
             topLeft = Offset(left, top),
             size = Size(width, height),
             cornerRadius = CornerRadius(radius, radius),
@@ -177,7 +186,7 @@ internal fun DrawScope.drawMarbleGlyph(
         style: Stroke = stroke
     ) {
         drawArc(
-            color = tint,
+            color = outlineTint,
             startAngle = startAngle,
             sweepAngle = sweepAngle,
             useCenter = false,
@@ -187,7 +196,7 @@ internal fun DrawScope.drawMarbleGlyph(
         )
     }
 
-    fun dot(x: Float, y: Float, radius: Float, color: Color = tint) {
+    fun dot(x: Float, y: Float, radius: Float, color: Color = outlineTint) {
         drawCircle(color, radius, Offset(x, y))
     }
 
@@ -202,7 +211,7 @@ internal fun DrawScope.drawMarbleGlyph(
         scale(if (mirror) -unit else unit, unit, pivot = Offset.Zero) {
             when (glyph) {
                 MarbleGlyph.HOME -> {
-                    drawPath(path(3f to 10.8f, 12f to 3.4f, 21f to 10.8f), tint, style = stroke)
+                    drawPath(path(3f to 10.8f, 12f to 3.4f, 21f to 10.8f), outlineTint, style = stroke)
                     drawPath(
                         strokePath {
                             moveTo(5.2f, 9.4f)
@@ -216,7 +225,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             quadraticBezierTo(18.8f, 20.6f, 18.8f, 18.6f)
                             lineTo(18.8f, 9.4f)
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                 }
@@ -230,7 +239,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             cubicTo(16.2f, 3.4f, 19.6f, 6.2f, 19.6f, 10.8f)
                             lineTo(19.6f, 20.6f)
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                     drawPath(
@@ -262,7 +271,7 @@ internal fun DrawScope.drawMarbleGlyph(
                         )
                     }
                     drawLine(
-                        tint,
+                        outlineTint,
                         Offset(12f, 12.6f),
                         Offset(16.6f, 8.4f),
                         strokeUnits,
@@ -287,7 +296,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             moveTo(18.4f, 17.8f)
                             quadraticBezierTo(21.4f, 18.6f, 20.6f, 21.2f)
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                     dot(8.8f, 9.6f, 1.25f)
@@ -313,19 +322,19 @@ internal fun DrawScope.drawMarbleGlyph(
 
                 MarbleGlyph.REFRESH -> {
                     arc(12f, 12.4f, 7.6f, 42f, 278f)
-                    drawPath(path(18.4f to 3.8f, 19.4f to 10.2f, 13.2f to 9.4f), tint, style = fine)
+                    drawPath(path(18.4f to 3.8f, 19.4f to 10.2f, 13.2f to 9.4f), outlineTint, style = fine)
                 }
 
                 MarbleGlyph.ARROW_BACK -> {
                     line(20.2f, 12f, 9.8f, 12f)
-                    drawPath(path(14.8f to 5.6f, 8.4f to 12f, 14.8f to 18.4f), tint, style = stroke)
+                    drawPath(path(14.8f to 5.6f, 8.4f to 12f, 14.8f to 18.4f), outlineTint, style = stroke)
                 }
 
                 MarbleGlyph.CHEVRON ->
-                    drawPath(path(9.4f to 5.6f, 15.8f to 12f, 9.4f to 18.4f), tint, style = stroke)
+                    drawPath(path(9.4f to 5.6f, 15.8f to 12f, 9.4f to 18.4f), outlineTint, style = stroke)
 
                 MarbleGlyph.CHECK ->
-                    drawPath(path(4.8f to 12.4f, 9.8f to 17.4f, 19.2f to 6.8f), tint, style = stroke)
+                    drawPath(path(4.8f to 12.4f, 9.8f to 17.4f, 19.2f to 6.8f), outlineTint, style = stroke)
 
                 MarbleGlyph.CLOSE -> {
                     line(6.6f, 6.6f, 17.4f, 17.4f)
@@ -343,7 +352,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             lineTo(4.4f, 6.2f)
                             close()
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                     drawPath(path(8.8f to 11.8f, 11.4f to 14.2f, 15.6f to 9.4f), soft, style = fine)
@@ -359,7 +368,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             quadraticBezierTo(18f, 13.4f, 18f, 10.6f)
                             lineTo(18f, 7.4f)
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                     dot(6.2f, 20.4f, 1.5f)
@@ -403,7 +412,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             quadraticBezierTo(12f, 12f, 12f, 3.2f)
                             close()
                         },
-                        tint
+                        outlineTint
                     )
                     dot(18.6f, 5.6f, 1.15f, soft)
                 }
@@ -423,7 +432,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             quadraticBezierTo(3.6f, 19.2f, 3.6f, 17.6f)
                             close()
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                     softLine(3.9f, 11.6f, 20.1f, 11.6f)
@@ -438,7 +447,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             lineTo(3.6f, 7.8f)
                             close()
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                     drawPath(path(3.6f to 12f, 12f to 16.4f, 20.4f to 12f), soft, style = fine)
@@ -467,7 +476,7 @@ internal fun DrawScope.drawMarbleGlyph(
                 }
 
                 MarbleGlyph.FONT -> {
-                    drawPath(path(5.4f to 19.6f, 11f to 4.4f, 13f to 4.4f, 18.6f to 19.6f), tint, style = stroke)
+                    drawPath(path(5.4f to 19.6f, 11f to 4.4f, 13f to 4.4f, 18.6f to 19.6f), outlineTint, style = stroke)
                     line(8.2f, 14f, 15.8f, 14f)
                 }
 
@@ -501,7 +510,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             quadraticBezierTo(16.5f, 20.4f, 16.6f, 19.2f)
                             lineTo(17.6f, 7.6f)
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                     softLine(10.4f, 10.6f, 10.8f, 17.2f)
@@ -541,7 +550,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             lineTo(10.2f, 12.4f)
                             close()
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                 }
@@ -556,7 +565,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             lineTo(8.8f, 18.4f)
                             close()
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                     softLine(14.6f, 6.2f, 17.8f, 9.4f)
@@ -564,25 +573,25 @@ internal fun DrawScope.drawMarbleGlyph(
 
                 MarbleGlyph.DOWNLOAD -> {
                     line(12f, 3.8f, 12f, 15.2f)
-                    drawPath(path(7.4f to 10.6f, 12f to 15.4f, 16.6f to 10.6f), tint, style = stroke)
+                    drawPath(path(7.4f to 10.6f, 12f to 15.4f, 16.6f to 10.6f), outlineTint, style = stroke)
                     line(4.6f, 19.4f, 19.4f, 19.4f)
                 }
 
                 MarbleGlyph.UPLOAD -> {
                     line(12f, 15.6f, 12f, 4.2f)
-                    drawPath(path(7.4f to 8.8f, 12f to 4f, 16.6f to 8.8f), tint, style = stroke)
+                    drawPath(path(7.4f to 8.8f, 12f to 4f, 16.6f to 8.8f), outlineTint, style = stroke)
                     line(4.6f, 19.4f, 19.4f, 19.4f)
                 }
 
                 MarbleGlyph.CHEVRON_LEFT ->
-                    drawPath(path(14.6f to 5.6f, 8.2f to 12f, 14.6f to 18.4f), tint, style = stroke)
+                    drawPath(path(14.6f to 5.6f, 8.2f to 12f, 14.6f to 18.4f), outlineTint, style = stroke)
 
                 MarbleGlyph.CHEVRON_DOWN ->
-                    drawPath(path(5.6f to 9.4f, 12f to 15.8f, 18.4f to 9.4f), tint, style = stroke)
+                    drawPath(path(5.6f to 9.4f, 12f to 15.8f, 18.4f to 9.4f), outlineTint, style = stroke)
 
                 MarbleGlyph.COPY -> {
                     drawRoundRect(
-                        color = tint,
+                        color = outlineTint,
                         topLeft = Offset(8.4f, 7.6f),
                         size = Size(11.2f, 12.2f),
                         cornerRadius = CornerRadius(2.4f, 2.4f),
@@ -616,7 +625,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             lineTo(4.6f, 17.2f)
                             close()
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                     line(12f, 3.2f, 12f, 4.8f)
@@ -633,7 +642,7 @@ internal fun DrawScope.drawMarbleGlyph(
 
                 MarbleGlyph.SHARE -> {
                     line(12f, 14.6f, 12f, 3.8f)
-                    drawPath(path(8.0f to 7.8f, 12f to 3.8f, 16.0f to 7.8f), tint, style = stroke)
+                    drawPath(path(8.0f to 7.8f, 12f to 3.8f, 16.0f to 7.8f), outlineTint, style = stroke)
                     drawPath(
                         Path().apply {
                             moveTo(7.4f, 10.6f)
@@ -647,7 +656,7 @@ internal fun DrawScope.drawMarbleGlyph(
                             cubicTo(19.8f, 11.2f, 19.3f, 10.6f, 18.4f, 10.6f)
                             lineTo(16.6f, 10.6f)
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
                 }
@@ -662,10 +671,10 @@ internal fun DrawScope.drawMarbleGlyph(
                             cubicTo(8.4f, 18.6f, 5.2f, 16.8f, 2.8f, 12f)
                             close()
                         },
-                        tint,
+                        outlineTint,
                         style = stroke
                     )
-                    drawCircle(tint, radius = 2.6f, center = Offset(12f, 12f), style = stroke)
+                    drawCircle(outlineTint, radius = 2.6f, center = Offset(12f, 12f), style = stroke)
                 }
 
                 MarbleGlyph.EYE_OFF -> {
@@ -690,6 +699,83 @@ internal fun DrawScope.drawMarbleGlyph(
 }
 
 /**
+ * MARBLE_HARMONY_V279 — solid twins of the four navigation glyphs, on the same optical grid.
+ *
+ * A colour change alone is not a selection state. These are real filled silhouettes with negative
+ * space cut out of the path (not strokes painted over a disc), so the active tab reads at a glance
+ * and in monochrome. The caller cross-fades outline → solid while the existing lens travels; the
+ * icon's layout box never changes. Non-navigation glyphs keep their original outline contract.
+ */
+private fun DrawScope.drawSolidMarbleGlyph(glyph: MarbleGlyph, tint: Color, mirror: Boolean): Boolean {
+    if (glyph !in setOf(MarbleGlyph.HOME, MarbleGlyph.SERVER, MarbleGlyph.GLOBE, MarbleGlyph.TUNERS)) return false
+    val side = size.minDimension
+    val unit = side / MarbleGlyphGrid
+    translate(
+        left = (size.width - side) / 2f + (if (mirror) side else 0f),
+        top = (size.height - side) / 2f
+    ) {
+        scale(if (mirror) -unit else unit, unit, pivot = Offset.Zero) {
+            fun slab(top: Float): Path = Path().apply {
+                addRoundRect(
+                    androidx.compose.ui.geometry.RoundRect(
+                        3.4f, top, 20.6f, top + 7.2f, 2.5f, 2.5f
+                    )
+                )
+            }
+            when (glyph) {
+                MarbleGlyph.HOME -> {
+                    val house = Path().apply {
+                        moveTo(12f, 2.6f); lineTo(21.4f, 10.4f); lineTo(19.2f, 12.8f)
+                        lineTo(19.2f, 19f); quadraticBezierTo(19.2f, 21f, 17.2f, 21f)
+                        lineTo(14.5f, 21f); lineTo(14.5f, 15.4f); lineTo(9.5f, 15.4f)
+                        lineTo(9.5f, 21f); lineTo(6.8f, 21f)
+                        quadraticBezierTo(4.8f, 21f, 4.8f, 19f); lineTo(4.8f, 12.8f)
+                        lineTo(2.6f, 10.4f); close()
+                    }
+                    drawPath(house, tint)
+                }
+                MarbleGlyph.SERVER -> {
+                    listOf(3.4f, 13.4f).forEachIndexed { index, top ->
+                        val path = slab(top)
+                        val cy = top + 3.6f
+                        path.addOval(Rect(5.8f, cy - 1.1f, 8f, cy + 1.1f))
+                        path.addOval(Rect(10.2f, cy - .65f, 17.6f, cy + .65f))
+                        path.fillType = PathFillType.EvenOdd
+                        drawPath(path, tint)
+                    }
+                }
+                MarbleGlyph.GLOBE -> {
+                    val globe = Path().apply {
+                        addOval(Rect(2.8f, 2.8f, 21.2f, 21.2f))
+                        // Meridian and equator are transparent cuts, so the lens remains visible.
+                        addOval(Rect(10.9f, 3.2f, 13.1f, 20.8f))
+                        addRect(Rect(3.2f, 11.2f, 10.9f, 12.8f))
+                        addRect(Rect(13.1f, 11.2f, 20.8f, 12.8f))
+                        fillType = PathFillType.EvenOdd
+                    }
+                    drawPath(globe, tint)
+                }
+                MarbleGlyph.TUNERS -> {
+                    listOf(6.6f to 15.4f, 12f to 8.6f, 17.4f to 12.8f).forEach { (y, knob) ->
+                        drawRoundRect(
+                            tint, Offset(3.2f, y - 1.25f), Size(17.6f, 2.5f), CornerRadius(1.25f, 1.25f)
+                        )
+                        val dial = Path().apply {
+                            addOval(Rect(knob - 3f, y - 3f, knob + 3f, y + 3f))
+                            addOval(Rect(knob - 1.05f, y - 1.05f, knob + 1.05f, y + 1.05f))
+                            fillType = PathFillType.EvenOdd
+                        }
+                        drawPath(dial, tint)
+                    }
+                }
+                else -> Unit
+            }
+        }
+    }
+    return true
+}
+
+/**
  * Draw [glyph] in [color] inside [modifier]'s bounds on the 24-unit grid.
  */
 @Composable
@@ -698,9 +784,10 @@ internal fun MarbleGlyphIcon(
     color: Color,
     modifier: Modifier = Modifier,
     weight: Float = 1f,
-    mirror: Boolean = false
+    mirror: Boolean = false,
+    fill: Float = 0f
 ) {
     Canvas(modifier) {
-        drawMarbleGlyph(glyph, color, weight = weight, mirror = mirror)
+        drawMarbleGlyph(glyph, color, weight = weight, mirror = mirror, fill = fill)
     }
 }

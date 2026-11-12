@@ -127,6 +127,13 @@ internal fun NavigationItemView(
         animationSpec = spatialSpec,
         label = "liquidLensWeight"
     )
+    // MARBLE_HARMONY_V279 — selection is a filled silhouette, not merely a different dye.
+    // Read in draw phase like scale/weight; the slot and icon boxes remain exactly steady.
+    val glyphFill = animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = spatialSpec,
+        label = "marbleActiveGlyphFill"
+    )
     val statusPresence = animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
         animationSpec = spatialSpec,
@@ -193,7 +200,8 @@ internal fun NavigationItemView(
                 drawMarbleGlyph(
                     glyph = tab.glyph,
                     tint = ink,
-                    weight = glyphWeight.value
+                    weight = glyphWeight.value,
+                    fill = glyphFill.value
                 )
             }
             if (tab.badgeCount > 0) {

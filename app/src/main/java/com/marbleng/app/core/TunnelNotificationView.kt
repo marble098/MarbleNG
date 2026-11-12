@@ -33,6 +33,14 @@ import com.marbleng.app.R
  * `NotificationShadeDesign` owns every *when* decision (badge, clock, rail, telemetry) and is
  * host-JVM tested; this file only paints.
  */
+/** MARBLE_HARMONY_V279 — the two expanded-item verbs, built by the notifier that owns intents. */
+internal data class TunnelShadeActions(
+    val primary: PendingIntent,
+    val primaryLabel: String,
+    val openApp: PendingIntent,
+    val openLabel: String
+)
+
 internal data class TunnelShadeViews(
     val compact: RemoteViews,
     val expanded: RemoteViews
@@ -51,7 +59,8 @@ internal object TunnelNotificationView {
         down: String,
         up: String,
         picker: List<NotificationRoutePicker.PickerRow> = emptyList(),
-        pickerIntent: ((NotificationRoutePicker.PickerRow) -> PendingIntent?)? = null
+        pickerIntent: ((NotificationRoutePicker.PickerRow) -> PendingIntent?)? = null,
+        quickActions: TunnelShadeActions? = null
     ): TunnelShadeViews {
         val layout = if (language == NotificationLanguage.FA) {
             R.layout.notification_tunnel_rtl
@@ -71,8 +80,44 @@ internal object TunnelNotificationView {
             expanded.setViewVisibility(R.id.notif_picker, View.GONE)
             expanded.removeAllViews(R.id.notif_picker)
         }
+        if (quickActions != null && picker.isEmpty()) {
+            attachQuickActions(context, expanded, theme, quickActions)
+        } else {
+            expanded.setViewVisibility(R.id.notif_quick_actions, View.GONE)
+        }
+        compact.setViewVisibility(R.id.notif_quick_actions, View.GONE)
         return TunnelShadeViews(compact = compact, expanded = expanded)
     }
+
+    /** V279: offer one thumb-sized tunnel verb and one clear route back into the app. */
+    private fun attachQuickActions(
+        context: Context,
+        views: RemoteViews,
+        theme: NotificationTheme,
+        actions: TunnelShadeActions
+    ) {
+        val night = isNight(context)
+        val textColor = if (night) theme.chipNight else theme.chipDay
+        views.setViewVisibility(R.id.notif_quick_actions, View.VISIBLE)
+        views.setTextViewText(R.id.notif_action_primary, actions.primaryLabel)
+        views.setTextColor(R.id.notif_action_primary, textColor)
+        views.setOnClickPendingIntent(R.id.notif_action_primary, actions.primary)
+        views.setInt(R.id.notif_action_primary, "setBackgroundResource", themedBackground(theme, chip = true))
+        views.setTextViewText(R.id.notif_action_open, actions.openLabel)
+        views.setTextColor(R.id.notif_action_open, textColor)
+        views.setOnClickPendingIntent(R.id.notif_action_open, actions.openApp)
+        views.setInt(R.id.notif_action_open, "setBackgroundResource", themedBackground(theme, chip = false))
+    }
+
+    private fun themedBackground(theme: NotificationTheme, chip: Boolean): Int =
+        when (theme.id) {
+            "teal" -> if (chip) R.drawable.notif_chip_bg_teal else R.drawable.notif_picker_row_bg_teal
+            "amber" -> if (chip) R.drawable.notif_chip_bg_amber else R.drawable.notif_picker_row_bg_amber
+            "rose" -> if (chip) R.drawable.notif_chip_bg_rose else R.drawable.notif_picker_row_bg_rose
+            "slate" -> if (chip) R.drawable.notif_chip_bg_slate else R.drawable.notif_picker_row_bg_slate
+            "violet" -> if (chip) R.drawable.notif_chip_bg_violet else R.drawable.notif_picker_row_bg_violet
+            else -> if (chip) R.drawable.notif_chip_bg_brand else R.drawable.notif_picker_row_bg_brand
+        }
 
     /**
      * The picker rows are child RemoteViews added one by one — RemoteViews has no adapter, so

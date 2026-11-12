@@ -50,7 +50,7 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A Servers page that is an atlas** — a sources rail that makes a subscription one tap away (with its plan bar and its measured flag cluster), a flag tile on every server drawn from the app's own vector art and filled by the automatic location sweep, one Add pill instead of two buttons, and a sources sheet that owns refresh, scan and edit.
 - **A twelve-expert network council in Settings** — one scan reads the link, the operator, ping, TCP, UDP, DNS, ports, MTU and both address families, then applies the settings it can defend on both cores — with a dissent line for every seat that lost the argument.
 - **A routing page that shows the decision, not the storage** — four modes in one sentence each, written through a single seam that keeps the mode and the rule-list switch describing the same policy; one card that names every layer actually emitting rules (ads, home ranges, Iranian addresses and sites, precision, expert lists, your own rules) with the count it contributes; rule rows that can be paused, moved and copied; duplicate and `regexp:` warnings that used to be silent; and the five expert lists that no screen ever offered, moved behind one Expert settings row.
-- **A crystal liquid-lens navigation bar** — a 68dp frosted stadium with a 52dp glass lens: 22dp glyphs and 11sp labels at rest, a 1.30× bold projection inside the lens, a translucent 0.12 white core, a dual specular rim, a caustic inner glow and a droplet shadow, all drawn — never blurred.
+- **A crystal liquid-lens navigation bar** — a 68dp translucent stadium with a 52dp lens: outlined glyphs become filled when selected, the lens magnifies the glyph and samples a 28 px live-page blur through a padded graphics layer on API 31+, and its rim and caustics stay crisp vector. Capture pauses while the dock is wide or the page scrolls.
 - **A dual pass that cannot ghost** — the passive row is clipped *out* of the lens oval (even-odd) and the magnified projection is clipped *into* it, so the glass never shows two glyphs at two scales. The lens is dragged with a `VelocityTracker`, stretches `1 + min(|v|/3000, 0.25)`, squashes `1 − min(|v|/6000, 0.12)`, snaps to the nearest anchor at `dampingRatio 0.65`, and its centre obeys `paddingStart + lensWidth/2 … width − paddingEnd − lensWidth/2` in every path.
 - **Settings that speak plainly** — 71 titles and sentences rewritten from mechanism to meaning (`Tunnel Datapath` → `Tunnel path`, `Geo direct domestic separation` → `Iranian sites stay direct`, `Network Council Scanner` → `Network check`), constants no longer printed where words belong (`1.1.1.1 · FORCE_IPV4` → `1.1.1.1 · IPv4 only`), with a test that forbids the jargon and a Persian voice for every one of them.
 - **Persian that is spelled the way it is read** — one orthography rule (`PersianOrthography`) separates every glued plural, indefinite and `می`-prefix verb with a half-space (`نسخهها` → `نسخه‌ها`, `میکنه` → `می‌کنه`) and never touches the words that only look glued (`همیشه`, `تنهایی`, `سرورها`). It runs on every translated string at runtime, and its build-time twin sweeps the source literals to zero.
@@ -74,6 +74,13 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 - **A stop that is acknowledged, not punished** — a tunnel datapath run that exits *because Marble asked it to stop* is now an acknowledgement, not a second failure; a stale HEV stop-latch (the 2 ms `run-exit | code=0` that used to loop BLOCKED↔CONNECTING) is consumed once and re-entered; the datapath waits for the core's SOCKS listener before it dials; and every failure reason names the engine that actually stopped — `sing-box core stopped`, never `Xray core stopped` on a sing-box session.
 
 ## The expressive shell: one control, one decision
+
+**V279: `docs/HARMONY_AND_SHADE_V279.md`** — the Home and Settings glyphs share one row-icon language,
+the selected dock tab fills its own silhouette, and a 28 px live-page blur now moves inside the
+transparent glass lens (paused while the page scrolls and gated on API 31). Connected controls gain
+a quiet halo without changing their measured bounds. The expanded notification adds theme-aware,
+thumb-sized Disconnect/Reconnect and Open actions when the route deck is absent; with the deck open,
+the established route budget and system action row remain in charge.
 
 **V278: `docs/AUTO_RELEASE_AND_CRASH_TRUTH_V278.md`** — every merge now chooses its own
 version from the size of the change and builds the signed APKs as a draft release; HEV session
@@ -181,16 +188,15 @@ and the Quick Settings tile — one silhouette at every size, all vector, no PNG
 `SteadyConnectControlsV264Test` measures all four
 tabs and the trigger in every phase and demands identical rectangles.
 
-The newest corrections to this shell are recorded in `docs/QUIET_TABS_AND_READABLE_SURFACES_V263.md`:
-**a tap on the bottom bar no longer opens the tab's name beside its glyph** — the two-second caption,
-the spring-animated slot weight and the largest rung's permanent word are all gone, every tab keeps a
-fixed `weight(1f)`, and the name lives on the slot's `contentDescription` for a screen reader — and
-**a Material 3 Expressive polygon is now a badge, never the clip of a container that holds text**:
-the IP stack tiles and the About core tiles use one rounded reading shape (`MarbleReadingShape`) so
-their concave lobes cannot cut the ends off an IPv6 address or a core tag, while long facts wrap in
-full instead of being ellipsized.
+The newest corrections to this shell are recorded in `docs/HARMONY_AND_SHADE_V279.md`:
+Home and Settings now share one icon language, active tabs fill their glyphs, the dock lens samples a
+blurred live page, and the connected controls breathe without changing size. The expanded
+notification offers theme-aware Disconnect/Reconnect and Open actions when the route deck is absent;
+with the deck present, the existing paging and eight-row budget stay intact. The earlier
+`docs/QUIET_TABS_AND_READABLE_SURFACES_V263.md` chapter records the tab-caption and readable-surface
+correction.
 
-`docs/LIQUID_LENS_NAV_V262.md` is the newest chapter: the bottom bar's selection rebuilt as a **convex
+`docs/LIQUID_LENS_NAV_V262.md` is the previous lens chapter: the bottom bar's selection rebuilt as a **convex
 lens** instead of a tinted highlight — one puck of glass that samples the capsule's own material through Compose's `Modifier.blur` —
 `RenderEffect.createBlurEffect(12f, 12f, CLAMP)` under the hood — (and a soft frost on the platforms
 without it), an

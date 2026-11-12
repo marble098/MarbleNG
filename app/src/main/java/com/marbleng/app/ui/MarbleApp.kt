@@ -259,6 +259,8 @@ private fun MarbleRootShell(
         activeSettingsPage = destination
     }
 
+    val dockBackdrop = rememberMarbleDockBackdrop()
+
     val reportScroll: (Boolean) -> Unit = { scrolling ->
         contentScrolling = scrolling
         onContentScrollChanged(scrolling)
@@ -303,6 +305,9 @@ private fun MarbleRootShell(
         // capped reading column; phones keep the overlay dock. The clearance the
         // screens and the Servers FAB float above follows the chrome.
         val wide = maxWidth >= MarbleSpec.WIDE_RAIL_MIN_WIDTH_DP.dp
+        LaunchedEffect(wide, contentScrolling) {
+            dockBackdrop.enabled = !wide && !contentScrolling && MarbleDockBackdrop.supported
+        }
         // MARBLE_FLOATING_DOCK_V258 — the clearance the pages reserve is derived from the dock the
         // user actually configured: the rung's own height plus the gap they chose under it, with
         // `MarbleSpec.BOTTOM_BAR_CLEARANCE_DP` as the floor. Raising "distance from the bottom" can
@@ -349,6 +354,7 @@ private fun MarbleRootShell(
                         modifier = Modifier
                             .fillMaxSize()
                             .widthIn(max = 840.dp)
+                            .then(dockBackdrop.capture())
                     ) {
                         // MARBLE_MAP_MOTION_V249 — the four tabs are places on one map, and the
                         // detail page is a zoom into one of them.
@@ -576,7 +582,8 @@ private fun MarbleRootShell(
                     tabs = visibleTabs,
                     selected = activeTab,
                     onSelect = selectTab,
-                    onConnect = onConnect
+                    onConnect = onConnect,
+                    backdropSource = dockBackdrop
                 )
             }
         }
@@ -695,7 +702,8 @@ private fun MarbleNavigationRail(
                             glyph = glyph,
                             color = if (isSelected) accent else colors.onSurfaceVariant,
                             modifier = Modifier.size(24.dp),
-                            weight = if (isSelected) 1.18f else 1f
+                            weight = if (isSelected) 1.18f else 1f,
+                            fill = if (isSelected) 1f else 0f
                         )
                     }
                 },
@@ -742,7 +750,8 @@ private fun MarbleBottomTabBar(
     selected: MarbleRootTab,
     onSelect: (MarbleRootTab) -> Unit,
     onConnect: (ProxyProfile) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    backdropSource: MarbleDockBackdrop? = null
 ) {
     val colors = MaterialTheme.colorScheme
     val strings = Tr.now
@@ -895,6 +904,7 @@ private fun MarbleBottomTabBar(
         centerProud = style.showsCenterTrigger,
         leading = island,
         center = trigger,
-        trailing = power
+        trailing = power,
+        backdropSource = backdropSource
     )
 }
