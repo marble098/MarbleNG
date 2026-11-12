@@ -322,7 +322,7 @@ internal fun MarbleDockPowerButton(
                     .align(Alignment.Center)
                     .testTag("dock-power-halo")
             ) {
-                val edge = size.minDimension / 2f
+                val edge = this.size.minDimension / 2f
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
@@ -509,7 +509,7 @@ internal fun MarbleCenterSpringTrigger(
                     .matchParentSize()
                     .testTag("dock-center-halo")
             ) {
-                val edge = (size.minDimension / 2f - 1.dp.toPx()).coerceAtLeast(0f)
+                val edge = (this.size.minDimension / 2f - 1.dp.toPx()).coerceAtLeast(0f)
                 val breath = ConnectPulse.breath(pulsePhase)
                 drawCircle(
                     brush = Brush.radialGradient(

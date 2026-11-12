@@ -305,7 +305,7 @@ internal fun LiquidLensNavigationBar(
                         val window = Path().apply {
                             addRoundRect(RoundRect(0f, 0f, size.width, size.height, radius, radius))
                         }
-                        androidx.compose.ui.graphics.drawscope.clipPath(window) {
+                        clipPath(window) {
                             backdropSource.draw(this, capsuleBounds.value)
                         }
                     }
