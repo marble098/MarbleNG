@@ -51,6 +51,93 @@ private fun faTranslateRaw(text: String): String {
 }
 
 private val FaLexicon: Map<String, String> = mapOf(
+    // ─── MARBLE_ROUTING_CLARITY_V280 ──────────────────────────────────────────────────────────
+    // "What goes direct" is two outcomes, one always-live rule list and one simulator. The words
+    // below are the ones the rebuilt page draws; the same warm second person as the rest.
+    "Where your traffic goes" to "ترافیکت کجا می‌ره",
+    "Iranian sites open directly, everything else rides the tunnel" to
+        "سایت‌های ایرانی مستقیم باز می‌شن، بقیه از تونل می‌رن",
+    "Everything rides the tunnel, except your home network" to
+        "همه‌چیز از تونل می‌ره، جز شبکهٔ خونه",
+    "Ads stay blocked and your own rules below still apply. Only the country lists decide what counts as Iranian." to
+        "تبلیغ‌ها بسته می‌مونن و قانون‌های خودت هم پایین‌تر اعمال می‌شن. فقط فهرست‌های کشوری تعیین می‌کنن چی ایرانی حساب می‌شه.",
+    "Your own rules below still run, so you can send a single site direct or block it." to
+        "قانون‌های خودت پایین‌تر اجرا می‌شن، پس می‌تونی یه سایت رو مستقیم بفرستی یا ببندیش.",
+    "Block ads and trackers" to "بستن تبلیغ و ردیاب‌ها",
+    "Read from the downloaded site list" to "از فهرست سایت دانلودشده خونده می‌شه",
+    "Running right now" to "همین حالا در حال اجرا",
+    "Home network" to "شبکهٔ خونه",
+    "Your own addresses never enter the tunnel" to "آدرس‌های خودت هیچ‌وقت وارد تونل نمی‌شن",
+    "Ads and trackers" to "تبلیغ‌ها و ردیاب‌ها",
+    "Blocked from the downloaded site list" to "از فهرست سایت دانلودشده بسته می‌شن",
+    "Iranian sites" to "سایت‌های ایرانی",
+    "Direct, from the downloaded site list" to "مستقیم، از فهرست سایت دانلودشده",
+    "Iranian addresses" to "آدرس‌های ایرانی",
+    "Direct, from the downloaded address list" to "مستقیم، از فهرست آدرس دانلودشده",
+    "Domestic brands and .ir" to "برندهای داخلی و ‎.ir",
+    "The country rules wait for these files. Everything else already works." to
+        "قانون‌های کشوری منتظر این فایل‌ها هستن. بقیهٔ چیزها همین حالا کار می‌کنن.",
+    "Disconnect first, a download cannot run inside the tunnel." to
+        "اول قطع کن؛ داخل تونل نمی‌شه دانلود کرد.",
+    "How much of Iran stays direct" to "چقدر از ایران مستقیم بمونه",
+    "extra names" to "نام اضافه",
+    "The downloaded lists always decide first. These levels only add names on top." to
+        "فهرست‌های دانلودشده همیشه اول تصمیم می‌گیرن. این سطح‌ها فقط چند نام روش اضافه می‌کنن.",
+    "My rules" to "قانون‌های من",
+    "Pick a site or an address, then where it goes" to "یه سایت یا آدرس انتخاب کن، بعد بگو کجا بره",
+    "Needs a fix" to "نیاز به اصلاح",
+    "No rules yet. The policy above decides everything on its own." to
+        "هنوز قانونی نداری. سیاست بالا خودش همه‌چیز رو تصمیم می‌گیره.",
+    "Regular expressions are slow: they are checked on every request." to
+        "عبارت‌های باقاعده کندن: برای هر درخواست بررسی می‌شن.",
+    "Your rules are checked before the country lists, so a rule you write wins." to
+        "قانون‌های تو قبل از فهرست‌های کشوری بررسی می‌شن، پس قانونی که می‌نویسی برنده می‌شه.",
+    "At runtime" to "موقع اجرا",
+    "Advanced" to "پیشرفته",
+    "Download source and custom addresses" to "منبع دانلود و آدرس‌های دلخواه",
+    "Only needed when you replace the bundled country lists" to
+        "فقط وقتی لازمه که فهرست‌های کشوری همراه برنامه رو عوض کنی",
+    "Move the old lists into my rules" to "فهرست‌های قدیمی رو به قانون‌هام منتقل کن",
+    "entries from an earlier version" to "مورد از نسخهٔ قبلی",
+    "Every row above describes the config the core will read. Nothing is decided twice." to
+        "هر ردیف بالا همون چیزیه که هسته می‌خونه؛ هیچ‌چیز دو بار تصمیم گرفته نمی‌شه.",
+    "Optional. The policy above works without any of it." to
+        "اختیاری. سیاست بالا بدون هیچ‌کدوم از این‌ها هم کار می‌کنه.",
+    "Address list download" to "دانلود فهرست آدرس‌ها",
+    "Site list download" to "دانلود فهرست سایت‌ها",
+    "The lists from the earlier layout still hold" to "فهرست‌های چیدمان قبلی هنوز این‌ها رو دارن",
+    "entries. They work, but they are a second place to look." to
+        "مورد. کار می‌کنن، ولی جای دومی برای نگاه‌کردنن.",
+    "Move them into my rules" to "منتقلشون کن به قانون‌هام",
+    "Both" to "هر دو",
+    "TCP only" to "فقط TCP",
+    "UDP only" to "فقط UDP",
+    "Off keeps it saved without using it" to "خاموش یعنی ذخیره می‌مونه ولی استفاده نمی‌شه",
+    "From" to "از",
+    "Everything else" to "بقیهٔ چیزها",
+    "Blocked sites" to "سایت‌های بسته‌شده",
+    "Blocked addresses" to "آدرس‌های بسته‌شده",
+    "Always through the tunnel" to "همیشه از تونل",
+    "Your direct sites" to "سایت‌های مستقیم تو",
+    "Your direct addresses" to "آدرس‌های مستقیم تو",
+    "IPv6 is switched off, so every IPv6 address is blocked" to
+        "IPv6 خاموشه، پس هر آدرس IPv6 بسته می‌شه.",
+    "The address is on your own network" to "این آدرس توی شبکهٔ خودته.",
+    "Matched the ad list" to "با فهرست تبلیغ‌ها جور شد.",
+    "The address is in the Iranian list" to "این آدرس توی فهرست ایران هست.",
+    "The site is in the Iranian list" to "این سایت توی فهرست ایران هست.",
+    "Matched the domestic list" to "با فهرست داخلی جور شد.",
+    "The country lists decide this one at runtime; without a match it rides the tunnel" to
+        "فهرست‌های کشوری موقع اجرا تصمیم می‌گیرن؛ اگر جور نشه از تونل می‌ره.",
+    "Nothing matched, so it rides the tunnel" to "هیچ‌چیز جور نشد، پس از تونل می‌ره.",
+    "Matched your blocked-sites list" to "با فهرست سایت‌های بستهٔ خودت جور شد.",
+    "Matched your blocked-addresses list" to "با فهرست آدرس‌های بستهٔ خودت جور شد.",
+    "Matched your always-tunnel list" to "با فهرست «همیشه از تونل» جور شد.",
+    "Matched your direct-sites list" to "با فهرست سایت‌های مستقیم خودت جور شد.",
+    "Matched your direct-addresses list" to "با فهرست آدرس‌های مستقیم خودت جور شد.",
+    "Iran routing saved" to "مسیریابی ایران ذخیره شد",
+    "Iran routing saved • reconnect to apply it to the active tunnel" to
+        "مسیریابی ایران ذخیره شد • برای اعمال روی تونل فعال دوباره وصل شو",
     "Uses downloaded Iran lists plus exact domestic domain suffixes. Brand substrings never bypass the tunnel." to "از فهرست‌های دانلودشدهٔ ایران و پسوند دقیق دامنه‌های داخلی استفاده می‌کند؛ وجود نام برند در آدرس باعث خروج از تونل نمی‌شود.",
 
     // ─── MARBLE_LUMEN_DOCK_V256 / MARBLE_HOME_WIDGETS_V256 ───────────────────────────────────

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
@@ -44,7 +45,6 @@ import com.marbleng.app.core.GeoAssetRegistry
 import com.marbleng.app.core.IranPrecisionPack
 import com.marbleng.app.core.RoutingEngine
 import com.marbleng.app.core.RoutingOverview
-import com.marbleng.app.core.RoutingPresets
 import com.marbleng.app.model.AddressFamilyMode
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.FragmentStrategy
@@ -66,29 +66,24 @@ import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
 
 /**
- * MARBLE_ROUTING_REBUILD_V254 — the routing page, rebuilt from the outcome backwards.
+ * MARBLE_ROUTING_CLARITY_V280 — "what goes direct", rebuilt as two choices, one rule list and one
+ * proof.
  *
- * The complaint was that this page was crowded, noisy and meaningless. Reading it against the code
- * explained why: it was a rendering of the *storage*, not of the *decision*. Four independent
- * mechanisms wrote routing rules — the mode, the implicit geo lists, five "expert" comma-separated
- * text boxes that no screen offered, and a rule list behind its own switch — and the page showed
- * one of them at a time under headings that named the mechanism ("Rule Presets & Domain Strategy",
- * "GeoIP & GeoSite Databases", "Multi-Source Geo Databases"). A person could not answer the only
- * question they came with: *what happens to my traffic?*
+ * V254 answered the same complaint by rendering the decision instead of the storage, but it kept
+ * four modes, six ready-made sets and a second switch for the rules. Three of those were not
+ * controls: [RoutingMode.BYPASS_PRIVATE] emitted the same rules as [RoutingMode.PROXY_ALL], the
+ * presets only rewrote the rule list, and the rule switch turned the list off in one core while the
+ * Xray verifier still demanded a route for it. The page is now:
  *
- * This page answers that question in the order a person asks it:
- *
- *  1. [what is sorted how](routing page, first card) — four modes, each one sentence, written
- *     through [RoutingOverview.decide] so the mode and the rule-list switch can never disagree;
- *  2. [which country lists power it](the geo cards) — one source picker, one precision dial, one
- *     update button, and the honest readiness of both files;
- *  3. [my own rules](the custom card) — one switch, then the rules themselves with pause, move,
- *     copy and delete, plus a visible warning for the two mistakes that used to be silent
- *     (duplicate matchers, regex matchers that cost on every request);
- *  4. [prove it](the simulator) — a host name in, the verdict and the winning step out.
- *
- * Everything that used to be a silent second control surface (the expert lists, the raw source
- * URLs) is still reachable, but behind one "Expert settings" row, and it says what it will do.
+ *  1. **Where your traffic goes** — two outcomes, each one sentence, plus the ad list, which had a
+ *     switch nowhere in the app even though the engine honoured it;
+ *  2. **Running right now** — the layers that really emit rules, in the order the core reads them;
+ *  3. **Country lists** — the two files, one download verb, and the source it comes from;
+ *  4. **How much of Iran stays direct** — the precision dial, only while it can do anything;
+ *  5. **My rules** — always live, added before the country lists so an explicit rule wins;
+ *  6. **Try a site** — a host in, the same steps out that the router would take;
+ *  7. **Advanced** — the download source, the custom addresses, the old comma lists and the core
+ *     check, all behind one row because none of them is needed to use the page.
  */
 @Composable
 fun SettingsRoutingPage(
@@ -98,21 +93,31 @@ fun SettingsRoutingPage(
     val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val assets = repo.routingAssetStatus()
+    val policy = RoutingOverview.policyOf(s)
     val rules = remember(s.routingRulesJson) { RoutingEngine.effectiveRules(s) }
-    val geoIds = GeoAssetRegistry.parseIds(s.geoAssetSourceIds)
-    val catalog = remember(s.geoAssetSourceIds, s.geoCustomSourcesJson) { GeoAssetRegistry.catalog(s) }
-    val precision = parseGeoPrecision(s.geoPrecision)
-    val sections = remember(s) { RoutingOverview.sections(s) }
+    val liveRules = remember(rules) { rules.count { it.enabled } }
+    val layers = remember(s, assets.geoIpReady, assets.geoSiteReady) {
+        RoutingOverview.layers(s, assets.geoIpReady, assets.geoSiteReady)
+    }
     val duplicates = remember(rules) { RoutingOverview.duplicateMatchers(rules) }
     val regexRules = remember(rules) { RoutingOverview.regexRules(rules) }
-    val activePreset = remember(rules) { RoutingOverview.activePresetId(s) }
+    val legacyEntries = remember(s) { RoutingOverview.legacyListCount(s) }
+    val precision = parseGeoPrecision(s.geoPrecision)
+    val sources = remember(s.geoAssetSourceIds, s.geoCustomSourcesJson) {
+        GeoAssetRegistry.catalog(s)
+    }
+    val source = remember(s.geoAssetSourceId, sources) {
+        sources.firstOrNull { it.id == s.geoAssetSourceId } ?: sources.firstOrNull()
+    }
+    val listsReady = assets.geoIpReady && assets.geoSiteReady
 
     var editingRule by remember { mutableStateOf<RoutingRule?>(null) }
+    var editingIndex by remember { mutableStateOf(-1) }
     var editingIsNew by remember { mutableStateOf(false) }
-    var expertSheet by remember { mutableStateOf(false) }
+    var advanced by remember { mutableStateOf(false) }
     var simHost by rememberSaveable { mutableStateOf("") }
     var showAllSteps by rememberSaveable { mutableStateOf(false) }
-    val simulation = remember(simHost, s) {
+    val simulation = remember(simHost, s, assets.geoIpReady, assets.geoSiteReady) {
         if (simHost.isBlank()) null else repo.simulateRoute(simHost.trim())
     }
 
@@ -120,127 +125,86 @@ fun SettingsRoutingPage(
         glyph = MarbleGlyph.ROUTE,
         tint = colors.success,
         title = trx("What goes direct"),
-        subtitle = trx(RoutingOverview.summary(s.routingMode)),
+        subtitle = trx(RoutingOverview.summary(policy)),
         onBack = onBack
     ) {
-        // ---------------------------------------------------------------- 1. the decision
-        item(key = "routing-mode") {
+        // ---------------------------------------------------------------- 1. the one decision
+        item(key = "routing-policy") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(title = trx("How traffic is sorted"))
-                MarbleCard {
-                    RoutingMode.entries.forEachIndexed { index, mode ->
+                MarbleSectionHeader(title = trx("Where your traffic goes"))
+                MarbleCard(borderColor = colors.success.copy(alpha = 0.30f)) {
+                    RoutingOverview.Policy.entries.forEachIndexed { index, candidate ->
                         if (index > 0) MarbleDivider()
                         MarbleChoiceRow(
-                            title = trx(modeTitle(mode)),
-                            subtitle = trx(RoutingOverview.summary(mode)),
-                            selected = s.routingMode == mode,
-                            glyph = modeGlyph(mode),
-                            iconTint = mode.tone(colors),
-                            onClick = { repo.setRoutingMode(mode) }
+                            title = trx(RoutingOverview.title(candidate)),
+                            subtitle = trx(RoutingOverview.summary(candidate)),
+                            selected = policy == candidate,
+                            glyph = if (candidate == RoutingOverview.Policy.IRAN_DIRECT) {
+                                MarbleGlyph.SHIELD
+                            } else {
+                                MarbleGlyph.GLOBE
+                            },
+                            iconTint = if (candidate == RoutingOverview.Policy.IRAN_DIRECT) {
+                                colors.success
+                            } else {
+                                colors.primary
+                            },
+                            badge = if (candidate == RoutingOverview.Policy.IRAN_DIRECT) {
+                                trx("Recommended")
+                            } else {
+                                ""
+                            },
+                            onClick = { repo.setRoutingPolicy(candidate) }
+                        )
+                    }
+                    MarbleDivider()
+                    MarbleSwitchRow(
+                        title = trx("Block ads and trackers"),
+                        subtitle = trx("Read from the downloaded site list"),
+                        checked = s.routeBlockAds,
+                        glyph = MarbleGlyph.SHIELD,
+                        iconTint = colors.error,
+                        onCheckedChange = { repo.setAdBlocking(it) }
+                    )
+                }
+                MarbleSectionFooter(trx(RoutingOverview.note(policy)))
+            }
+        }
+
+        // ------------------------------------------------------- 2. what that decision does now
+        item(key = "routing-in-force") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleSectionHeader(
+                    title = trx("Running right now"),
+                    badge = faDigits("${layers.size}")
+                )
+                MarbleCard {
+                    layers.forEachIndexed { index, layer ->
+                        if (index > 0) MarbleDivider()
+                        val tone = layer.outbound.tone(colors)
+                        MarbleListItem(
+                            title = trx(layer.title),
+                            subtitle = trx(layer.detail),
+                            glyph = glyphOf(layer.outbound),
+                            iconTint = tone,
+                            showChevron = false,
+                            trailing = {
+                                MarbleBadge(text = trx(layer.outbound.label), color = tone)
+                            }
                         )
                     }
                 }
-                MarbleSectionFooter(trx(RoutingOverview.note(s.routingMode)))
             }
         }
 
-        // ------------------------------------------------------- 2. what the decision reads
-        item(key = "routing-layers") {
-            if (sections.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MarbleSectionHeader(
-                        title = trx("What this reads today"),
-                        badge = faDigits("${sections.size}")
-                    )
-                    MarbleCard {
-                        sections.forEachIndexed { index, section ->
-                            if (index > 0) MarbleDivider()
-                            val tone = section.outbound.tone(colors)
-                            val count = faDigits("${section.count}")
-                            MarbleListItem(
-                                title = trx(section.title),
-                                subtitle = trx(section.detail) + " • " + if (section.count == 1) {
-                                    trx("One entry")
-                                } else {
-                                    trx("Entries") + ": " + count
-                                },
-                                glyph = when (section.outbound) {
-                                    RoutingOutbound.DIRECT -> MarbleGlyph.HOME
-                                    RoutingOutbound.BLOCK -> MarbleGlyph.SHIELD
-                                    RoutingOutbound.PROXY -> MarbleGlyph.TUNNEL
-                                },
-                                iconTint = tone,
-                                showChevron = false,
-                                trailing = {
-                                    MarbleBadge(
-                                        text = trx(section.outbound.label),
-                                        color = tone
-                                    )
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // ------------------------------------------------------------- 3. the geo database
-        item(key = "routing-lists-state") {
-            val missing = buildList {
-                if (!assets.geoIpReady && RoutingEngine.needsGeoIp(s)) add("Address list")
-                if (!assets.geoSiteReady && RoutingEngine.needsGeoSite(s)) add("Site list")
-            }
+        // ---------------------------------------------------------------- 3. the two files
+        item(key = "routing-lists") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(
                     title = trx("Country lists"),
-                    badge = if (missing.isEmpty()) trx("Ready") else trx("Needs download"),
-                    badgeColor = if (missing.isEmpty()) colors.success else colors.warning,
-                    trailing = if (missing.isEmpty()) {
-                        {
-                            // One verb, in one place, in both states: the card below carries it
-                            // while something is missing, and this header carries it once everything
-                            // is present — the only case the card is not drawn in.
-                            MarbleIconButton(
-                                glyph = MarbleGlyph.REFRESH,
-                                tint = colors.primary,
-                                enabled = !repo.busy && repo.state == "DISCONNECTED",
-                                contentDescription = trx("Download the lists"),
-                                onClick = { repo.prepareRoutingAssets(force = true) }
-                            )
-                        }
-                    } else {
-                        null
-                    }
+                    badge = if (listsReady) trx("Ready") else trx("Needs download"),
+                    badgeColor = if (listsReady) colors.success else colors.warning
                 )
-                if (missing.isNotEmpty()) {
-                    MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(
-                                text = if (missing.size == 1) {
-                                    trx("The country rules stay paused until this file is downloaded") +
-                                        ": " + trx(missing.first())
-                                } else {
-                                    trx("The country rules stay paused until both files are downloaded") +
-                                        ": " + missing.map { trx(it) }.joinToString(" + ")
-                                },
-                                color = colors.onSurface,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            MarbleButton(
-                                label = trx("Download the lists"),
-                                glyph = MarbleGlyph.DOWNLOAD,
-                                enabled = !repo.busy && repo.state == "DISCONNECTED",
-                                onClick = { repo.prepareRoutingAssets(force = true) },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            if (repo.state != "DISCONNECTED") {
-                                MarbleSectionFooter(
-                                    trx("Disconnect first — a download cannot run inside an active tunnel.")
-                                )
-                            }
-                        }
-                    }
-                }
                 MarbleCard {
                     RoutingAssetRow(
                         title = trx("Address list"),
@@ -257,173 +221,86 @@ fun SettingsRoutingPage(
                         bytes = assets.geoSiteBytes,
                         updatedAt = assets.geoSiteUpdatedAt
                     )
-                }
-            }
-        }
-
-        item(key = "routing-source") {
-            val primary = geoIds.firstOrNull() ?: catalog.firstOrNull()?.id.orEmpty()
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MarbleSectionHeader(title = trx("Where the lists come from"))
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MarbleDropdownField(
-                            label = trx("Download source"),
-                            value = primary,
-                            options = catalog.map { spec ->
-                                MarbleMenuOption(
-                                    value = spec.id,
-                                    label = spec.label,
-                                    detail = if (spec.bundled) {
-                                        "geoip.dat + geosite.dat • " + trx("Already inside the app")
-                                    } else {
-                                        "geoip.dat + geosite.dat"
-                                    }
-                                )
-                            },
-                            onSelect = { id ->
-                                repo.applyGeoAssetSource(id)
-                            }
-                        )
-                        // MARBLE_ROUTING_REBUILD_V254 — the dropdown already names the source, so
-                        // this line says the one thing it cannot: the first source is the one the
-                        // country lists are read from, and the rest are added to it.
-                        Text(
-                            text = if (s.geoMultiSourceEnabled) {
-                                trx("Read first, then the ones switched on below.")
-                            } else {
-                                trx("Both files come from this address.")
-                            },
-                            color = colors.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-
-                MarbleCard {
-                    MarbleSwitchRow(
-                        title = trx("Combine several sources"),
-                        subtitle = trx("Extra sources are read after the first one"),
-                        checked = s.geoMultiSourceEnabled,
-                        glyph = MarbleGlyph.LAYERS,
-                        iconTint = colors.secondary,
-                        onCheckedChange = { on ->
-                            repo.updateSettings(s.copy(geoMultiSourceEnabled = on))
-                        }
-                    )
-                    if (s.geoMultiSourceEnabled) {
-                        catalog.filterNot { it.id == primary }.forEach { spec ->
-                            MarbleDivider()
-                            val selected = spec.id in geoIds
-                            MarbleSwitchRow(
-                                title = spec.label,
-                                subtitle = sourceDetail(spec),
-                                checked = selected,
-                                glyph = MarbleGlyph.FOLDER,
-                                iconTint = if (selected) colors.tertiary else colors.onSurfaceVariant,
-                                onCheckedChange = { repo.toggleGeoAssetSource(spec.id) }
+                    if (!listsReady) {
+                        MarbleDivider()
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(PaddingValues(16.dp)),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = trx("The country rules wait for these files. Everything else already works."),
+                                color = colors.warning,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            MarbleButton(
+                                label = trx("Download the lists"),
+                                glyph = MarbleGlyph.DOWNLOAD,
+                                enabled = !repo.busy && repo.state == "DISCONNECTED",
+                                onClick = { repo.prepareRoutingAssets(force = true) },
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
                 }
-            }
-        }
-
-        item(key = "routing-precision") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MarbleSectionHeader(
-                    title = trx("How much domestic traffic stays direct"),
-                    badge = faDigits("${domesticEntries(precision)}") + " " + trx("Entries"),
-                    badgeColor = colors.primary
+                MarbleSectionFooter(
+                    trx("From") + " " + trx(source?.label.orEmpty()) +
+                        if (repo.state != "DISCONNECTED") {
+                            " • " + trx("Disconnect first, a download cannot run inside the tunnel.")
+                        } else {
+                            ""
+                        }
                 )
-                MarbleCard {
-                    GeoPrecision.entries.forEachIndexed { index, level ->
-                        if (index > 0) MarbleDivider()
-                        MarbleChoiceRow(
-                            title = trx(precisionTitle(level)),
-                            subtitle = trx(precisionHint(level)),
-                            selected = precision == level,
-                            glyph = MarbleGlyph.SHIELD,
-                            iconTint = colors.success,
-                            onClick = { repo.setGeoPrecision(level) }
-                        )
-                    }
-                }
-                if (!s.iranDomesticDirect) {
-                    MarbleSectionFooter(
-                        trx("This only works while Iranian sites stay direct is switched on.")
-                    )
-                }
             }
         }
 
-        // ---------------------------------------------------------------- 4. own rules
-        item(key = "routing-custom-header") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MarbleSectionHeader(
-                    title = trx("My own rules"),
-                    badge = faDigits("${rules.count { it.enabled }}") + " / " + faDigits("${rules.size}")
-                )
-                MarbleCard {
-                    MarbleSwitchRow(
-                        title = trx("Use my own rules"),
-                        subtitle = trx("Rules you wrote here"),
-                        checked = s.customRoutingEnabled,
-                        glyph = MarbleGlyph.TUNERS,
-                        iconTint = colors.primary,
-                        onCheckedChange = { repo.setCustomRoutingEnabled(it) }
+        // ------------------------------------------------------------ 4. the domestic dial
+        if (policy == RoutingOverview.Policy.IRAN_DIRECT) {
+            item(key = "routing-precision") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MarbleSectionHeader(
+                        title = trx("How much of Iran stays direct"),
+                        badge = faDigits("${domesticEntries(precision)}") + " " + trx("extra names"),
+                        badgeColor = colors.primary
                     )
-                }
-            }
-        }
-
-        if (rules.isNotEmpty()) {
-            item(key = "routing-custom-warnings") {
-                val warnings = buildList {
-                    if (duplicates.isNotEmpty()) {
-                        add(
-                            trx("Some rules repeat each other") + " • " +
-                                faDigits("${duplicates.size}")
-                        )
-                    }
-                    if (regexRules.isNotEmpty()) {
-                        add(trx("Regular expressions cost time on every request") + " • " +
-                            faDigits("${regexRules.size}"))
-                    }
-                }
-                if (warnings.isNotEmpty()) {
-                    MarbleCard(contentPadding = PaddingValues(14.dp)) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            warnings.forEach { line ->
-                                Text(
-                                    text = "• $line",
-                                    color = colors.warning,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
+                    MarbleCard {
+                        GeoPrecision.entries.forEachIndexed { index, level ->
+                            if (index > 0) MarbleDivider()
+                            MarbleChoiceRow(
+                                title = trx(precisionTitle(level)),
+                                subtitle = trx(precisionHint(level)),
+                                selected = precision == level,
+                                glyph = MarbleGlyph.SHIELD,
+                                iconTint = colors.success,
+                                onClick = { repo.setGeoPrecision(level) }
+                            )
                         }
                     }
+                    MarbleSectionFooter(
+                        trx("The downloaded lists always decide first. These levels only add names on top.")
+                    )
                 }
             }
         }
 
-        item(key = "routing-custom-list") {
+        // ---------------------------------------------------------------- 5. my own rules
+        item(key = "routing-rules") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleSectionHeader(
+                    title = trx("My rules"),
+                    badge = faDigits("$liveRules") + " / " + faDigits("${rules.size}")
+                )
                 MarbleCard {
                     MarbleListItem(
                         title = trx("Add a rule"),
-                        subtitle = trx("Pick what to match, then where it goes"),
+                        subtitle = trx("Pick a site or an address, then where it goes"),
                         glyph = MarbleGlyph.PLUS,
                         iconTint = colors.primary,
                         onClick = {
                             editingIsNew = true
-                            editingRule = RoutingRule(
-                                id = UUID.randomUUID().toString().take(10),
-                                enabled = true,
-                                kind = RoutingRuleKind.DOMAIN,
-                                matcher = "",
-                                outbound = RoutingOutbound.PROXY
-                            )
+                            editingIndex = -1
+                            editingRule = RoutingEngine.newRule()
                         }
                     )
                     rules.forEachIndexed { index, rule ->
@@ -431,95 +308,61 @@ fun SettingsRoutingPage(
                         val tone = rule.outbound.tone(colors)
                         val issue = RoutingEngine.validateRule(rule)
                             .firstOrNull { it.severity == RoutingEngine.IssueSeverity.ERROR }
-                        val duplicateOf = duplicates[rule.id]
+                        val paused = !rule.enabled || issue != null
+                        val note = when {
+                            issue != null -> trx("Needs a fix")
+                            !rule.enabled -> trx("Paused")
+                            duplicates[rule.id] != null -> trx("Same as an earlier rule")
+                            else -> ""
+                        }
                         MarbleListItem(
-                            title = rule.remark.ifBlank { rule.matcher.ifBlank { trx(rule.kind.label) } },
+                            title = rule.remark.ifBlank {
+                                rule.matcher.ifBlank { trx(rule.kind.label) }
+                            },
                             subtitle = buildString {
                                 append(trx(rule.kind.label))
-                                append(" · ")
-                                append(rule.matcher)
-                                if (issue != null) {
-                                    append(" • ")
-                                    append(trx("needs attention"))
-                                } else if (duplicateOf != null) {
-                                    append(" • ")
-                                    append(trx("same as an earlier rule"))
-                                } else if (!rule.enabled) {
-                                    append(" • ")
-                                    append(trx("paused"))
+                                if (rule.remark.isNotBlank()) {
+                                    append(" · ")
+                                    append(rule.matcher)
+                                }
+                                if (note.isNotBlank()) {
+                                    append(" · ")
+                                    append(note)
                                 }
                             },
-                            glyph = when (rule.outbound) {
-                                RoutingOutbound.PROXY -> MarbleGlyph.TUNNEL
-                                RoutingOutbound.DIRECT -> MarbleGlyph.HOME
-                                RoutingOutbound.BLOCK -> MarbleGlyph.SHIELD
-                            },
-                            iconTint = if (rule.enabled) tone else colors.onSurfaceVariant,
-                            titleColor = if (rule.enabled) colors.onSurface else colors.onSurfaceVariant,
+                            glyph = glyphOf(rule.outbound),
+                            iconTint = if (paused) colors.onSurfaceVariant else tone,
+                            titleColor = if (paused) colors.onSurfaceVariant else colors.onSurface,
                             showChevron = false,
                             onClick = {
                                 editingIsNew = false
+                                editingIndex = index
                                 editingRule = rule
                             },
                             trailing = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    MarbleBadge(text = trx(rule.outbound.label), color = tone)
-                                    MarbleIconButton(
-                                        glyph = MarbleGlyph.CHEVRON_DOWN,
-                                        onClick = { repo.moveRoutingRule(rule.id, -1) },
-                                        modifier = Modifier
-                                            .size(34.dp)
-                                            .rotate(180f),
-                                        tint = colors.onSurfaceVariant,
-                                        enabled = index > 0,
-                                        contentDescription = trx("Move up")
-                                    )
-                                    MarbleIconButton(
-                                        glyph = MarbleGlyph.CHEVRON_DOWN,
-                                        onClick = { repo.moveRoutingRule(rule.id, 1) },
-                                        modifier = Modifier.size(34.dp),
-                                        tint = colors.onSurfaceVariant,
-                                        enabled = index < rules.lastIndex,
-                                        contentDescription = trx("Move down")
-                                    )
-                                }
+                                MarbleBadge(text = trx(rule.outbound.label), color = tone)
                             }
                         )
                     }
                 }
                 if (rules.isEmpty()) {
                     MarbleSectionFooter(
-                        trx("No rules yet. The mode above still decides everything.")
+                        trx("No rules yet. The policy above decides everything on its own.")
+                    )
+                } else if (regexRules.isNotEmpty()) {
+                    MarbleSectionFooter(
+                        trx("Regular expressions are slow: they are checked on every request.") + " • " +
+                            faDigits("${regexRules.size}")
+                    )
+                } else {
+                    MarbleSectionFooter(
+                        trx("Your rules are checked before the country lists, so a rule you write wins.")
                     )
                 }
             }
         }
 
-        item(key = "routing-presets") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MarbleSectionHeader(title = trx("Start from a ready set"))
-                MarbleChipStrip {
-                    RoutingPresets.Preset.entries.forEach { preset ->
-                        MarblePillChip(
-                            label = trx(preset.title) + " · " + faDigits("${preset.rules.size}"),
-                            selected = activePreset == preset.id,
-                            accent = colors.success,
-                            onClick = { repo.applyRoutingPreset(preset) }
-                        )
-                    }
-                }
-                val active = RoutingPresets.Preset.entries.firstOrNull { it.id == activePreset }
-                MarbleSectionFooter(
-                    trx("A ready set replaces the list and switches my own rules on.") + " " +
-                        trx(active?.summary.orEmpty())
-                )
-            }
-        }
-
-        // ------------------------------------------------------------- 5. prove the route
+        // ---------------------------------------------------------------- 6. prove the route
         item(key = "routing-simulator") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(title = trx("Try a site"))
@@ -543,81 +386,97 @@ fun SettingsRoutingPage(
                         }
                         simulation?.let { sim ->
                             val tone = sim.verdict.tone(colors)
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    MarbleBadge(text = trx(sim.verdict.label), color = tone)
-                                    Text(
-                                        text = trx(sim.verdictReason),
-                                        color = colors.onSurface,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                                val steps = if (showAllSteps) sim.steps else sim.steps.filter { it.matched == true }
-                                steps.forEachIndexed { index, step ->
-                                    if (index > 0) MarbleDivider()
-                                    val stepTone = step.outbound?.tone(colors) ?: colors.onSurfaceVariant
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        MarbleBadge(
-                                            text = if (step.skipped) trx("Skipped")
-                                            else if (step.matched == null) trx("Checked later")
-                                            else if (step.matched == true) trx("Matched")
-                                            else trx("No match"),
-                                            color = if (step.matched == true) stepTone else colors.onSurfaceVariant
-                                        )
-                                        Column(Modifier.weight(1f)) {
-                                            Text(
-                                                text = trx(step.title),
-                                                color = colors.onSurface,
-                                                style = MaterialTheme.typography.labelLarge
-                                            )
-                                            Text(
-                                                text = step.detail,
-                                                color = colors.onSurfaceVariant,
-                                                style = MaterialTheme.typography.labelSmall.copy(
-                                                    fontFamily = FontFamily.Monospace
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                                MarbleButton(
-                                    label = if (showAllSteps) trx("Show only what matched")
-                                    else trx("Show every step"),
-                                    style = MarbleButtonStyle.SECONDARY,
-                                    compact = true,
-                                    onClick = { showAllSteps = !showAllSteps }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                MarbleBadge(text = trx(sim.verdict.label), color = tone)
+                                Text(
+                                    text = trx(sim.verdictReason),
+                                    color = colors.onSurface,
+                                    style = MaterialTheme.typography.bodySmall
                                 )
                             }
+                            val steps = if (showAllSteps) {
+                                sim.steps
+                            } else {
+                                sim.steps.filter { it.matched == true }
+                            }
+                            steps.forEachIndexed { index, step ->
+                                if (index > 0) MarbleDivider()
+                                val stepTone = step.outbound?.tone(colors) ?: colors.onSurfaceVariant
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    MarbleBadge(
+                                        text = when {
+                                            step.skipped -> trx("Skipped")
+                                            step.matched == null -> trx("At runtime")
+                                            step.matched == true -> trx("Matched")
+                                            else -> trx("No match")
+                                        },
+                                        color = if (step.matched == true) {
+                                            stepTone
+                                        } else {
+                                            colors.onSurfaceVariant
+                                        }
+                                    )
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            text = trx(step.title),
+                                            color = colors.onSurface,
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                        Text(
+                                            text = step.detail,
+                                            color = colors.onSurfaceVariant,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                            MarbleButton(
+                                label = if (showAllSteps) {
+                                    trx("Show only what matched")
+                                } else {
+                                    trx("Show every step")
+                                },
+                                style = MarbleButtonStyle.SECONDARY,
+                                compact = true,
+                                onClick = { showAllSteps = !showAllSteps }
+                            )
                         }
                     }
                 }
             }
         }
 
-        item(key = "routing-tools") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MarbleSectionHeader(title = trx("Housekeeping"))
+        // ------------------------------------------------------------------- 7. everything else
+        item(key = "routing-advanced") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleSectionHeader(title = trx("Advanced"))
                 MarbleCard {
-                    // MARBLE_ONE_RESET_V261 (the duplicate-control sweep) — one download verb per
-                    // page, and it lives where the reason does.
-                    //
-                    // This row said "Update the lists now" and the Country lists card above said
-                    // "Download the lists"; both called `prepareRoutingAssets(force = true)` behind
-                    // the same "busy" gate. Not two verbs for two situations — one verb, twice, and
-                    // the second copy sat directly under the first whenever a file was missing.
-                    //
-                    // The card keeps the verb, because it is the one that says *why* the download is
-                    // needed and what stays paused until it happens. What is left here is the second
-                    // answer a reader needs once the files exist: whether the core agrees with the
-                    // policy they build. A refresh that is genuinely about *staleness* — the source
-                    // moved on but nothing is missing — is the same verb in the same place, so the
-                    // Country lists header carries the button in that state.
+                    MarbleListItem(
+                        title = trx("Download source and custom addresses"),
+                        subtitle = trx("Only needed when you replace the bundled country lists"),
+                        glyph = MarbleGlyph.FOLDER,
+                        iconTint = colors.tertiary,
+                        onClick = { advanced = true }
+                    )
+                    if (legacyEntries > 0) {
+                        MarbleDivider()
+                        MarbleListItem(
+                            title = trx("Move the old lists into my rules"),
+                            subtitle = faDigits("$legacyEntries") + " " + trx("entries from an earlier version"),
+                            glyph = MarbleGlyph.LAYERS,
+                            iconTint = colors.warning,
+                            onClick = { repo.importLegacyRoutingLists() }
+                        )
+                    }
+                    MarbleDivider()
                     MarbleListItem(
                         title = trx("Check the policy with the core"),
                         subtitle = trx("Builds a real config and asks the core whether it runs"),
@@ -626,15 +485,10 @@ fun SettingsRoutingPage(
                         enabled = !repo.busy,
                         onClick = { repo.verifyRoutingPolicy() }
                     )
-                    MarbleDivider()
-                    MarbleListItem(
-                        title = trx("Expert settings"),
-                        subtitle = trx("Custom download addresses and the old comma-separated lists"),
-                        glyph = MarbleGlyph.TUNERS,
-                        iconTint = colors.tertiary,
-                        onClick = { expertSheet = true }
-                    )
                 }
+                MarbleSectionFooter(
+                    trx("Every row above describes the config the core will read. Nothing is decided twice.")
+                )
             }
         }
     }
@@ -644,41 +498,31 @@ fun SettingsRoutingPage(
             repo = repo,
             initial = current,
             isNew = editingIsNew,
+            index = editingIndex,
+            count = rules.size,
             duplicatesOf = duplicates[current.id],
             onDismiss = { editingRule = null }
         )
     }
 
-    if (expertSheet) {
-        RoutingExpertSheet(repo = repo, onDismiss = { expertSheet = false })
+    if (advanced) {
+        RoutingAdvancedSheet(
+            repo = repo,
+            sources = sources,
+            legacyEntries = legacyEntries,
+            onDismiss = { advanced = false }
+        )
     }
 }
 
-/** The four modes, named for the outcome rather than for the mechanism. */
-private fun modeTitle(mode: RoutingMode): String = when (mode) {
-    RoutingMode.PROXY_ALL -> "Everything through the tunnel"
-    RoutingMode.BYPASS_PRIVATE -> "Keep the home network direct"
-    RoutingMode.GEO_DIRECT -> "Iranian sites stay direct"
-    RoutingMode.CUSTOM -> "Only my own rules"
+/** The one glyph vocabulary for the three outcomes, shared by every row on the page. */
+private fun glyphOf(outbound: RoutingOutbound): MarbleGlyph = when (outbound) {
+    RoutingOutbound.PROXY -> MarbleGlyph.TUNNEL
+    RoutingOutbound.DIRECT -> MarbleGlyph.HOME
+    RoutingOutbound.BLOCK -> MarbleGlyph.SHIELD
 }
 
-private fun modeGlyph(mode: RoutingMode): MarbleGlyph = when (mode) {
-    RoutingMode.PROXY_ALL -> MarbleGlyph.GLOBE
-    RoutingMode.BYPASS_PRIVATE -> MarbleGlyph.HOME
-    RoutingMode.GEO_DIRECT -> MarbleGlyph.SHIELD
-    RoutingMode.CUSTOM -> MarbleGlyph.TUNERS
-}
-
-/** Tone per mode; one place, so the four rows read as one family. */
-@Composable
-@ReadOnlyComposable
-private fun RoutingMode.tone(colors: ColorScheme): Color = when (this) {
-    RoutingMode.PROXY_ALL -> colors.primary
-    RoutingMode.BYPASS_PRIVATE -> colors.tertiary
-    RoutingMode.GEO_DIRECT -> colors.success
-    RoutingMode.CUSTOM -> colors.secondary
-}
-
+/** Tone per outcome; one place, so Direct, Tunnel and Blocked read as one family. */
 @Composable
 @ReadOnlyComposable
 private fun RoutingOutbound.tone(colors: ColorScheme): Color = when (this) {
@@ -690,7 +534,7 @@ private fun RoutingOutbound.tone(colors: ColorScheme): Color = when (this) {
 private fun precisionTitle(level: GeoPrecision): String = when (level) {
     GeoPrecision.STANDARD -> "Country lists only"
     GeoPrecision.ENHANCED -> "Country lists plus known domestic sites"
-    GeoPrecision.MAXIMUM -> "Also match brand names"
+    GeoPrecision.MAXIMUM -> "Also match exact domestic suffixes"
 }
 
 /** How many entries this level adds on top of the downloaded list. */
@@ -704,24 +548,7 @@ private fun precisionHint(level: GeoPrecision): String = when (level) {
     GeoPrecision.ENHANCED ->
         "Also keeps the .ir suffix and a curated set of domestic banks, shops and messengers direct."
     GeoPrecision.MAXIMUM ->
-        "Uses downloaded Iran lists plus exact domestic domain suffixes. Brand substrings never bypass the tunnel."
-}
-
-/**
- * MARBLE_ROUTING_REBUILD_V254 — what one source actually brings, and nothing else.
- *
- * This row used to print `On · geoip.dat + geosite.dat · 3 / 6` on every line: the on/off that the
- * switch already says, and a slot counter that is storage accounting, not a decision. What is left
- * is the only fact that changes what the row means — which of the two files this source can supply.
- */
-@Composable
-@ReadOnlyComposable
-private fun sourceDetail(spec: GeoAssetRegistry.SourceSpec): String {
-    val files = buildList {
-        if (spec.provides(GeoAssetRegistry.Kind.GEOIP)) add("geoip.dat")
-        if (spec.provides(GeoAssetRegistry.Kind.GEOSITE)) add("geosite.dat")
-    }
-    return if (files.isEmpty()) trx("Nothing to download") else files.joinToString(" + ")
+        "Uses the downloaded Iran lists plus exact domestic domain suffixes. Brand substrings never bypass the tunnel."
 }
 
 @Composable
@@ -747,19 +574,19 @@ private fun RoutingAssetRow(
 }
 
 /**
- * MARBLE_ROUTING_REBUILD_V254 — the rule editor, with the one thing the old sheet never had: ideas.
+ * MARBLE_ROUTING_CLARITY_V280 — the rule editor, with the actions that used to live in the list.
  *
- * A rule that matches a country list is written as a *tag*, and the tag has to exist in the file
- * that is actually downloaded. The old sheet was a free-text box and a note that the tag "is not in
- * the loaded geosite.dat", which is a dead end. The index already knows every tag in every file, so
- * the sheet now offers the matches as chips while the person types — for both countries and sites —
- * and shows where a tag came from.
+ * The list rows carried two 48dp move buttons each, which made a list of five rules read as ten
+ * controls and pushed the address out of the title. Pausing, moving, copying and deleting are
+ * properties of *one* rule, so they live here, next to the rule they change.
  */
 @Composable
 private fun RoutingRuleEditSheet(
     repo: AppRepository,
     initial: RoutingRule,
     isNew: Boolean,
+    index: Int,
+    count: Int,
     duplicatesOf: String?,
     onDismiss: () -> Unit
 ) {
@@ -786,11 +613,18 @@ private fun RoutingRuleEditSheet(
         MarbleDropdownField(
             label = trx("What it matches"),
             value = draft.kind.name,
-            options = RoutingRuleKind.entries.map { kind ->
+            options = listOf(
+                RoutingRuleKind.DOMAIN,
+                RoutingRuleKind.IP,
+                RoutingRuleKind.PORT,
+                RoutingRuleKind.GEOSITE,
+                RoutingRuleKind.GEOIP
+            ).map { kind ->
                 MarbleMenuOption(kind.name, trx(kind.label), trx(ruleKindHint(kind)))
             },
             onSelect = { name ->
-                val picked = RoutingRuleKind.entries.firstOrNull { it.name == name } ?: return@MarbleDropdownField
+                val picked = RoutingRuleKind.entries.firstOrNull { it.name == name }
+                    ?: return@MarbleDropdownField
                 draft = draft.copy(kind = picked, matcher = "")
             }
         )
@@ -842,22 +676,28 @@ private fun RoutingRuleEditSheet(
                 onValueChange = { draft = draft.copy(port = it) },
                 placeholder = "443, 8443 or 1000-2000"
             )
-            MarbleSwitchRow(
-                title = trx("Apply to both TCP and UDP"),
-                subtitle = trx("Switch off to limit this rule to one transport"),
-                checked = draft.network.isBlank(),
-                glyph = MarbleGlyph.LAYERS,
-                iconTint = colors.secondary,
-                onCheckedChange = { both ->
-                    draft = draft.copy(network = if (both) "" else "tcp")
-                }
-            )
         }
+
+        // MARBLE_ROUTING_CLARITY_V280 — "both TCP and UDP" was a switch that could only ever choose
+        // between both and TCP. Three words say the whole truth and make UDP reachable.
+        MarbleSegmentedControl(
+            options = listOf(
+                "" to trx("Both"),
+                "tcp" to trx("TCP only"),
+                "udp" to trx("UDP only")
+            ),
+            selected = draft.network.trim().lowercase(),
+            onSelect = { draft = draft.copy(network = it) }
+        )
 
         issues.forEach { issue ->
             Text(
                 text = trx(issue.message),
-                color = if (issue.severity == RoutingEngine.IssueSeverity.ERROR) colors.error else colors.warning,
+                color = if (issue.severity == RoutingEngine.IssueSeverity.ERROR) {
+                    colors.error
+                } else {
+                    colors.warning
+                },
                 style = MaterialTheme.typography.labelSmall
             )
         }
@@ -867,6 +707,51 @@ private fun RoutingRuleEditSheet(
                 color = colors.warning,
                 style = MaterialTheme.typography.labelSmall
             )
+        }
+
+        if (!isNew) {
+            MarbleSwitchRow(
+                title = trx("This rule is on"),
+                subtitle = trx("Off keeps it saved without using it"),
+                checked = draft.enabled,
+                glyph = MarbleGlyph.CHECK,
+                iconTint = colors.success,
+                onCheckedChange = { draft = draft.copy(enabled = it) }
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MarbleButton(
+                    label = trx("Move up"),
+                    style = MarbleButtonStyle.SECONDARY,
+                    compact = true,
+                    enabled = index > 0,
+                    onClick = {
+                        repo.moveRoutingRule(initial.id, -1)
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                MarbleButton(
+                    label = trx("Move down"),
+                    style = MarbleButtonStyle.SECONDARY,
+                    compact = true,
+                    enabled = index >= 0 && index < count - 1,
+                    onClick = {
+                        repo.moveRoutingRule(initial.id, 1)
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                MarbleButton(
+                    label = trx("Copy"),
+                    style = MarbleButtonStyle.SECONDARY,
+                    compact = true,
+                    onClick = {
+                        repo.duplicateRoutingRule(initial.id)
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -881,7 +766,6 @@ private fun RoutingRuleEditSheet(
                         current.map { if (it.id == initial.id) draft else it }
                     }
                     repo.setRoutingRules(next)
-                    if (isNew) repo.setCustomRoutingEnabled(true)
                     onDismiss()
                 },
                 modifier = Modifier.weight(1f)
@@ -892,23 +776,14 @@ private fun RoutingRuleEditSheet(
                     style = MarbleButtonStyle.DESTRUCTIVE,
                     onClick = {
                         repo.setRoutingRules(
-                            RoutingEngine.effectiveRules(repo.settings).filterNot { it.id == initial.id }
+                            RoutingEngine.effectiveRules(repo.settings)
+                                .filterNot { it.id == initial.id }
                         )
                         onDismiss()
                     },
                     modifier = Modifier.weight(1f)
                 )
             }
-        }
-
-        if (!isNew) {
-            MarbleSwitchRow(
-                title = trx("This rule is on"),
-                checked = draft.enabled,
-                glyph = MarbleGlyph.CHECK,
-                iconTint = colors.success,
-                onCheckedChange = { draft = draft.copy(enabled = it) }
-            )
         }
     }
 }
@@ -938,113 +813,85 @@ private fun ruleKindHint(kind: RoutingRuleKind): String = when (kind) {
 }
 
 /**
- * MARBLE_ROUTING_REBUILD_V254 — the expert surface, now an opt-in.
+ * MARBLE_ROUTING_CLARITY_V280 — the drawer for the four things the page does not need to show.
  *
- * These five text boxes were emitted by the core (`routeDirectDomains`, `routeProxyDomains`,
- * `routeBlockDomains`, `routeDirectIps`, `routeBlockIps`) but no screen in Settings offered them, so
- * their only user was a restored backup. They are shown here, together, with a plain sentence about
- * what each list does and what format it takes, instead of being either invisible or a fifth
- * heading on a page that was already too long.
+ * The download source, the two custom URLs (shown only for the custom source, because that is the
+ * only time they are read), the old comma lists and the core check. The five text boxes V254 put
+ * here are gone: each one duplicated a rule, and the two could disagree.
  */
 @Composable
-private fun RoutingExpertSheet(
+private fun RoutingAdvancedSheet(
     repo: AppRepository,
+    sources: List<GeoAssetRegistry.SourceSpec>,
+    legacyEntries: Int,
     onDismiss: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val s = repo.settings
-
-    fun write(
-        directDomains: String = s.routeDirectDomains,
-        proxyDomains: String = s.routeProxyDomains,
-        blockDomains: String = s.routeBlockDomains,
-        directIps: String = s.routeDirectIps,
-        blockIps: String = s.routeBlockIps,
-        geoIpUrl: String = s.geoIpUrl,
-        geoSiteUrl: String = s.geoSiteUrl
-    ) {
-        repo.updateSettings(
-            s.copy(
-                routeDirectDomains = directDomains,
-                routeProxyDomains = proxyDomains,
-                routeBlockDomains = blockDomains,
-                routeDirectIps = directIps,
-                routeBlockIps = blockIps,
-                geoIpUrl = geoIpUrl,
-                geoSiteUrl = geoSiteUrl
-            )
-        )
-    }
+    val selected = sources.firstOrNull { it.id == s.geoAssetSourceId } ?: sources.firstOrNull()
+    val custom = selected?.custom == true
 
     MarbleBottomSheet(
-        title = trx("Expert settings"),
-        subtitle = trx("Everything here is optional and adds to the mode above."),
+        title = trx("Advanced"),
+        subtitle = trx("Optional. The policy above works without any of it."),
         onDismiss = onDismiss,
         scrollable = true
     ) {
-        Text(
-            text = trx("One entry per line or separated by commas. Domains take domain:, full:, keyword: or regexp: in front. Addresses take a plain IP, a range or CIDR."),
-            color = colors.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall
+        MarbleDropdownField(
+            label = trx("Download source"),
+            value = selected?.id.orEmpty(),
+            options = sources.map { spec ->
+                MarbleMenuOption(
+                    value = spec.id,
+                    label = spec.label,
+                    detail = if (spec.bundled) {
+                        "geoip.dat + geosite.dat • " + trx("Already inside the app")
+                    } else {
+                        "geoip.dat + geosite.dat"
+                    }
+                )
+            },
+            onSelect = { id -> repo.applyGeoAssetSource(id) }
         )
 
-        MarbleTextField(
-            label = trx("Always direct sites"),
-            value = s.routeDirectDomains,
-            onValueChange = { write(directDomains = it) },
-            singleLine = false,
-            minLines = 2,
-            maxLines = 6
-        )
-        MarbleTextField(
-            label = trx("Always direct addresses"),
-            value = s.routeDirectIps,
-            onValueChange = { write(directIps = it) },
-            singleLine = false,
-            minLines = 2,
-            maxLines = 6
-        )
-        MarbleTextField(
-            label = trx("Always through the tunnel"),
-            value = s.routeProxyDomains,
-            onValueChange = { write(proxyDomains = it) },
-            singleLine = false,
-            minLines = 2,
-            maxLines = 6
-        )
-        MarbleTextField(
-            label = trx("Always blocked sites"),
-            value = s.routeBlockDomains,
-            onValueChange = { write(blockDomains = it) },
-            singleLine = false,
-            minLines = 2,
-            maxLines = 6
-        )
-        MarbleTextField(
-            label = trx("Always blocked addresses"),
-            value = s.routeBlockIps,
-            onValueChange = { write(blockIps = it) },
-            singleLine = false,
-            minLines = 2,
-            maxLines = 6
-        )
-
-        MarbleTextField(
-            label = trx("Custom address list download"),
-            value = s.geoIpUrl,
-            onValueChange = { write(geoIpUrl = it.trim()) },
-            placeholder = "https://…/geoip.dat"
-        )
-        MarbleTextField(
-            label = trx("Custom site list download"),
-            value = s.geoSiteUrl,
-            onValueChange = { write(geoSiteUrl = it.trim()) },
-            placeholder = "https://…/geosite.dat"
-        )
+        if (custom) {
+            MarbleTextField(
+                label = trx("Address list download"),
+                value = s.geoIpUrl,
+                onValueChange = { url -> repo.updateSettings(s.copy(geoIpUrl = url.trim())) },
+                placeholder = "https://…/geoip.dat"
+            )
+            MarbleTextField(
+                label = trx("Site list download"),
+                value = s.geoSiteUrl,
+                onValueChange = { url -> repo.updateSettings(s.copy(geoSiteUrl = url.trim())) },
+                placeholder = "https://…/geosite.dat"
+            )
+        }
 
         MarbleSectionFooter(
             trx("Only https:// downloads are accepted. A download cannot run while the tunnel is connected.")
         )
+
+        if (legacyEntries > 0) {
+            Text(
+                text = trx("The lists from the earlier layout still hold") + " " +
+                    faDigits("$legacyEntries") + " " + trx("entries. They work, but they are a second place to look."),
+                color = colors.warning,
+                style = MaterialTheme.typography.bodySmall
+            )
+            MarbleButton(
+                label = trx("Move them into my rules"),
+                glyph = MarbleGlyph.LAYERS,
+                style = MarbleButtonStyle.TINTED,
+                onClick = {
+                    repo.importLegacyRoutingLists()
+                    onDismiss()
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
         MarbleButton(
             label = trx("Done"),
             onClick = onDismiss,
@@ -1743,15 +1590,10 @@ fun SettingsCensorshipLabPage(
                         iconTint = colors.warning,
                         onCheckedChange = { repo.updateSettings(s.copy(iranModeCountermeasures = it)) }
                     )
-                    MarbleDivider()
-                    MarbleSwitchRow(
-                        title = trx("Iranian sites stay direct"),
-                        subtitle = trx("Domestic sites keep the normal connection while this mode is on"),
-                        checked = s.iranDomesticDirect,
-                        glyph = MarbleGlyph.ROUTE,
-                        iconTint = colors.success,
-                        onCheckedChange = { repo.updateSettings(s.copy(iranDomesticDirect = it)) }
-                    )
+                    // MARBLE_ROUTING_CLARITY_V280 — the domestic switch that used to sit here was a
+                    // second control for `iranDomesticDirect`, the flag the routing policy already
+                    // owns. Two pages for one decision is how the old routing screen ended up
+                    // disagreeing with the core; "What goes direct" is the one place that writes it.
                 }
             }
         }

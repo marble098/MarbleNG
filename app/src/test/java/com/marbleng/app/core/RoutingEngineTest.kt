@@ -71,7 +71,7 @@ class RoutingEngineTest {
     }
 
     @Test
-    fun `geo direct mode emits implicit ads and geo rules plus user rules in order`() {
+    fun `a written rule runs before the country lists and the ad list`() {
         val settings = AppSettings(
             customRoutingEnabled = true,
             routingMode = RoutingMode.GEO_DIRECT,
@@ -99,7 +99,9 @@ class RoutingEngineTest {
         val irSiteIndex = text.indexOf("geosite:ir")
         val userIndex = text.indexOf("geosite:youtube")
         assertTrue(adsIndex >= 0 && irIpIndex >= 0 && irSiteIndex >= 0 && userIndex >= 0)
-        assertTrue(adsIndex < irIpIndex && irIpIndex < irSiteIndex && irSiteIndex < userIndex)
+        // MARBLE_ROUTING_CLARITY_V280 — "youtube goes through the tunnel" is an explicit decision, so
+        // it is read before the product's own layers: a written rule can exempt an Iranian site.
+        assertTrue(userIndex < adsIndex && adsIndex < irIpIndex && irIpIndex < irSiteIndex)
     }
 
     @Test
@@ -278,7 +280,7 @@ class RoutingEngineTest {
 
         val proxied = RoutingEngine.simulate(settings, "unrelated.example")
         assertEquals(RoutingOutbound.PROXY, proxied.verdict)
-        assertTrue(proxied.steps.last().title == "Fallback")
+        assertEquals("Everything else", proxied.steps.last().title)
 
         val suffix = RoutingEngine.simulate(settings, "host.direct.example")
         assertEquals(RoutingOutbound.DIRECT, suffix.verdict)
@@ -326,20 +328,17 @@ class RoutingEngineTest {
     }
 
     @Test
-    fun `presets materialize and the iran baseline survives the engine`() {
-        val recommended = RoutingPresets.materialize(RoutingPresets.Preset.RECOMMENDED)
-        assertEquals(RoutingEngine.DEFAULT_RULES.size, recommended.size)
-        assertTrue(RoutingEngine.needsGeoSite(AppSettings(customRoutingEnabled = true, routingRulesJson = RoutingEngine.serializeRules(recommended))))
-        assertTrue(RoutingEngine.needsGeoIp(AppSettings(customRoutingEnabled = true, routingRulesJson = RoutingEngine.serializeRules(recommended))))
-        assertTrue(RoutingEngine.needsDirectOutbound(AppSettings(customRoutingEnabled = true, routingRulesJson = RoutingEngine.serializeRules(recommended))))
+    fun `the shipped baseline needs both databases and a direct outbound`() {
+        val baseline = AppSettings(routingRulesJson = RoutingEngine.serializeRules(RoutingEngine.DEFAULT_RULES))
+        assertTrue(RoutingEngine.needsGeoSite(baseline))
+        assertTrue(RoutingEngine.needsGeoIp(baseline))
+        assertTrue(RoutingEngine.needsDirectOutbound(baseline))
 
-        RoutingPresets.Preset.entries.forEach { preset ->
-            RoutingPresets.materialize(preset).forEach { rule ->
-                assertTrue(
-                    "${preset.id}/${rule.id}: " + RoutingEngine.validateRule(rule),
-                    RoutingEngine.isEmittable(rule)
-                )
-            }
+        RoutingEngine.DEFAULT_RULES.forEach { rule ->
+            assertTrue(
+                "${rule.id}: " + RoutingEngine.validateRule(rule),
+                RoutingEngine.isEmittable(rule)
+            )
         }
     }
 

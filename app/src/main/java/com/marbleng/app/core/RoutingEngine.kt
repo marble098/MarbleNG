@@ -98,6 +98,14 @@ object RoutingEngine {
                 !forceBypassPrivate
     }
 
+    /**
+     * MARBLE_ROUTING_CLARITY_V280 — the country layer runs only while `iranDomesticDirect` is on.
+     *
+     * Before this, Xray emitted `geoip:ir` and `geosite:ir` from the mode alone while sing-box
+     * filtered them with `settings.iranDomesticDirect || it != "ir"`: the same switch turned the
+     * domestic policy off on one core and did nothing at all on the other. The switch is the
+     * policy now, on both.
+     */
     fun implicitRules(settings: AppSettings): ImplicitRules {
         val ads = settings.routeAdsTag.trim().takeIf { settings.routeBlockAds && it.isNotBlank() }
         return when (settings.routingMode) {
@@ -105,8 +113,8 @@ object RoutingEngine {
             RoutingMode.BYPASS_PRIVATE -> ImplicitRules(ads, emptyList(), emptyList(), true)
             RoutingMode.GEO_DIRECT -> ImplicitRules(
                 ads,
-                splitTags(settings.routeGeoIpTags),
-                splitTags(settings.routeGeoSiteTags),
+                if (settings.iranDomesticDirect) splitTags(settings.routeGeoIpTags) else emptyList(),
+                if (settings.iranDomesticDirect) splitTags(settings.routeGeoSiteTags) else emptyList(),
                 true
             )
             RoutingMode.CUSTOM -> ImplicitRules(ads, emptyList(), emptyList(), false)
@@ -263,7 +271,7 @@ object RoutingEngine {
 
     fun needsGeoIp(settings: AppSettings): Boolean {
         if (implicitRules(settings).directIpTags.isNotEmpty()) return true
-        if (settings.customRoutingEnabled && emittableUserRules(settings).any { rule ->
+        if (emittableUserRules(settings).any { rule ->
                 when (rule.kind) {
                     RoutingRuleKind.GEOIP ->
                         !rule.matcher.trim().removePrefix("geoip:").equals("private", true)
@@ -286,7 +294,7 @@ object RoutingEngine {
     fun needsGeoSite(settings: AppSettings): Boolean {
         val implicit = implicitRules(settings)
         if (implicit.adsTag != null || implicit.directSiteTags.isNotEmpty()) return true
-        if (settings.customRoutingEnabled && emittableUserRules(settings).any { rule ->
+        if (emittableUserRules(settings).any { rule ->
                 when (rule.kind) {
                     RoutingRuleKind.GEOSITE -> true
                     RoutingRuleKind.DOMAIN -> splitDomains(rule.matcher).any {
@@ -332,16 +340,16 @@ object RoutingEngine {
             )
         }
 
-        if (next.customRoutingEnabled) {
-            val gated = parseRules(next.routingRulesJson).map { rule ->
-                if (rule.enabled && ruleNeedsMissingAsset(rule, geoIpReady, geoSiteReady)) {
-                    rule.copy(enabled = false)
-                } else {
-                    rule
-                }
+        var changed = false
+        val gated = parseRules(next.routingRulesJson).map { rule ->
+            if (rule.enabled && ruleNeedsMissingAsset(rule, geoIpReady, geoSiteReady)) {
+                changed = true
+                rule.copy(enabled = false)
+            } else {
+                rule
             }
-            next = next.copy(routingRulesJson = serializeRules(gated))
         }
+        if (changed) next = next.copy(routingRulesJson = serializeRules(gated))
 
         return next
     }
@@ -392,48 +400,38 @@ object RoutingEngine {
         val implicit = implicitRules(settings)
         if (settings.routeBypassPrivate || implicit.forceBypassPrivate) return true
         if (implicit.directIpTags.isNotEmpty() || implicit.directSiteTags.isNotEmpty()) return true
-        return settings.customRoutingEnabled && emittableUserRules(settings).any { it.outbound == RoutingOutbound.DIRECT }
+        if (precisionActive(settings)) return true
+        return emittableUserRules(settings).any { it.outbound == RoutingOutbound.DIRECT }
     }
 
+    /**
+     * MARBLE_ROUTING_CLARITY_V280 — one emission order, for both cores, in the order a person reads
+     * the page:
+     *
+     *  1. the home network (always out of the tunnel);
+     *  2. **the rules written by hand** — before any country list, so an explicit "this one goes
+     *     through the tunnel" beats the product's opinion about a country;
+     *  3. ads and trackers;
+     *  4. the Iranian country lists;
+     *  5. the curated domestic layer (last, so it can never outrank a written rule).
+     *
+     * The list is no longer behind `customRoutingEnabled`. That flag gated the rules here and in
+     * [needsGeoIp]/[needsGeoSite]/[needsDirectOutbound], but not in `SingBoxConfigBuilder` and not in
+     * the Xray config verifier — which demanded a route for every saved country rule while this
+     * loop skipped it, so one saved rule plus any mode but CUSTOM made Xray refuse the config.
+     */
     fun applyUserRules(rulesOut: JSONArray, settings: AppSettings, proxyTag: String) {
         val implicit = implicitRules(settings)
-        if (settings.routeBypassPrivate || implicit.forceBypassPrivate) {
-            addIpRule(rulesOut, PRIVATE_CIDRS, "direct")
-        }
         val seen = mutableSetOf<String>()
         fun mark(kind: String, matcher: String): Boolean =
             seen.add("$kind:${matcher.lowercase()}")
 
-        implicit.adsTag?.let { ads ->
-            normalizeGeoSite(ads)?.let { token ->
-
-                geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
-                    .filter { mark("geosite", it) }
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { tokens -> addDomainRule(rulesOut, tokens, "block") }
-            }
-        }
-        implicit.directIpTags.forEach { tag ->
-            val token = normalizeGeoIp(tag) ?: return@forEach
-            if (token == "geoip:private") {
-                addIpRule(rulesOut, PRIVATE_CIDRS, "direct")
-            } else {
-                geoTokens(settings, GeoAssetRegistry.Kind.GEOIP, token)
-                    .filter { mark("geoip", it) }
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { tokens -> addIpRule(rulesOut, tokens, "direct") }
-            }
-        }
-        implicit.directSiteTags.forEach { tag ->
-            normalizeGeoSite(tag)?.let { token ->
-                geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
-                    .filter { mark("geosite", it) }
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { tokens -> addDomainRule(rulesOut, tokens, "direct") }
-            }
+        if (settings.routeBypassPrivate || implicit.forceBypassPrivate) {
+            addIpRule(rulesOut, PRIVATE_CIDRS, "direct")
+            mark("private", "lan")
         }
 
-        if (settings.customRoutingEnabled) for (rule in emittableUserRules(settings)) {
+        for (rule in emittableUserRules(settings)) {
             val tag = outboundTag(rule.outbound, proxyTag)
             val ports = (if (rule.kind == RoutingRuleKind.PORT) rule.matcher.trim() else rule.port)
                 .trim()
@@ -462,7 +460,7 @@ object RoutingEngine {
                 RoutingRuleKind.GEOIP -> {
                     val token = normalizeGeoIp(rule.matcher) ?: continue
                     if (token == "geoip:private") {
-                        addIpRule(rulesOut, PRIVATE_CIDRS, tag)
+                        if (mark("private", "rule")) addIpRule(rulesOut, PRIVATE_CIDRS, tag)
                     } else {
                         val tokens = geoTokens(settings, GeoAssetRegistry.Kind.GEOIP, token)
                             .filter { mark("geoip", it) }
@@ -485,6 +483,34 @@ object RoutingEngine {
                     if (!mark("port", ports + network)) continue
                     putRule { it }
                 }
+            }
+        }
+
+        implicit.adsTag?.let { ads ->
+            normalizeGeoSite(ads)?.let { token ->
+                geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
+                    .filter { mark("geosite", it) }
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { tokens -> addDomainRule(rulesOut, tokens, "block") }
+            }
+        }
+        implicit.directIpTags.forEach { tag ->
+            val token = normalizeGeoIp(tag) ?: return@forEach
+            if (token == "geoip:private") {
+                if (mark("private", "tag")) addIpRule(rulesOut, PRIVATE_CIDRS, "direct")
+            } else {
+                geoTokens(settings, GeoAssetRegistry.Kind.GEOIP, token)
+                    .filter { mark("geoip", it) }
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { tokens -> addIpRule(rulesOut, tokens, "direct") }
+            }
+        }
+        implicit.directSiteTags.forEach { tag ->
+            normalizeGeoSite(tag)?.let { token ->
+                geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
+                    .filter { mark("geosite", it) }
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { tokens -> addDomainRule(rulesOut, tokens, "direct") }
             }
         }
 
@@ -630,7 +656,23 @@ object RoutingEngine {
         val verdictReason: String
     )
 
-    fun simulate(settings: AppSettings, host: String): RouteSimulation {
+    /**
+     * MARBLE_ROUTING_CLARITY_V280 — the simulator now walks the same list the core does.
+     *
+     * V254's simulator had three disagreements with the config it was supposed to explain: it read
+     * the hand-made rules even while they were gated off, it checked the curated domestic layer
+     * *before* those rules (the core does it after), and it never mentioned the private ranges the
+     * engine always adds. A person could type an address on their own network and be told it would
+     * ride the tunnel while the router sent it direct. The order below is the emission order of
+     * [applyUserRules] and `XrayConfigHardener`, step for step, and a layer whose file is missing
+     * says so instead of guessing.
+     */
+    fun simulate(
+        settings: AppSettings,
+        host: String,
+        geoIpReady: Boolean = true,
+        geoSiteReady: Boolean = true
+    ): RouteSimulation {
         val clean = host.trim().trimEnd('.').lowercase()
 
         val isIp = looksLikeLiteral(clean)
@@ -642,7 +684,9 @@ object RoutingEngine {
         val steps = mutableListOf<RouteStep>()
         var verdict: RoutingOutbound? = null
         var reason = ""
+        var unverifiable = false
 
+        val policy = RoutingOverview.policyOf(settings)
         val precision = parseGeoPrecision(settings.geoPrecision)
 
         fun provenanceNote(kind: GeoAssetIndex.Kind, tag: String): String {
@@ -659,23 +703,27 @@ object RoutingEngine {
 
         val literalV6 = literalIp is Inet6Address
         if (literalV6 && !settings.ipv6Enabled) {
-            steps += RouteStep("IPv6", "::/0 blocked (IPv6 off)", RoutingOutbound.BLOCK, true)
-            decide(RoutingOutbound.BLOCK, "IPv6 is switched off; ::/0 is blocked inside the tunnel")
+            steps += RouteStep("IPv6", "::/0 is blocked (IPv6 is off)", RoutingOutbound.BLOCK, true)
+            decide(RoutingOutbound.BLOCK, "IPv6 is switched off, so every IPv6 address is blocked")
         } else if (literalV6) {
-            steps += RouteStep("IPv6", "IPv6 enabled", null, false)
+            steps += RouteStep("IPv6", "IPv6 is on", null, false)
         }
 
         val domainForMatch = clean.takeIf { !isIp }
 
         fun matchDomainTokens(tokens: List<String>): Boolean? {
             if (tokens.isEmpty()) return false
-            var unverifiable = false
+            var unknown = false
             for (token in tokens) {
                 when {
                     token.startsWith("geosite:", true) -> {
+                        if (!geoSiteReady) {
+                            unknown = true
+                            continue
+                        }
                         when (val hit = domainForMatch?.let { GeoAssetIndex.matchesGeosite(it) }) {
                             true -> return true
-                            null -> unverifiable = true
+                            null -> unknown = true
                             else -> Unit
                         }
                     }
@@ -701,117 +749,77 @@ object RoutingEngine {
                     }
                 }
             }
-            return if (unverifiable) null else false
+            return if (unknown) null else false
         }
 
         fun matchIpTokens(tokens: List<String>): Boolean? {
             if (tokens.isEmpty()) return false
-            var unverifiable = false
+            var unknown = false
             if (literalIp != null) {
                 for (token in tokens) {
                     if (token.startsWith("geoip:", true)) {
-                        unverifiable = true
+                        unknown = true
                         continue
                     }
                     val cidr = parseCidr(token) ?: continue
                     if (cidrContains(cidr, literalIp)) return true
                 }
-            } else {
-                if (tokens.any { it.startsWith("geoip:", true) }) unverifiable = true
+            } else if (tokens.any { it.startsWith("geoip:", true) }) {
+                unknown = true
             }
-            return if (unverifiable) null else false
+            return if (unknown) null else false
         }
 
+        // 1. the expert block lists, which the hardener writes before anything else
         if (settings.routeBlockDomains.isNotBlank()) {
             val hit = matchDomainTokens(splitDomains(settings.routeBlockDomains))
             steps += RouteStep(
-                "Block list (domains)", settings.routeBlockDomains,
+                "Blocked sites",
+                settings.routeBlockDomains + " • from an older list",
                 RoutingOutbound.BLOCK.takeIf { hit == true }, hit
             )
-            if (hit == true) decide(RoutingOutbound.BLOCK, "Matched the expert block-domain list")
+            if (hit == true) decide(RoutingOutbound.BLOCK, "Matched your blocked-sites list")
         }
         if (settings.routeBlockIps.isNotBlank()) {
             val hit = matchIpTokens(splitIps(settings.routeBlockIps))
             steps += RouteStep(
-                "Block list (IPs)", settings.routeBlockIps,
+                "Blocked addresses",
+                settings.routeBlockIps + " • from an older list",
                 RoutingOutbound.BLOCK.takeIf { hit == true }, hit
             )
-            if (hit == true) decide(RoutingOutbound.BLOCK, "Matched the expert block-IP list")
+            if (hit == true) decide(RoutingOutbound.BLOCK, "Matched your blocked-addresses list")
         }
-
         if (settings.routeProxyDomains.isNotBlank()) {
             val hit = matchDomainTokens(splitDomains(settings.routeProxyDomains))
             steps += RouteStep(
-                "Proxy list (domains)", settings.routeProxyDomains,
+                "Always through the tunnel",
+                settings.routeProxyDomains + " • from an older list",
                 RoutingOutbound.PROXY.takeIf { hit == true }, hit
             )
-            if (hit == true) decide(RoutingOutbound.PROXY, "Matched the expert proxy-domain list")
+            if (hit == true) decide(RoutingOutbound.PROXY, "Matched your always-tunnel list")
         }
 
-        val implicit = implicitRules(settings)
-        implicit.adsTag?.let { ads ->
-            val tag = normalizeGeoSite(ads) ?: return@let
-            val hit = matchDomainTokens(listOf(tag))
-            steps += RouteStep(
-                "Ad blocking", tag,
-                RoutingOutbound.BLOCK.takeIf { hit == true }, hit
-            )
-            if (hit == true) decide(RoutingOutbound.BLOCK, "Matched $tag from the ad-blocking rule")
-        }
-        implicit.directIpTags.forEach { tag ->
-            val token = normalizeGeoIp(tag) ?: return@forEach
-            val hit = matchIpTokens(listOf(token))
-            steps += RouteStep(
-                "Geo direct (IP)",
-                token + if (hit == null) " • the live geo database decides at runtime" else "",
-                RoutingOutbound.DIRECT.takeIf { hit == true },
-                hit
-            )
-            if (hit == true) decide(RoutingOutbound.DIRECT, "Matched $token (geo direct policy)")
-        }
-        implicit.directSiteTags.forEach { tag ->
-            val token = normalizeGeoSite(tag) ?: return@forEach
-
-            val tokens = geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
-                .ifEmpty { listOfNotNull(normalizeGeoSite(token)) }
-            val hit = matchDomainTokens(tokens)
-            steps += RouteStep(
-                "Geo direct (domains)",
-                tokens.joinToString(", ") + provenanceNote(
-                    GeoAssetIndex.Kind.GEOSITE,
-                    GeoAssetRegistry.tagOf(token)
-                ),
-                RoutingOutbound.DIRECT.takeIf { hit == true },
-                hit
-            )
-            if (hit == true) decide(RoutingOutbound.DIRECT, "Matched $token (geo direct policy)")
-        }
-
-        if (precisionActive(settings) && domainForMatch != null) {
-            val category = IranPrecisionPack.categoryOf(domainForMatch, precision)
-            val matchedTld = IranPrecisionPack.domesticSuffix(domainForMatch, precision)
-            val byTld = matchedTld != null
-            val byKeyword = IranPrecisionPack.keywords(precision)
-                .any { it.length >= 4 && domainForMatch.contains(it) }
-            if (category != null || byTld || byKeyword) {
-                val detail = when {
-                    category != null -> "${category.label} • ${IranPrecisionPack.summary(precision)}"
-                    byTld -> "Domestic TLD (.$matchedTld)"
-                    else -> "Domestic brand keyword"
-                }
-                steps += RouteStep(
-                    "Domestic precision", detail, RoutingOutbound.DIRECT, true
-                )
-                decide(RoutingOutbound.DIRECT, "Matched the curated domestic-destination rules")
+        // 2. the home network, which the engine keeps out of the tunnel in every policy
+        if (settings.routeBypassPrivate) {
+            val hit = literalIp?.let { address ->
+                PRIVATE_CIDRS.any { raw -> parseCidr(raw)?.let { cidrContains(it, address) } == true }
             }
+            steps += RouteStep(
+                "Home network",
+                "Private and link-local addresses never enter the tunnel",
+                RoutingOutbound.DIRECT.takeIf { hit == true },
+                hit
+            )
+            if (hit == true) decide(RoutingOutbound.DIRECT, "The address is on your own network")
         }
 
+        // 3. the rules written by hand — always live, and read before the country lists
         effectiveRules(settings).forEachIndexed { index, rule ->
-            val title = "Rule ${index + 1} • ${rule.remark.ifBlank { rule.kind.name }}"
+            val title = "Rule " + (index + 1) + " • " + rule.remark.ifBlank { describeMatcher(rule) }
             if (!rule.enabled) {
                 steps += RouteStep(
                     title,
-                    describeMatcher(rule) + " — disabled",
+                    describeMatcher(rule) + " • paused",
                     null,
                     false,
                     skipped = true
@@ -822,7 +830,7 @@ object RoutingEngine {
             if (issues.isNotEmpty()) {
                 steps += RouteStep(
                     title,
-                    describeMatcher(rule) + " — skipped: " + issues.first().message,
+                    describeMatcher(rule) + " • skipped: " + issues.first().message,
                     null,
                     false,
                     skipped = true
@@ -836,14 +844,14 @@ object RoutingEngine {
                 RoutingRuleKind.GEOIP ->
                     matchIpTokens(listOf(normalizeGeoIp(rule.matcher).orEmpty()))
                 RoutingRuleKind.IP -> matchIpTokens(splitIps(rule.matcher))
-
                 RoutingRuleKind.PORT -> null
             }
+            if (hit == null) unverifiable = true
             val extra = when {
                 rule.kind == RoutingRuleKind.GEOIP && hit == null ->
-                    " • the live geo database decides at runtime"
+                    " • the country list decides at runtime"
                 rule.kind == RoutingRuleKind.PORT ->
-                    " • port rules need a port to test; add one to the port box"
+                    " • a port rule needs a port to test"
                 else -> ""
             }
             steps += RouteStep(
@@ -855,39 +863,129 @@ object RoutingEngine {
             if (hit == true) {
                 decide(
                     rule.outbound,
-                    "Matched rule ${index + 1} (${rule.remark.ifBlank { rule.kind.name }}): " +
-                        describeMatcher(rule)
+                    "Matched rule " + (index + 1) +
+                        " (" + rule.remark.ifBlank { describeMatcher(rule) } + ")"
                 )
             }
         }
 
+        // 4. ads and trackers
+        implicitRules(settings).adsTag?.let { ads ->
+            val tag = normalizeGeoSite(ads) ?: return@let
+            val hit = if (!geoSiteReady) {
+                unverifiable = true
+                null
+            } else {
+                matchDomainTokens(listOf(tag))
+            }
+            steps += RouteStep(
+                "Ads and trackers",
+                tag + if (!geoSiteReady) " • the site list is not downloaded yet" else "",
+                RoutingOutbound.BLOCK.takeIf { hit == true },
+                hit
+            )
+            if (hit == true) decide(RoutingOutbound.BLOCK, "Matched the ad list")
+        }
+
+        // 5. the Iranian country lists
+        if (policy == RoutingOverview.Policy.IRAN_DIRECT) {
+            implicitRules(settings).directIpTags.forEach { tag ->
+                val token = normalizeGeoIp(tag) ?: return@forEach
+                val hit = if (!geoIpReady) {
+                    unverifiable = true
+                    null
+                } else {
+                    matchIpTokens(listOf(token))
+                }
+                if (hit == null) unverifiable = true
+                steps += RouteStep(
+                    "Iranian addresses",
+                    token + when {
+                        !geoIpReady -> " • the address list is not downloaded yet"
+                        hit == null -> " • the country list decides at runtime"
+                        else -> ""
+                    },
+                    RoutingOutbound.DIRECT.takeIf { hit == true },
+                    hit
+                )
+                if (hit == true) decide(RoutingOutbound.DIRECT, "The address is in the Iranian list")
+            }
+            implicitRules(settings).directSiteTags.forEach { tag ->
+                val token = normalizeGeoSite(tag) ?: return@forEach
+                val tokens = geoTokens(settings, GeoAssetRegistry.Kind.GEOSITE, token)
+                    .ifEmpty { listOfNotNull(normalizeGeoSite(token)) }
+                val hit = if (!geoSiteReady) {
+                    unverifiable = true
+                    null
+                } else {
+                    matchDomainTokens(tokens)
+                }
+                if (hit == null) unverifiable = true
+                steps += RouteStep(
+                    "Iranian sites",
+                    tokens.joinToString(", ") + when {
+                        !geoSiteReady -> " • the site list is not downloaded yet"
+                        hit == null -> " • the country list decides at runtime"
+                        else -> ""
+                    } + provenanceNote(GeoAssetIndex.Kind.GEOSITE, GeoAssetRegistry.tagOf(token)),
+                    RoutingOutbound.DIRECT.takeIf { hit == true },
+                    hit
+                )
+                if (hit == true) decide(RoutingOutbound.DIRECT, "The site is in the Iranian list")
+            }
+        }
+
+        // 6. the curated domestic layer, emitted last so it never outranks a written rule
+        if (precisionActive(settings) && domainForMatch != null) {
+            val category = IranPrecisionPack.categoryOf(domainForMatch, precision)
+            val matchedTld = IranPrecisionPack.domesticSuffix(domainForMatch, precision)
+            val byKeyword = IranPrecisionPack.keywords(precision)
+                .any { it.length >= 4 && domainForMatch.contains(it) }
+            if (category != null || matchedTld != null || byKeyword) {
+                val detail = when {
+                    category != null -> category.label + " • " + IranPrecisionPack.summary(precision)
+                    matchedTld != null -> "Domestic suffix (." + matchedTld + ")"
+                    else -> "Domestic brand name"
+                }
+                steps += RouteStep("Domestic sites", detail, RoutingOutbound.DIRECT, true)
+                decide(RoutingOutbound.DIRECT, "Matched the domestic list")
+            }
+        }
+
+        // 7. the expert direct lists
         if (settings.routeDirectDomains.isNotBlank()) {
             val hit = matchDomainTokens(splitDomains(settings.routeDirectDomains))
             steps += RouteStep(
-                "Direct list (domains)", settings.routeDirectDomains,
+                "Your direct sites",
+                settings.routeDirectDomains + " • from an older list",
                 RoutingOutbound.DIRECT.takeIf { hit == true }, hit
             )
-            if (hit == true) decide(RoutingOutbound.DIRECT, "Matched the expert direct-domain list")
+            if (hit == true) decide(RoutingOutbound.DIRECT, "Matched your direct-sites list")
         }
         if (settings.routeDirectIps.isNotBlank()) {
             val hit = matchIpTokens(splitIps(settings.routeDirectIps))
             steps += RouteStep(
-                "Direct list (IPs)", settings.routeDirectIps,
+                "Your direct addresses",
+                settings.routeDirectIps + " • from an older list",
                 RoutingOutbound.DIRECT.takeIf { hit == true }, hit
             )
-            if (hit == true) decide(RoutingOutbound.DIRECT, "Matched the expert direct-IP list")
+            if (hit == true) decide(RoutingOutbound.DIRECT, "Matched your direct-addresses list")
         }
 
         if (verdict == null) {
             steps += RouteStep(
-                "Fallback",
-                "Everything unmatched stays on the proxy",
+                "Everything else",
+                "Unmatched traffic rides the tunnel",
                 RoutingOutbound.PROXY,
                 true
             )
             decide(
                 RoutingOutbound.PROXY,
-                "No rule could be verified as matching — the fail-closed fallback keeps it on the proxy"
+                if (unverifiable) {
+                    "The country lists decide this one at runtime; without a match it rides the tunnel"
+                } else {
+                    "Nothing matched, so it rides the tunnel"
+                }
             )
         }
 

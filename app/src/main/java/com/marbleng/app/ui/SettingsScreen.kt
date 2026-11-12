@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
+import com.marbleng.app.core.RoutingOverview
 import com.marbleng.app.BuildConfig
 import com.marbleng.app.core.AutoServerSelector
 import com.marbleng.app.core.CoreEngineInfo
@@ -73,7 +74,6 @@ import com.marbleng.app.model.MapMotion
 import com.marbleng.app.model.MarblePalette
 import com.marbleng.app.model.PlainVoice
 import com.marbleng.app.model.ProbeMethod
-import com.marbleng.app.model.RoutingMode
 import com.marbleng.app.model.SmartPreset
 import com.marbleng.app.model.SplitTunnelMode
 import com.marbleng.app.model.autoServerStrategyEnum
@@ -311,11 +311,12 @@ private fun SettingsMenuPage(
     val engineSummary = CoreEngineInfo.displayName(s.coreEngine())
     val tunnelSummary = TunnelCoreInfo.displayName(s.tunnelCore())
     val powerSummary = trx(parsePowerProfile(s.powerProfile).label)
-    val routingSummary = when (s.routingMode) {
-        RoutingMode.PROXY_ALL -> trx("Proxy all traffic")
-        RoutingMode.BYPASS_PRIVATE -> trx("Bypass private LAN")
-        RoutingMode.GEO_DIRECT -> trx("Iranian sites stay direct")
-        RoutingMode.CUSTOM -> trx("Your own rules")
+    // MARBLE_ROUTING_CLARITY_V280 — the hub names the outcome, not the storage constant. A settings
+    // blob from an older version can still carry any of the four modes; the two that survive are
+    // the two the page offers, and everything else reads as what it really does.
+    val routingSummary = when (RoutingOverview.policyOf(s)) {
+        RoutingOverview.Policy.IRAN_DIRECT -> trx("Iranian sites stay direct")
+        RoutingOverview.Policy.TUNNEL_ALL -> trx("Everything through the tunnel")
     }
     val splitSummary = when (s.splitTunnelMode) {
         SplitTunnelMode.ALL_APPS -> trx("All apps use VPN")
