@@ -2,6 +2,7 @@ package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.IranModePolicy
+import com.marbleng.app.model.RoutingMode
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
