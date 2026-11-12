@@ -113,27 +113,6 @@ class XrayManager(private val context: Context) {
     var lastStartPhase: String = "idle"
         private set
 
-    private val validatedConfigHashes = LinkedHashSet<String>()
-    private val validatedCacheLimit = 96
-
-    private fun validationCached(key: String): Boolean =
-        synchronized(validatedConfigHashes) {
-            key in validatedConfigHashes
-        }
-
-    private fun rememberValidation(key: String) {
-        synchronized(validatedConfigHashes) {
-            validatedConfigHashes += key
-            while (
-                validatedConfigHashes.size >
-                validatedCacheLimit
-            ) {
-                validatedConfigHashes.remove(
-                    validatedConfigHashes.first()
-                )
-            }
-        }
-    }
 
     private data class StartTicket(
         val generation: Long,
@@ -255,7 +234,6 @@ class XrayManager(private val context: Context) {
                 if (file.isFile && file.delete()) removed += label
             }
         }
-        synchronized(validatedConfigHashes) { validatedConfigHashes.clear() }
         return removed
     }
 
@@ -1207,8 +1185,6 @@ class XrayManager(private val context: Context) {
         true
     }.getOrDefault(false)
 
-    private fun sha256(text: String): String = java.security.MessageDigest.getInstance("SHA-256")
-        .digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
 
     private fun beginLiveLogSession() {
         val previous = File(logFile.parentFile, "${logFile.name}.1")

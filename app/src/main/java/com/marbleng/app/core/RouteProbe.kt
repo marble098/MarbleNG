@@ -17,7 +17,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
-import kotlin.math.sqrt
 
 object RouteProbe {
     const val UNREACHABLE = 99_999.0
@@ -1214,48 +1213,6 @@ object RouteProbe {
         emptyList()
     }.getOrDefault(emptyList())
 
-    private fun httpMeasure(
-        profile: ProxyProfile,
-        tunnelPort: Int,
-        samples: Int,
-        timeoutMs: Int,
-        settings: AppSettings,
-        httpMethod: String
-    ): ProbeResult {
-        val label = if (httpMethod.equals("HEAD", ignoreCase = true)) "HTTP_HEAD" else "HTTP_GET"
-        if (tunnelPort > 0) {
-            val viaTunnel = httpPingBatch(
-                socksPort = tunnelPort,
-                timeoutMs = timeoutMs,
-                samples = samples,
-                httpMethod = httpMethod
-            )
-            if (viaTunnel.latencyMs < UNREACHABLE) return viaTunnel.copy(method = label)
-        }
-
-        if (profile.scheme.lowercase() in setOf("http", "https")) {
-            val direct = httpPingBatch(
-                socksPort = 0,
-                timeoutMs = timeoutMs,
-                samples = samples,
-                targets = listOf(endpointHttpsUrl(profile)),
-                httpMethod = httpMethod
-            )
-            if (direct.latencyMs < UNREACHABLE) {
-                return direct.copy(method = label, failureReason = "endpoint-direct")
-            }
-        }
-
-        val gate = tcpExtended(profile.host, profile.port, timeoutMs, samples, settings)
-        if (gate.latencyMs < UNREACHABLE) {
-            return gate.copy(
-                method = label,
-                failureReason = if (gate.failureReason.isBlank()) "http-unavailable-gate-ok" else gate.failureReason
-            )
-        }
-        return gate.copy(method = label)
-    }
-
     private fun endpointHttpsUrl(profile: ProxyProfile): String {
         val host = profile.host.trim()
         val literal = if (host.contains(':') && !host.startsWith("[")) "[$host]" else host
@@ -1339,12 +1296,6 @@ object RouteProbe {
         )
     }
 
-    private fun standardDeviation(values: List<Double>): Double {
-        if (values.size < 2) return 0.0
-        val mean = values.average()
-        val variance = values.map { (it - mean) * (it - mean) }.average()
-        return sqrt(variance)
-    }
 
     fun measurementConfidence(result: ProbeResult): Double {
         if (result.successPercent <= 0) return 0.0

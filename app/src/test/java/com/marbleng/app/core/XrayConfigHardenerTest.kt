@@ -2,6 +2,7 @@ package com.marbleng.app.core
 
 import com.marbleng.app.model.AppSettings
 import com.marbleng.app.model.IranModePolicy
+import com.marbleng.app.model.RoutingMode
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -383,5 +384,79 @@ class XrayConfigHardenerTest {
         val proxySockopt = outbound(hardened, "proxy").optJSONObject("streamSettings")?.optJSONObject("sockopt")
         assertTrue(proxySockopt?.has("domainStrategy") == true)
         assertTrue(proxySockopt!!.optString("domainStrategy") in AddressFamilyPolicy.ENDPOINT_STRATEGIES)
+    }
+
+    // MARBLE_SOCKS_HARDENING_PARITY — regression for "Kill switch is holding traffic.
+    // IllegalArgumentException: SOCKS hardening failed": harden() emitted a wildcard
+    // listen address (Allow LAN) and/or a second HTTP inbound, while verify() demanded
+    // exactly one loopback inbound, so the hardener rejected its own output, Xray never
+    // started and failBeforeTunnel held the TUN.
+    @Test
+    fun `allow lan and http inbound survive hardening`() {
+        val hardened = harden(
+            AppSettings().copy(xrayAllowLan = true, xrayHttpInboundPort = 21081),
+            vlessDomainSource()
+        )
+        val inbounds = hardened.getJSONArray("inbounds")
+        assertEquals(2, inbounds.length())
+        val socks = inbounds.getJSONObject(0)
+        assertEquals("socks-in", socks.optString("tag"))
+        assertEquals("0.0.0.0", socks.optString("listen"))
+        assertEquals(21080, socks.optInt("port"))
+        val http = inbounds.getJSONObject(1)
+        assertEquals("http-in", http.optString("tag"))
+        assertEquals("0.0.0.0", http.optString("listen"))
+        assertEquals(21081, http.optInt("port"))
+    }
+
+    @Test
+    fun `http inbound alone survives hardening on loopback`() {
+        val hardened = harden(
+            AppSettings().copy(xrayHttpInboundPort = 21081),
+            vlessDomainSource()
+        )
+        val inbounds = hardened.getJSONArray("inbounds")
+        assertEquals(2, inbounds.length())
+        assertEquals("127.0.0.1", inbounds.getJSONObject(0).optString("listen"))
+        assertEquals("127.0.0.1", inbounds.getJSONObject(1).optString("listen"))
+    }
+
+    @Test
+    fun `http port equal to socks port or out of range adds no inbound`() {
+        val same = harden(
+            AppSettings().copy(xrayHttpInboundPort = 21080),
+            vlessDomainSource()
+        )
+        assertEquals(1, same.getJSONArray("inbounds").length())
+        val privileged = harden(
+            AppSettings().copy(xrayHttpInboundPort = 80),
+            vlessDomainSource()
+        )
+        assertEquals(1, privileged.getJSONArray("inbounds").length())
+    }
+
+    @Test
+    fun `no routing rule targets an outbound that was not emitted`() {
+        // routeBypassPrivate off and no direct domains/IPs: routing needs no direct
+        // outbound, so the NTP rule must not point at the missing "direct" tag.
+        val hardened = harden(
+            AppSettings().copy(routeBypassPrivate = false, routingMode = RoutingMode.PROXY_ALL),
+            vlessDomainSource()
+        )
+        val outboundTags = mutableSetOf<String>()
+        val outs = hardened.getJSONArray("outbounds")
+        for (i in 0 until outs.length()) outboundTags += outs.getJSONObject(i).optString("tag")
+        assertFalse("direct" in outboundTags)
+        val rules = hardened.getJSONObject("routing").getJSONArray("rules")
+        for (i in 0 until rules.length()) {
+            val target = rules.getJSONObject(i).optString("outboundTag")
+            if (target.isNotBlank()) {
+                assertTrue("rule $i targets missing outbound $target", target in outboundTags)
+            }
+        }
+        // NTP (udp/123) is still handled explicitly, via the selected proxy.
+        val ntp = (0 until rules.length()).map { rules.getJSONObject(it) }
+            .firstOrNull { it.optString("network") == "udp" && it.optString("port") == "123" }
+        assertEquals("proxy", ntp?.optString("outboundTag"))
     }
 }

@@ -417,7 +417,7 @@ object XrayConfigHardener {
         }
         out.put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
 
-        val listen = if (settings.xrayAllowLan) "0.0.0.0" else "127.0.0.1"
+        val listen = expectedListen(settings)
 
         val fakeIpArmed = FakeIpPolicy.isDnsPathArmed(settings) && settings.xraySniffingEnabled
 
@@ -432,8 +432,8 @@ object XrayConfigHardener {
 
         CoreSocketPolicy.xrayLocalInboundStream(settings)?.let { inbound.put("streamSettings", it) }
         val inbounds = JSONArray().put(inbound)
-        val httpPort = settings.xrayHttpInboundPort
-        if (httpPort in 1024..65535 && httpPort != socksPort) {
+        val httpPort = expectedHttpPort(settings, socksPort)
+        if (httpPort != null) {
             inbounds.put(
                 JSONObject()
                     .put("tag", "http-in")
@@ -697,12 +697,16 @@ object XrayConfigHardener {
         // now rides the direct outbound (the reply then comes from the socket the query used).
         // Domain-resolved NTP still matches the FakeDNS rule above and stays on the proxy, so a
         // fake address never reaches the direct dialer.
+        // The direct outbound only exists when routing actually needs one (see the
+        // `needsDirect` invariant in verify); pointing NTP at a tag that was never
+        // emitted made Xray refuse the whole config. Without a direct outbound the
+        // NTP rule targets the selected proxy, which the fallback would do anyway.
         rules.put(
             JSONObject()
                 .put("type", "field")
                 .put("network", "udp")
                 .put("port", 123)
-                .put("outboundTag", "direct")
+                .put("outboundTag", if (needsDirect) "direct" else firstTag)
         )
 
         rules.put(
@@ -1059,6 +1063,14 @@ object XrayConfigHardener {
         }
     }.distinct()
 
+    /** The listen address the one SOCKS (and optional HTTP) inbound must bind. */
+    internal fun expectedListen(settings: AppSettings): String =
+        if (settings.xrayAllowLan) "0.0.0.0" else "127.0.0.1"
+
+    /** The HTTP inbound port to emit, or null when the setting does not ask for one. */
+    internal fun expectedHttpPort(settings: AppSettings, socksPort: Int): Int? =
+        settings.xrayHttpInboundPort.takeIf { it in 1024..65535 && it != socksPort }
+
     private fun verify(
     o: JSONObject,
     port: Int,
@@ -1067,12 +1079,36 @@ object XrayConfigHardener {
     settings: AppSettings,
     underlayHasIpv6: Boolean = AddressFamilyPolicy.underlayHasIpv6()
 ) {
-    val ins = o.getJSONArray("inbounds")
-    require(
-        ins.length() == 1 &&
-            ins.getJSONObject(0).getInt("port") == port &&
-            ins.getJSONObject(0).getString("listen") == "127.0.0.1"
-    ) { "SOCKS hardening failed" }
+    // MARBLE_SOCKS_HARDENING_PARITY — verify must accept exactly the inbound set harden()
+    // emits for these settings: the loopback (or, when the user opted into LAN access,
+    // wildcard) SOCKS inbound, plus the optional HTTP inbound the settings page offers.
+    // The old check demanded one loopback inbound unconditionally, so enabling
+    // "Allow LAN" or an HTTP inbound port made harden() throw
+    // IllegalArgumentException("SOCKS hardening failed") on its own output — Xray never
+    // started and MarbleVpnService.failBeforeTunnel held the kill switch.
+    val ins = o.optJSONArray("inbounds")
+        ?: throw IllegalArgumentException("SOCKS hardening failed: inbounds missing")
+    val actualInbounds = (0 until ins.length()).map { index ->
+        val inbound = ins.optJSONObject(index)
+            ?: throw IllegalArgumentException("SOCKS hardening failed: inbound $index is not an object")
+        listOf(
+            inbound.optString("tag"),
+            inbound.optString("listen"),
+            inbound.optInt("port").toString(),
+            inbound.optString("protocol")
+        ).joinToString(":")
+    }
+    val expectedInbounds = mutableListOf(
+        listOf("socks-in", expectedListen(settings), port.toString(), "socks").joinToString(":")
+    )
+    expectedHttpPort(settings, port)?.let { httpPort ->
+        expectedInbounds += listOf(
+            "http-in", expectedListen(settings), httpPort.toString(), "http"
+        ).joinToString(":")
+    }
+    require(actualInbounds == expectedInbounds) {
+        "SOCKS hardening failed: expected inbounds $expectedInbounds but found $actualInbounds"
+    }
 
     val outs = o.getJSONArray("outbounds")
     var selected = false
@@ -1098,6 +1134,34 @@ object XrayConfigHardener {
     val fallback = rules.getJSONObject(rules.length() - 1)
     require(fallback.optString("outboundTag") == selectedTag) {
         "Unmatched routing fallback must stay on the selected proxy"
+    }
+
+    // Every rule must point at an outbound (and inbound) that was actually emitted.
+    // A rule naming a missing tag makes Xray refuse the config at load time; the
+    // unconditional NTP-to-"direct" rule did exactly that whenever routing needed
+    // no direct outbound.
+    val outboundTags = (0 until outs.length()).mapTo(mutableSetOf()) {
+        outs.getJSONObject(it).optString("tag")
+    }
+    val inboundTags = (0 until ins.length()).mapTo(mutableSetOf()) {
+        ins.getJSONObject(it).optString("tag")
+    }
+    dns.optString("tag").takeIf { it.isNotBlank() }?.let(inboundTags::add)
+    for (i in 0 until rules.length()) {
+        val rule = rules.optJSONObject(i) ?: continue
+        val target = rule.optString("outboundTag")
+        if (target.isNotBlank()) {
+            require(target in outboundTags) {
+                "Routing rule $i targets missing outbound \"$target\""
+            }
+        }
+        val inboundRefs = rule.optJSONArray("inboundTag") ?: continue
+        for (j in 0 until inboundRefs.length()) {
+            val ref = inboundRefs.optString(j)
+            require(ref in inboundTags) {
+                "Routing rule $i references missing inbound \"$ref\""
+            }
+        }
     }
 
     fun hasDomain(value: String, outbound: String): Boolean {

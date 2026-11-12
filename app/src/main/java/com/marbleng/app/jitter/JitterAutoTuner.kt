@@ -1,5 +1,7 @@
 package com.marbleng.app.jitter
 
+import java.util.Locale
+
 /**
  * MARBLE_SMART_JITTER_V238 — the optional Auto-Tuner's decision half (pure Kotlin, default OFF).
  *
@@ -60,7 +62,7 @@ object JitterAutoTuner {
             lossiest <= 0.0 ->
                 "loss-free sweep • jitter picked ${winner.mtu}"
             else ->
-                "candidates up to ${"%.1f".format(lossiest)}% loss • ${winner.mtu} jitter ${winner.jitterMs.toInt()} ms"
+                "candidates up to ${"%.1f".format(Locale.US, lossiest)}% loss • ${winner.mtu} jitter ${winner.jitterMs.toInt()} ms"
         }
         return Recommendation(mtu = winner.mtu, reason = reason)
     }
