@@ -95,6 +95,7 @@ fun SettingsRoutingPage(
     val assets = repo.routingAssetStatus()
     val policy = RoutingOverview.policyOf(s)
     val rules = remember(s.routingRulesJson) { RoutingEngine.effectiveRules(s) }
+    val liveRules = remember(rules) { rules.count { it.enabled } }
     val layers = remember(s, assets.geoIpReady, assets.geoSiteReady) {
         RoutingOverview.layers(s, assets.geoIpReady, assets.geoSiteReady)
     }
@@ -288,7 +289,7 @@ fun SettingsRoutingPage(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 MarbleSectionHeader(
                     title = trx("My rules"),
-                    badge = faDigits("${rules.count { it.enabled }}") + " / " + faDigits("${rules.size}")
+                    badge = faDigits("$liveRules") + " / " + faDigits("${rules.size}")
                 )
                 MarbleCard {
                     MarbleListItem(

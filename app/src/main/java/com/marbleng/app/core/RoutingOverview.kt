@@ -33,11 +33,7 @@ object RoutingOverview {
     /** The whole routing decision: Iranian traffic stays out of the tunnel, or it does not. */
     enum class Policy(val id: String) {
         IRAN_DIRECT("iran-direct"),
-        TUNNEL_ALL("tunnel-all");
-
-        companion object {
-            fun of(id: String): Policy = entries.firstOrNull { it.id == id } ?: IRAN_DIRECT
-        }
+        TUNNEL_ALL("tunnel-all")
     }
 
     /** The policy a settings blob describes, read from the two flags the engine really uses. */
@@ -96,8 +92,7 @@ object RoutingOverview {
     data class Layer(
         val title: String,
         val detail: String,
-        val outbound: RoutingOutbound,
-        val count: Int = 0
+        val outbound: RoutingOutbound
     )
 
     fun layers(
@@ -113,16 +108,14 @@ object RoutingOverview {
             out += Layer(
                 title = "Home network",
                 detail = "Your own addresses never enter the tunnel",
-                outbound = RoutingOutbound.DIRECT,
-                count = RoutingEngine.PRIVATE_CIDRS.size
+                outbound = RoutingOutbound.DIRECT
             )
         }
         if (implicit.adsTag != null && geoSiteReady) {
             out += Layer(
                 title = "Ads and trackers",
                 detail = "Blocked from the downloaded site list",
-                outbound = RoutingOutbound.BLOCK,
-                count = 1
+                outbound = RoutingOutbound.BLOCK
             )
         }
         if (policy == Policy.IRAN_DIRECT) {
@@ -145,23 +138,11 @@ object RoutingOverview {
                 out += Layer(
                     title = "Domestic brands and .ir",
                     detail = IranPrecisionPack.summary(precision),
-                    outbound = RoutingOutbound.DIRECT,
-                    count = IranPrecisionPack.domains(precision).size +
-                        IranPrecisionPack.keywords(precision).size
+                    outbound = RoutingOutbound.DIRECT
                 )
             }
         }
         return out
-    }
-
-    /** The files the current policy needs and does not have yet, named the way the page names them. */
-    fun missingLists(
-        settings: AppSettings,
-        geoIpReady: Boolean,
-        geoSiteReady: Boolean
-    ): List<String> = buildList {
-        if (!geoIpReady && RoutingEngine.needsGeoIp(settings)) add("Address list")
-        if (!geoSiteReady && RoutingEngine.needsGeoSite(settings)) add("Site list")
     }
 
     /** Every rule that is on. A paused rule stays saved; it just does not claim anything. */
