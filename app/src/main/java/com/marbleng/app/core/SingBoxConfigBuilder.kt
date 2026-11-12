@@ -1084,7 +1084,6 @@ private fun removeKeys(
             .put("listen", listen)
             .put("listen_port", socksPort)
             .put("tcp_fast_open", settings.tcpFastOpenEnabled)
-        applyInboundSniff(mixed, settings)
         if (users != null) mixed.put("users", users)
         val inbounds = JSONArray().put(mixed)
         val httpPort = settings.singBoxHttpInboundPort
@@ -1095,7 +1094,6 @@ private fun removeKeys(
                 .put("listen", listen)
                 .put("listen_port", httpPort)
                 .put("tcp_fast_open", settings.tcpFastOpenEnabled)
-            applyInboundSniff(http, settings)
             if (users != null) http.put("users", JSONArray(users.toString()))
             inbounds.put(http)
         }

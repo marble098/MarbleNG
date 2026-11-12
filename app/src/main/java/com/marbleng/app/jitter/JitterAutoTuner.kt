@@ -1,5 +1,7 @@
 package com.marbleng.app.jitter
 
+import java.util.Locale
+
 /**
  * MARBLE_SMART_JITTER_V238 — the optional Auto-Tuner's decision half (pure Kotlin, default OFF).
  *

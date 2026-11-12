@@ -417,7 +417,7 @@ object XrayConfigHardener {
         }
         out.put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
 
-        val listen = if (settings.xrayAllowLan) "0.0.0.0" else "127.0.0.1"
+        val listen = expectedListen(settings)
 
         val fakeIpArmed = FakeIpPolicy.isDnsPathArmed(settings) && settings.xraySniffingEnabled
 
@@ -432,8 +432,8 @@ object XrayConfigHardener {
 
         CoreSocketPolicy.xrayLocalInboundStream(settings)?.let { inbound.put("streamSettings", it) }
         val inbounds = JSONArray().put(inbound)
-        val httpPort = settings.xrayHttpInboundPort
-        if (httpPort in 1024..65535 && httpPort != socksPort) {
+        val httpPort = expectedHttpPort(settings, socksPort)
+        if (httpPort != null) {
             inbounds.put(
                 JSONObject()
                     .put("tag", "http-in")
