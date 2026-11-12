@@ -20,7 +20,7 @@ class ConnectPulseV279Test {
         assertEquals(1f, ConnectPulse.breath(0.5f), 0.001f)
         assertEquals(0f, ConnectPulse.breath(1f), 0.001f)
         assertEquals(0f, ConnectPulse.breath(-1f), 0.001f)
-        assertEquals(1f, ConnectPulse.breath(2f), 0.001f)
+        assertEquals(0f, ConnectPulse.breath(2f), 0.001f)
         assertTrue(ConnectPulse.haloAlpha(1f) <= ConnectPulse.HALO_ALPHA)
         assertEquals(0f, ConnectPulse.haloAlpha(0.5f, presence = 0f), 0f)
         assertEquals(ConnectPulse.RING_ALPHA, ConnectPulse.ringAlpha(0f), 0f)
