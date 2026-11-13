@@ -176,6 +176,15 @@ class XrayConfigHardenerTest {
     }
 
     @Test
+    fun `routing domain strategies are emitted and invalid values fall back`() {
+        listOf("AsIs", "IPIfNonMatch", "IPOnDemand", "invalid").forEach { strategy ->
+            val settings = AppSettings(routeDomainStrategy = strategy)
+            val actual = harden(settings).getJSONObject("routing").getString("domainStrategy")
+            assertEquals(if (strategy == "invalid") "IPIfNonMatch" else strategy, actual)
+        }
+    }
+
+    @Test
     fun `iran mode blocks poison injector ranges and media udp is opt in`() {
         val settings = fragmentChainSettings().copy(iranModePolicy = IranModePolicy.ALWAYS_ON)
 

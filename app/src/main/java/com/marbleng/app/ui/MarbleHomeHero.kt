@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -336,8 +338,8 @@ private fun HeroMetricCell(
 
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(onStage.copy(alpha = 0.10f))
+            .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 10.dp, bottomEnd = 22.dp, bottomStart = 10.dp))
+            .background(onStage.copy(alpha = 0.14f))
             .clickable(role = Role.Button, onClick = onClick)
             .testTag("home-hero-metric-${metric.kind.id}")
             .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
@@ -362,6 +364,10 @@ private fun HeroMetricCell(
             )
         }
 
+        // Reserve the numeric line while a probe is running, including at larger font scales.
+        Box(modifier = Modifier.fillMaxWidth().heightIn(min = with(LocalDensity.current) {
+            MaterialTheme.typography.headlineSmallEmphasized.lineHeight.toDp()
+        }), contentAlignment = Alignment.CenterStart) {
         if (metric.isWorking) {
             MarbleWaveRing(
                 modifier = Modifier.padding(top = 4.dp),
@@ -396,6 +402,7 @@ private fun HeroMetricCell(
                     )
                 }
             }
+        }
         }
     }
 }

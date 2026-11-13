@@ -521,6 +521,15 @@ private val FaLexicon: Map<String, String> = mapOf(
     "unknown interface" to "اینترفیس ناشناس",
 
     // MARBLE_EXPRESSIVE_BENTO_V250 — the bento hub, connection stage and aligned source cards.
+    "Domain matching strategy" to "روش تطبیق دامنه",
+    "Domain only" to "فقط دامنه",
+    "Do not resolve domains for IP rules" to "برای قوانین IP دامنه را تبدیل نکن",
+    "Check IP if no domain rule matches" to "بررسی IP اگر هیچ قانون دامنه‌ای تطبیق نداشت",
+    "Resolve only when domain rules do not match" to "فقط در صورت تطبیق نداشتن قوانین دامنه، IP را بررسی کن",
+    "Check IP when needed" to "بررسی IP در صورت نیاز",
+    "Resolve as soon as an IP rule needs it" to "به محض نیاز یک قانون IP، دامنه را تبدیل کن",
+    "Xray routing only. Resolving domains can add DNS lookups; reconnect to apply." to "فقط برای مسیریابی Xray. تبدیل دامنه ممکن است درخواست DNS اضافه کند؛ برای اعمال دوباره متصل شوید.",
+    "Domain matching strategy is available with Xray only." to "روش تطبیق دامنه فقط در Xray در دسترس است.",
     "Your network, your way" to "شبکه‌ات، به سلیقه خودت",
     "Choose server" to "سرور رو انتخاب کن",
     "Expanded" to "باز شده",

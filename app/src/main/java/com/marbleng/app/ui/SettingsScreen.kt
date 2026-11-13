@@ -658,16 +658,18 @@ private fun SettingsMenuPage(
                             onClick = { onOpenDestination(SettingsDestination.ABOUT) }
                         )
                     }
-                    MarbleSearchField(
-                        value = search,
-                        onValueChange = { hubState.search = it },
-                        placeholder = trx("Search settings"),
-                        trailingCount = if (searching || category == SettingsHubCategory.ALL) {
-                            faDigits("${activeRows.size}")
-                        } else {
-                            faDigits("${SettingsUmbrellaGroup.entries.size}")
-                        }
-                    )
+                    MarbleCard(contentPadding = PaddingValues(6.dp)) {
+                        MarbleSearchField(
+                            value = search,
+                            onValueChange = { hubState.search = it },
+                            placeholder = trx("Search settings"),
+                            trailingCount = if (searching || category == SettingsHubCategory.ALL) {
+                                faDigits("${activeRows.size}")
+                            } else {
+                                faDigits("${SettingsUmbrellaGroup.entries.size}")
+                            }
+                        )
+                    }
                     if (searching && activeRows.isEmpty()) {
                         MarbleEmptyState(
                             title = trx("No matches"),
