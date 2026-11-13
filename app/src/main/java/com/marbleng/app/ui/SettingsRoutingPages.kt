@@ -837,6 +837,22 @@ private fun RoutingAdvancedSheet(
         onDismiss = onDismiss,
         scrollable = true
     ) {
+        if (s.coreEngineId == CoreEngine.XRAY.id) {
+            MarbleDropdownField(
+                label = trx("Domain matching strategy"),
+                value = s.routeDomainStrategy,
+                options = listOf(
+                    MarbleMenuOption("AsIs", trx("Domain only"), trx("Do not resolve domains for IP rules")),
+                    MarbleMenuOption("IPIfNonMatch", trx("Check IP if no domain rule matches"), trx("Resolve only when domain rules do not match")),
+                    MarbleMenuOption("IPOnDemand", trx("Check IP when needed"), trx("Resolve as soon as an IP rule needs it"))
+                ),
+                onSelect = { strategy -> repo.updateSettings(s.copy(routeDomainStrategy = strategy)) }
+            )
+            MarbleSectionFooter(trx("Xray routing only. Resolving domains can add DNS lookups; reconnect to apply."))
+        } else {
+            MarbleSectionFooter(trx("Domain matching strategy is available with Xray only."))
+        }
+
         MarbleDropdownField(
             label = trx("Download source"),
             value = selected?.id.orEmpty(),
