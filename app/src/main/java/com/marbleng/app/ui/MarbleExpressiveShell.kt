@@ -295,12 +295,11 @@ fun MarbleConnectPill(
             },
         contentAlignment = Alignment.Center
     ) {
-        // The halo: wider than the island so it shows above and below the pill, clipped to the
-        // same spring-morphing corners so it can never poke outside the pill's silhouette.
+        // The halo: wraps the island inside the fixed 82dp box so it never pushes rows around.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(90.dp)
+                .height(82.dp)
                 .clip(shape)
                 .background(tone.copy(alpha = glow))
         )
@@ -308,147 +307,181 @@ fun MarbleConnectPill(
             Canvas(
                 modifier = Modifier.fillMaxWidth().height(82.dp).testTag("home-connect-pulse")
             ) {
-                val inset = 3.dp.toPx() + ConnectPulse.ringRadiusFraction(heartbeat) * 5.dp.toPx()
+                val pulseInset = 3.dp.toPx() + ConnectPulse.ringRadiusFraction(heartbeat) * 5.dp.toPx()
                 drawRoundRect(
                     color = tone.copy(alpha = ConnectPulse.ringAlpha(heartbeat, 0.7f)),
-                    topLeft = Offset(inset, inset),
-                    size = Size(size.width - inset * 2f, size.height - inset * 2f),
+                    topLeft = Offset(pulseInset, pulseInset),
+                    size = Size(size.width - pulseInset * 2f, size.height - pulseInset * 2f),
                     cornerRadius = CornerRadius(corner.toPx(), corner.toPx()),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx())
+                    style = Stroke(1.5.dp.toPx())
                 )
             }
         }
-        // The tonal island: one surface per phase, its padding the only thing that breathes.
+        // The tonal island: inner breathing inset keeps outer bounds steady while content sits
+        // inside a properly padded Material 3 Expressive surface.
         Box(
             modifier = Modifier
-                .padding(
-                    horizontal = ConnectPillMotion.insetDp(inset.value).dp + 20.dp
-                )
+                .padding(horizontal = ConnectPillMotion.insetDp(inset.value).dp)
+                .fillMaxWidth()
+                .height(74.dp)
                 .clip(shape)
                 .background(tone),
             contentAlignment = Alignment.Center
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-            if (working) {
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(marbleExpressiveShape(MarbleExpressiveMotif.BURST))
-                        .background(onTone.copy(alpha = 0.18f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MarbleWaveRing(size = 28.dp, color = onTone)
-                }
-            } else {
-                val emblemShape = marbleMorphingShape(
-                    from = MarbleExpressiveMotif.CLOVER,
-                    to = MarbleExpressiveMotif.FLOWER,
-                    progress = stateMorph
-                )
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .graphicsLayer { rotationZ = emblemSpin + ambientTurn }
-                        .clip(emblemShape)
-                        .background(onTone.copy(alpha = 0.18f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MarbleGlyphIcon(
-                        glyph = when (phase) {
-                            ConnectPhase.CONNECTED -> MarbleGlyph.STOP
-                            ConnectPhase.BLOCKED -> MarbleGlyph.REFRESH
-                            else -> MarbleGlyph.POWER
-                        },
-                        color = onTone,
+                if (working) {
+                    Box(
                         modifier = Modifier
-                            .size(22.dp)
-                            .graphicsLayer { rotationZ = -(emblemSpin + ambientTurn) },
-                        weight = 1.2f
+                            .size(48.dp)
+                            .clip(marbleExpressiveShape(MarbleExpressiveMotif.BURST))
+                            .background(onTone.copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MarbleWaveRing(size = 24.dp, color = onTone)
+                    }
+                } else {
+                    val emblemShape = marbleMorphingShape(
+                        from = MarbleExpressiveMotif.CLOVER,
+                        to = MarbleExpressiveMotif.FLOWER,
+                        progress = stateMorph
                     )
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .graphicsLayer { rotationZ = emblemSpin + ambientTurn }
+                            .clip(emblemShape)
+                            .background(onTone.copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        MarbleGlyphIcon(
+                            glyph = when (phase) {
+                                ConnectPhase.CONNECTED -> MarbleGlyph.STOP
+                                ConnectPhase.BLOCKED -> MarbleGlyph.REFRESH
+                                else -> MarbleGlyph.POWER
+                            },
+                            color = onTone,
+                            modifier = Modifier
+                                .size(22.dp)
+                                .graphicsLayer { rotationZ = -(emblemSpin + ambientTurn) },
+                            weight = 1.2f
+                        )
+                    }
                 }
-            }
 
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                AnimatedContent(
-                    targetState = title,
-                    transitionSpec = {
-                        (slideInVertically { h -> h / 2 } + fadeIn()) togetherWith
-                            slideOutVertically { h -> -h / 2 } + fadeOut()
-                    },
-                    label = "pillTitle"
-                ) { t ->
-                    Text(
-                        text = t,
-                        color = onTone,
-                        style = MaterialTheme.typography.titleLargeEmphasized,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
                     AnimatedContent(
-                        targetState = subtitle,
-                        modifier = Modifier.weight(1f, fill = false),
+                        targetState = title,
                         transitionSpec = {
-                            (slideInVertically { h -> h / 3 } + fadeIn(
-                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-                            )) togetherWith slideOutVertically { h -> -h / 3 } + fadeOut()
+                            (slideInVertically { h -> h / 2 } + fadeIn()) togetherWith
+                                slideOutVertically { h -> -h / 2 } + fadeOut()
                         },
-                        label = "pillSubtitle"
-                    ) { s ->
+                        label = "pillTitle"
+                    ) { t ->
                         Text(
-                            text = s,
-                            color = onTone.copy(alpha = 0.84f),
-                            style = MaterialTheme.typography.bodySmall,
+                            text = t,
+                            color = onTone,
+                            style = MaterialTheme.typography.titleLargeEmphasized,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    if (ticker.isNotEmpty()) {
-                        MarbleRollingClock(
-                            clock = ticker,
-                            color = onTone.copy(alpha = 0.92f),
-                            modifier = Modifier.padding(start = 6.dp),
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontWeight = FontWeight.SemiBold
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AnimatedContent(
+                            targetState = subtitle,
+                            modifier = Modifier.weight(1f, fill = false),
+                            transitionSpec = {
+                                (slideInVertically { h -> h / 3 } + fadeIn(
+                                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                                )) togetherWith slideOutVertically { h -> -h / 3 } + fadeOut()
+                            },
+                            label = "pillSubtitle"
+                        ) { s ->
+                            Text(
+                                text = s,
+                                color = onTone.copy(alpha = 0.84f),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+                        }
+                        if (ticker.isNotEmpty()) {
+                            MarbleRollingClock(
+                                clock = ticker,
+                                color = onTone.copy(alpha = 0.92f),
+                                modifier = Modifier.padding(start = 6.dp),
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Trailing Expressive badge reserves fixed space inside the Row so text never collides.
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            onTone.copy(
+                                alpha = when {
+                                    working -> 0.12f
+                                    phase == ConnectPhase.CONNECTED -> 0.18f
+                                    else -> 0.16f
+                                }
+                            )
+                        )
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(
+                                    marbleExpressiveShape(
+                                        if (phase == ConnectPhase.CONNECTED) {
+                                            MarbleExpressiveMotif.SUNNY
+                                        } else {
+                                            MarbleExpressiveMotif.DIAMOND
+                                        }
+                                    )
+                                )
+                                .background(
+                                    onTone.copy(
+                                        alpha = when {
+                                            working -> 0.45f
+                                            phase == ConnectPhase.CONNECTED -> 0.95f
+                                            else -> 0.82f
+                                        }
+                                    )
+                                )
+                        )
+                        MarbleGlyphIcon(
+                            glyph = when (phase) {
+                                ConnectPhase.CONNECTED -> MarbleGlyph.STOP
+                                ConnectPhase.BLOCKED -> MarbleGlyph.REFRESH
+                                ConnectPhase.CONNECTING, ConnectPhase.DISCONNECTING -> MarbleGlyph.TUNNEL
+                                ConnectPhase.IDLE -> MarbleGlyph.CHEVRON
+                            },
+                            color = onTone,
+                            modifier = Modifier.size(13.dp),
+                            weight = 1.2f
                         )
                     }
                 }
             }
-        }
-
-            // The mark reserves its space in every phase, including the two working ones: the
-            // weighted text column never has to re-measure when a spinner replaces an emblem.
-            Box(
-                modifier = Modifier
-                    .size(16.dp)
-                    .clip(
-                        marbleExpressiveShape(
-                            if (phase == ConnectPhase.CONNECTED) {
-                                MarbleExpressiveMotif.SUNNY
-                            } else {
-                                MarbleExpressiveMotif.DIAMOND
-                            }
-                        )
-                    )
-                    .background(
-                        onTone.copy(
-                            alpha = when {
-                                working -> 0.35f
-                                phase == ConnectPhase.CONNECTED -> 0.92f
-                                else -> 0.78f
-                            }
-                        )
-                    )
-            )
         }
     }
 }

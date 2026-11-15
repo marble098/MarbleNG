@@ -2997,6 +2997,20 @@ private val FaLexicon: Map<String, String> = mapOf(
     "No IPv6" to "بدون IPv6",
     "Route" to "مسیر",
     "Moving" to "در حال جابه‌جایی",
+
+    // Expressive Home, Servers, and Subscription Hub UI
+    "Test route" to "تست مسیر",
+    "Test nodes" to "تست سرورها",
+    "Remote" to "آنلاین",
+    "Upload" to "آپلود",
+    "Remaining" to "باقی‌مانده",
+    "Copy links" to "کپی لینک‌ها",
+    "New Subscription" to "اشتراک جدید",
+    "Never synced" to "هنوز همگام‌سازی نشده",
+    "Refreshing..." to "در حال تازه‌سازی...",
+    "No subscriptions yet" to "هنوز اشتراکی اضافه نشده",
+    "Add a remote HTTPS subscription URL to keep your server lists organized and synced." to
+        "یک لینک اشتراک HTTPS اضافه کن تا فهرست سرورهایت منظم و تازه بماند.",
 )
 
 

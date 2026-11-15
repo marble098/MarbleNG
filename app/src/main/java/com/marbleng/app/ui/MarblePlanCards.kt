@@ -5,7 +5,6 @@ package com.marbleng.app.ui
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -106,28 +104,30 @@ internal fun MarblePlanPlate(
             .fillMaxWidth()
             .testTag("server-plan-plate")
             .clip(RoundedCornerShape(18.dp))
-            .background(tones.plum.container.copy(alpha = 0.55f))
-            // A hairline of the tone at 12 %: without it a plate on a card whose own tone is one step
-            // from the sheet's reads as a gap rather than as an object.
-            .border(
-                width = 1.dp,
-                color = accent.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(18.dp)
-            )
+            .background(colors.surface.copy(alpha = 0.56f))
+            .background(tones.plum.container.copy(alpha = 0.62f))
             .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            MarbleGlyphIcon(
-                glyph = MarbleGlyph.GAUGE,
-                color = accent,
-                modifier = Modifier.size(13.dp),
-                weight = 1.15f
-            )
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(marbleExpressiveShape(MarbleExpressiveMotif.DIAMOND))
+                    .background(accent.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                MarbleGlyphIcon(
+                    glyph = MarbleGlyph.GAUGE,
+                    color = accent,
+                    modifier = Modifier.size(12.dp),
+                    weight = 1.18f
+                )
+            }
             Text(
                 text = trx("Quota"),
                 color = colors.onSurfaceVariant,
@@ -160,12 +160,19 @@ internal fun MarblePlanPlate(
                     maxLines = 1,
                     modifier = Modifier.weight(1f)
                 )
-                Text(
-                    text = "${faDigits(PlanStatus.formatBytes(status.remainingBytes))} ${trx("left")}",
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1
-                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(percent = 50))
+                        .background(accent.copy(alpha = 0.10f))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "${faDigits(PlanStatus.formatBytes(status.remainingBytes))} ${trx("left")}",
+                        color = accent,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1
+                    )
+                }
             }
         }
 
@@ -177,12 +184,20 @@ internal fun MarblePlanPlate(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                MarbleGlyphIcon(
-                    glyph = MarbleGlyph.BELL,
-                    color = accent,
-                    modifier = Modifier.size(13.dp),
-                    weight = 1.15f
-                )
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(marbleExpressiveShape(MarbleExpressiveMotif.CLOVER))
+                        .background(accent.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    MarbleGlyphIcon(
+                        glyph = MarbleGlyph.BELL,
+                        color = accent,
+                        modifier = Modifier.size(11.dp),
+                        weight = 1.15f
+                    )
+                }
                 Text(
                     text = buildString {
                         append(trx(if (status.expired) "Expired" else "Expires"))
@@ -196,12 +211,19 @@ internal fun MarblePlanPlate(
                     maxLines = 1,
                     modifier = Modifier.weight(1f)
                 )
-                Text(
-                    text = faDigits(PlanStatus.expiryDate(status.expireAtMs, persian = persian)),
-                    color = colors.onSurfaceVariant,
-                    style = numericStyle,
-                    maxLines = 1
-                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.surface.copy(alpha = 0.56f))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = faDigits(PlanStatus.expiryDate(status.expireAtMs, persian = persian)),
+                        color = colors.onSurfaceVariant,
+                        style = numericStyle,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }
