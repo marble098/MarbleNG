@@ -290,7 +290,7 @@ class ExpressiveConnectionServersSubscriptionsTest {
                     ProvideMarbleMotion(calmMotion = false, systemReducedMotion = false) {
                         Box(Modifier.width(340.dp)) {
                             MarbleAddServerGrid(
-                                clipboardKind = IntakeKind.SUBSCRIPTION_URL,
+                                clipboardKind = IntakeKind.SUBSCRIPTION,
                                 onAction = { lastAction = it }
                             )
                         }
