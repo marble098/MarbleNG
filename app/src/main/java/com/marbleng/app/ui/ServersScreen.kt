@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.marbleng.app.ui
 
 import androidx.compose.animation.AnimatedVisibility
@@ -68,6 +70,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -428,18 +432,36 @@ fun ServersScreen(
                             firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
                         )
                     ) {
-                        // MARBLE_SERVERS_DECLUTTER_V256 — the sources rail is gone from the page,
-                        // so its one useful verb (choose which library you are looking at) moves
-                        // here, beside the other header actions, one tap away and 0dp tall.
-                        MarbleIconButton(
+                        val sourceScoped = repo.librarySourceFilter != "all"
+                        MarbleExpressiveIconButton(
                             glyph = MarbleGlyph.LAYERS,
-                            tint = colors.onSurfaceVariant,
+                            motif = if (sourceScoped) {
+                                MarbleExpressiveMotif.DIAMOND
+                            } else {
+                                MarbleExpressiveMotif.ARCH
+                            },
+                            containerColor = if (sourceScoped) {
+                                colors.secondaryContainer
+                            } else {
+                                colors.surfaceContainerHigh
+                            },
+                            contentColor = if (sourceScoped) {
+                                colors.onSecondaryContainer
+                            } else {
+                                colors.onSurfaceVariant
+                            },
                             contentDescription = trx("Manage sources"),
                             onClick = { librarySheetOpen = true }
                         )
-                        MarbleIconButton(
+                        MarbleExpressiveIconButton(
                             glyph = if (repo.probeActive) MarbleGlyph.STOP else MarbleGlyph.GAUGE,
-                            tint = if (repo.probeActive) colors.error else colors.success,
+                            motif = MarbleExpressiveMotif.CLOVER,
+                            containerColor = if (repo.probeActive) {
+                                colors.error.copy(alpha = 0.14f)
+                            } else {
+                                colors.surfaceContainerHigh
+                            },
+                            contentColor = if (repo.probeActive) colors.error else colors.success,
                             contentDescription = trx("Test every server"),
                             onClick = {
                                 if (repo.probeActive || repo.probeCancelling) {
@@ -497,9 +519,24 @@ fun ServersScreen(
                                 }
                             }
                         )
-                        MarbleIconButton(
+                        val filtersActive = filterChips.isNotEmpty()
+                        MarbleExpressiveIconButton(
                             glyph = MarbleGlyph.FILTER,
-                            tint = if (filterChips.isNotEmpty()) colors.primary else colors.onSurfaceVariant,
+                            motif = if (filtersActive) {
+                                MarbleExpressiveMotif.SUNNY
+                            } else {
+                                MarbleExpressiveMotif.PENTAGON
+                            },
+                            containerColor = if (filtersActive) {
+                                colors.secondaryContainer
+                            } else {
+                                colors.surfaceContainerHigh
+                            },
+                            contentColor = if (filtersActive) {
+                                colors.onSecondaryContainer
+                            } else {
+                                colors.onSurfaceVariant
+                            },
                             contentDescription = trx("Sort & Filter"),
                             onClick = { filterSheetOpen = true }
                         )
@@ -796,6 +833,7 @@ fun ServersScreen(
             cards = sourceCards,
             selectedId = repo.librarySourceFilter,
             busy = repo.busy,
+            refreshingSources = repo.refreshingSources,
             scanning = repo.serverLocationScanning,
             located = repo.serverLocationSummary().first,
             total = allProfiles.size,
@@ -809,8 +847,10 @@ fun ServersScreen(
                 editSubName = sub.name
                 editSubUrl = sub.url
             },
+            onRefreshSource = { subId -> repo.refresh(subId) },
             onRefreshAll = { if (!repo.busy) repo.refreshAll() },
             onScanFlags = { repo.ensureServerLocations(force = true) },
+            onAddSubscription = { name, url -> repo.addSubscription(name, url) },
             onAdd = {
                 librarySheetOpen = false
                 onOpenAddSheet()
@@ -942,7 +982,11 @@ fun ServersScreen(
                 editSubscription = null
                 deleteSubscription = sub
             },
-            onDismiss = { editSubscription = null }
+            onDismiss = { editSubscription = null },
+            onViewNodes = {
+                repo.selectLibrarySource(sub.id)
+                editSubscription = null
+            }
         )
     }
 
@@ -1026,6 +1070,8 @@ private fun ActiveServerCard(
     val strings = Tr.now
     val connected = state == "CONNECTED"
     val country = repo.serverLocation(profile)
+    val stage = if (connected) colors.successContainer else colors.tertiaryContainer
+    val onStage = if (connected) colors.onSuccessContainer else colors.onTertiaryContainer
     val tone = if (connected) colors.success else colors.warning
     val health = when {
         !connected -> ServerHealth.UNTESTED
@@ -1033,66 +1079,81 @@ private fun ActiveServerCard(
         else -> serverHealthOf(livePingMs.toDouble(), true)
     }
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(tone.copy(alpha = 0.11f))
+            .clip(marbleAsymmetricShape(prominent = true))
+            .background(stage)
             .clickable(role = Role.Button, onClick = onInspect)
-            .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        ServerFlagTile(
-            code = country.code.takeIf { country.isKnown },
-            profile = profile,
-            width = 34.dp,
-            height = 26.dp
+        MarblePetalMark(
+            color = onStage.copy(alpha = 0.10f),
+            size = 96.dp,
+            motif = MarbleExpressiveMotif.FLOWER,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .graphicsLayer {
+                    translationX = 18.dp.toPx()
+                }
         )
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 8.dp, top = 11.dp, bottom = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ServerFlagTile(
+                code = country.code.takeIf { country.isKnown },
+                profile = profile,
+                width = 38.dp,
+                height = 28.dp
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                MarblePulseDot(color = tone, modifier = Modifier.size(7.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    MarblePulseDot(color = tone, modifier = Modifier.size(7.dp))
+                    Text(
+                        text = if (connected) trx("Active route") else trx("Connecting"),
+                        color = tone,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1
+                    )
+                    Text(
+                        text = ServersAtlas.rowSubtitle(
+                            profile = profile,
+                            countryName = country.name.takeIf { country.isKnown }.orEmpty()
+                        ),
+                        color = onStage.copy(alpha = 0.74f),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Text(
-                    text = if (connected) trx("Active route") else trx("Connecting"),
-                    color = tone,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 1
-                )
-                Text(
-                    text = ServersAtlas.rowSubtitle(
-                        profile = profile,
-                        countryName = country.name.takeIf { country.isKnown }.orEmpty()
-                    ),
-                    color = colors.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
+                    text = cleanServerName(profile.name).ifBlank { strings.node },
+                    color = onStage,
+                    style = MaterialTheme.typography.titleMediumEmphasized,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Text(
-                text = cleanServerName(profile.name).ifBlank { strings.node },
-                color = colors.onSurface,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+            MarbleHealthPill(
+                health = health,
+                text = if (livePingMs > 0) faDigits("$livePingMs ms") else strings.pingIdleValue
+            )
+            MarbleIconButton(
+                glyph = MarbleGlyph.STOP,
+                tint = colors.error,
+                contentDescription = strings.disconnect,
+                onClick = onDisconnect
             )
         }
-        MarbleHealthPill(
-            health = health,
-            text = if (livePingMs > 0) faDigits("$livePingMs ms") else strings.pingIdleValue
-        )
-        MarbleIconButton(
-            glyph = MarbleGlyph.STOP,
-            tint = colors.error,
-            contentDescription = strings.disconnect,
-            onClick = onDisconnect
-        )
     }
 }
 
@@ -1187,6 +1248,11 @@ internal fun ServerGroupHeader(
     val sub = bucket.subscription
     val freshness = sub?.updatedAt?.takeIf { it > 0L }?.let { trx(relativeTimeLabel(it)) }
     val stateLabel = if (collapsed) trx("Collapsed") else trx("Expanded")
+    val headerGround = if (sub != null) {
+        lerp(colors.surfaceContainerLow, sourceStripeColor(stripeTone(bucket.id)), 0.055f)
+    } else {
+        colors.surfaceContainerLow
+    }
 
     // MARBLE_EXPRESSIVE_BENTO_V250 — the overflow lives in a reserved trailing column.
     // Title, count and freshness share one flexible leading block, so a long subscription
@@ -1195,73 +1261,79 @@ internal fun ServerGroupHeader(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("server-group-header-${bucket.id}")
-            .heightIn(min = 64.dp)
+            .heightIn(min = 66.dp)
             .clip(RoundedCornerShape(24.dp))
-            .background(colors.surfaceContainerLow)
+            .background(headerGround)
             .clickable(role = Role.Button, onClick = onToggleCollapse)
             .semantics { this.stateDescription = stateLabel }
-            .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            MarbleGlyphIcon(
-                glyph = if (collapsed) MarbleGlyph.CHEVRON else MarbleGlyph.CHEVRON_DOWN,
-                color = colors.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
-            )
-            if (bucket.countryCode.isNotBlank()) {
+            if (sub != null) {
+                MarbleSourceStripe(id = bucket.id, selected = false, height = 38.dp)
+            } else if (bucket.countryCode.isNotBlank()) {
                 CountryFlagCircle(
                     code = bucket.countryCode,
                     size = ServersAtlas.SECTION_FLAG_SIZE_DP.dp
                 )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(marbleExpressiveShape(MarbleExpressiveMotif.FOLDER))
+                        .background(colors.tertiary.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    MarbleGlyphIcon(
+                        glyph = MarbleGlyph.FOLDER,
+                        color = colors.tertiary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Text(
-                    text = bucket.title,
-                    color = colors.onSurface,
-                    style = MaterialTheme.typography.titleSmallEmphasized,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    MarbleGlyphIcon(
+                        glyph = if (collapsed) MarbleGlyph.CHEVRON else MarbleGlyph.CHEVRON_DOWN,
+                        color = colors.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = bucket.title,
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.titleSmallEmphasized,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
                     MarbleBadge(
                         text = faDigits("${bucket.profiles.size}"),
                         color = if (sub != null) colors.secondary else colors.tertiary
                     )
-                    if (freshness != null) {
-                        Text(
-                            text = freshness,
-                            color = colors.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                    }
+                }
+                if (freshness != null) {
+                    Text(
+                        text = freshness,
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
                 // MARBLE_SERVER_PLAN_V273 — the plan belongs to the title block, not beside it.
-                //
-                // V260 drew this as a **sibling** of the title inside a horizontal Row: a
-                // `fillMaxWidth` row with no width left to fill, whose two `weight(1f, fill =
-                // false)` labels collapsed to zero. The result was a subscription header that
-                // showed nothing about the subscription's own plan — no used traffic, no remaining
-                // days — exactly as reported. It is now the last child of the column that owns the
-                // title, so it inherits that column's full width and always has room for both
-                // numbers; and `ServerPlanStrip` prints a *sentence* when a panel reported no plan
-                // at all, because "unknown" and "zero" are not the same fact.
                 if (sub != null) {
                     ServerPlanStrip(
                         summary = PlanStatus.summarize(
@@ -1357,7 +1429,7 @@ private fun AddServerPill(onClick: () -> Unit) {
         modifier = Modifier
             .heightIn(min = 48.dp)
             .clip(CircleShape)
-            .background(colors.primaryContainer)
+            .background(colors.primary)
             .clickable(role = Role.Button) {
                 haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                 onClick()
@@ -1368,13 +1440,13 @@ private fun AddServerPill(onClick: () -> Unit) {
     ) {
         MarbleGlyphIcon(
             glyph = MarbleGlyph.PLUS,
-            color = colors.onPrimaryContainer,
+            color = colors.onPrimary,
             modifier = Modifier.size(18.dp),
-            weight = 1.2f
+            weight = 1.25f
         )
         Text(
             text = trx("Add"),
-            color = colors.onPrimaryContainer,
+            color = colors.onPrimary,
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
             maxLines = 1
         )
@@ -1382,16 +1454,10 @@ private fun AddServerPill(onClick: () -> Unit) {
 }
 
 /**
- * MARBLE_SERVERS_DECLUTTER_V256 — the circular Auto-Select that replaced the Sources rail.
+ * MARBLE_SERVERS_DECLUTTER_V256 — Expressive Auto-Select target in the search toolbar.
  *
- * One 48dp target in the search row: press it and the whole visible library is measured and the
- * winner is connected; press it again while a sweep is running and the sweep stops. It is the only
- * thing the rail was ever *in front of*, and it costs 0dp of vertical offset instead of a third of
- * the viewport.
- *
- * The container is primary-toned at rest and error-toned while measuring — the same colour grammar
- * the rest of the app uses for "this number is being taken" — and the glyph swaps from a spark to a
- * stop through one draw, never through a spinner.
+ * Wears `MaterialShapes.Sunny` at rest and morphs into `SoftBurst` + `MarbleWaveRing` while
+ * benchmarking the visible library so the reader sees live work in motion.
  */
 @Composable
 private fun ServerAutoSelectButton(
@@ -1403,19 +1469,23 @@ private fun ServerAutoSelectButton(
     val haptics = LocalHapticFeedback.current
     val container = when {
         !enabled -> colors.surfaceContainerHighest
-        probing -> colors.errorContainer
+        probing -> colors.tertiaryContainer
         else -> colors.primaryContainer
     }
     val ink = when {
         !enabled -> colors.outline
-        probing -> colors.onErrorContainer
+        probing -> colors.onTertiaryContainer
         else -> colors.onPrimaryContainer
     }
     val spoken = if (probing) trx("Stop measuring") else trx("Measure the library and connect to the fastest")
     Box(
         modifier = Modifier
             .size(48.dp)
-            .clip(CircleShape)
+            .clip(
+                marbleExpressiveShape(
+                    if (probing) MarbleExpressiveMotif.BURST else MarbleExpressiveMotif.SUNNY
+                )
+            )
             .background(container)
             .clickable(enabled = enabled, role = Role.Button) {
                 haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
@@ -1425,12 +1495,16 @@ private fun ServerAutoSelectButton(
             .testTag("servers-auto-select"),
         contentAlignment = Alignment.Center
     ) {
-        MarbleGlyphIcon(
-            glyph = if (probing) MarbleGlyph.STOP else MarbleGlyph.SPARK,
-            color = ink,
-            weight = 1.15f,
-            modifier = Modifier.size(20.dp)
-        )
+        if (probing) {
+            MarbleWaveRing(size = 22.dp, color = ink)
+        } else {
+            MarbleGlyphIcon(
+                glyph = MarbleGlyph.SPARK,
+                color = ink,
+                weight = 1.2f,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
@@ -1566,7 +1640,7 @@ private fun libraryCardSubtitle(card: ServersLibraryCard, nowMs: Long): String {
  * without the four-tap round trip.
  */
 @Composable
-private fun ServersLibrarySheet(
+internal fun ServersLibrarySheet(
     cards: List<ServersLibraryCard>,
     selectedId: String,
     busy: Boolean,
@@ -1578,16 +1652,86 @@ private fun ServersLibrarySheet(
     onRefreshAll: () -> Unit,
     onScanFlags: () -> Unit,
     onAdd: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    refreshingSources: Set<String> = emptySet(),
+    onRefreshSource: ((String) -> Unit)? = null,
+    onAddSubscription: ((String, String) -> Unit)? = null
 ) {
-    val colors = MaterialTheme.colorScheme
-
     MarbleBottomSheet(
         title = trx("Sources"),
         subtitle = trx("Pick a library, refresh it, or scan its flags"),
         onDismiss = onDismiss,
         scrollable = true
     ) {
+        ServersLibrarySheetContent(
+            cards = cards,
+            selectedId = selectedId,
+            busy = busy,
+            scanning = scanning,
+            located = located,
+            total = total,
+            onSelect = onSelect,
+            onManageSubscription = onManageSubscription,
+            onRefreshAll = onRefreshAll,
+            onScanFlags = onScanFlags,
+            onAdd = onAdd,
+            refreshingSources = refreshingSources,
+            onRefreshSource = onRefreshSource,
+            onAddSubscription = onAddSubscription
+        )
+    }
+}
+
+@Composable
+internal fun ServersLibrarySheetContent(
+    cards: List<ServersLibraryCard>,
+    selectedId: String,
+    busy: Boolean,
+    scanning: Boolean,
+    located: Int,
+    total: Int,
+    onSelect: (String) -> Unit,
+    onManageSubscription: (Subscription) -> Unit,
+    onRefreshAll: () -> Unit,
+    onScanFlags: () -> Unit,
+    onAdd: () -> Unit,
+    refreshingSources: Set<String> = emptySet(),
+    onRefreshSource: ((String) -> Unit)? = null,
+    onAddSubscription: ((String, String) -> Unit)? = null
+) {
+    val colors = MaterialTheme.colorScheme
+    val remoteCount = cards.count { it.subscription?.url?.isNotBlank() == true }
+    val subCount = cards.count { it.subscription != null }
+    var showAddForm by rememberSaveable { mutableStateOf(false) }
+    var newName by rememberSaveable { mutableStateOf("") }
+    var newUrl by rememberSaveable { mutableStateOf("") }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Expressive overview summary pills
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            LibrarySummaryPill(
+                label = trx("Subscriptions"),
+                value = faDigits("$subCount"),
+                tint = colors.primary,
+                modifier = Modifier.weight(1f)
+            )
+            LibrarySummaryPill(
+                label = trx("Remote"),
+                value = faDigits("$remoteCount"),
+                tint = colors.secondary,
+                modifier = Modifier.weight(1f)
+            )
+            LibrarySummaryPill(
+                label = trx("Located"),
+                value = "${faDigits("$located")}/${faDigits("$total")}",
+                tint = colors.tertiary,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1612,15 +1756,84 @@ private fun ServersLibrarySheet(
             )
         }
 
-        Text(
-            text = if (scanning) {
-                "${trx("Scanning flags")} · ${faDigits("$located/$total")}"
-            } else {
-                "${faDigits("$located")} / ${faDigits("$total")} ${trx("located")}"
-            },
-            color = colors.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall
-        )
+        if (scanning) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(colors.tertiaryContainer.copy(alpha = 0.55f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MarbleWaveRing(size = 18.dp, color = colors.onTertiaryContainer)
+                Text(
+                    text = "${trx("Scanning flags")} · ${faDigits("$located/$total")}",
+                    color = colors.onTertiaryContainer,
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+        } else {
+            Text(
+                text = "${faDigits("$located")} / ${faDigits("$total")} ${trx("located")}",
+                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        if (onAddSubscription != null) {
+            AnimatedVisibility(visible = showAddForm) {
+                MarbleCard(
+                    tone = colors.surfaceContainerHigh,
+                    contentPadding = PaddingValues(14.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = trx("New Subscription"),
+                            color = colors.onSurface,
+                            style = MaterialTheme.typography.titleSmallEmphasized
+                        )
+                        MarbleTextField(
+                            label = trx("Subscription Name"),
+                            value = newName,
+                            onValueChange = { newName = it },
+                            placeholder = trx("My provider")
+                        )
+                        MarbleTextField(
+                            label = trx("HTTPS Subscription URL"),
+                            value = newUrl,
+                            onValueChange = { newUrl = it },
+                            placeholder = "https://..."
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            MarbleButton(
+                                label = trx("Cancel"),
+                                style = MarbleButtonStyle.SECONDARY,
+                                compact = true,
+                                onClick = { showAddForm = false },
+                                modifier = Modifier.weight(1f)
+                            )
+                            MarbleButton(
+                                label = trx("Add"),
+                                glyph = MarbleGlyph.PLUS,
+                                compact = true,
+                                enabled = newName.trim().isNotBlank() || newUrl.trim().isNotBlank(),
+                                onClick = {
+                                    onAddSubscription(newName, newUrl)
+                                    newName = ""
+                                    newUrl = ""
+                                    showAddForm = false
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         // MARBLE_SERVER_PLAN_CARDS_V260 — one clock for the whole sheet, so two cards can never
         // disagree about whether "today" has passed, and an alternating tone step so neighbouring
@@ -1628,23 +1841,75 @@ private fun ServersLibrarySheet(
         val nowMs = remember { System.currentTimeMillis() }
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             cards.forEachIndexed { index, card ->
+                val sub = card.subscription
                 SourceLibraryCard(
                     card = card,
                     selected = card.id == selectedId,
                     onSelect = { onSelect(card.id) },
                     onManage = onManageSubscription,
                     alternate = index % 2 == 1,
-                    nowMs = nowMs
+                    nowMs = nowMs,
+                    refreshing = card.id in refreshingSources,
+                    onRefresh = if (sub != null && sub.url.isNotBlank() && onRefreshSource != null) {
+                        { onRefreshSource(sub.id) }
+                    } else {
+                        null
+                    }
                 )
             }
         }
 
-        MarbleButton(
-            label = trx("Add Server or Subscription"),
-            glyph = MarbleGlyph.PLUS,
-            style = MarbleButtonStyle.SECONDARY,
-            onClick = onAdd,
-            modifier = Modifier.fillMaxWidth()
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (onAddSubscription != null && !showAddForm) {
+                MarbleButton(
+                    label = trx("New Subscription"),
+                    glyph = MarbleGlyph.LINK,
+                    style = MarbleButtonStyle.TINTED,
+                    onClick = { showAddForm = true },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            MarbleButton(
+                label = trx("Add Server or Subscription"),
+                glyph = MarbleGlyph.PLUS,
+                style = MarbleButtonStyle.SECONDARY,
+                onClick = onAdd,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun LibrarySummaryPill(
+    label: String,
+    value: String,
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(tint.copy(alpha = 0.11f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = value,
+            color = colors.onSurface,
+            style = MaterialTheme.typography.titleSmallEmphasized,
+            maxLines = 1
+        )
+        Text(
+            text = label,
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -1672,7 +1937,9 @@ internal fun SourceLibraryCard(
      * The clock the plan plate measures its expiry against. Passed in rather than read here, so the
      * whole sheet redraws against one instant and a test can hand it a fixed one.
      */
-    nowMs: Long = System.currentTimeMillis()
+    nowMs: Long = System.currentTimeMillis(),
+    refreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null
 ) {
     val colors = MaterialTheme.colorScheme
     val haptics = LocalHapticFeedback.current
@@ -1687,6 +1954,7 @@ internal fun SourceLibraryCard(
     val metaColor = if (selected) colors.onPrimaryContainer.copy(alpha = 0.78f) else colors.onSurfaceVariant
     val subtitle = libraryCardSubtitle(card, nowMs)
     val plan = planOf(card.subscription, nowMs)
+    val cardShape = marbleSelectionMorphShape(selected = selected, idleDp = 22.dp, selectedDp = 28.dp)
 
     // One sentence for the screen reader, so the plate is not four unlabelled numbers. Read here, in
     // the composition: a semantics lambda is not a composable context.
@@ -1712,7 +1980,7 @@ internal fun SourceLibraryCard(
             .fillMaxWidth()
             .testTag("server-source-" + card.id)
             .heightIn(min = 76.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(cardShape)
             .background(container)
             .clickable(role = Role.RadioButton) {
                 haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
@@ -1796,18 +2064,48 @@ internal fun SourceLibraryCard(
                     val sub = card.subscription
                     if (sub != null) {
                         Box {
-                            MarbleIconButton(
-                                glyph = MarbleGlyph.MORE,
-                                tint = colors.onSurfaceVariant,
-                                contentDescription = "${trx("Manage subscription")}: ${card.title}",
-                                onClick = { menuOpen = true },
-                                modifier = Modifier.testTag("server-source-more-" + card.id)
-                            )
+                            if (refreshing) {
+                                Box(
+                                    modifier = Modifier.size(48.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    MarbleWaveRing(size = 20.dp, color = colors.primary)
+                                }
+                            } else {
+                                MarbleIconButton(
+                                    glyph = MarbleGlyph.MORE,
+                                    tint = colors.onSurfaceVariant,
+                                    contentDescription = "${trx("Manage subscription")}: ${card.title}",
+                                    onClick = { menuOpen = true },
+                                    modifier = Modifier.testTag("server-source-more-" + card.id)
+                                )
+                            }
                             DropdownMenu(
                                 expanded = menuOpen,
                                 onDismissRequest = { menuOpen = false },
                                 containerColor = colors.surfaceContainerHigh
                             ) {
+                                if (onRefresh != null) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                trx("Refresh"),
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            MarbleGlyphIcon(
+                                                glyph = MarbleGlyph.REFRESH,
+                                                color = colors.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        },
+                                        onClick = {
+                                            menuOpen = false
+                                            onRefresh()
+                                        }
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = {
                                         Text(
@@ -2021,17 +2319,19 @@ internal fun ServerRowContent(
     val spokenPing = pingBadgeText(result, probeState)
     val spokenAddress = "\u2068${profile.host}\u2069".takeIf { profile.host.isNotBlank() }
     val spokenActions = trx("Server actions")
+    val rowShape = marbleSelectionMorphShape(
+        selected = active || selected || checked,
+        idleDp = 20.dp,
+        selectedDp = 26.dp
+    )
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("server-row-${profile.id}")
             .heightIn(min = ServersDeck.ROW_MIN_HEIGHT_DP.dp)
-            .clip(RoundedCornerShape(20.dp))
-            // MARBLE_CLEAN_ROW_V249 — the selection and activity tints stay translucent so the page
-            // can breathe behind them, but they are laid over an opaque base of the page's own
-            // surface first. A row is never a window again: whatever the swipe reveal, an undo
-            // animation or a future layer puts behind it, the row shows its own two colours.
+            .clip(rowShape)
+            // MARBLE_CLEAN_ROW_V249 — opaque base of the page's own surface underneath tonal wash.
             .background(colors.surface)
             .background(container)
             .combinedClickable(
@@ -2045,9 +2345,6 @@ internal fun ServerRowContent(
                 contentDescription = listOfNotNull(
                     title,
                     protocolShortLabel(profile),
-                    // FSI/PDI keep an IPv4/IPv6 literal in network order inside RTL copy. The
-                    // address is spoken here and drawn in the details page, not repeated twice
-                    // on the face of the row.
                     spokenAddress,
                     stateLabel.takeIf { it.isNotBlank() },
                     spokenPing
@@ -2057,6 +2354,15 @@ internal fun ServerRowContent(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        if (!selectionMode && (active || selected)) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(28.dp)
+                    .clip(CircleShape)
+                    .background(if (active) colors.success else colors.primary)
+            )
+        }
         if (selectionMode) {
             Box(
                 modifier = Modifier
@@ -2077,7 +2383,6 @@ internal fun ServerRowContent(
         } else {
             Box(contentAlignment = Alignment.Center) {
                 ServerFlagTile(code = countryCode, profile = profile)
-
             }
         }
 
@@ -2100,7 +2405,6 @@ internal fun ServerRowContent(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-
             }
             Text(
                 text = if (active) "${trx("Active")} · $subtitle" else subtitle,
@@ -2145,7 +2449,7 @@ internal fun ServerRowContent(
 
 /**
  * The ping, promoted to the most important number on the row: a four-level bar for the glance,
- * the number for the fact, in one column that is reserved before the first measurement.
+ * the number for the fact, in one tonal capsule inside the reserved 88dp column.
  */
 @Composable
 private fun ServerPingCell(
@@ -2181,23 +2485,29 @@ private fun ServerPingCell(
         readout == PingReadout.SLOW
     val unit = if (text.isNotEmpty() && reported) " ms" else ""
 
-    Column(
+    Box(
         modifier = modifier,
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        contentAlignment = Alignment.CenterEnd
     ) {
         if (measuring) {
             PingSkeleton()
         } else {
             Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(tone.copy(alpha = 0.11f))
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 PingBars(readout = readout, tone = tone)
                 Text(
                     text = text + unit,
                     color = tone,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontFeatureSettings = "tnum"
+                    ),
                     maxLines = 1
                 )
             }
@@ -2229,13 +2539,13 @@ private fun PingBars(readout: PingReadout, tone: Color) {
     }
 }
 
-/** Skeleton shimmer while a probe is in flight — never a frozen number pretending to be truth. */
+/** Expressive wave ring + skeleton shimmer while a probe is in flight. */
 @Composable
 private fun PingSkeleton() {
     val colors = MaterialTheme.colorScheme
     val transition = rememberInfiniteTransition(label = "pingSkeleton")
     val alpha by transition.animateFloat(
-        initialValue = 0.22f,
+        initialValue = 0.24f,
         targetValue = 0.62f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 900, easing = LinearEasing),
@@ -2244,20 +2554,18 @@ private fun PingSkeleton() {
         label = "pingSkeletonAlpha"
     )
     Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(colors.primary.copy(alpha = 0.10f))
+            .padding(horizontal = 8.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        MarbleWaveRing(size = 14.dp, color = colors.primary)
         Box(
             modifier = Modifier
-                .width(12.dp)
-                .height(10.dp)
-                .clip(CircleShape)
-                .background(colors.onSurfaceVariant.copy(alpha = alpha * 0.6f))
-        )
-        Box(
-            modifier = Modifier
-                .width(34.dp)
-                .height(10.dp)
+                .width(26.dp)
+                .height(8.dp)
                 .clip(CircleShape)
                 .background(colors.onSurfaceVariant.copy(alpha = alpha))
         )
@@ -2410,7 +2718,7 @@ private fun ServersFilterSheet(
 }
 
 @Composable
-private fun SubscriptionManageSheet(
+internal fun SubscriptionManageSheet(
     repo: AppRepository,
     subscription: Subscription,
     nameDraft: String,
@@ -2419,72 +2727,228 @@ private fun SubscriptionManageSheet(
     onUrlChange: (String) -> Unit,
     onSave: () -> Unit,
     onRequestDelete: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onViewNodes: (() -> Unit)? = null
 ) {
     val colors = MaterialTheme.colorScheme
     val clipboard = LocalClipboardManager.current
     val failedCount = repo.failedSubscriptionNodeCount(subscription.id, "TUNNEL")
+    val subProfiles = repo.libraryProfiles.filter { it.subscriptionId == subscription.id }
+    val benchmarks = repo.benchmarks.associateBy { it.profileId }
+    val reachableCount = subProfiles.count { profile ->
+        val res = benchmarks[profile.id]
+        res != null && res.success > 0 && res.latencyMs > 0.0
+    }
+    val refreshing = subscription.id in repo.refreshingSources
+    val nowMs = remember { System.currentTimeMillis() }
+    val plan = PlanStatus.of(subscription, nowMs)
+    val persian = Tr.now.language == MarbleLanguage.FA
+    val stripeColor = sourceStripeColor(stripeTone(subscription.id))
+    val isRemote = subscription.url.isNotBlank()
+    val updatedLabel = if (subscription.updatedAt > 0L) {
+        trx(relativeTimeLabel(subscription.updatedAt))
+    } else {
+        trx("Never synced")
+    }
+
     // Resolved in the composition: onClick is not a composable scope.
     val copySubscriptionUrlLabel = trx("Copy subscription URL")
-    val copySubscriptionUrlSubtitle = trx("Copy the HTTPS subscription address to the clipboard")
     val subscriptionUrlCopiedNotice = trx("Subscription URL copied")
+    val linksCopiedNotice = trx("Subscription links copied")
 
     MarbleBottomSheet(
         title = subscription.name,
         subtitle = trx("Manage subscription URL, links and failed nodes"),
-        onDismiss = onDismiss
+        onDismiss = onDismiss,
+        scrollable = true
     ) {
-        MarbleTextField(
-            label = trx("Subscription Name"),
-            value = nameDraft,
-            onValueChange = onNameChange
-        )
-        MarbleTextField(
-            label = trx("HTTPS Subscription URL"),
-            value = urlDraft,
-            onValueChange = onUrlChange,
-            placeholder = "https://..."
-        )
-        MarbleButton(
-            label = trx("Save Changes"),
-            onClick = onSave,
-            enabled = nameDraft.trim().isNotBlank(),
-            modifier = Modifier.fillMaxWidth()
-        )
+        // ── Expressive Header Overview Card ──────────────────────────────────────────────────
+        MarbleCard(
+            tone = lerp(colors.surfaceContainerLow, stripeColor, 0.08f),
+            contentPadding = PaddingValues(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                MarbleSourceStripe(id = subscription.id, selected = false, height = 46.dp)
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(
+                            marbleExpressiveShape(
+                                if (isRemote) {
+                                    MarbleExpressiveMotif.DIAMOND
+                                } else {
+                                    MarbleExpressiveMotif.ARCH
+                                }
+                            )
+                        )
+                        .background(stripeColor.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (refreshing) {
+                        MarbleWaveRing(size = 20.dp, color = stripeColor)
+                    } else {
+                        MarbleGlyphIcon(
+                            glyph = if (isRemote) MarbleGlyph.LINK else MarbleGlyph.FOLDER,
+                            color = stripeColor,
+                            modifier = Modifier.size(20.dp),
+                            weight = 1.15f
+                        )
+                    }
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        PlanChip(
+                            label = trx(if (isRemote) "Remote" else "Local"),
+                            tint = stripeColor
+                        )
+                        Text(
+                            text = "${faDigits("${subProfiles.size}")} ${Tr.now.serversUnit}",
+                            color = colors.onSurface,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                    Text(
+                        text = if (reachableCount > 0) {
+                            "$updatedLabel · ${faDigits("$reachableCount")} ${trx("reachable")}"
+                        } else {
+                            updatedLabel
+                        },
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
 
-        MarbleCard {
-            MarbleListItem(
-                title = trx("Copy All Server Links"),
-                subtitle = trx("Copy every server in this subscription to clipboard"),
-                glyph = MarbleGlyph.COPY,
-                iconTint = colors.primary,
-                onClick = {
-                    val text = repo.subscriptionRawText(subscription.id)
-                    if (text.isNotBlank()) {
-                        clipboard.setText(AnnotatedString(text))
-                        repo.setRuntimeMessage("Subscription links copied")
-                    }
-                    onDismiss()
+            if (!plan.isEmpty) {
+                Spacer(Modifier.height(10.dp))
+                MarblePlanPlate(status = plan, persian = persian)
+            }
+
+            if (plan.hasQuota) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SubscriptionStatCell(
+                        label = trx("Upload"),
+                        value = faDigits(formatBytes(subscription.uploadBytes)),
+                        tint = colors.secondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SubscriptionStatCell(
+                        label = trx("Download"),
+                        value = faDigits(formatBytes(subscription.downloadBytes)),
+                        tint = colors.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SubscriptionStatCell(
+                        label = trx("Remaining"),
+                        value = faDigits(PlanStatus.formatBytes(plan.remainingBytes)),
+                        tint = planToneColor(plan.tone),
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-            )
-            MarbleDivider()
-            MarbleListItem(
-                title = copySubscriptionUrlLabel,
-                subtitle = copySubscriptionUrlSubtitle,
-                glyph = MarbleGlyph.LINK,
-                iconTint = colors.primary,
-                onClick = {
-                    val link = urlDraft.trim().takeIf { it.isNotBlank() } ?: subscription.url
-                    if (link.isNotBlank()) {
-                        clipboard.setText(AnnotatedString(link))
-                        repo.setRuntimeMessage(subscriptionUrlCopiedNotice)
-                    }
+            }
+        }
+
+        // ── Quick Actions ────────────────────────────────────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (isRemote) {
+                    MarbleButton(
+                        label = trx(if (refreshing) "Refreshing..." else "Refresh"),
+                        glyph = MarbleGlyph.REFRESH,
+                        style = MarbleButtonStyle.TINTED,
+                        compact = true,
+                        enabled = !repo.busy && !refreshing,
+                        onClick = { repo.refresh(subscription.id) },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-            )
-            if (failedCount > 0) {
-                MarbleDivider()
+                MarbleButton(
+                    label = trx("Test nodes"),
+                    glyph = MarbleGlyph.GAUGE,
+                    style = MarbleButtonStyle.TINTED,
+                    compact = true,
+                    enabled = subProfiles.isNotEmpty() && !repo.probeActive,
+                    onClick = {
+                        repo.pingProfiles(
+                            profiles = subProfiles,
+                            scopeLabel = subscription.name,
+                            scopeId = subscription.id
+                        )
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (isRemote) {
+                    MarbleButton(
+                        label = copySubscriptionUrlLabel,
+                        glyph = MarbleGlyph.LINK,
+                        style = MarbleButtonStyle.SECONDARY,
+                        compact = true,
+                        onClick = {
+                            val link = urlDraft.trim().takeIf { it.isNotBlank() } ?: subscription.url
+                            if (link.isNotBlank()) {
+                                clipboard.setText(AnnotatedString(link))
+                                repo.setRuntimeMessage(subscriptionUrlCopiedNotice)
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                MarbleButton(
+                    label = trx("Copy links"),
+                    glyph = MarbleGlyph.COPY,
+                    style = MarbleButtonStyle.SECONDARY,
+                    compact = true,
+                    enabled = subProfiles.isNotEmpty(),
+                    onClick = {
+                        val text = repo.subscriptionRawText(subscription.id)
+                        if (text.isNotBlank()) {
+                            clipboard.setText(AnnotatedString(text))
+                            repo.setRuntimeMessage(linksCopiedNotice)
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            if (onViewNodes != null) {
+                MarbleButton(
+                    label = trx("View servers"),
+                    glyph = MarbleGlyph.LAYERS,
+                    style = MarbleButtonStyle.TINTED,
+                    compact = true,
+                    onClick = onViewNodes,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (failedCount > 0) {
+            MarbleCard(tone = colors.warning.copy(alpha = 0.14f)) {
                 MarbleListItem(
-                    title = "${trx("Remove Failed Servers")} ($failedCount)",
+                    title = "${trx("Remove Failed Servers")} (${faDigits("$failedCount")})",
                     subtitle = trx("Prune unreachable nodes from this subscription"),
                     glyph = MarbleGlyph.TRASH,
                     iconTint = colors.warning,
@@ -2494,7 +2958,37 @@ private fun SubscriptionManageSheet(
                     }
                 )
             }
-            MarbleDivider()
+        }
+
+        // ── Edit Source Details ──────────────────────────────────────────────────────────────
+        MarbleCard(contentPadding = PaddingValues(14.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = trx("Edit subscription"),
+                    color = colors.onSurface,
+                    style = MaterialTheme.typography.titleSmallEmphasized
+                )
+                MarbleTextField(
+                    label = trx("Subscription Name"),
+                    value = nameDraft,
+                    onValueChange = onNameChange
+                )
+                MarbleTextField(
+                    label = trx("HTTPS Subscription URL"),
+                    value = urlDraft,
+                    onValueChange = onUrlChange,
+                    placeholder = "https://..."
+                )
+                MarbleButton(
+                    label = trx("Save Changes"),
+                    onClick = onSave,
+                    enabled = nameDraft.trim().isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        MarbleCard(tone = colors.error.copy(alpha = 0.08f)) {
             MarbleListItem(
                 title = trx("Delete Subscription"),
                 titleColor = colors.error,
@@ -2503,6 +2997,41 @@ private fun SubscriptionManageSheet(
                 onClick = onRequestDelete
             )
         }
+    }
+}
+
+@Composable
+private fun SubscriptionStatCell(
+    label: String,
+    value: String,
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(colors.surface.copy(alpha = 0.54f))
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = label,
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = value,
+            color = tint,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.Bold,
+                fontFeatureSettings = "tnum"
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

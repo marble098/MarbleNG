@@ -74,7 +74,7 @@ import com.marbleng.app.model.HomeStudio
 import com.marbleng.app.model.IpAddressBook
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.ProxyProfile
-import com.marbleng.app.model.ServerHealth
+import kotlin.math.roundToInt
 import com.marbleng.app.model.applyTo
 import com.marbleng.app.model.connectModeChipOf
 import com.marbleng.app.model.parseHomePingAction
@@ -242,7 +242,7 @@ fun HomeScreen(
     )
     val heroWorking = heroPingRunning
     val heroSnapshot = HomeHeroSnapshot(
-        stateLabel = headlineFor(connected, connecting, disconnecting),
+        stateLabel = headlineFor(connected, connecting, disconnecting, blocked),
         overline = trx("Connection"),
         routeName = heroRouteName,
         routeDetail = heroRouteDetail,
@@ -373,6 +373,9 @@ fun HomeScreen(
                     }
                     HomeHeroStage(
                         snapshot = heroSnapshot,
+                        phase = phase,
+                        modeLabel = modeLabel,
+                        engineLabel = coreLabel,
                         modeChip = modeChip,
                         onSelectMode = selectModeChip,
                         connectInPanel = widgetStyle.showsHomeHero,
@@ -381,10 +384,12 @@ fun HomeScreen(
                         disconnecting = disconnecting,
                         blocked = blocked,
                         connectTitle = connectTitle,
-                        uptime = uptime,
+                        pingWorking = heroPingRunning,
+                        pingMs = heroPingMs,
                         ticker = ticker,
                         routeLabel = heroRouteName,
                         onToggle = toggleConnection,
+                        onPingProbe = triggerHomePing,
                         onMetricClick = { kind ->
                             when (kind) {
                                 HeroMetricKind.PING -> triggerHomePing()
@@ -542,6 +547,9 @@ fun HomeScreen(
 @Composable
 private fun HomeHeroStage(
     snapshot: HomeHeroSnapshot,
+    phase: ConnectPhase,
+    modeLabel: String,
+    engineLabel: String,
     modeChip: ConnectModeChip,
     onSelectMode: (ConnectModeChip) -> Unit,
     connectInPanel: Boolean,
@@ -550,109 +558,90 @@ private fun HomeHeroStage(
     disconnecting: Boolean,
     blocked: Boolean,
     connectTitle: String,
-    uptime: String,
+    pingWorking: Boolean,
+    pingMs: Double?,
     ticker: String,
     routeLabel: String,
     onToggle: () -> Unit,
+    onPingProbe: () -> Unit,
     onMetricClick: (HeroMetricKind) -> Unit,
     onOpenLogs: () -> Unit,
     onOpenRoute: () -> Unit
 ) {
-    val working = connecting || disconnecting
-
     MarbleHeroPanel(
         snapshot = snapshot,
         motif = MarbleExpressiveMotif.CLOVER,
         onMetricClick = onMetricClick,
+        phase = phase,
+        modeLabel = modeLabel,
+        engineLabel = engineLabel,
         onOpenLogs = onOpenLogs,
         onOpenRoute = onOpenRoute,
         tag = if (connectInPanel) "home-hero-stage" else "home-calm-stage",
-        primaryAction = if (!connectInPanel) {
-            {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    MarbleModeMenuChip(
-                        selected = modeChip,
-                        onSelect = onSelectMode,
-                        enabled = !disconnecting
-                    )
-                    // The two things a reader reaches for while looking at four numbers are "what
-                    // mode am I in" and "why", and both belong under the numbers rather than in the
-                    // page's corner. MARBLE_HOME_HERO_V261 — the logs capsule used to be described
-                    // to a screen reader as "Protected" while it visibly read "Logs"; one object,
-                    // two names. It is now described by the name it prints.
-                    HomeStatusChip(
-                        connected = connected,
-                        working = working,
-                        onClick = onOpenLogs,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+        primaryAction = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                MarbleModeMenuChip(
+                    selected = modeChip,
+                    onSelect = onSelectMode,
+                    enabled = !disconnecting
+                )
+                HomeProbeCapsule(
+                    connected = connected,
+                    pingWorking = pingWorking,
+                    pingMs = pingMs,
+                    onClick = onPingProbe,
+                    modifier = Modifier.weight(1f)
+                )
             }
-        } else {
-            null
         }
     )
 
     if (connectInPanel) {
-        // Style C — the pill already owns the panel's bottom edge, so this row is *outside* it.
-        Row(
+        // Style C: the mode and quick-probe controls sit cleanly inside the hero panel's footer,
+        // freeing the full width underneath for the Expressive connect pill.
+        MarbleConnectPill(
+            connected = connected,
+            connecting = connecting,
+            disconnecting = disconnecting,
+            blocked = blocked,
+            title = connectTitle,
+            subtitle = routeLabel,
+            onToggle = onToggle,
+            ticker = ticker,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            MarbleModeMenuChip(
-                selected = modeChip,
-                onSelect = onSelectMode,
-                enabled = !disconnecting
-            )
-            // The connect verb, once, and the route it will use: the pill is the only connect
-            // control on this page and the route strip inside the panel is a reading.
-            MarbleConnectPill(
-                connected = connected,
-                connecting = connecting,
-                disconnecting = disconnecting,
-                blocked = blocked,
-                title = connectTitle,
-                subtitle = routeLabel,
-                onToggle = onToggle,
-                // The rolling clock, handed in exactly as V249 pinned it: eight animating digits in
-                // one `Text`, not a string rebuilt every second.
-                ticker = ticker,
-                modifier = Modifier.weight(1f)
-            )
-        }
+                .padding(top = 12.dp)
+        )
     }
 }
 
-/** Expressive status + core-log capsule in the hero header. */
+/** Expressive route-probe capsule in the hero footer: triggers latency probe or cancels an active one. */
 @Composable
-private fun HomeStatusChip(
+private fun HomeProbeCapsule(
     connected: Boolean,
-    working: Boolean,
+    pingWorking: Boolean,
+    pingMs: Double?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
-    val caption = trx("Logs")
-    val health = when {
-        connected -> ServerHealth.GOOD
-        working -> ServerHealth.SLOW
-        else -> ServerHealth.UNTESTED
+    val caption = when {
+        pingWorking -> trx("Testing")
+        pingMs != null && pingMs > 0.0 -> "${faDigits("${pingMs.roundToInt()}")} ms"
+        else -> trx("Test route")
     }
     val shape = marbleSelectionMorphShape(
-        selected = connected,
+        selected = connected || pingWorking,
         idleDp = 16.dp,
         selectedDp = 26.dp
     )
     Row(
         modifier = modifier
-            .heightIn(min = 44.dp)
+            .heightIn(min = 48.dp)
             .clip(shape)
             .background(colors.surfaceContainerHigh)
             .clickable(role = Role.Button, onClick = onClick)
@@ -661,26 +650,41 @@ private fun HomeStatusChip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        MarbleHealthDot(health = health, size = 12.dp)
+        if (pingWorking) {
+            MarbleWaveRing(size = 16.dp, color = colors.primary)
+        } else {
+            MarbleGlyphIcon(
+                glyph = MarbleGlyph.GAUGE,
+                color = if (connected && pingMs != null && pingMs > 0.0) {
+                    colors.success
+                } else {
+                    colors.primary
+                },
+                modifier = Modifier.size(16.dp),
+                weight = 1.15f
+            )
+        }
         Text(
             text = caption,
             color = colors.onSurface,
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            maxLines = 1
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
 
 /**
- * MARBLE_HOME_QUIET_V259 — the stage's one number, as a string.
- *
- * Four states, in the order a reader cares about them: a live measurement, a failure that has a
- * reason, a measurement that is running, and "nothing measured yet". The previous stage spread these
- * four across a chip, a subtitle and a caption and never said which one was the answer.
+ * MARBLE_HOME_QUIET_V259 — the stage's one headline, reflecting all 5 connection phases.
  */
-
-internal fun headlineFor(connected: Boolean, connecting: Boolean, disconnecting: Boolean): String =
+internal fun headlineFor(
+    connected: Boolean,
+    connecting: Boolean,
+    disconnecting: Boolean,
+    blocked: Boolean = false
+): String =
     when {
+        blocked -> "Blocked"
         connected -> "Protected"
         connecting -> "Securing the route"
         disconnecting -> "Closing the route"

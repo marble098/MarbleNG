@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package com.marbleng.app.ui
 
 import android.Manifest
@@ -8,14 +10,24 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import java.net.URI
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,13 +38,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import com.marbleng.app.AppRepository
@@ -44,11 +59,13 @@ import com.marbleng.app.core.NotificationCopy
 import com.marbleng.app.core.NotificationLanguage
 import com.marbleng.app.core.NotificationRouteCycle
 import com.marbleng.app.core.NotificationRoutePicker
+import com.marbleng.app.core.NotificationTheme
 import com.marbleng.app.core.ShadeDeck
 import com.marbleng.app.core.ShadeDeckState
 import com.marbleng.app.core.ShadeFloor
-import com.marbleng.app.core.NotificationTheme
+import com.marbleng.app.model.PlanStatus
 import com.marbleng.app.model.ShadeControlDefaults
+import com.marbleng.app.model.Subscription
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
 
@@ -59,6 +76,19 @@ fun SettingsSubscriptionsPage(
 ) {
     val colors = MaterialTheme.colorScheme
     val s = repo.settings
+    val subs = repo.subscriptions
+    val remoteCount = subs.count { it.url.isNotBlank() }
+    val subServerCount = subs.sumOf { it.profiles.size }
+    val nowMs = remember { System.currentTimeMillis() }
+    val persian = Tr.now.language == MarbleLanguage.FA
+
+    var showAddForm by rememberSaveable { mutableStateOf(false) }
+    var newName by rememberSaveable { mutableStateOf("") }
+    var newUrl by rememberSaveable { mutableStateOf("") }
+    var editTarget by remember { mutableStateOf<Subscription?>(null) }
+    var editName by remember { mutableStateOf("") }
+    var editUrl by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<Subscription?>(null) }
 
     MarbleExpressivePageScaffold(
         glyph = MarbleGlyph.REFRESH,
@@ -66,6 +96,118 @@ fun SettingsSubscriptionsPage(
         title = trx("Subscriptions & refresh"),
         onBack = onBack
     ) {
+        item(key = "sub-overview-card") {
+            MarbleCard(contentPadding = PaddingValues(14.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SubscriptionOverviewTile(
+                            label = trx("Subscriptions"),
+                            value = faDigits("${subs.size}"),
+                            tint = colors.primary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        SubscriptionOverviewTile(
+                            label = trx("Remote"),
+                            value = faDigits("$remoteCount"),
+                            tint = colors.secondary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        SubscriptionOverviewTile(
+                            label = Tr.now.serversTitle,
+                            value = faDigits("$subServerCount"),
+                            tint = colors.tertiary,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        MarbleButton(
+                            label = trx(
+                                if (repo.refreshingSources.isNotEmpty()) {
+                                    "Refreshing..."
+                                } else {
+                                    "Refresh All Subscriptions Now"
+                                }
+                            ),
+                            glyph = MarbleGlyph.REFRESH,
+                            style = MarbleButtonStyle.TINTED,
+                            compact = true,
+                            enabled = remoteCount > 0 && !repo.busy,
+                            onClick = { repo.refreshAll() },
+                            modifier = Modifier.weight(1f)
+                        )
+                        MarbleButton(
+                            label = trx("New Subscription"),
+                            glyph = MarbleGlyph.PLUS,
+                            compact = true,
+                            onClick = { showAddForm = !showAddForm },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    AnimatedVisibility(visible = showAddForm) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(colors.surfaceContainerHigh)
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = trx("New Subscription"),
+                                color = colors.onSurface,
+                                style = MaterialTheme.typography.titleSmallEmphasized
+                            )
+                            MarbleTextField(
+                                label = trx("Subscription Name"),
+                                value = newName,
+                                onValueChange = { newName = it },
+                                placeholder = trx("My provider")
+                            )
+                            MarbleTextField(
+                                label = trx("HTTPS Subscription URL"),
+                                value = newUrl,
+                                onValueChange = { newUrl = it },
+                                placeholder = "https://..."
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                MarbleButton(
+                                    label = trx("Cancel"),
+                                    style = MarbleButtonStyle.SECONDARY,
+                                    compact = true,
+                                    onClick = { showAddForm = false },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                MarbleButton(
+                                    label = trx("Add"),
+                                    glyph = MarbleGlyph.PLUS,
+                                    compact = true,
+                                    enabled = newName.trim().isNotBlank() || newUrl.trim().isNotBlank(),
+                                    onClick = {
+                                        repo.addSubscription(newName, newUrl)
+                                        newName = ""
+                                        newUrl = ""
+                                        showAddForm = false
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         item(key = "sub-refresh-card") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 MarbleSectionHeader(title = trx("Automatic Updates"))
@@ -89,16 +231,233 @@ fun SettingsSubscriptionsPage(
                         onValueChange = { repo.updateSettings(s.copy(subscriptionRefreshHours = it)) }
                     )
                 }
+            }
+        }
 
-                MarbleButton(
-                    label = trx("Refresh All Subscriptions Now"),
-                    glyph = MarbleGlyph.REFRESH,
-                    enabled = repo.subscriptions.isNotEmpty() && !repo.busy,
-                    onClick = { repo.refreshAll() },
-                    modifier = Modifier.fillMaxWidth()
+        item(key = "sub-directory-header") {
+            MarbleSectionHeader(title = trx("Subscriptions"))
+        }
+
+        if (subs.isEmpty()) {
+            item(key = "sub-empty-directory") {
+                MarbleEmptyState(
+                    title = trx("No subscriptions yet"),
+                    body = trx("Add a remote HTTPS subscription URL to keep your server lists organized and synced."),
+                    glyph = MarbleGlyph.LINK,
+                    tint = colors.primary
+                )
+            }
+        } else {
+            items(items = subs, key = { it.id }) { sub ->
+                SubscriptionDirectoryCard(
+                    subscription = sub,
+                    isRefreshing = sub.id in repo.refreshingSources,
+                    busy = repo.busy,
+                    nowMs = nowMs,
+                    persian = persian,
+                    onRefresh = { repo.refresh(sub.id) },
+                    onManage = {
+                        editTarget = sub
+                        editName = sub.name
+                        editUrl = sub.url
+                    }
                 )
             }
         }
+    }
+
+    editTarget?.let { sub ->
+        SubscriptionManageSheet(
+            repo = repo,
+            subscription = sub,
+            nameDraft = editName,
+            urlDraft = editUrl,
+            onNameChange = { editName = it },
+            onUrlChange = { editUrl = it },
+            onSave = {
+                if (repo.updateSubscription(sub.id, editName, editUrl)) {
+                    editTarget = null
+                }
+            },
+            onRequestDelete = {
+                editTarget = null
+                deleteTarget = sub
+            },
+            onDismiss = { editTarget = null }
+        )
+    }
+
+    deleteTarget?.let { sub ->
+        val subName = sub.name
+        MarbleAlertDialog(
+            title = trx("Delete Subscription?"),
+            onDismiss = { deleteTarget = null },
+            confirmLabel = trx("Delete"),
+            destructive = true,
+            onConfirm = {
+                repo.removeSubscription(sub.id)
+                deleteTarget = null
+            }
+        ) {
+            Text(
+                text = "$subName — ${trx("All servers managed by this subscription will be removed.")}",
+                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
+
+@Composable
+internal fun SubscriptionDirectoryCard(
+    subscription: Subscription,
+    isRefreshing: Boolean,
+    busy: Boolean,
+    nowMs: Long,
+    persian: Boolean,
+    onRefresh: () -> Unit,
+    onManage: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    val stripeColor = sourceStripeColor(stripeTone(subscription.id))
+    val cardGround = lerp(colors.surfaceContainerLow, stripeColor, 0.055f)
+    val isRemote = subscription.url.isNotBlank()
+    val hostLabel = remember(subscription.url) {
+        if (!isRemote) {
+            ""
+        } else {
+            runCatching { URI(subscription.url).host }.getOrNull().orEmpty()
+                .ifBlank { subscription.url }
+        }
+    }
+    val updatedLabel = if (subscription.updatedAt > 0L) {
+        trx(relativeTimeLabel(subscription.updatedAt))
+    } else {
+        trx("Never synced")
+    }
+    val plan = PlanStatus.of(subscription, nowMs)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(cardGround)
+            .clickable(role = Role.Button, onClick = onManage)
+            .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            MarbleSourceStripe(id = subscription.id, selected = false, height = 42.dp)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = subscription.name,
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.titleMediumEmphasized,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    PlanChip(
+                        label = trx(if (isRemote) "Remote" else "Local"),
+                        tint = stripeColor
+                    )
+                }
+                Text(
+                    text = buildString {
+                        append("${faDigits("${subscription.profiles.size}")} ${Tr.now.serversUnit}")
+                        append(" · ")
+                        append(updatedLabel)
+                        if (hostLabel.isNotBlank()) {
+                            append(" · ")
+                            append(hostLabel)
+                        }
+                    },
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (isRemote) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(marbleExpressiveShape(MarbleExpressiveMotif.CLOVER))
+                        .background(colors.primaryContainer.copy(alpha = 0.72f))
+                        .clickable(enabled = !busy && !isRefreshing, role = Role.Button, onClick = onRefresh),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isRefreshing) {
+                        MarbleWaveRing(size = 18.dp, color = colors.onPrimaryContainer)
+                    } else {
+                        MarbleGlyphIcon(
+                            glyph = MarbleGlyph.REFRESH,
+                            color = colors.onPrimaryContainer,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(colors.surfaceContainerHigh)
+                    .clickable(role = Role.Button, onClick = onManage),
+                contentAlignment = Alignment.Center
+            ) {
+                MarbleGlyphIcon(
+                    glyph = MarbleGlyph.PENCIL,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        MarblePlanPlate(status = plan, persian = persian)
+    }
+}
+
+@Composable
+private fun SubscriptionOverviewTile(
+    label: String,
+    value: String,
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(tint.copy(alpha = 0.11f))
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = value,
+            color = colors.onSurface,
+            style = MaterialTheme.typography.titleMediumEmphasized,
+            maxLines = 1
+        )
+        Text(
+            text = label,
+            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

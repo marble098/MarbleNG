@@ -100,6 +100,12 @@ private fun MarbleAddServerCell(
         AddServerAction.IMPORT_FILE -> MarbleGlyph.FOLDER
         AddServerAction.MANUAL -> MarbleGlyph.PENCIL
     }
+    val motif = when (action) {
+        AddServerAction.CLIPBOARD -> MarbleExpressiveMotif.CLOVER
+        AddServerAction.SCAN_QR -> MarbleExpressiveMotif.DIAMOND
+        AddServerAction.IMPORT_FILE -> MarbleExpressiveMotif.ARCH
+        AddServerAction.MANUAL -> MarbleExpressiveMotif.SUNNY
+    }
     val tint = when (action) {
         AddServerAction.CLIPBOARD -> colors.primary
         AddServerAction.SCAN_QR -> colors.secondary
@@ -121,7 +127,7 @@ private fun MarbleAddServerCell(
             onClick()
         },
         modifier = modifier
-            .heightIn(min = 108.dp)
+            .heightIn(min = 112.dp)
             .testTag("add-server-cell-${action.id}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -138,15 +144,15 @@ private fun MarbleAddServerCell(
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(tint.copy(alpha = 0.16f)),
+                    .size(40.dp)
+                    .clip(marbleExpressiveShape(motif))
+                    .background(tint.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
             ) {
                 MarbleGlyphIcon(
                     glyph = glyph,
                     color = tint,
-                    weight = 1.15f,
+                    weight = 1.18f,
                     modifier = Modifier.size(18.dp)
                 )
             }
