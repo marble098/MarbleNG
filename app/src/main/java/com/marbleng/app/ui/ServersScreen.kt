@@ -1286,7 +1286,7 @@ internal fun ServerGroupHeader(
                 Box(
                     modifier = Modifier
                         .size(28.dp)
-                        .clip(marbleExpressiveShape(MarbleExpressiveMotif.FOLDER))
+                        .clip(marbleExpressiveShape(MarbleExpressiveMotif.ARCH))
                         .background(colors.tertiary.copy(alpha = 0.14f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1783,53 +1783,55 @@ internal fun ServersLibrarySheetContent(
 
         if (onAddSubscription != null) {
             AnimatedVisibility(visible = showAddForm) {
-                MarbleCard(
-                    tone = colors.surfaceContainerHigh,
-                    contentPadding = PaddingValues(14.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(colors.surfaceContainerHigh)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = trx("New Subscription"),
-                            color = colors.onSurface,
-                            style = MaterialTheme.typography.titleSmallEmphasized
+                    Text(
+                        text = trx("New Subscription"),
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.titleSmallEmphasized
+                    )
+                    MarbleTextField(
+                        label = trx("Subscription Name"),
+                        value = newName,
+                        onValueChange = { newName = it },
+                        placeholder = trx("My provider")
+                    )
+                    MarbleTextField(
+                        label = trx("HTTPS Subscription URL"),
+                        value = newUrl,
+                        onValueChange = { newUrl = it },
+                        placeholder = "https://..."
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        MarbleButton(
+                            label = trx("Cancel"),
+                            style = MarbleButtonStyle.SECONDARY,
+                            compact = true,
+                            onClick = { showAddForm = false },
+                            modifier = Modifier.weight(1f)
                         )
-                        MarbleTextField(
-                            label = trx("Subscription Name"),
-                            value = newName,
-                            onValueChange = { newName = it },
-                            placeholder = trx("My provider")
+                        MarbleButton(
+                            label = trx("Add"),
+                            glyph = MarbleGlyph.PLUS,
+                            compact = true,
+                            enabled = newName.trim().isNotBlank() || newUrl.trim().isNotBlank(),
+                            onClick = {
+                                onAddSubscription(newName, newUrl)
+                                newName = ""
+                                newUrl = ""
+                                showAddForm = false
+                            },
+                            modifier = Modifier.weight(1f)
                         )
-                        MarbleTextField(
-                            label = trx("HTTPS Subscription URL"),
-                            value = newUrl,
-                            onValueChange = { newUrl = it },
-                            placeholder = "https://..."
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            MarbleButton(
-                                label = trx("Cancel"),
-                                style = MarbleButtonStyle.SECONDARY,
-                                compact = true,
-                                onClick = { showAddForm = false },
-                                modifier = Modifier.weight(1f)
-                            )
-                            MarbleButton(
-                                label = trx("Add"),
-                                glyph = MarbleGlyph.PLUS,
-                                compact = true,
-                                enabled = newName.trim().isNotBlank() || newUrl.trim().isNotBlank(),
-                                onClick = {
-                                    onAddSubscription(newName, newUrl)
-                                    newName = ""
-                                    newUrl = ""
-                                    showAddForm = false
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
                     }
                 }
             }
@@ -2763,9 +2765,13 @@ internal fun SubscriptionManageSheet(
         scrollable = true
     ) {
         // ── Expressive Header Overview Card ──────────────────────────────────────────────────
-        MarbleCard(
-            tone = lerp(colors.surfaceContainerLow, stripeColor, 0.08f),
-            contentPadding = PaddingValues(14.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(lerp(colors.surfaceContainerLow, stripeColor, 0.08f))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2832,12 +2838,10 @@ internal fun SubscriptionManageSheet(
             }
 
             if (!plan.isEmpty) {
-                Spacer(Modifier.height(10.dp))
                 MarblePlanPlate(status = plan, persian = persian)
             }
 
             if (plan.hasQuota) {
-                Spacer(Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2946,7 +2950,12 @@ internal fun SubscriptionManageSheet(
         }
 
         if (failedCount > 0) {
-            MarbleCard(tone = colors.warning.copy(alpha = 0.14f)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(colors.warning.copy(alpha = 0.14f))
+            ) {
                 MarbleListItem(
                     title = "${trx("Remove Failed Servers")} (${faDigits("$failedCount")})",
                     subtitle = trx("Prune unreachable nodes from this subscription"),
@@ -2988,7 +2997,12 @@ internal fun SubscriptionManageSheet(
             }
         }
 
-        MarbleCard(tone = colors.error.copy(alpha = 0.08f)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(colors.error.copy(alpha = 0.08f))
+        ) {
             MarbleListItem(
                 title = trx("Delete Subscription"),
                 titleColor = colors.error,

@@ -112,8 +112,8 @@ class ExpressiveConnectionServersSubscriptionsTest {
                                 metrics = HomeHeroStudio.metrics(
                                     connected = connected,
                                     working = connecting || disconnecting,
-                                    pingMs = if (connected) 42.0 else null,
-                                    jitterMs = if (connected) 3.0 else null,
+                                    pingMs = if (connected) 42 else 0,
+                                    jitterMs = if (connected) 3 else -1,
                                     uptimeLabel = if (connected) "00:05:12" else "",
                                     exitAddress = if (connected) "198.51.100.2" else "",
                                     hasRoute = true
@@ -211,7 +211,7 @@ class ExpressiveConnectionServersSubscriptionsTest {
         compose.waitForIdle()
         val connectedBounds = compose.onNodeWithContentDescription("Disconnect").getBoundsInRoot()
         assertEquals(idleBounds, connectedBounds)
-        compose.onNodeWithTag("home-connect-pulse").assertExists()
+        compose.onNodeWithTag("home-connect-pulse", useUnmergedTree = true).assertExists()
 
         compose.runOnIdle {
             connected = false
@@ -380,6 +380,7 @@ class ExpressiveConnectionServersSubscriptionsTest {
                         Box(Modifier.width(340.dp)) {
                             SubscriptionDirectoryCard(
                                 subscription = subscription,
+                                serverCount = 4,
                                 isRefreshing = false,
                                 busy = false,
                                 nowMs = System.currentTimeMillis(),
@@ -393,15 +394,17 @@ class ExpressiveConnectionServersSubscriptionsTest {
             }
         }
         compose.waitForIdle()
-        compose.onNodeWithText("Provider").assertExists()
-        compose.onNodeWithText("Remote").assertExists()
-        compose.onNodeWithText("sub.example.test", substring = true).assertExists()
+        compose.onNodeWithText("Provider", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Remote", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("sub.example.test", substring = true, useUnmergedTree = true).assertExists()
         compose.onNodeWithTag("server-plan-plate", useUnmergedTree = true).assertExists()
         compose.onNodeWithTag("server-plan-bar", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText("25%").assertExists()
-        compose.onNodeWithText("Provider").performClick()
+        compose.onNodeWithText("25%", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("subscription-directory-refresh-s1", useUnmergedTree = true).performClick()
+        assertEquals(1, refreshed)
+        compose.onNodeWithTag("subscription-directory-card-s1").performClick()
         assertEquals(1, managed)
-        assertTrue(refreshed == 0)
+        assertTrue(refreshed == 1)
     }
 
     private companion object {

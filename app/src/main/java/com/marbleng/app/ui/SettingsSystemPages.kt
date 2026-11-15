@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -77,8 +78,10 @@ fun SettingsSubscriptionsPage(
     val colors = MaterialTheme.colorScheme
     val s = repo.settings
     val subs = repo.subscriptions
+    val allProfiles = repo.libraryProfiles
+    val subIds = subs.mapTo(hashSetOf()) { it.id }
     val remoteCount = subs.count { it.url.isNotBlank() }
-    val subServerCount = subs.sumOf { it.profiles.size }
+    val subServerCount = allProfiles.count { it.subscriptionId in subIds }
     val nowMs = remember { System.currentTimeMillis() }
     val persian = Tr.now.language == MarbleLanguage.FA
 
@@ -251,6 +254,7 @@ fun SettingsSubscriptionsPage(
             items(items = subs, key = { it.id }) { sub ->
                 SubscriptionDirectoryCard(
                     subscription = sub,
+                    serverCount = allProfiles.count { it.subscriptionId == sub.id },
                     isRefreshing = sub.id in repo.refreshingSources,
                     busy = repo.busy,
                     nowMs = nowMs,
@@ -311,6 +315,7 @@ fun SettingsSubscriptionsPage(
 @Composable
 internal fun SubscriptionDirectoryCard(
     subscription: Subscription,
+    serverCount: Int,
     isRefreshing: Boolean,
     busy: Boolean,
     nowMs: Long,
@@ -344,6 +349,7 @@ internal fun SubscriptionDirectoryCard(
             .clip(RoundedCornerShape(24.dp))
             .background(cardGround)
             .clickable(role = Role.Button, onClick = onManage)
+            .testTag("subscription-directory-card-${subscription.id}")
             .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -376,7 +382,7 @@ internal fun SubscriptionDirectoryCard(
                 }
                 Text(
                     text = buildString {
-                        append("${faDigits("${subscription.profiles.size}")} ${Tr.now.serversUnit}")
+                        append("${faDigits("$serverCount")} ${Tr.now.serversUnit}")
                         append(" · ")
                         append(updatedLabel)
                         if (hostLabel.isNotBlank()) {
@@ -393,10 +399,11 @@ internal fun SubscriptionDirectoryCard(
             if (isRemote) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(44.dp)
                         .clip(marbleExpressiveShape(MarbleExpressiveMotif.CLOVER))
                         .background(colors.primaryContainer.copy(alpha = 0.72f))
-                        .clickable(enabled = !busy && !isRefreshing, role = Role.Button, onClick = onRefresh),
+                        .clickable(enabled = !busy && !isRefreshing, role = Role.Button, onClick = onRefresh)
+                        .testTag("subscription-directory-refresh-${subscription.id}"),
                     contentAlignment = Alignment.Center
                 ) {
                     if (isRefreshing) {

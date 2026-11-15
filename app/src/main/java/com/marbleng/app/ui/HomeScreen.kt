@@ -74,7 +74,6 @@ import com.marbleng.app.model.HomeStudio
 import com.marbleng.app.model.IpAddressBook
 import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.ProxyProfile
-import kotlin.math.roundToInt
 import com.marbleng.app.model.applyTo
 import com.marbleng.app.model.connectModeChipOf
 import com.marbleng.app.model.parseHomePingAction
@@ -559,7 +558,7 @@ private fun HomeHeroStage(
     blocked: Boolean,
     connectTitle: String,
     pingWorking: Boolean,
-    pingMs: Double?,
+    pingMs: Int,
     ticker: String,
     routeLabel: String,
     onToggle: () -> Unit,
@@ -624,14 +623,14 @@ private fun HomeHeroStage(
 private fun HomeProbeCapsule(
     connected: Boolean,
     pingWorking: Boolean,
-    pingMs: Double?,
+    pingMs: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
     val caption = when {
         pingWorking -> trx("Testing")
-        pingMs != null && pingMs > 0.0 -> "${faDigits("${pingMs.roundToInt()}")} ms"
+        pingMs > 0 -> "${faDigits("$pingMs")} ms"
         else -> trx("Test route")
     }
     val shape = marbleSelectionMorphShape(
@@ -655,7 +654,7 @@ private fun HomeProbeCapsule(
         } else {
             MarbleGlyphIcon(
                 glyph = MarbleGlyph.GAUGE,
-                color = if (connected && pingMs != null && pingMs > 0.0) {
+                color = if (connected && pingMs > 0) {
                     colors.success
                 } else {
                     colors.primary
