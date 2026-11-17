@@ -116,6 +116,7 @@ import com.marbleng.app.model.serverHealthOf
 import com.marbleng.app.ui.theme.MarbleElevation
 import com.marbleng.app.ui.theme.MarbleMeasure
 import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSelectionRung
 import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
@@ -1954,7 +1955,10 @@ internal fun SourceLibraryCard(
     val metaColor = if (selected) colors.onPrimaryContainer.copy(alpha = MarbleVeil.QUIET) else colors.onSurfaceVariant
     val subtitle = libraryCardSubtitle(card, nowMs)
     val plan = planOf(card.subscription, nowMs)
-    val cardShape = marbleSelectionMorphShape(selected = selected, idleDp = 22.dp, selectedDp = 28.dp)
+    val cardShape = marbleSelectionMorphShape(
+        selected = selected,
+        rung = MarbleSelectionRung.CONTROL
+    )
 
     // One sentence for the screen reader, so the plate is not four unlabelled numbers. Read here, in
     // the composition: a semantics lambda is not a composable context.
@@ -2321,8 +2325,7 @@ internal fun ServerRowContent(
     val spokenActions = trx("Server actions")
     val rowShape = marbleSelectionMorphShape(
         selected = active || selected || checked,
-        idleDp = 20.dp,
-        selectedDp = 26.dp
+        rung = MarbleSelectionRung.CONTROL
     )
 
     Row(

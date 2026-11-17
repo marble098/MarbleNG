@@ -1204,7 +1204,12 @@ fun SmartPresetSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(marbleSelectionMorphShape(selected = selected, idleDp = 20.dp, selectedDp = 28.dp))
+                    .clip(
+                        marbleSelectionMorphShape(
+                            selected = selected,
+                            rung = MarbleSelectionRung.CONTROL
+                        )
+                    )
                     .background(
                         if (selected) {
                             colors.primaryContainer

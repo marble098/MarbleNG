@@ -83,6 +83,7 @@ import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseFlatAccent
 import com.marbleng.app.model.parseMarblePalette
 import com.marbleng.app.model.parsePowerProfile
+import com.marbleng.app.ui.theme.MarbleSelectionRung
 import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
@@ -755,8 +756,7 @@ private fun SettingsCategoryChip(
     val haptics = LocalHapticFeedback.current
     val shape = marbleSelectionMorphShape(
         selected = selected,
-        idleDp = 14.dp,
-        selectedDp = 28.dp
+        rung = MarbleSelectionRung.CONTROL
     )
     val container by animateColorAsState(
         targetValue = if (selected) colors.primaryContainer else colors.surfaceContainerLow,

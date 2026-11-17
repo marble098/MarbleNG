@@ -1561,7 +1561,7 @@ fun MarbleBottomSheet(
  * with error-red destructive confirmation.
  */
 @Composable
-fun MarbleAlertDialog(
+internal fun MarbleAlertDialog(
     title: String,
     onDismiss: () -> Unit,
     confirmLabel: String,
@@ -1781,7 +1781,7 @@ fun MarbleSkeleton(
  * the value voice and the air between them are this component's and not a fourth private opinion.
  */
 @Composable
-fun MarbleStatTile(
+internal fun MarbleStatTile(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
@@ -1894,7 +1894,7 @@ fun MarbleStatTile(
  * wraps as something you read ([MarbleMetricVoice]).
  */
 @Composable
-fun MarbleMetricRow(
+internal fun MarbleMetricRow(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
