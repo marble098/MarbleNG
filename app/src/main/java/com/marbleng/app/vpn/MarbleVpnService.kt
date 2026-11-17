@@ -543,9 +543,47 @@ class MarbleVpnService : VpnService() {
                     }
                 }
                 ACTION_STOP -> {
-                    startCommandGeneration.incrementAndGet()
+                    val stopGeneration = startCommandGeneration.incrementAndGet()
+                    // MARBLE_STOP_START_RACE_V285 — announce DISCONNECTING synchronously before
+                    // queueing the async shutdown, so surfaces that read state directly (the
+                    // notification shade, the Quick Tile, the dock button) all show the closing
+                    // word immediately instead of staying on "Disconnect" for ~2s while coreStop
+                    // is blocking the worker. The in-app repo.stopVpn() called markDisconnecting
+                    // on its way in; the direct PendingIntent (notification action / tile) did
+                    // not, and the setRuntimeState guard accepts exactly these two source states
+                    // — matching repo.markDisconnecting().
+                    val app = application as MarbleApplication
+                    if (app.repo.state in setOf("CONNECTED", "CONNECTING", "BLOCKED")) {
+                        app.repo.setRuntimeState("DISCONNECTING", app.repo.stateDetail)
+                    }
 
                     controlWorker.execute {
+                        // MARBLE_STOP_START_RACE_V285 — a STOP arriving while a newer START is
+                        // already queued must not tear down the foreground / call stopSelf on a
+                        // session that is about to (re)connect. The START handler increments the
+                        // generation before posting, so if the counter no longer matches this
+                        // stop's ticket the shutdown does only runtime cleanup — no stopForeground,
+                        // no stopSelf — and the pending start owns the lifecycle instead. Without
+                        // this check the stale shutdown ran after the new start had already
+                        // promoted itself to CONNECTING: it called stopForeground(REMOVE), yanked
+                        // the service out of foreground for up to 8 seconds during underlay wait,
+                        // and then stopSelf() raced the new connection's second promoteStatus,
+                        // which is exactly the "first tap doesn't connect after tile/notification
+                        // disconnect" report.
+                        val superseded = startCommandGeneration.get() != stopGeneration
+                        if (superseded) {
+                            diag.event(
+                                "VPN",
+                                "stop-command-superseded-by-start",
+                                "stopGeneration" to stopGeneration,
+                                "latestGeneration" to startCommandGeneration.get()
+                            )
+                            // Clean up the old session's core/TUN/datapath without tearing the
+                            // service down; the pending startConnection will rebuild everything.
+                            runCatching { cleanupRuntime(setDisconnected = false, preserveTun = false) }
+                                .onFailure { diag.error("VPN", "superseded-stop-cleanup-failed", it) }
+                            return@execute
+                        }
                         runCatching { shutdown(true) }
                             .onFailure { diag.error("VPN", "async-stop-failed", it) }
                     }
@@ -837,6 +875,20 @@ class MarbleVpnService : VpnService() {
 
     @Volatile private var lastStartCommandAtMs = 0L
     @Volatile private var lastStartCommandProfile = ""
+    // MARBLE_STOP_START_RACE_V285 — reset the start debounce state on every cleanup so a
+    // legitimate reconnect after a shutdown is never mistaken for a double-tap. Previously
+    // these timestamps outlived the session; a re-connect within START_DEBOUNCE_MS of the
+    // last start would be silently swallowed, another path of the "first tap does nothing" bug.
+    private fun resetStartDebounce() {
+        lastStartCommandAtMs = 0L
+        lastStartCommandProfile = ""
+        // MARBLE_STOP_START_RACE_V285 — also clear the datapath stop-ack target so a
+        // lingering value from the previous session cannot make the new session's first
+        // runDatapath loop interpret a clean exit as "stopped by request". The epoch
+        // counter is incremented on every run so a stale integer *should* not match, but
+        // clearing it eliminates the last piece of stop-latch state that survives shutdown.
+        datapathStopTarget.set(-1)
+    }
 
     private fun startConnection(id: String, sourceId: String?, mode: String) {
         // MARBLE_SWITCH_DEBOUNCE_V238 — the report caught CONNECTED → DISCONNECTING → CONNECT
@@ -4387,6 +4439,7 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
         coreStop()
         closeHevFd("runtime-cleanup")
         if (!preserveTun) closeTun()
+        resetStartDebounce()
 
         val repo = (application as MarbleApplication).repo
 
@@ -4404,6 +4457,13 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
             repo.setRuntimeState("DISCONNECTED", "User disconnected")
 
             configBlockGuard.reset()
+            // MARBLE_TUNNEL_INTENT_V285 — every path that actually disconnects the tunnel
+            // (notification stop, tile stop, onRevoke, in-app stop) must clear the sticky
+            // "tunnel was active" flag, otherwise MainActivity.restoreInterruptedTunnel()
+            // fires a redundant auto-reconnect the next time the app is opened. The in-app
+            // repo.stopVpn() did this on the io worker, but the direct ACTION_STOP path
+            // (notification/tile) skipped repo.stopVpn() entirely.
+            repo.clearTunnelIntent("service-disconnect")
         }
         if (preserveTun && tun != null) {
             updateSentinel(killSwitch = true)
@@ -4603,9 +4663,25 @@ private fun startTelemetry(session: String, port: Int, generation: Int) {
 
     override fun onRevoke() {
         diag.event("VPN", "permission-revoked", "session" to activeSession)
-        cleanupRuntime(setDisconnected = true)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // MARBLE_STOP_START_RACE_V285 — same guard as the ACTION_STOP handler: onRevoke is the
+        // Android-system VPN tile revoking permission. If a START has been queued after this
+        // revoke was dispatched, let that start win instead of tearing down the service under it.
+        val revokeGeneration = startCommandGeneration.incrementAndGet()
+        val superseded = startCommandGeneration.get() != revokeGeneration
+        if (superseded) {
+            diag.event(
+                "VPN",
+                "revoke-superseded-by-start",
+                "revokeGeneration" to revokeGeneration,
+                "latestGeneration" to startCommandGeneration.get()
+            )
+            runCatching { cleanupRuntime(setDisconnected = false, preserveTun = false) }
+                .onFailure { diag.error("VPN", "superseded-revoke-cleanup-failed", it) }
+        } else {
+            cleanupRuntime(setDisconnected = true)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
         super.onRevoke()
     }
 

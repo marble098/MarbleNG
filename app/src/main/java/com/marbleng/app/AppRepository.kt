@@ -2003,7 +2003,10 @@ fun resetTelemetry() {
         state == "CONNECTED" && id.isNotBlank() && activeProfileId == id
 
     fun setRuntimeState(s: String, d: String) {
-        if (s == "DISCONNECTING" && state != "CONNECTED" && state != "CONNECTING") return
+        // MARBLE_STOP_START_RACE_V285 — BLOCKED (kill switch) is also a live tunnel that can be
+        // stopped; exclude it from the guard so the service-side DISCONNECTING announce is not
+        // silently dropped, matching the fix in markDisconnecting.
+        if (s == "DISCONNECTING" && state != "CONNECTED" && state != "CONNECTING" && state != "BLOCKED") return
         diagnostics.event("APP", "state", "from" to state, "to" to s, "detail" to d.take(160))
         postToMain {
             state = s
@@ -4591,8 +4594,18 @@ private fun postToMain(block: () -> Unit) {
     fun stopVpn() {
         io.execute { runCatching { store.setTunnelIntentActive(false) } }
         markDisconnecting()
+        val stopIntent = Intent(context, MarbleVpnService::class.java).setAction(MarbleVpnService.ACTION_STOP)
         runCatching {
-            context.startService(Intent(context, MarbleVpnService::class.java).setAction(MarbleVpnService.ACTION_STOP))
+            // MARBLE_STOP_START_RACE_V285 — use startForegroundService when the target service is
+            // in the foreground, which is always true while we are CONNECTED/CONNECTING/BLOCKED.
+            // On Android 8+ startService from certain contexts can throw IllegalStateException when
+            // the app is in the background; the VPN service is already a foreground service so
+            // startForegroundService is the safe, correct dispatch.
+            if (Build.VERSION.SDK_INT >= 26) {
+                context.startForegroundService(stopIntent)
+            } else {
+                context.startService(stopIntent)
+            }
         }.onFailure { error ->
             message = "Could not stop connection service: ${error::class.java.simpleName}: ${error.message ?: "unknown error"}"
 
@@ -4601,7 +4614,12 @@ private fun postToMain(block: () -> Unit) {
     }
 
     private fun markDisconnecting() {
-        if (state != "CONNECTED" && state != "CONNECTING") return
+        // MARBLE_STOP_START_RACE_V285 — a kill-switch BLOCKED state also transitions to
+        // DISCONNECTING on Reset; the ConnectControl table maps BLOCKED→RESET→stopVpn(),
+        // so excluding it here left the UI stuck on "Reset" for 2 seconds while the service
+        // was tearing down. RECOVERING is already a form of "starting, not connected" and is
+        // handled as CONNECTING for stop purposes.
+        if (state != "CONNECTED" && state != "CONNECTING" && state != "BLOCKED") return
         diagnostics.event("APP", "state", "from" to state, "to" to "DISCONNECTING")
         val detail = stateDetail
         postToMain {
