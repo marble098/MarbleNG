@@ -69,9 +69,13 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSelectionRung
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.MarbleSpec
-import com.marbleng.app.ui.theme.MarbleRowIconShape
 import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleWash
 import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
 import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
 import com.marbleng.app.ui.theme.marbleMotion
@@ -205,15 +209,20 @@ internal fun marbleAsymmetricShape(
     flipped: Boolean = false
 ): Shape {
     val motion = marbleMotion()
+    // MARBLE_ONE_LANGUAGE_V281 — the asymmetric container's corners were 34/28/16/12 dp, four
+    // numbers that sat between the shape rungs and so matched nothing else on the page. They are now
+    // drawn from MarbleRadius, which is what makes a hero panel, a card and a pressed control read
+    // as one family: pressed falls to the control corner, a prominent panel takes the hero corner,
+    // an ordinary one takes the group corner, and the anchor is always the small rung.
     val mainTarget = when {
-        pressed -> 16.dp
-        prominent -> 34.dp
-        else -> 28.dp
+        pressed -> MarbleRadius.CONTROL.dp
+        prominent -> MarbleRadius.HERO.dp
+        else -> MarbleRadius.GROUP.dp
     }
     val anchorTarget = when {
-        pressed -> 16.dp
-        prominent -> 16.dp
-        else -> 12.dp
+        pressed -> MarbleRadius.CONTROL.dp
+        prominent -> MarbleRadius.CONTROL.dp
+        else -> MarbleRadius.SM.dp
     }
     val mainCorner by animateDpAsState(
         targetValue = mainTarget,
@@ -251,12 +260,11 @@ internal fun marbleAsymmetricShape(
 @Composable
 internal fun marbleSelectionMorphShape(
     selected: Boolean,
-    idleDp: Dp = 14.dp,
-    selectedDp: Dp = 28.dp
+    rung: MarbleSelectionRung = MarbleSelectionRung.CONTROL
 ): Shape {
     val motion = marbleMotion()
     val corner by animateDpAsState(
-        targetValue = if (selected) selectedDp else idleDp,
+        targetValue = if (selected) rung.selectedDp.dp else rung.idleDp.dp,
         animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
         label = "expressiveSelectionCorner"
     )
@@ -294,25 +302,25 @@ internal fun marbleExpressiveTones(): MarbleExpressiveTones {
             onBadge = colors.onPrimary
         ),
         sky = MarbleExpressivePair(
-            container = colors.secondaryContainer.copy(alpha = 0.72f),
+            container = colors.secondaryContainer.copy(alpha = MarbleVeil.QUIET),
             content = colors.onSecondaryContainer,
             badge = colors.primary,
             onBadge = colors.onPrimary
         ),
         lavender = MarbleExpressivePair(
-            container = colors.tertiaryContainer.copy(alpha = 0.72f),
+            container = colors.tertiaryContainer.copy(alpha = MarbleVeil.QUIET),
             content = colors.onTertiaryContainer,
             badge = colors.tertiary,
             onBadge = colors.onTertiary
         ),
         mint = MarbleExpressivePair(
-            container = colors.successContainer.copy(alpha = 0.76f),
+            container = colors.successContainer.copy(alpha = MarbleVeil.QUIET),
             content = colors.onSuccessContainer,
             badge = MarbleTheme.status.success,
             onBadge = MarbleTheme.status.onSuccess
         ),
         amber = MarbleExpressivePair(
-            container = colors.warningContainer.copy(alpha = 0.76f),
+            container = colors.warningContainer.copy(alpha = MarbleVeil.QUIET),
             content = colors.onWarningContainer,
             badge = MarbleTheme.status.warning,
             onBadge = MarbleTheme.status.onWarning
@@ -454,7 +462,7 @@ internal fun MarbleOrbitLens(
                     scaleY = s
                 }
                 .clip(marbleExpressiveShape(motif))
-                .background(tint.copy(alpha = 0.12f))
+                .background(tint.copy(alpha = MarbleWash.SOFT))
         )
         return
     }
@@ -480,7 +488,7 @@ internal fun MarbleOrbitLens(
     MarbleMorphingMark(
         motif = motif,
         targetMotif = MarbleExpressiveMotif.FLOWER,
-        color = tint.copy(alpha = 0.14f),
+        color = tint.copy(alpha = MarbleWash.TINT),
         progress = { morph },
         modifier = modifier.graphicsLayer {
             rotationZ = angle
@@ -491,83 +499,14 @@ internal fun MarbleOrbitLens(
 }
 
 /**
- * Header/inline action button clipped to an official Material 3 Expressive polygon that morphs
- * toward a circle and springs on press while keeping a 48dp+ accessible target.
+ * MARBLE_ONE_LANGUAGE_V281 — the second icon button is gone. `MarbleExpressiveIconButton` lived here
+ * and drew a polygon that morphed to a circle under the thumb, while the kit's `MarbleIconButton`
+ * drew a calm filled tonal circle: two components, one job, and the two halves of the product
+ * disagreed about what pressing an icon button looks like. The kit's button now *is* this one — same
+ * morph, same prominent rung, same container and content slots — and every call site says
+ * `MarbleIconButton`. The morph it is built from ([marbleMorphingShape]) stays here, beside the
+ * polygon family it belongs to.
  */
-@Composable
-internal fun MarbleExpressiveIconButton(
-    glyph: MarbleGlyph,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    motif: MarbleExpressiveMotif = MarbleExpressiveMotif.forGlyph(glyph),
-    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
-    contentColor: Color = MaterialTheme.colorScheme.primary,
-    prominent: Boolean = false,
-    enabled: Boolean = true,
-    contentDescription: String = ""
-) {
-    val haptics = LocalHapticFeedback.current
-    val motion = marbleMotion()
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val morphProgress by animateFloatAsState(
-        targetValue = if (pressed) 1f else 0f,
-        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
-        label = "expressiveBtnMorph"
-    )
-    val pressScale by animateFloatAsState(
-        targetValue = if (pressed) 0.91f else 1f,
-        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
-        label = "expressiveBtnScale"
-    )
-    val spin by animateFloatAsState(
-        targetValue = if (pressed) -16f else 0f,
-        animationSpec = if (motion.still) snap() else marbleDefaultSpatialSpec(),
-        label = "expressiveBtnSpin"
-    )
-    val buttonSize = if (prominent) 52.dp else 48.dp
-    val shape = marbleMorphingShape(
-        from = motif,
-        to = MarbleExpressiveMotif.CIRCLE,
-        progress = morphProgress
-    )
-    val described = if (contentDescription.isNotBlank()) {
-        modifier.semantics { this.contentDescription = contentDescription }
-    } else {
-        modifier
-    }
-
-    Box(
-        modifier = described
-            .size(buttonSize)
-            .graphicsLayer {
-                scaleX = pressScale
-                scaleY = pressScale
-                rotationZ = spin
-            }
-            .clip(shape)
-            .background(containerColor.copy(alpha = if (enabled) 1f else 0.45f))
-            .clickable(
-                enabled = enabled,
-                role = Role.Button,
-                interactionSource = interaction,
-                indication = androidx.compose.foundation.LocalIndication.current
-            ) {
-                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                onClick()
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        MarbleGlyphIcon(
-            glyph = glyph,
-            color = if (enabled) contentColor else MaterialTheme.colorScheme.outline,
-            modifier = Modifier
-                .size(if (prominent) 22.dp else 20.dp)
-                .graphicsLayer { rotationZ = -spin },
-            weight = if (prominent) 1.15f else 1.05f
-        )
-    }
-}
 
 /**
  * Expressive navigation tile used on Home quick actions and the consolidated Settings Bento hub.
@@ -621,7 +560,7 @@ internal fun MarbleExpressiveTile(
     )
     val ink = contentOverride ?: colors.onSurface
     val subInk = if (contentOverride != null) {
-        contentOverride.copy(alpha = 0.78f)
+        contentOverride.copy(alpha = MarbleVeil.QUIET)
     } else {
         colors.onSurfaceVariant
     }
@@ -682,7 +621,7 @@ internal fun MarbleExpressiveTile(
         MarbleMorphingMark(
             motif = motif,
             targetMotif = MarbleExpressiveMotif.CIRCLE,
-            color = (if (contentOverride != null) contentOverride else tint).copy(alpha = 0.10f),
+            color = (if (contentOverride != null) contentOverride else tint).copy(alpha = MarbleWash.SOFT),
             progress = { morphProgress },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -697,7 +636,7 @@ internal fun MarbleExpressiveTile(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(if (featured) 18.dp else 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -716,25 +655,25 @@ internal fun MarbleExpressiveTile(
                 if (indexBadge.isNotBlank()) {
                     Text(
                         text = indexBadge,
-                        color = subInk.copy(alpha = 0.72f),
+                        color = subInk.copy(alpha = MarbleVeil.QUIET),
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         ),
-                        modifier = Modifier.padding(end = 8.dp)
+                        modifier = Modifier.padding(end = MarbleSpace.SM.dp)
                     )
                 }
                 Box(
                     modifier = Modifier
                         .size(32.dp)
                         .clip(CircleShape)
-                        .background(ink.copy(alpha = 0.08f)),
+                        .background(ink.copy(alpha = MarbleWash.FAINT)),
                     contentAlignment = Alignment.Center
                 ) {
                     MarbleChevron(size = 15.dp, tint = subInk)
                 }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)) {
                 Text(
                     text = title,
                     color = ink,
@@ -758,19 +697,22 @@ internal fun MarbleExpressiveTile(
             }
             if (topicPills.isNotEmpty()) {
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp),
+                    verticalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
                 ) {
                     topicPills.forEach { pill ->
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(ink.copy(alpha = 0.08f))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .clip(RoundedCornerShape(MarbleRadius.SM.dp))
+                                .background(ink.copy(alpha = MarbleWash.FAINT))
+                                .padding(
+                                    horizontal = MarbleSpace.SM.dp,
+                                    vertical = MarbleSpace.XS.dp
+                                )
                         ) {
                             Text(
                                 text = pill,
-                                color = ink.copy(alpha = 0.86f),
+                                color = ink.copy(alpha = MarbleVeil.NEAR),
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis

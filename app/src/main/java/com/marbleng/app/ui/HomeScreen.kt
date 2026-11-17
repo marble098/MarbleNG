@@ -65,10 +65,10 @@ import com.marbleng.app.model.ConnectModeChip
 import com.marbleng.app.model.ConnectPhase
 import com.marbleng.app.model.ConnectionMode
 import com.marbleng.app.model.ConnectionPingState
-import com.marbleng.app.model.HomePingAction
 import com.marbleng.app.model.HeroMetricKind
 import com.marbleng.app.model.HomeHeroSnapshot
 import com.marbleng.app.model.HomeHeroStudio
+import com.marbleng.app.model.HomePingAction
 import com.marbleng.app.model.HomeSection
 import com.marbleng.app.model.HomeStudio
 import com.marbleng.app.model.IpAddressBook
@@ -77,11 +77,16 @@ import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.applyTo
 import com.marbleng.app.model.connectModeChipOf
 import com.marbleng.app.model.parseHomePingAction
-import com.marbleng.app.ui.theme.MarbleSpec
-import com.marbleng.app.ui.theme.MarbleRowIconShape
-import com.marbleng.app.ui.theme.MarbleTheme
-import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
 import com.marbleng.app.ui.theme.MARBLE_CHROME_FLIGHT_MS
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleRowIconShape
+import com.marbleng.app.ui.theme.MarbleSelectionRung
+import com.marbleng.app.ui.theme.MarbleSpace
+import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleWash
+import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
 import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.panSpec
 import com.marbleng.app.ui.theme.settleSpec
@@ -294,7 +299,7 @@ fun HomeScreen(
         contentPadding = PaddingValues(
             start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
             end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-            top = 8.dp,
+            top = MarbleSpace.SM.dp,
             bottom = MarbleTheme.bottomClearance
         ),
         verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
@@ -310,19 +315,19 @@ fun HomeScreen(
                             firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
                         )
                     ) {
-                        MarbleExpressiveIconButton(
+                        MarbleIconButton(
                             glyph = MarbleGlyph.SHIELD,
                             motif = MarbleExpressiveMotif.ARCH,
                             containerColor = tones.plum.container,
-                            contentColor = if (connected) colors.success else colors.onSurfaceVariant,
+                            tint = if (connected) colors.success else colors.onSurfaceVariant,
                             contentDescription = diagDesc,
                             onClick = onOpenDiagnostics
                         )
-                        MarbleExpressiveIconButton(
+                        MarbleIconButton(
                             glyph = MarbleGlyph.PLUS,
                             motif = MarbleExpressiveMotif.CLOVER,
                             containerColor = colors.primary,
-                            contentColor = colors.onPrimary,
+                            tint = colors.onPrimary,
                             prominent = true,
                             contentDescription = addDesc,
                             onClick = onOpenAddSheet
@@ -337,8 +342,8 @@ fun HomeScreen(
                     // under the heading and above the stage, for as long as the library is empty.
                     if (showWarmup) {
                         Column(
-                            modifier = Modifier.padding(bottom = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier.padding(bottom = MarbleSpace.TILE.dp),
+                            verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                         ) {
                             // MARBLE_HOME_DECLUTTER_V260 — three tonal keys, and two of them were
                             // the header's own + button and the Add sheet's own first row. The
@@ -423,7 +428,7 @@ fun HomeScreen(
                         enter = appear,
                         exit = vanish
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                             // MARBLE_HOME_DECLUTTER_V260 — no section label above the route card.
                             // The card's own first line *is* the server's name, and a heading that
                             // says "Active Route" over a card that says "Berlin 01" is the page
@@ -476,10 +481,10 @@ fun HomeScreen(
                     // What is left is the two verbs that are this page's own: rank the library, and
                     // run the network lab. They are the two things a reader on Home wants to *do*
                     // about the connection they are looking at.
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                         MarbleSectionHeader(title = trx("Quick Actions"))
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(IntrinsicSize.Min)
@@ -581,7 +586,7 @@ private fun HomeHeroStage(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
             ) {
                 MarbleModeMenuChip(
                     selected = modeChip,
@@ -613,7 +618,7 @@ private fun HomeHeroStage(
             ticker = ticker,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 12.dp)
+                .padding(top = MarbleSpace.MD.dp)
         )
     }
 }
@@ -635,8 +640,7 @@ private fun HomeProbeCapsule(
     }
     val shape = marbleSelectionMorphShape(
         selected = connected || pingWorking,
-        idleDp = 16.dp,
-        selectedDp = 26.dp
+        rung = MarbleSelectionRung.CONTROL
     )
     Row(
         modifier = modifier
@@ -645,9 +649,9 @@ private fun HomeProbeCapsule(
             .background(colors.surfaceContainerHigh)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = caption }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = MarbleSpace.MD.dp, vertical = MarbleSpace.SM.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
     ) {
         if (pingWorking) {
             MarbleWaveRing(size = 16.dp, color = colors.primary)
@@ -798,7 +802,7 @@ private fun HomeRouteAndIdentityCard(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
     ) {
         AnimatedVisibility(
             visible = showRoute,
@@ -813,9 +817,9 @@ private fun HomeRouteAndIdentityCard(
                 .clip(marbleAsymmetricShape(prominent = false))
                 .background(tones.sky.container)
                 .clickable(role = Role.Button, onClick = onOpenServers)
-                .padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
+                .padding(start = MarbleSpace.LG.dp, end = MarbleSpace.MD.dp, top = MarbleSpace.TILE.dp, bottom = MarbleSpace.TILE.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
         ) {
             MarbleServerAvatar(
                 profile = activeRoute,
@@ -824,7 +828,7 @@ private fun HomeRouteAndIdentityCard(
             )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
+                verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
             ) {
                 Text(
                     text = activeRoute?.let { cleanServerName(it.name) } ?: strings.chooseRoute,
@@ -839,7 +843,7 @@ private fun HomeRouteAndIdentityCard(
                     } else {
                         trx("Select or import a server from the Servers tab")
                     },
-                    color = tones.sky.content.copy(alpha = 0.80f),
+                    color = tones.sky.content.copy(alpha = MarbleVeil.NEAR),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -847,11 +851,11 @@ private fun HomeRouteAndIdentityCard(
             }
             if (activeRoute != null) {
                 MarbleActionColumn {
-                    MarbleExpressiveIconButton(
+                    MarbleIconButton(
                         glyph = MarbleGlyph.TUNERS,
                         motif = MarbleExpressiveMotif.FLOWER,
-                        containerColor = tones.sky.content.copy(alpha = 0.12f),
-                        contentColor = tones.sky.content,
+                        containerColor = tones.sky.content.copy(alpha = MarbleWash.SOFT),
+                        tint = tones.sky.content,
                         contentDescription = inspectDesc,
                         onClick = { onOpenServerDetail(activeRoute) }
                     )
@@ -866,7 +870,7 @@ private fun HomeRouteAndIdentityCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(IntrinsicSize.Min),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
         ) {
             HomeMetricBentoTile(
                 overline = strings.connectionPing,
@@ -949,8 +953,8 @@ private fun HomeMetricBentoTile(
                 indication = androidx.compose.foundation.LocalIndication.current,
                 onClick = onClick
             )
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(MarbleSpace.LG.dp),
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -960,7 +964,7 @@ private fun HomeMetricBentoTile(
                 modifier = Modifier
                     .size(MarbleSpec.ROW_ICON_SIZE_DP.dp)
                     .clip(MarbleRowIconShape)
-                    .background(pair.badge.copy(alpha = 0.14f)),
+                    .background(pair.badge.copy(alpha = MarbleWash.TINT)),
                 contentAlignment = Alignment.Center
             ) {
                 if (loading) {
@@ -979,13 +983,13 @@ private fun HomeMetricBentoTile(
             Spacer(Modifier.weight(1f))
             Text(
                 text = overline,
-                color = pair.content.copy(alpha = 0.72f),
+                color = pair.content.copy(alpha = MarbleVeil.QUIET),
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                 maxLines = 1
             )
         }
         Spacer(Modifier.weight(1f))
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)) {
             Text(
                 text = value,
                 color = pair.content,
@@ -997,7 +1001,7 @@ private fun HomeMetricBentoTile(
             )
             Text(
                 text = subtitle,
-                color = pair.content.copy(alpha = 0.78f),
+                color = pair.content.copy(alpha = MarbleVeil.QUIET),
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -1039,8 +1043,8 @@ private fun HomeTelemetryCard(
             .fillMaxWidth()
             .clip(marbleAsymmetricShape(prominent = true))
             .background(colors.surfaceContainerLow)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(MarbleSpace.LG.dp),
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
     ) {
         MarbleTrafficSparkline(
             downBps = downBps,
@@ -1052,7 +1056,7 @@ private fun HomeTelemetryCard(
         // One row, four readings, equal weight: the graph above says *when*, this says *how much*.
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
         ) {
             HomeReading(
                 value = faDigits(formatRate(downBps)),
@@ -1088,12 +1092,17 @@ private fun HomeTelemetryCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
+                    // MARBLE_ONE_LANGUAGE_V281 — a control takes the control corner, and its air
+                    // comes from the scale, so this row matches every other tappable strip.
+                    .clip(RoundedCornerShape(MarbleRadius.CONTROL.dp))
                     .background(colors.surfaceContainer)
                     .clickable(role = Role.Button, onClick = onCopySocks)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(
+                        horizontal = MarbleSpace.TILE.dp,
+                        vertical = MarbleSpace.INNER.dp
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
             ) {
                 MarbleRowIcon(
                     glyph = MarbleGlyph.LINK,
@@ -1146,9 +1155,9 @@ private fun HomeReading(
     Column(
         modifier = modifier
             .clip(marbleAsymmetricShape(prominent = false))
-            .background(tint.copy(alpha = 0.09f))
-            .padding(horizontal = 9.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .background(tint.copy(alpha = MarbleWash.FAINT))
+            .padding(horizontal = MarbleSpace.INNER.dp, vertical = MarbleSpace.INNER.dp),
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
     ) {
         MarbleRowIcon(glyph = glyph, tint = tint, size = 24.dp, glyphSize = 14.dp)
         Text(

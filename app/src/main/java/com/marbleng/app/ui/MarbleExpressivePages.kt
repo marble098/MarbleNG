@@ -65,8 +65,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.marbleng.app.ui.theme.MarbleSelectionRung
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleWash
 import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
 import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.settleSpec
@@ -194,7 +198,7 @@ internal fun MarbleExpressivePageScaffold(
             verticalArrangement = Arrangement.spacedBy(MarbleSpec.SECTION_SPACING_DP.dp)
         ) {
             item(key = "expressive-page-hero") {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
                     ExpressivePageHero(
                         overline = umbrellaTitle,
                         title = title,
@@ -212,7 +216,7 @@ internal fun MarbleExpressivePageScaffold(
             }
             content()
             item(key = "expressive-page-tail") {
-                Spacer(Modifier.padding(top = 2.dp))
+                Spacer(Modifier.padding(top = MarbleSpace.HAIR.dp))
             }
         }
     }
@@ -228,7 +232,7 @@ private fun SettingsUmbrellaTopicBar(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         umbrella.group.destinations.forEach { dest ->
@@ -237,8 +241,7 @@ private fun SettingsUmbrellaTopicBar(
             val motif = SettingsHubLayout.motifFor(dest)
             val shape = marbleSelectionMorphShape(
                 selected = selected,
-                idleDp = 14.dp,
-                selectedDp = 28.dp
+                rung = MarbleSelectionRung.CONTROL
             )
             val container by animateColorAsState(
                 targetValue = if (selected) colors.primaryContainer else colors.surfaceContainerLow,
@@ -258,16 +261,16 @@ private fun SettingsUmbrellaTopicBar(
                         }
                     }
                     .testTag("settings-topic-${dest.name}")
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                    .padding(horizontal = MarbleSpace.TILE.dp, vertical = MarbleSpace.INNER.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .size(if (selected) 16.dp else 10.dp)
                         .clip(marbleExpressiveShape(motif))
                         .background(
-                            if (selected) colors.primary else colors.onSurfaceVariant.copy(alpha = 0.35f)
+                            if (selected) colors.primary else colors.onSurfaceVariant.copy(alpha = MarbleVeil.GHOST)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -329,7 +332,7 @@ fun MarbleAmbientBackdrop(
         val shift = (drift - 0.5f) * 2f
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(colors.primary.copy(alpha = 0.10f), Color.Transparent),
+                colors = listOf(colors.primary.copy(alpha = MarbleWash.SOFT), Color.Transparent),
                 center = Offset(w * (0.18f + shift * 0.06f), h * (0.12f - shift * 0.04f)),
                 radius = w * 0.95f
             ),
@@ -338,7 +341,7 @@ fun MarbleAmbientBackdrop(
         )
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(colors.tertiary.copy(alpha = 0.08f), Color.Transparent),
+                colors = listOf(colors.tertiary.copy(alpha = MarbleWash.FAINT), Color.Transparent),
                 center = Offset(w * (0.92f - shift * 0.05f), h * (0.72f + shift * 0.05f)),
                 radius = w * 1.05f
             ),
@@ -370,12 +373,12 @@ private fun ExpressivePageHero(
             .background(
                 Brush.linearGradient(
                     listOf(
-                        tint.copy(alpha = 0.16f),
+                        tint.copy(alpha = MarbleWash.TINT),
                         colors.surfaceContainerLow
                     )
                 )
             )
-            .padding(vertical = 10.dp, horizontal = 18.dp)
+            .padding(vertical = MarbleSpace.INNER.dp, horizontal = MarbleSpace.XL.dp)
     ) {
         MarbleOrbitLens(
             tint = tint,
@@ -389,7 +392,7 @@ private fun ExpressivePageHero(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -399,7 +402,7 @@ private fun ExpressivePageHero(
                         scaleY = heroScale
                     }
                     .clip(marbleExpressiveShape(motif))
-                    .background(tint.copy(alpha = 0.22f)),
+                    .background(tint.copy(alpha = MarbleWash.STRONG)),
                 contentAlignment = Alignment.Center
             ) {
                 MarbleGlyphIcon(
@@ -411,7 +414,7 @@ private fun ExpressivePageHero(
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
+                verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
             ) {
                 if (overline.isNotBlank()) {
                     Text(

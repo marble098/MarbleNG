@@ -67,6 +67,9 @@ import com.marbleng.app.core.ShadeFloor
 import com.marbleng.app.model.PlanStatus
 import com.marbleng.app.model.ShadeControlDefaults
 import com.marbleng.app.model.Subscription
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSpace
+import com.marbleng.app.ui.theme.MarbleVeil
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
 
@@ -100,11 +103,11 @@ fun SettingsSubscriptionsPage(
         onBack = onBack
     ) {
         item(key = "sub-overview-card") {
-            MarbleCard(contentPadding = PaddingValues(14.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            MarbleCard(contentPadding = PaddingValues(MarbleSpace.TILE.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                     ) {
                         SubscriptionOverviewTile(
                             label = trx("Subscriptions"),
@@ -128,7 +131,7 @@ fun SettingsSubscriptionsPage(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                     ) {
                         MarbleButton(
                             label = trx(
@@ -158,10 +161,13 @@ fun SettingsSubscriptionsPage(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(18.dp))
+                                // MARBLE_ONE_LANGUAGE_V281 — the same inline form the Servers
+                                // sheet draws, at the same corner and the same air: 18 dp here and
+                                // 22 dp there was one idea drawn twice.
+                                .clip(RoundedCornerShape(MarbleRadius.TILE.dp))
                                 .background(colors.surfaceContainerHigh)
-                                .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                .padding(MarbleSpace.MD.dp),
+                            verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
                         ) {
                             Text(
                                 text = trx("New Subscription"),
@@ -182,7 +188,7 @@ fun SettingsSubscriptionsPage(
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                             ) {
                                 MarbleButton(
                                     label = trx("Cancel"),
@@ -212,7 +218,7 @@ fun SettingsSubscriptionsPage(
         }
 
         item(key = "sub-refresh-card") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 MarbleSectionHeader(title = trx("Automatic Updates"))
                 MarbleCard {
                     MarbleSwitchRow(
@@ -346,26 +352,26 @@ internal fun SubscriptionDirectoryCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(MarbleRadius.CARD.dp))
             .background(cardGround)
             .clickable(role = Role.Button, onClick = onManage)
             .testTag("subscription-directory-card-${subscription.id}")
-            .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(start = MarbleSpace.MD.dp, end = MarbleSpace.MD.dp, top = MarbleSpace.MD.dp, bottom = MarbleSpace.MD.dp),
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
         ) {
             MarbleSourceStripe(id = subscription.id, selected = false, height = 42.dp)
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
+                verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
                 ) {
                     Text(
                         text = subscription.name,
@@ -401,7 +407,7 @@ internal fun SubscriptionDirectoryCard(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(marbleExpressiveShape(MarbleExpressiveMotif.CLOVER))
-                        .background(colors.primaryContainer.copy(alpha = 0.72f))
+                        .background(colors.primaryContainer.copy(alpha = MarbleVeil.QUIET))
                         .clickable(enabled = !busy && !isRefreshing, role = Role.Button, onClick = onRefresh)
                         .testTag("subscription-directory-refresh-${subscription.id}"),
                     contentAlignment = Alignment.Center
@@ -420,7 +426,7 @@ internal fun SubscriptionDirectoryCard(
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(MarbleRadius.ROW_ICON.dp))
                     .background(colors.surfaceContainerHigh)
                     .clickable(role = Role.Button, onClick = onManage),
                 contentAlignment = Alignment.Center
@@ -444,28 +450,20 @@ private fun SubscriptionOverviewTile(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    val colors = MaterialTheme.colorScheme
-    Column(
+    // MARBLE_ONE_LANGUAGE_V281 — the same tile the Servers page prints a plan's numbers in, at the
+    // same corner, the same wash and the same air. It was 16 dp round with 9 dp of padding here and
+    // 14 dp round with 7 dp there, which is how two pages measuring one subscription disagreed.
+    // The value keeps the page's own ink and the tint stays the wash, as it was drawn before.
+    MarbleStatTile(
+        label = label,
+        value = value,
+        tint = MaterialTheme.colorScheme.onSurface,
+        wash = tint,
+        valueFirst = true,
+        emphasized = true,
+        compact = true,
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(tint.copy(alpha = 0.11f))
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Text(
-            text = value,
-            color = colors.onSurface,
-            style = MaterialTheme.typography.titleMediumEmphasized,
-            maxLines = 1
-        )
-        Text(
-            text = label,
-            color = colors.onSurfaceVariant,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
+    )
 }
 
 @Composable
@@ -494,7 +492,7 @@ fun SettingsBackupRestorePage(
         onBack = onBack
     ) {
         item(key = "backup-actions") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Encrypted-Ready JSON Archive"))
                 MarbleCard {
                     MarbleListItem(
@@ -621,7 +619,7 @@ fun SettingsNotificationsPage(
         onBack = onBack
     ) {
         item(key = "permissions-status") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("Permissions"),
                     badge = permissionBadge,
@@ -687,7 +685,7 @@ fun SettingsNotificationsPage(
         }
 
         item(key = "notification-preview") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("Live Preview"),
                     badge = if (notifGranted) trx("LIVE") else trx("OFF"),
@@ -712,7 +710,7 @@ fun SettingsNotificationsPage(
                 it == ShadeControlDefaults.rowChoice(s.shadeControl.rows)
             } ?: ShadeControlDefaults.ROWS
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("Route control in the notification"),
                     badge = if (pickerOn || s.shadeControl.cycle) trx("ON") else trx("OFF"),
@@ -781,8 +779,8 @@ fun SettingsNotificationsPage(
                             )
                             MarbleDivider()
                             Column(
-                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                modifier = Modifier.padding(horizontal = MarbleSpace.XL.dp, vertical = MarbleSpace.TILE.dp),
+                                verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
                             ) {
                                 Text(
                                     text = trx("Rows listed at once"),
@@ -816,7 +814,7 @@ fun SettingsNotificationsPage(
         }
 
         item(key = "notification-theme") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("Theme of the ongoing item"),
                     badge = trx("THEME"),
@@ -843,7 +841,7 @@ fun SettingsNotificationsPage(
         }
 
         item(key = "notification-channels") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("Channels"),
                     badge = NotificationChannelKey.menuOrder.size.toString(),
@@ -892,7 +890,7 @@ fun SettingsNotificationsPage(
         }
 
         item(key = "smart-notifications") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("Notification Preferences"),
                     badge = if (s.smartNotificationsEnabled) trx("SMART ALERTS ON") else trx("SMART ALERTS OFF"),
@@ -1007,9 +1005,9 @@ fun SettingsNotificationsPage(
         }
 
         item(key = "notification-actions") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 val canTest = notifGranted && s.smartNotificationsEnabled
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                     MarbleButton(
                         label = trx("Send Test Alert"),
                         style = MarbleButtonStyle.TINTED,
@@ -1074,12 +1072,12 @@ private fun NotificationPreviewCard(repo: AppRepository) {
 
     MarbleCard {
         Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(horizontal = MarbleSpace.TILE.dp, vertical = MarbleSpace.MD.dp),
+            verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
             ) {
                 MarbleRowIcon(
                     glyph = MarbleGlyph.BELL,
@@ -1121,7 +1119,7 @@ private fun NotificationPreviewCard(repo: AppRepository) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleBadge(
                     text = trx(NotificationCopy.statusSubText(status, NotificationLanguage.EN)),
                     color = when (status) {
@@ -1141,7 +1139,7 @@ private fun NotificationPreviewCard(repo: AppRepository) {
             // MARBLE_NOTIFICATION_SWITCH_V234 — the shade switches the route itself now, so the
             // preview names both verbs and says they act in place.
             if (s.shadeControl.cycle) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                     MarbleBadge(
                         text = "↔ ${trx(NotificationCopy.actionNextServer(NotificationLanguage.EN))}",
                         color = colors.primary
@@ -1207,7 +1205,7 @@ private fun NotificationPreviewCard(repo: AppRepository) {
                     previewRows.forEach { row ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                         ) {
                             Text(
                                 text = row.label,
@@ -1290,7 +1288,7 @@ fun SettingsDiagnosticsPage(
             DiagnosticsTab.BUG_FINDER -> {
                 val report = repo.bugReport
                 item(key = "bug-finder-panel") {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
                         MarbleCard {
                             MarbleSwitchRow(
                                 title = trx("Stream Debug TXT Log"),
@@ -1301,7 +1299,7 @@ fun SettingsDiagnosticsPage(
                                 onCheckedChange = { repo.setDebugMode(it) }
                             )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                             MarbleButton(
                                 label = if (repo.busy) Tr.now.measuring else trx("Run Health Scan"),
                                 glyph = MarbleGlyph.SPARK,
@@ -1352,7 +1350,7 @@ fun SettingsDiagnosticsPage(
                                     )
                                 }
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                                 MarbleButton(
                                     label = trx("Save Snapshot"),
                                     style = MarbleButtonStyle.TINTED,
@@ -1378,7 +1376,7 @@ fun SettingsDiagnosticsPage(
             DiagnosticsTab.PRIVACY -> {
                 val p = repo.privacy
                 item(key = "privacy-audit") {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
                         MarbleButton(
                             label = if (repo.busy) Tr.now.measuring else trx("Run Privacy & Leak Audit"),
                             glyph = MarbleGlyph.SHIELD,
@@ -1420,8 +1418,8 @@ fun SettingsDiagnosticsPage(
             DiagnosticsTab.DOCTOR -> {
                 item(key = "system-doctor") {
                     val doctorText = remember(repo.state, repo.message, repo.busy) { repo.doctor() }
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        MarbleCard(contentPadding = PaddingValues(16.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
+                        MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
                             Text(
                                 text = doctorText,
                                 color = colors.onSurface,
@@ -1446,8 +1444,8 @@ fun SettingsDiagnosticsPage(
                 item(key = "runtime-logs") {
                     var refreshTick by remember { mutableStateOf(0) }
                     val logs = remember(refreshTick, repo.state, repo.message) { repo.readLogs() }
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                             MarbleButton(
                                 label = trx("Refresh Logs"),
                                 glyph = MarbleGlyph.REFRESH,
@@ -1466,7 +1464,7 @@ fun SettingsDiagnosticsPage(
                                 modifier = Modifier.weight(1f)
                             )
                         }
-                        MarbleCard(contentPadding = PaddingValues(16.dp)) {
+                        MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
                             Text(
                                 text = logs.takeLast(8_000).ifBlank { trx("No runtime log entries yet.") },
                                 color = colors.onSurface,
@@ -1481,7 +1479,7 @@ fun SettingsDiagnosticsPage(
                 item(key = "conn-history") {
                     val items = repo.history.asReversed()
                     if (items.isEmpty()) {
-                        MarbleCard(contentPadding = PaddingValues(20.dp)) {
+                        MarbleCard(contentPadding = PaddingValues(MarbleSpace.XL.dp)) {
                             Text(
                                 text = trx("No connection history yet."),
                                 color = colors.onSurfaceVariant,

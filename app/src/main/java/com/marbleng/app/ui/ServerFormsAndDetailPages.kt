@@ -36,6 +36,7 @@ import com.marbleng.app.core.ProfileSecurityAuditor
 import com.marbleng.app.model.AddServerAction
 import com.marbleng.app.model.IntakeClassifier
 import com.marbleng.app.model.ProxyProfile
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
 
@@ -244,9 +245,9 @@ private fun MarbleSheetBackRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(percent = 50))
             .clickable(role = androidx.compose.ui.semantics.Role.Button) { onBack() }
-            .padding(vertical = 6.dp, horizontal = 4.dp),
+            .padding(vertical = MarbleSpace.ROW_GAP.dp, horizontal = MarbleSpace.XS.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
     ) {
         MarbleGlyphIcon(
             glyph = MarbleGlyph.CHEVRON_LEFT,
@@ -276,8 +277,8 @@ private fun MarbleManualNodeForm(
     val realityCapable = draft.transport in setOf("raw", "xhttp", "grpc")
     val missing = ManualConfigBuilder.missingRequirement(draft)
 
-    MarbleCard(contentPadding = PaddingValues(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
             MarbleTextField(
                 label = trx("Server Name"),
                 value = draft.name,
@@ -314,7 +315,7 @@ private fun MarbleManualNodeForm(
             )
 
             if (protocol != ManualProtocol.XRAY_JSON) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                     MarbleTextField(
                         label = trx("Server Host / IP"),
                         value = draft.host,
@@ -472,7 +473,7 @@ private fun MarbleManualNodeForm(
                         value = draft.wireguardAddress,
                         onValueChange = { draft = draft.copy(wireguardAddress = it) }
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                         MarbleTextField(
                             label = "MTU",
                             value = draft.wireguardMtu,
@@ -507,7 +508,7 @@ private fun MarbleManualNodeForm(
                 )
 
                 if (draft.transport in setOf("websocket", "xhttp", "httpupgrade")) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                         MarbleTextField(
                             label = trx("Path"),
                             value = draft.path,
@@ -574,7 +575,7 @@ private fun MarbleManualNodeForm(
                         value = draft.realityPublicKey,
                         onValueChange = { draft = draft.copy(realityPublicKey = it) }
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                         MarbleTextField(
                             label = trx("Short ID"),
                             value = draft.realityShortId,
@@ -637,7 +638,7 @@ private fun MarbleChainBuilderForm(
     val eligible = repo.libraryProfiles.filterNot { it.scheme.equals("ssh", ignoreCase = true) }
 
     if (eligible.size < 2) {
-        MarbleCard(contentPadding = PaddingValues(16.dp)) {
+        MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
             Text(
                 text = trx("Add at least two Xray-compatible servers first to compose a multi-hop proxy chain."),
                 color = colors.onSurfaceVariant,
@@ -664,8 +665,8 @@ private fun MarbleChainBuilderForm(
         return if (parts.size == 2) parts[0] to parts[1] else null
     }
 
-    MarbleCard(contentPadding = PaddingValues(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
             MarbleTextField(
                 label = trx("Chain Name"),
                 value = chainName,
@@ -782,7 +783,7 @@ fun ServerDetailPage(
         }
 
         item(key = "detail-actions") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Actions"))
                 MarbleCard {
                     MarbleListItem(
@@ -840,10 +841,10 @@ fun ServerDetailPage(
         }
 
         item(key = "detail-json-editor") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Outbound JSON Configuration"))
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
                         MarbleTextField(
                             label = trx("Xray JSON"),
                             value = jsonDraft,
@@ -853,7 +854,7 @@ fun ServerDetailPage(
                             minLines = 8,
                             maxLines = 22
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                             MarbleButton(
                                 label = trx("Save JSON"),
                                 glyph = MarbleGlyph.CHECK,

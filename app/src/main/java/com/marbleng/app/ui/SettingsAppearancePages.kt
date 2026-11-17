@@ -9,9 +9,36 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import com.marbleng.app.AppRepository
+import com.marbleng.app.model.AppFont
+import com.marbleng.app.model.AppLanguage
+import com.marbleng.app.model.ConnectionWidgetStyle
+import com.marbleng.app.model.DockSize
+import com.marbleng.app.model.DockSlotAccent
+import com.marbleng.app.model.DockSlotKind
+import com.marbleng.app.model.DockStudio
+import com.marbleng.app.model.FlatAccent
+import com.marbleng.app.model.HomeQuiet
+import com.marbleng.app.model.HomeSection
+import com.marbleng.app.model.HomeStudio
 import com.marbleng.app.model.MarblePalette
+import com.marbleng.app.model.TextScale
+import com.marbleng.app.model.encodeDockPreference
+import com.marbleng.app.model.parseAppFont
+import com.marbleng.app.model.parseAppLanguage
+import com.marbleng.app.model.parseDockSize
+import com.marbleng.app.model.parseDockSlotAccent
+import com.marbleng.app.model.parseFlatAccent
 import com.marbleng.app.model.parseMarblePalette
+import com.marbleng.app.ui.theme.MarbleElevation
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSpace
+import com.marbleng.app.ui.theme.MarbleWash
+import com.marbleng.app.ui.theme.marbleAccentPrimary
 import com.marbleng.app.ui.theme.marblePaletteSignature
+import com.marbleng.app.ui.theme.resolveMarbleDarkMode
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -41,32 +68,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.marbleng.app.AppRepository
-import com.marbleng.app.model.AppFont
-import com.marbleng.app.model.AppLanguage
-import com.marbleng.app.model.ConnectionWidgetStyle
-import com.marbleng.app.model.DockSize
-import com.marbleng.app.model.DockStudio
-import com.marbleng.app.model.HomeWidget
-import com.marbleng.app.model.HomeWidgets
-import com.marbleng.app.model.DockSlotAccent
-import com.marbleng.app.model.DockSlotKind
-import com.marbleng.app.model.FlatAccent
-import com.marbleng.app.model.HomeSection
-import com.marbleng.app.model.HomeQuiet
-import com.marbleng.app.model.HomeStudio
-import com.marbleng.app.model.TextScale
-import com.marbleng.app.model.parseAppFont
-import com.marbleng.app.model.parseAppLanguage
-import com.marbleng.app.model.encodeDockPreference
-import com.marbleng.app.model.parseDockSize
-import com.marbleng.app.model.parseDockSlotAccent
-import com.marbleng.app.model.parseFlatAccent
 import kotlin.math.roundToInt
-import com.marbleng.app.ui.theme.marbleAccentPrimary
-import com.marbleng.app.ui.theme.resolveMarbleDarkMode
-import com.marbleng.app.ui.theme.success
-import com.marbleng.app.ui.theme.warning
 
 /**
  * MARBLE_HOME_STUDIO_V249 — swatches per line. Five 48dp circles plus their spacing fit a narrow
@@ -91,7 +93,7 @@ fun SettingsAppearancePage(
         onBack = onBack
     ) {
         item(key = "theme-mode") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = Tr.now.themeTitle)
                 MarbleCard {
                     // MARBLE_HOME_STUDIO_V249 — four themes, not three. `amoled` was already a
@@ -128,24 +130,28 @@ fun SettingsAppearancePage(
 
         item(key = "theme-preview") {
             // Council: live preview — WYSIWYG for theme + accent
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Preview"))
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp),
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
                                 .size(44.dp)
-                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                                .clip(
+                                    androidx.compose.foundation.shape.RoundedCornerShape(
+                                        MarbleRadius.SM.dp
+                                    )
+                                )
                                 .background(colors.primary),
                             contentAlignment = androidx.compose.ui.Alignment.Center
                         ) {
                             MarbleGlyphIcon(glyph = MarbleGlyph.PALETTE, color = Color.White, modifier = Modifier.size(22.dp))
                         }
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)) {
                             Text(
                                 text = trx("MarbleNG Card Preview"),
                                 color = colors.onSurface,
@@ -166,10 +172,10 @@ fun SettingsAppearancePage(
         }
 
         item(key = "accent-swatches") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 MarbleSectionHeader(title = trx("Accent Color"))
-                MarbleCard(contentPadding = PaddingValues(18.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.XL.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)) {
                         // MARBLE_HOME_STUDIO_V249 — nine swatches, five to a line. One row of nine
                         // 48dp circles is 432dp on a 360dp screen: the last accents would have been
                         // clipped, and a colour the user cannot see is not a choice.
@@ -235,7 +241,7 @@ fun SettingsAppearancePage(
         item(key = "palette-studio") {
             val activePalette = parseMarblePalette(s.themePalette)
             val paletteDark = resolveMarbleDarkMode(s.theme, isSystemInDarkTheme())
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("Colour themes"),
                     badge = trx(activePalette.label)
@@ -258,21 +264,21 @@ fun SettingsAppearancePage(
                                         )
                                     )
                                 }
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .padding(horizontal = MarbleSpace.LG.dp, vertical = MarbleSpace.MD.dp)
                                 .testTag("palette-${palette.id}"),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(48.dp)
-                                    .clip(RoundedCornerShape(16.dp))
+                                    .clip(RoundedCornerShape(MarbleRadius.CONTROL.dp))
                                     .background(Brush.linearGradient(signature))
                                     .then(
                                         if (chosen) {
-                                            Modifier.border(2.dp, colors.onSurface, RoundedCornerShape(16.dp))
+                                            Modifier.border(2.dp, colors.onSurface, RoundedCornerShape(MarbleRadius.CONTROL.dp))
                                         } else {
-                                            Modifier.border(1.dp, colors.outlineVariant, RoundedCornerShape(16.dp))
+                                            Modifier.border(1.dp, colors.outlineVariant, RoundedCornerShape(MarbleRadius.CONTROL.dp))
                                         }
                                     ),
                                 contentAlignment = Alignment.Center
@@ -288,7 +294,7 @@ fun SettingsAppearancePage(
                             }
                             Column(
                                 modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)
                             ) {
                                 Text(
                                     text = trx(palette.label),
@@ -313,7 +319,7 @@ fun SettingsAppearancePage(
         }
 
         item(key = "dynamic-color") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Wallpaper Colors"))
                 MarbleCard {
                     MarbleSwitchRow(
@@ -338,7 +344,7 @@ fun SettingsAppearancePage(
             // animations off: a reader who finds the movement distracting usually still wants to see
             // where a page came from. Android's own "remove animations" scale keeps working on top of
             // it, and that one wins — when the phone says still, the app renders the resting frame.
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Motion"))
                 MarbleCard {
                     MarbleSwitchRow(
@@ -354,7 +360,7 @@ fun SettingsAppearancePage(
         }
 
         item(key = "surface-depth") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Card Elevation"))
                 MarbleCard {
                     MarbleSwitchRow(
@@ -389,7 +395,7 @@ fun SettingsLanguageAndFontPage(
         onBack = onBack
     ) {
         item(key = "app-language") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = strings.languageTitle)
                 MarbleCard {
                     listOf(
@@ -412,7 +418,7 @@ fun SettingsLanguageAndFontPage(
         }
 
         item(key = "app-font") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Typeface"))
                 MarbleCard {
                     AppFont.entries.forEachIndexed { idx, candidate ->
@@ -431,11 +437,13 @@ fun SettingsLanguageAndFontPage(
 
         item(key = "text-scale") {
             val scale = TextScale.clamp(s.textScalePercent)
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 MarbleSectionHeader(title = "${trx("Text Size")} · ${faDigits("$scale%")}")
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Slider(
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
+                        // MARBLE_ONE_LANGUAGE_V281 — the shared slider: this page styled its own
+                        // copy of the same three colours twice, and the ping page styled a third.
+                        MarbleSlider(
                             value = scale.toFloat(),
                             onValueChange = { v ->
                                 repo.updateSettings(
@@ -443,12 +451,7 @@ fun SettingsLanguageAndFontPage(
                                     coalesceWrite = true
                                 )
                             },
-                            valueRange = TextScale.MIN_PERCENT.toFloat()..TextScale.MAX_PERCENT.toFloat(),
-                            colors = SliderDefaults.colors(
-                                thumbColor = colors.primary,
-                                activeTrackColor = colors.primary,
-                                inactiveTrackColor = colors.outlineVariant
-                            )
+                            valueRange = TextScale.MIN_PERCENT.toFloat()..TextScale.MAX_PERCENT.toFloat()
                         )
                         MarbleChipStrip {
                             TextScale.STEPS.forEach { preset ->
@@ -494,13 +497,13 @@ fun SettingsTabBarPage(
         // capsule is a different design, not a toggle). What is left is the size ladder — now three
         // visibly different capsules — and how far the capsule floats above the gesture bar.
         item(key = "dock-ladder") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 MarbleSectionHeader(
                     title = trx("Capsule size"),
                     badge = trx(DockStudio.ladderTitle(dockSize))
                 )
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)) {
                         MarbleSegmentedControl(
                             options = DockSize.entries.map { it to trx(DockStudio.ladderTitle(it)) },
                             selected = dockSize,
@@ -514,16 +517,16 @@ fun SettingsTabBarPage(
                         )
                         // Each rung states what actually changes — height, inner air and glyph
                         // size — instead of a bare number the reader has to imagine.
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                             DockSize.entries.forEach { rung ->
                                 val active = rung == dockSize
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(18.dp))
+                                        .clip(RoundedCornerShape(MarbleRadius.CONTROL.dp))
                                         .background(
                                             if (active) {
-                                                colors.primary.copy(alpha = 0.12f)
+                                                colors.primary.copy(alpha = MarbleWash.SOFT)
                                             } else {
                                                 Color.Transparent
                                             }
@@ -535,9 +538,9 @@ fun SettingsTabBarPage(
                                                 )
                                             )
                                         }
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        .padding(horizontal = MarbleSpace.MD.dp, vertical = MarbleSpace.INNER.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
@@ -549,7 +552,7 @@ fun SettingsTabBarPage(
                                     )
                                     Column(
                                         modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                                        verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)
                                     ) {
                                         Text(
                                             text = trx(DockStudio.ladderTitle(rung)),
@@ -580,13 +583,13 @@ fun SettingsTabBarPage(
         }
 
         item(key = "dock-gap") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 MarbleSectionHeader(
                     title = trx("Distance from the bottom"),
                     badge = faDigits("$gap dp")
                 )
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                         // Live preview: the capsule at the chosen rung, floating at the chosen gap,
                         // so the slider is a measurement the reader can see instead of a number.
                         DockFloatPreview(
@@ -597,7 +600,7 @@ fun SettingsTabBarPage(
                             tint = colors.tertiary,
                             gapLabel = faDigits("$gap dp")
                         )
-                        Slider(
+                        MarbleSlider(
                             value = gap.toFloat(),
                             onValueChange = { raw ->
                                 repo.updateSettings(
@@ -611,11 +614,7 @@ fun SettingsTabBarPage(
                                 (DockStudio.MAX_BOTTOM_GAP_DP - DockStudio.MIN_BOTTOM_GAP_DP) /
                                     DockStudio.BOTTOM_GAP_STEP_DP
                                 ) - 1,
-                            colors = SliderDefaults.colors(
-                                thumbColor = colors.tertiary,
-                                activeTrackColor = colors.tertiary,
-                                inactiveTrackColor = colors.outlineVariant
-                            )
+                            tint = colors.tertiary
                         )
                         MarbleChipStrip {
                             listOf(
@@ -642,7 +641,7 @@ fun SettingsTabBarPage(
         }
 
         item(key = "fourth-tab-config") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 MarbleSectionHeader(title = trx("Fourth Tab"))
                 MarbleCard {
                     MarbleSwitchRow(
@@ -669,8 +668,8 @@ fun SettingsTabBarPage(
                 // caption. What is left is appearance — the glyph and the accent — plus one page
                 // that explains what the tab now is, instead of a picker for something it no
                 // longer does.
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
                         Text(
                             text = trx(
                                 "The fourth tab is the IP page now. It opens the same way whether the " +
@@ -729,7 +728,7 @@ private fun DockFloatPreview(
         modifier = Modifier
             .fillMaxWidth()
             .height(132.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(MarbleRadius.CARD.dp))
             .background(
                 Brush.verticalGradient(
                     listOf(
@@ -747,19 +746,19 @@ private fun DockFloatPreview(
                 .padding(bottom = gapDp.dp)
                 .fillMaxWidth()
                 .height(heightDp.dp / 2)
-                .shadow(8.dp, shape)
+                .shadow(MarbleElevation.SOFT_DP.dp, shape)
                 .clip(shape)
                 .background(colors.surfaceContainerHighest)
                 .background(
                     Brush.verticalGradient(
-                        listOf(tint.copy(alpha = 0.16f), Color.Transparent)
+                        listOf(tint.copy(alpha = MarbleWash.TINT), Color.Transparent)
                     )
                 ),
             contentAlignment = Alignment.Center
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
             ) {
                 MarbleGlyphIcon(glyph = glyph, color = tint, modifier = Modifier.size(16.dp))
                 Text(
@@ -804,9 +803,9 @@ fun SettingsHomeLayoutPage(
         onBack = onBack
     ) {
         item(key = "home-connect-style") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Connect Control"))
-                MarbleCard(contentPadding = PaddingValues(18.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.XL.dp)) {
                     // MARBLE_EXPRESSIVE_SHELL_V241 — the style choice is gone because the
                     // control it chose between is gone. There is one pill, one mode chip and
                     // one status chip on Home; this page describes that instead of offering a
@@ -839,7 +838,7 @@ fun SettingsHomeLayoutPage(
         //    opinion about them, so the strip cannot disagree with the page it describes.
         item(key = "home-section-switches") {
             val layout = s.homeLayout
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("Sections on Home"),
                     badge = homeQuietShownLabel(
@@ -851,17 +850,17 @@ fun SettingsHomeLayoutPage(
                         ).size
                     )
                 )
-                MarbleCard(contentPadding = PaddingValues(bottom = 6.dp)) {
+                MarbleCard(contentPadding = PaddingValues(bottom = MarbleSpace.ROW_GAP.dp)) {
                     MarbleHomeSectionPreview(
                         order = HomeStudio.order(layout.sectionOrder),
                         hiddenRaw = layout.hiddenSections,
                         legacyStatsVisible = s.modularShowStats,
                         legacyShortcutsVisible = s.modularShowShortcuts,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                        modifier = Modifier.padding(horizontal = MarbleSpace.LG.dp, vertical = MarbleSpace.MD.dp)
                     )
                     MarbleSectionFooter(
                         text = trx("Home starts focused: only Connect Control and Network Speed & Session Data are shown."),
-                        modifier = Modifier.padding(horizontal = 16.dp)
+                        modifier = Modifier.padding(horizontal = MarbleSpace.LG.dp)
                     )
                     HomeSection.entries.forEach { section ->
                         val visible = !HomeStudio.isHidden(
@@ -893,10 +892,10 @@ fun SettingsHomeLayoutPage(
                                         )
                                     )
                                 }
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .padding(horizontal = MarbleSpace.LG.dp, vertical = MarbleSpace.MD.dp)
                                 .testTag("home-section-${section.id}"),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
                         ) {
                             Box(
                                 modifier = Modifier
@@ -904,7 +903,7 @@ fun SettingsHomeLayoutPage(
                                     .clip(marbleExpressiveShape(MarbleExpressiveMotif.forGlyph(sectionGlyph(section))))
                                     .background(
                                         if (visible) {
-                                            colors.primary.copy(alpha = 0.16f)
+                                            colors.primary.copy(alpha = MarbleWash.TINT)
                                         } else {
                                             colors.surfaceContainerHighest
                                         }
@@ -920,7 +919,7 @@ fun SettingsHomeLayoutPage(
                             }
                             Column(
                                 modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(1.dp)
+                                verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)
                             ) {
                                 Text(
                                     text = trx(section.title),
@@ -937,7 +936,10 @@ fun SettingsHomeLayoutPage(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            Switch(
+                            // MARBLE_ONE_LANGUAGE_V281 — the kit's switch, so this row confirms a
+                            // toggle with the same haptic and the same track colour as every other
+                            // switch in the product instead of the platform default.
+                            MarbleSwitch(
                                 checked = visible,
                                 onCheckedChange = { on ->
                                     val toggle = HomeQuiet.toggle(
@@ -982,12 +984,12 @@ fun SettingsHomeLayoutPage(
         // one decision this page keeps is where the connect control lives — a placement, not a
         // deletion.
         item(key = "home-widget-settings") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Connection widget"))
-                MarbleCard(contentPadding = PaddingValues(bottom = 8.dp)) {
+                MarbleCard(contentPadding = PaddingValues(bottom = MarbleSpace.SM.dp)) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier.padding(horizontal = MarbleSpace.LG.dp, vertical = MarbleSpace.INNER.dp),
+                        verticalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
                     ) {
                         Text(
                             text = trx(style.title),
@@ -1015,7 +1017,7 @@ fun SettingsHomeLayoutPage(
                                 )
                             )
                         },
-                        modifier = Modifier.padding(horizontal = 16.dp)
+                        modifier = Modifier.padding(horizontal = MarbleSpace.LG.dp)
                     )
                 }
                 MarbleSectionFooter(

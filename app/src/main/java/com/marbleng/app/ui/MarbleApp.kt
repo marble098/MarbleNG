@@ -41,6 +41,7 @@ import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,15 +64,29 @@ import com.marbleng.app.core.NotificationRoute
 import com.marbleng.app.model.ConnectAction
 import com.marbleng.app.model.ConnectControl
 import com.marbleng.app.model.ConnectPhase
-import com.marbleng.app.model.DockIndicatorSpec
-import com.marbleng.app.model.LiquidDockNotices
-import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.DockSlotKind
+import com.marbleng.app.model.LiquidDockNotices
+import com.marbleng.app.model.MapMotion
+import com.marbleng.app.model.ProxyProfile
 import com.marbleng.app.model.dockSlotDefaultCaption
 import com.marbleng.app.model.dockSlotIndex
 import com.marbleng.app.model.dockSlots
 import com.marbleng.app.model.parseDockSize
 import com.marbleng.app.model.parseDockSlotAccent
+import com.marbleng.app.ui.theme.LocalBottomClearance
+import com.marbleng.app.ui.theme.MARBLE_CHROME_FLIGHT_MS
+import com.marbleng.app.ui.theme.MarbleElevation
+import com.marbleng.app.ui.theme.MarbleExpressiveTheme
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSpace
+import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.ProvideMarbleMotion
+import com.marbleng.app.ui.theme.isTrueBlack
+import com.marbleng.app.ui.theme.marbleMotion
+import com.marbleng.app.ui.theme.panSpec
+import com.marbleng.app.ui.theme.rememberReducedMotion
+import com.marbleng.app.ui.theme.settleSpec
+import com.marbleng.app.ui.theme.toneColor
 import kotlinx.coroutines.delay
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.scaleIn
@@ -81,19 +96,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
-import com.marbleng.app.model.MapMotion
-import com.marbleng.app.ui.theme.LocalBottomClearance
-import com.marbleng.app.ui.theme.MARBLE_CHROME_FLIGHT_MS
-import com.marbleng.app.ui.theme.MarbleSpec
-import com.marbleng.app.ui.theme.ProvideMarbleMotion
-import com.marbleng.app.ui.theme.marbleMotion
-import com.marbleng.app.ui.theme.panSpec
-import com.marbleng.app.ui.theme.rememberReducedMotion
-import com.marbleng.app.ui.theme.settleSpec
-import com.marbleng.app.ui.theme.success
-import com.marbleng.app.ui.theme.warning
-import com.marbleng.app.ui.theme.MarbleExpressiveTheme
-import com.marbleng.app.ui.theme.isTrueBlack
 import kotlin.math.roundToInt
 
 /**
@@ -539,18 +541,18 @@ private fun MarbleRootShell(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(horizontal = MarbleSpace.XL.dp, vertical = MarbleSpace.SM.dp)
         ) {
             // MARBLE_EXPRESSIVE_SHELL_V241 — the transient message is a floating tonal pill
             // with one soft shadow; it used to carry the same hairline the rest of the app has
             // now lost.
             Box(
                 modifier = Modifier
-                    .shadow(10.dp, RoundedCornerShape(20.dp))
-                    .clip(RoundedCornerShape(20.dp))
+                    .shadow(MarbleElevation.FLOAT_DP.dp, RoundedCornerShape(MarbleRadius.TILE.dp))
+                    .clip(RoundedCornerShape(MarbleRadius.TILE.dp))
                     .background(colors.surfaceContainerHigh)
                     .clickable { repo.clearMessage() }
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = MarbleSpace.LG.dp, vertical = MarbleSpace.INNER.dp)
             ) {
                 Text(
                     text = trx(repo.message),
@@ -616,6 +618,71 @@ private fun MarbleRootShell(
 }
 
 /**
+ * The one identity both chrome bars share: which accent each destination carries, what the IP tab
+ * is called and drawn as, and whether the connection state lights a dot on it.
+ *
+ * MARBLE_ONE_LANGUAGE_V281 — the wide rail and the bottom dock are the same navigation in two
+ * shapes, and they had each grown a private copy of the same four tables: the per-tab accent, the
+ * slot colour resolution, the IP tab's caption and glyph, and the state word → status dot colour.
+ * Two copies of a rule is how a product ends up with a rail that says one thing and a dock that
+ * says another; there is now one object, built once per composition by
+ * [rememberMarbleChromeIdentity], and both bars read it.
+ */
+@Immutable
+private class MarbleChromeIdentity(
+    val ipLabel: String,
+    val ipGlyph: MarbleGlyph,
+    private val home: Color,
+    private val servers: Color,
+    private val ip: Color,
+    private val settings: Color,
+    val statusDot: Color?
+) {
+    /**
+     * Each destination gets a distinct live palette role: the lens is colourful and the routes are
+     * easier to scan than four identical blue marks. The same answer in both bars is the point.
+     */
+    fun accentFor(tab: MarbleRootTab): Color = when (tab) {
+        MarbleRootTab.HOME -> home
+        MarbleRootTab.SERVERS -> servers
+        MarbleRootTab.IP -> ip
+        MarbleRootTab.SETTINGS -> settings
+    }
+}
+
+@Composable
+private fun rememberMarbleChromeIdentity(repo: AppRepository): MarbleChromeIdentity {
+    val colors = MaterialTheme.colorScheme
+    val s = repo.settings
+    val slotColor = com.marbleng.app.ui.theme.marbleDockAccent(
+        palette = com.marbleng.app.model.parseMarblePalette(s.themePalette),
+        primary = colors.primary,
+        custom = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
+    )
+    return MarbleChromeIdentity(
+        // MARBLE_IP_IDENTITY_V251 — the fourth tab has a fixed name and glyph: it is the IP page,
+        // not a shortcut whose identity the user picks. The slot's own colour still applies,
+        // because that is appearance, not meaning.
+        ipLabel = trx(dockSlotDefaultCaption(DockSlotKind.IP, "")),
+        ipGlyph = MarbleGlyph.GLOBE,
+        home = colors.primary,
+        servers = colors.tertiary,
+        ip = slotColor,
+        settings = colors.secondary,
+        // MARBLE_STEADY_CONNECT_V264 — a kill switch is a state the tab light must show too, and
+        // MARBLE_ONE_LANGUAGE_V281 — the dot no longer keeps its own copy of the state word table:
+        // ConnectControl resolves the phase and the shared verdict resolves the colour.
+        statusDot = if (!s.dockSlotShowStatusBadge) {
+            null
+        } else {
+            ConnectControl.phaseOf(repo.state)
+                .takeIf { it != ConnectPhase.IDLE }
+                ?.let { colors.toneColor(connectPhaseTone(it)) }
+        }
+    )
+}
+
+/**
  * Wide-screen chrome: a Material 3 navigation rail carrying the same tabs, slot icon /
  * accent and status badge as the dock. Labels follow the tab-labels setting; the rail
  * always shows icons.
@@ -638,32 +705,9 @@ private fun MarbleNavigationRail(
     // MARBLE_IP_IDENTITY_V251 — the fourth tab has a fixed name and glyph now: it is the IP page,
     // not a shortcut whose identity the user picks. The slot's own colour still applies, because
     // that is appearance, not meaning.
-    val ipLabel = trx(dockSlotDefaultCaption(DockSlotKind.IP, ""))
-    val ipGlyph = MarbleGlyph.GLOBE
-    val slotColor = com.marbleng.app.ui.theme.marbleDockAccent(
-        palette = com.marbleng.app.model.parseMarblePalette(s.themePalette),
-        primary = colors.primary,
-        custom = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
-    )
-    // Each destination gets a distinct live palette role: the lens is colorful and the routes are
-    // easier to scan than four identical blue marks.
-    fun accentFor(tab: MarbleRootTab): Color = when (tab) {
-        MarbleRootTab.HOME -> colors.primary
-        MarbleRootTab.SERVERS -> colors.tertiary
-        MarbleRootTab.IP -> slotColor
-        MarbleRootTab.SETTINGS -> colors.secondary
-    }
-    val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
-        when (repo.state) {
-            "CONNECTED" -> colors.success
-            "CONNECTING", "DISCONNECTING" -> colors.warning
-            // MARBLE_STEADY_CONNECT_V264 — a kill switch is a state the tab light must show too.
-            "BLOCKED" -> colors.error
-            else -> null
-        }
-    } else {
-        null
-    }
+    val chrome = rememberMarbleChromeIdentity(repo)
+    val ipLabel = chrome.ipLabel
+    val ipGlyph = chrome.ipGlyph
 
     NavigationRail(
         modifier = modifier,
@@ -671,7 +715,7 @@ private fun MarbleNavigationRail(
     ) {
         tabs.forEach { tab ->
             val isSelected = tab == selected
-            val accent = accentFor(tab)
+            val accent = chrome.accentFor(tab)
             val glyph = when (tab) {
                 MarbleRootTab.HOME -> MarbleGlyph.HOME
                 MarbleRootTab.SERVERS -> MarbleGlyph.SERVER
@@ -693,8 +737,8 @@ private fun MarbleNavigationRail(
                 icon = {
                     BadgedBox(
                         badge = {
-                            if (tab == MarbleRootTab.IP && statusDotColor != null) {
-                                Badge(containerColor = statusDotColor)
+                            if (tab == MarbleRootTab.IP && chrome.statusDot != null) {
+                                Badge(containerColor = chrome.statusDot)
                             }
                         }
                     ) {
@@ -760,31 +804,11 @@ private fun MarbleBottomTabBar(
     // MARBLE_QUIET_TABS_V263 — the attached presentation, the icon/caption switches and the
     // caption itself are all retired. The dock draws one glyph per tab, always; the label below is
     // the tab's accessible name, not a word that opens beside the icon on a tap.
-    val ipLabel = trx(dockSlotDefaultCaption(DockSlotKind.IP, ""))
-    val ipGlyph = MarbleGlyph.GLOBE
-    val slotColor = com.marbleng.app.ui.theme.marbleDockAccent(
-        palette = com.marbleng.app.model.parseMarblePalette(s.themePalette),
-        primary = colors.primary,
-        custom = dockSlotColor(parseDockSlotAccent(s.dockSlotAccent))
-    )
-    // Keep the same per-destination colors in the bottom dock as in the wide navigation rail.
-    fun accentFor(tab: MarbleRootTab): Color = when (tab) {
-        MarbleRootTab.HOME -> colors.primary
-        MarbleRootTab.SERVERS -> colors.tertiary
-        MarbleRootTab.IP -> slotColor
-        MarbleRootTab.SETTINGS -> colors.secondary
-    }
-    val statusDotColor: Color? = if (s.dockSlotShowStatusBadge) {
-        when (repo.state) {
-            "CONNECTED" -> colors.success
-            "CONNECTING", "DISCONNECTING" -> colors.warning
-            // MARBLE_STEADY_CONNECT_V264 — a kill switch is a state the tab light must show too.
-            "BLOCKED" -> colors.error
-            else -> null
-        }
-    } else {
-        null
-    }
+    // MARBLE_ONE_LANGUAGE_V281 — the dock and the rail now read one identity object instead of
+    // each keeping its own copy of the accent table, the slot colour and the status dot.
+    val chrome = rememberMarbleChromeIdentity(repo)
+    val ipLabel = chrome.ipLabel
+    val ipGlyph = chrome.ipGlyph
 
     // The red counter is a notification, so it is fed by notifications: a published update nobody
     // has dismissed, plus the findings of the last scan that are still waiting to be applied.
@@ -812,9 +836,9 @@ private fun MarbleBottomTabBar(
                 MarbleRootTab.IP -> ipGlyph
                 MarbleRootTab.SETTINGS -> MarbleGlyph.TUNERS
             },
-            accent = accentFor(tab),
+            accent = chrome.accentFor(tab),
             badgeCount = if (tab == MarbleRootTab.SETTINGS) notices else 0,
-            statusDot = if (tab == MarbleRootTab.IP) statusDotColor else null
+            statusDot = if (tab == MarbleRootTab.IP) chrome.statusDot else null
         )
     }
 
@@ -861,7 +885,7 @@ private fun MarbleBottomTabBar(
                 state = connection,
                 size = size,
                 onClick = ping,
-                modifier = Modifier.padding(end = 4.dp)
+                modifier = Modifier.padding(end = MarbleSpace.XS.dp)
             )
         }
     } else {
@@ -873,7 +897,7 @@ private fun MarbleBottomTabBar(
                 state = connection,
                 size = size,
                 onToggle = toggle,
-                modifier = Modifier.padding(start = 4.dp)
+                modifier = Modifier.padding(start = MarbleSpace.XS.dp)
             )
         }
     } else {

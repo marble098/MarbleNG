@@ -112,15 +112,20 @@ import com.marbleng.app.model.sparklineAreaPoints
 import com.marbleng.app.model.sparklinePoints
 import com.marbleng.app.model.trafficPeak
 import com.marbleng.app.model.trafficSeries
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSelectionRung
 import com.marbleng.app.ui.theme.MarbleSheetShape
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.MarbleSpec
+import com.marbleng.app.ui.theme.MarbleTone
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleWash
 import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
 import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
 import com.marbleng.app.ui.theme.marbleMotion
-import com.marbleng.app.ui.theme.onSuccess
-import com.marbleng.app.ui.theme.onWarning
+import com.marbleng.app.ui.theme.onToneColor
 import com.marbleng.app.ui.theme.rememberReducedMotion
-import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.toneColor
 import com.marbleng.app.ui.theme.warning
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -168,22 +173,17 @@ fun MarbleConnectPill(
     val pressable = ConnectControl.pressable(phase)
     val spokenState = trx(ConnectControl.stateKey(phase))
 
+    // MARBLE_ONE_LANGUAGE_V281 — the pill used to carry its own copy of the verdict table (and a
+    // second copy for the ink inside it). The phase is resolved by ConnectControl, the tone by
+    // connectPhaseTone, and the scheme answers both colours, so the pill cannot disagree with the
+    // hero, the dock dot or the IP headline about what a state looks like.
+    val verdict = connectPhaseTone(phase)
     val tone by animateColorAsState(
-        targetValue = when {
-            phase == ConnectPhase.CONNECTED -> colors.success
-            working -> colors.warning
-            phase == ConnectPhase.BLOCKED -> colors.error
-            else -> colors.primary
-        },
+        targetValue = colors.toneColor(verdict),
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "connectPillTone"
     )
-    val onTone = when {
-        phase == ConnectPhase.CONNECTED -> colors.onSuccess
-        working -> colors.onWarning
-        phase == ConnectPhase.BLOCKED -> colors.onError
-        else -> colors.onPrimary
-    }
+    val onTone = colors.onToneColor(verdict)
 
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -331,16 +331,16 @@ fun MarbleConnectPill(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = MarbleSpace.TILE.dp, vertical = MarbleSpace.INNER.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
             ) {
                 if (working) {
                     Box(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(marbleExpressiveShape(MarbleExpressiveMotif.BURST))
-                            .background(onTone.copy(alpha = 0.18f)),
+                            .background(onTone.copy(alpha = MarbleWash.TINT)),
                         contentAlignment = Alignment.Center
                     ) {
                         MarbleWaveRing(size = 24.dp, color = onTone)
@@ -356,7 +356,7 @@ fun MarbleConnectPill(
                             .size(48.dp)
                             .graphicsLayer { rotationZ = emblemSpin + ambientTurn }
                             .clip(emblemShape)
-                            .background(onTone.copy(alpha = 0.18f)),
+                            .background(onTone.copy(alpha = MarbleWash.TINT)),
                         contentAlignment = Alignment.Center
                     ) {
                         MarbleGlyphIcon(
@@ -376,7 +376,7 @@ fun MarbleConnectPill(
 
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)
                 ) {
                     AnimatedContent(
                         targetState = title,
@@ -407,7 +407,7 @@ fun MarbleConnectPill(
                         ) { s ->
                             Text(
                                 text = s,
-                                color = onTone.copy(alpha = 0.84f),
+                                color = onTone.copy(alpha = MarbleVeil.NEAR),
                                 style = MaterialTheme.typography.bodySmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -416,8 +416,8 @@ fun MarbleConnectPill(
                         if (ticker.isNotEmpty()) {
                             MarbleRollingClock(
                                 clock = ticker,
-                                color = onTone.copy(alpha = 0.92f),
-                                modifier = Modifier.padding(start = 6.dp),
+                                color = onTone.copy(alpha = MarbleVeil.NEAR),
+                                modifier = Modifier.padding(start = MarbleSpace.ROW_GAP.dp),
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -429,7 +429,7 @@ fun MarbleConnectPill(
                 // Trailing Expressive badge reserves fixed space inside the Row so text never collides.
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(MarbleRadius.CONTROL.dp))
                         .background(
                             onTone.copy(
                                 alpha = when {
@@ -439,12 +439,12 @@ fun MarbleConnectPill(
                                 }
                             )
                         )
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                        .padding(horizontal = MarbleSpace.INNER.dp, vertical = MarbleSpace.SM.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
                     ) {
                         Box(
                             modifier = Modifier
@@ -508,8 +508,7 @@ fun MarbleModeMenuChip(
     )
     val shape = marbleSelectionMorphShape(
         selected = open,
-        idleDp = 16.dp,
-        selectedDp = 28.dp
+        rung = MarbleSelectionRung.CONTROL
     )
 
     Box(modifier = modifier) {
@@ -522,9 +521,9 @@ fun MarbleModeMenuChip(
                     haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                     open = true
                 }
-                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+                .padding(start = MarbleSpace.MD.dp, end = MarbleSpace.MD.dp, top = MarbleSpace.SM.dp, bottom = MarbleSpace.SM.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -569,7 +568,7 @@ fun MarbleModeMenuChip(
                         }
                     },
                     text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)) {
                             Text(
                                 text = trx(chip.label),
                                 color = if (chip == selected) colors.primary else colors.onSurface,
@@ -595,15 +594,11 @@ fun MarbleModeMenuChip(
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-fun marbleHealthColor(health: ServerHealth): Color {
-    val colors = MaterialTheme.colorScheme
-    return when (health) {
-        ServerHealth.GOOD -> colors.success
-        ServerHealth.SLOW -> colors.warning
-        ServerHealth.DEAD -> colors.onSurfaceVariant.copy(alpha = 0.70f)
-        ServerHealth.UNTESTED -> colors.outline
-    }
-}
+fun marbleHealthColor(health: ServerHealth): Color =
+    // MARBLE_ONE_LANGUAGE_V281 — the health verdict is named here and coloured once, by the same
+    // resolver the ping cell, the council page and the plan cards ask. This table used to be one of
+    // eleven private answers to "what colour is this verdict?".
+    MaterialTheme.colorScheme.toneColor(healthTone(health))
 
 /** Expressive polygon health mark (`Flower` good, `Sunny` slow, `Pentagon` dead, `Cookie` idle). */
 @Composable
@@ -637,11 +632,11 @@ fun MarbleHealthPill(
     val tone = marbleHealthColor(health)
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(colors.surfaceContainerHighest.copy(alpha = 0.78f))
-            .padding(start = 8.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
+            .clip(RoundedCornerShape(MarbleRadius.ROW_ICON.dp))
+            .background(colors.surfaceContainerHighest.copy(alpha = MarbleVeil.QUIET))
+            .padding(start = MarbleSpace.SM.dp, end = MarbleSpace.INNER.dp, top = MarbleSpace.XS.dp, bottom = MarbleSpace.XS.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
     ) {
         MarbleHealthDot(health = health, size = 9.dp)
         Text(
@@ -713,20 +708,19 @@ fun MarbleTrafficSparkline(
     val upTone = colors.tertiary
     val lensShape = marbleSelectionMorphShape(
         selected = lens != TrafficLens.BOTH,
-        idleDp = 12.dp,
-        selectedDp = 24.dp
+        rung = MarbleSelectionRung.COMPACT
     )
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)) {
                 Row(
                     modifier = Modifier
                         .clip(lensShape)
@@ -735,9 +729,9 @@ fun MarbleTrafficSparkline(
                             haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                             lens = lens.next()
                         }
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .padding(horizontal = MarbleSpace.INNER.dp, vertical = MarbleSpace.XS.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
                 ) {
                     Box(
                         modifier = Modifier
@@ -760,7 +754,7 @@ fun MarbleTrafficSparkline(
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
             ) {
                 SparklineLegend(
                     label = Tr.now.download,
@@ -832,7 +826,7 @@ fun MarbleTrafficSparkline(
                             values = idleDown,
                             width = w,
                             height = h,
-                            tone = downTone.copy(alpha = 0.22f),
+                            tone = downTone.copy(alpha = MarbleWash.STRONG),
                             smooth = true
                         )
                     }
@@ -841,7 +835,7 @@ fun MarbleTrafficSparkline(
                             values = idleUp,
                             width = w,
                             height = h,
-                            tone = upTone.copy(alpha = 0.18f),
+                            tone = upTone.copy(alpha = MarbleWash.TINT),
                             smooth = true
                         )
                     }
@@ -859,7 +853,7 @@ fun MarbleTrafficSparkline(
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .padding(horizontal = 16.dp)
+                        .padding(horizontal = MarbleSpace.LG.dp)
                 )
             }
         }
@@ -874,10 +868,10 @@ private fun SparklineLegend(
     motif: MarbleExpressiveMotif
 ) {
     val colors = MaterialTheme.colorScheme
-    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -919,7 +913,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSeries(
     drawPath(
         path = areaPath,
         brush = Brush.verticalGradient(
-            colors = listOf(tone.copy(alpha = 0.26f), tone.copy(alpha = 0f)),
+            colors = listOf(tone.copy(alpha = MarbleWash.STRONG), tone.copy(alpha = 0f)),
             startY = 0f,
             endY = height
         )
@@ -989,80 +983,57 @@ fun QuickLogsSheet(
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = colors.surfaceContainerHigh,
-        shape = MarbleSheetShape
+    // MARBLE_ONE_LANGUAGE_V281 — this sheet was a hand-copy of the kit's sheet: the same container
+    // colour, the same MarbleSheetShape, the same gutters and the same title/subtitle row, drawn a
+    // second time. It now *is* the kit's sheet, with the live dot in the trailing slot and no close
+    // button, because a log panel is dismissed by the scrim or a swipe like every other sheet.
+    MarbleBottomSheet(
+        title = trx("Core logs"),
+        subtitle = logSummaryLabel(lines, loaded),
+        onDismiss = onDismiss,
+        showsClose = false,
+        trailing = { MarbleHealthDot(health = ServerHealth.GOOD, size = 14.dp) }
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(
-                    start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-                    end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-                    bottom = 24.dp
-                ),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .heightIn(min = 180.dp, max = 420.dp)
+                .clip(marbleAsymmetricShape(prominent = false))
+                .background(colors.surfaceContainerLow)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = trx("Core logs"),
-                        color = colors.onSurface,
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                    Text(
-                        text = logSummaryLabel(lines, loaded),
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                MarbleHealthDot(health = ServerHealth.GOOD, size = 14.dp)
-            }
+            when {
+                !loaded -> Text(
+                    text = trx("Reading the core…"),
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.align(Alignment.Center)
+                )
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 180.dp, max = 420.dp)
-                    .clip(marbleAsymmetricShape(prominent = false))
-                    .background(colors.surfaceContainerLow)
-            ) {
-                when {
-                    !loaded -> Text(
-                        text = trx("Reading the core…"),
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
+                lines.isEmpty() -> Text(
+                    text = trx("No runtime log entries yet."),
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = MarbleSpace.XL.dp)
+                )
 
-                    lines.isEmpty() -> Text(
-                        text = trx("No runtime log entries yet."),
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(horizontal = 20.dp)
-                    )
-
-                    else -> LazyColumn(
-                        state = listState,
-                        contentPadding = PaddingValues(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        items(lines) { line ->
-                            Text(
-                                text = line.text,
-                                color = logLineColor(line.level, colors.onSurface, colors),
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp
-                                )
+                else -> LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(MarbleSpace.MD.dp),
+                    verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
+                ) {
+                    items(lines) { line ->
+                        Text(
+                            text = line.text,
+                            color = logLineColor(line.level, colors.onSurface, colors),
+                            // MARBLE_ONE_LANGUAGE_V281 — the log line was bodySmall forced down
+                            // to 11 sp, which is exactly the labelSmall slot: one ladder, so the
+                            // override goes and the slot stays.
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = FontFamily.Monospace
                             )
-                        }
+                        )
                     }
                 }
             }
@@ -1091,10 +1062,11 @@ private fun logLineColor(
     plain: Color,
     colors: androidx.compose.material3.ColorScheme
 ): Color = when (level) {
-    LogLevel.ERROR -> colors.error
-    LogLevel.WARN -> colors.warning
+    LogLevel.ERROR -> colors.toneColor(MarbleTone.POOR)
+    LogLevel.WARN -> colors.toneColor(MarbleTone.FAIR)
+    // An ordinary line is the page's own ink; it is not a verdict and takes no verdict colour.
     LogLevel.INFO -> colors.onSurface
-    LogLevel.DEBUG -> colors.onSurfaceVariant
+    LogLevel.DEBUG -> colors.toneColor(MarbleTone.UNKNOWN)
     LogLevel.PLAIN -> plain
 }
 
@@ -1119,7 +1091,7 @@ fun SmartPresetStrip(
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
     ) {
         MarbleSectionHeader(
             title = trx("Tuned for you"),
@@ -1129,15 +1101,15 @@ fun SmartPresetStrip(
                     color = colors.primary,
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(MarbleRadius.ROW_ICON.dp))
                         .clickable(role = Role.Button) { onOpenAll() }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = MarbleSpace.SM.dp, vertical = MarbleSpace.XS.dp)
                 )
             }
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
         ) {
             SmartPreset.ordered.forEach { preset ->
                 val active = preset == selected
@@ -1154,8 +1126,7 @@ fun SmartPresetStrip(
                 }
                 val shape = marbleSelectionMorphShape(
                     selected = active,
-                    idleDp = 16.dp,
-                    selectedDp = 28.dp
+                    rung = MarbleSelectionRung.CONTROL
                 )
                 val bg by animateColorAsState(
                     targetValue = if (active) colors.primaryContainer else colors.surfaceContainerLow,
@@ -1175,7 +1146,7 @@ fun SmartPresetStrip(
                             repo.updateSettings(preset.apply(repo.settings))
                             repo.setRuntimeMessage(appliedLabel)
                         }
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                        .padding(horizontal = MarbleSpace.INNER.dp, vertical = MarbleSpace.INNER.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally)
                 ) {
@@ -1183,7 +1154,7 @@ fun SmartPresetStrip(
                         modifier = Modifier
                             .size(26.dp)
                             .clip(marbleExpressiveShape(motif))
-                            .background(if (active) colors.primary else badgeTint.copy(alpha = 0.16f)),
+                            .background(if (active) colors.primary else badgeTint.copy(alpha = MarbleWash.TINT)),
                         contentAlignment = Alignment.Center
                     ) {
                         MarbleGlyphIcon(
@@ -1233,7 +1204,12 @@ fun SmartPresetSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(marbleSelectionMorphShape(selected = selected, idleDp = 20.dp, selectedDp = 28.dp))
+                    .clip(
+                        marbleSelectionMorphShape(
+                            selected = selected,
+                            rung = MarbleSelectionRung.CONTROL
+                        )
+                    )
                     .background(
                         if (selected) {
                             colors.primaryContainer
@@ -1246,18 +1222,18 @@ fun SmartPresetSheet(
                         repo.setRuntimeMessage(appliedLabel)
                         onDismiss()
                     }
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(MarbleSpace.LG.dp),
+                verticalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(marbleExpressiveShape(motif))
-                            .background((if (selected) colors.primary else colors.secondary).copy(alpha = 0.18f)),
+                            .background((if (selected) colors.primary else colors.secondary).copy(alpha = MarbleWash.TINT)),
                         contentAlignment = Alignment.Center
                     ) {
                         MarbleGlyphIcon(
@@ -1284,7 +1260,7 @@ fun SmartPresetSheet(
                 }
                 Text(
                     text = trx(preset.body),
-                    color = if (selected) colors.onPrimaryContainer.copy(alpha = 0.8f) else colors.onSurfaceVariant,
+                    color = if (selected) colors.onPrimaryContainer.copy(alpha = MarbleVeil.NEAR) else colors.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
             }

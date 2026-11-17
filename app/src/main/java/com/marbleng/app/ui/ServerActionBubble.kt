@@ -14,6 +14,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.model.ServerMenuAction
 
 /**
@@ -29,7 +31,7 @@ import com.marbleng.app.model.ServerMenuAction
  *  - **anchored** — it opens at the button that asked for it, tail to tail, so the eye never
  *    travels;
  *  - **tonal** — `surfaceContainerHigh` with elevation, clipped to a 20dp squircle, no hairline;
- *  - **dense** — `PaddingValues(vertical = 4.dp)` of content padding and one line per verb, so six
+ *  - **dense** — `PaddingValues(vertical = MarbleSpace.XS.dp)` of content padding and one line per verb, so six
  *    rows are shorter than three of the sheet's;
  *  - **unadorned** — no leading glyphs. Six icons at this size are six pieces of decoration between
  *    the reader and the word they already know; the word carries the row.
@@ -54,7 +56,8 @@ internal fun ServerActionBubble(
         expanded = expanded,
         onDismissRequest = onDismiss,
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
+            // MARBLE_ONE_LANGUAGE_V281 — the bubble's corner is the tile rung, named rather than typed.
+            .clip(RoundedCornerShape(MarbleRadius.TILE.dp))
             .testTag("server-action-bubble"),
         containerColor = colors.surfaceContainerHigh
     ) {
@@ -82,7 +85,7 @@ internal fun ServerActionBubble(
                 // shorter than three of the sheet's nine.
                 modifier = Modifier
                     .heightIn(min = 40.dp)
-                    .padding(horizontal = 4.dp)
+                    .padding(horizontal = MarbleSpace.XS.dp)
                     .testTag("server-action-${action.id}")
             )
         }

@@ -23,9 +23,13 @@ import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
 import com.marbleng.app.core.CouncilReport
 import com.marbleng.app.core.NetworkCouncil
-import kotlin.math.roundToInt
+import com.marbleng.app.ui.theme.MarbleSpace
+import com.marbleng.app.ui.theme.MarbleTone
+import com.marbleng.app.ui.theme.marbleToneOfScore
 import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.toneColor
 import com.marbleng.app.ui.theme.warning
+import kotlin.math.roundToInt
 
 /**
  * MARBLE_NETWORK_COUNCIL_V236 — the page the twelve specialists report to.
@@ -54,18 +58,18 @@ fun SettingsNetworkCouncilPage(
         onBack = onBack
     ) {
         item(key = "council-hero") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("Run the check"),
                     badge = if (plan != null) plan.metrics.grade else "",
                     badgeColor = plan?.let { gradeColor(it.metrics.score) }
                 )
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
                         ) {
                             MarbleRowIcon(
                                 glyph = MarbleGlyph.RADAR,
@@ -75,7 +79,7 @@ fun SettingsNetworkCouncilPage(
                             )
                             Column(
                                 modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)
                             ) {
                                 Text(
                                     text = trx("Twelve checks, one plan"),
@@ -99,7 +103,7 @@ fun SettingsNetworkCouncilPage(
                         }
 
                         if (running) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                                 // MARBLE_EXPRESSIVE_WAVE_V272 — the scan's progress, one wave
                                 // that fills exactly this frame: not less than it, not more.
                                 MarbleWaveProgressIndicator(
@@ -131,7 +135,7 @@ fun SettingsNetworkCouncilPage(
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
                         ) {
                             MarbleButton(
                                 label = if (running) {
@@ -181,7 +185,7 @@ fun SettingsNetworkCouncilPage(
         }
 
         item(key = "council-seats") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("The twelve checks"),
                     badge = if (plan == null) "" else faDigits("${plan.findings.size}"),
@@ -215,7 +219,7 @@ fun SettingsNetworkCouncilPage(
         if (evidence != null) {
             item(key = "council-filter-lab") {
                 val lab = evidence.filter
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                     MarbleSectionHeader(
                         title = trx("Filtering lab"),
                         badge = trx(lab.verdict.label),
@@ -274,7 +278,7 @@ fun SettingsNetworkCouncilPage(
 
         if (plan != null) {
             item(key = "council-changes") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                     MarbleSectionHeader(
                         title = trx("What it would change"),
                         badge = faDigits("${plan.changes.size}"),
@@ -296,8 +300,8 @@ fun SettingsNetworkCouncilPage(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                                        .padding(horizontal = MarbleSpace.LG.dp, vertical = MarbleSpace.MD.dp),
+                                    verticalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -324,7 +328,7 @@ fun SettingsNetworkCouncilPage(
                                         color = colors.onSurfaceVariant,
                                         style = MaterialTheme.typography.bodySmall
                                     )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)) {
                                         MarbleBadge(
                                             text = trx(change.seat.label),
                                             color = severityColor(repo.councilVerdict(change.seat))
@@ -362,7 +366,7 @@ fun SettingsNetworkCouncilPage(
 
         if (evidence != null && plan != null) {
             item(key = "council-measurements") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                     MarbleSectionHeader(title = trx("What we measured"))
                     MarbleCard {
                         CouncilMetricRow(
@@ -493,7 +497,7 @@ fun SettingsNetworkCouncilPage(
 
         if (plan != null) {
             item(key = "council-rationale") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                     MarbleSectionHeader(title = trx("Why each one voted"))
                     MarbleCard {
                         plan.findings.forEachIndexed { index, finding ->
@@ -501,8 +505,8 @@ fun SettingsNetworkCouncilPage(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                                    .padding(horizontal = MarbleSpace.LG.dp, vertical = MarbleSpace.INNER.dp),
+                                verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -542,7 +546,7 @@ fun SettingsNetworkCouncilPage(
 
         if (report != null && !report.applied) {
             item(key = "council-last-report") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                     MarbleSectionHeader(title = trx("Last saved result"))
                     MarbleCard {
                         CouncilMetricRow(
@@ -557,7 +561,7 @@ fun SettingsNetworkCouncilPage(
         }
 
         item(key = "council-notes") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleCard {
                     MarbleSwitchRow(
                         title = trx("Apply what the check suggests, without asking"),
@@ -599,30 +603,16 @@ private fun CouncilMetricRow(
     value: String,
     tone: Color = MaterialTheme.colorScheme.onSurface
 ) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = trx(label),
-            color = colors.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.weight(1f)
-        )
-        Text(
-            text = value,
-            color = tone,
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Medium
-            ),
-            maxLines = 2
-        )
-    }
+    // MARBLE_ONE_LANGUAGE_V281 — this row and the IP page's copyable fact row were two drawings of
+    // one idea, 16/10 dp apart here and 16/12 dp apart there, with two different value voices. The
+    // shared [MarbleMetricRow] owns the geometry and the type pairing now; the council keeps the
+    // monospaced value, because its numbers are compared line by line.
+    MarbleMetricRow(
+        label = trx(label),
+        value = value,
+        tone = tone,
+        monospaceValue = true
+    )
 }
 
 @Composable
@@ -648,21 +638,22 @@ private fun linkLine(
     return trx("Wi-Fi, mobile data and the operator behind them")
 }
 
-@Composable
-private fun severityColor(severity: NetworkCouncil.CouncilSeverity): Color = when (severity) {
-    NetworkCouncil.CouncilSeverity.GOOD -> MaterialTheme.colorScheme.success
-    NetworkCouncil.CouncilSeverity.NOTICE -> MaterialTheme.colorScheme.primary
-    NetworkCouncil.CouncilSeverity.WARNING -> MaterialTheme.colorScheme.warning
-    NetworkCouncil.CouncilSeverity.CRITICAL -> MaterialTheme.colorScheme.error
+// MARBLE_ONE_LANGUAGE_V281 — the council names its verdicts; one resolver colours them. The score
+// ladder is the product's ladder (`marbleToneOfScore`), so a gauge anywhere else grades the same way.
+internal fun severityTone(severity: NetworkCouncil.CouncilSeverity): MarbleTone = when (severity) {
+    NetworkCouncil.CouncilSeverity.GOOD -> MarbleTone.GOOD
+    NetworkCouncil.CouncilSeverity.NOTICE -> MarbleTone.BRAND
+    NetworkCouncil.CouncilSeverity.WARNING -> MarbleTone.FAIR
+    NetworkCouncil.CouncilSeverity.CRITICAL -> MarbleTone.POOR
 }
 
 @Composable
-private fun gradeColor(score: Int): Color = when {
-    score >= 85 -> MaterialTheme.colorScheme.success
-    score >= 70 -> MaterialTheme.colorScheme.tertiary
-    score >= 55 -> MaterialTheme.colorScheme.warning
-    else -> MaterialTheme.colorScheme.error
-}
+private fun severityColor(severity: NetworkCouncil.CouncilSeverity): Color =
+    MaterialTheme.colorScheme.toneColor(severityTone(severity))
+
+@Composable
+private fun gradeColor(score: Int): Color =
+    MaterialTheme.colorScheme.toneColor(marbleToneOfScore(score))
 
 @Composable
 private fun severityLabel(severity: NetworkCouncil.CouncilSeverity): String = when (severity) {
@@ -709,17 +700,17 @@ private fun kbps(value: Int): String = when {
  * to speak first: "filtered" is red, "partial" is amber, "clean" is green, and "not measured"
  * stays the page's own ink because an unmeasured lab has nothing to shout about.
  */
-@Composable
-private fun filterVerdictColor(verdict: NetworkCouncil.FilterVerdict): Color {
-    val colors = MaterialTheme.colorScheme
-    return when (verdict) {
-        NetworkCouncil.FilterVerdict.FILTERED -> colors.error
-        NetworkCouncil.FilterVerdict.UNREACHABLE -> colors.error
-        NetworkCouncil.FilterVerdict.SUSPECT -> colors.warning
-        NetworkCouncil.FilterVerdict.CLEAN -> colors.success
-        NetworkCouncil.FilterVerdict.UNMEASURED -> colors.onSurfaceVariant
-    }
+internal fun filterVerdictTone(verdict: NetworkCouncil.FilterVerdict): MarbleTone = when (verdict) {
+    NetworkCouncil.FilterVerdict.FILTERED -> MarbleTone.POOR
+    NetworkCouncil.FilterVerdict.UNREACHABLE -> MarbleTone.POOR
+    NetworkCouncil.FilterVerdict.SUSPECT -> MarbleTone.FAIR
+    NetworkCouncil.FilterVerdict.CLEAN -> MarbleTone.GOOD
+    NetworkCouncil.FilterVerdict.UNMEASURED -> MarbleTone.UNKNOWN
 }
+
+@Composable
+private fun filterVerdictColor(verdict: NetworkCouncil.FilterVerdict): Color =
+    MaterialTheme.colorScheme.toneColor(filterVerdictTone(verdict))
 
 /** One TLS row: the outcome in words, the deadline it took, and the name the filter would read. */
 private fun tlsProbeValue(probe: NetworkCouncil.TlsProbe): String {
@@ -728,17 +719,17 @@ private fun tlsProbeValue(probe: NetworkCouncil.TlsProbe): String {
     return probe.outcome.label + latency + certificate
 }
 
-@Composable
-private fun tlsProbeTone(probe: NetworkCouncil.TlsProbe): Color {
-    val colors = MaterialTheme.colorScheme
-    return when {
-        probe.reachable && probe.certificateOk -> colors.success
-        probe.reachable -> colors.warning
-        probe.outcome == NetworkCouncil.TlsOutcome.RESET -> colors.error
-        probe.outcome == NetworkCouncil.TlsOutcome.TIMEOUT -> colors.warning
-        else -> colors.onSurfaceVariant
-    }
+internal fun tlsProbeVerdict(probe: NetworkCouncil.TlsProbe): MarbleTone = when {
+    probe.reachable && probe.certificateOk -> MarbleTone.GOOD
+    probe.reachable -> MarbleTone.FAIR
+    probe.outcome == NetworkCouncil.TlsOutcome.RESET -> MarbleTone.POOR
+    probe.outcome == NetworkCouncil.TlsOutcome.TIMEOUT -> MarbleTone.FAIR
+    else -> MarbleTone.UNKNOWN
 }
+
+@Composable
+private fun tlsProbeTone(probe: NetworkCouncil.TlsProbe): Color =
+    MaterialTheme.colorScheme.toneColor(tlsProbeVerdict(probe))
 
 /** One name row: the verdict, then the two answers that produced it. */
 private fun dnsCheckValue(check: NetworkCouncil.DnsNameCheck): String {

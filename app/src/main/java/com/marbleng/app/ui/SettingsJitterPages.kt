@@ -24,6 +24,7 @@ import com.marbleng.app.jitter.JitterAutoTuner
 import com.marbleng.app.jitter.SmartJitterController
 import com.marbleng.app.model.JitterSmartMode
 import com.marbleng.app.model.SmartJitterDefaultsKeys
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
 
@@ -51,14 +52,14 @@ fun SettingsSmartJitterPage(
         onBack = onBack
     ) {
         item(key = "live") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("How the route feels right now"))
                 MarbleCard {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .padding(MarbleSpace.TILE.dp),
+                        verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                     ) {
                         val stateLabel = when {
                             mode == JitterSmartMode.OFF -> trx("Module is off")
@@ -116,11 +117,11 @@ fun SettingsSmartJitterPage(
         }
 
         item(key = "switch-log") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("What changed lately"))
                 MarbleCard {
                     if (live.switchLog.isEmpty()) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(MarbleSpace.TILE.dp)) {
                             Text(
                                 text = trx("No switches yet — the current route is holding"),
                                 style = MaterialTheme.typography.bodySmall,
@@ -133,7 +134,7 @@ fun SettingsSmartJitterPage(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                                    .padding(horizontal = MarbleSpace.TILE.dp, vertical = MarbleSpace.INNER.dp)
                             ) {
                                 Text(
                                     text = "${entry.fromName.ifBlank { "—" }} → ${entry.toName}",
@@ -153,7 +154,7 @@ fun SettingsSmartJitterPage(
         }
 
         item(key = "mode") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("How hard it should try"))
                 MarbleCard {
                     val modes = listOf(
@@ -192,14 +193,14 @@ fun SettingsSmartJitterPage(
         }
 
         item(key = "probe") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("How often it checks"))
                 MarbleCard {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                            .padding(horizontal = MarbleSpace.TILE.dp, vertical = MarbleSpace.INNER.dp),
+                        verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
                     ) {
                         MarbleTextField(
                             label = trx("Probe endpoint (host)"),
@@ -251,7 +252,7 @@ fun SettingsSmartJitterPage(
         }
 
         item(key = "rails") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("When it may switch"))
                 MarbleCard {
                     MarbleNumberStepperRow(
@@ -286,7 +287,7 @@ fun SettingsSmartJitterPage(
         }
 
         item(key = "tuner") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Packet size tuner"))
                 MarbleCard {
                     MarbleSwitchRow(
@@ -306,8 +307,8 @@ fun SettingsSmartJitterPage(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                .padding(MarbleSpace.TILE.dp),
+                            verticalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
                         ) {
                             Text(
                                 text = if (s.jitterTunerMtu in JitterAutoTuner.MTU_MIN..JitterAutoTuner.MTU_MAX) {
@@ -334,18 +335,18 @@ fun SettingsSmartJitterPage(
 
 @Composable
 private fun LiveStat(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
+    // MARBLE_ONE_LANGUAGE_V281 — the live readout's four numbers used to be a fourth private
+    // drawing of "a label and a value": `titleMedium` + Bold here, `titleMediumEmphasized` in
+    // Subscriptions, `labelMedium` + tabular on Servers. One tile now, centred and value-first
+    // because a gauge reads its number first, and flush because the card under it is the ground.
+    MarbleStatTile(
+        label = label,
+        value = value,
+        centered = true,
+        valueFirst = true,
+        emphasized = true,
+        flush = true
+    )
 }
 
 /** The two-minute series as one calm bar chart — Canvas only, no chart dependency. */

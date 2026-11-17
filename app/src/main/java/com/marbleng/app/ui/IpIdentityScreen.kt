@@ -68,21 +68,27 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marbleng.app.AppRepository
+import com.marbleng.app.model.ConnectControl
 import com.marbleng.app.model.IpAddressBook
-import com.marbleng.app.model.IpTileCopy
-import com.marbleng.app.model.IpEgress
 import com.marbleng.app.model.IpKind
 import com.marbleng.app.model.IpScope
 import com.marbleng.app.model.IpStackReport
+import com.marbleng.app.model.IpTileCopy
 import com.marbleng.app.model.dockSlotDefaultCaption
 import com.marbleng.app.model.parseDockSlotKind
+import com.marbleng.app.ui.theme.MarbleElevation
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleWash
 import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.panSpec
 import com.marbleng.app.ui.theme.settleSpec
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.successContainer
+import com.marbleng.app.ui.theme.toneColor
 import com.marbleng.app.ui.theme.warning
 
 /**
@@ -146,10 +152,10 @@ fun IpIdentityScreen(
         contentPadding = PaddingValues(
             start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
             end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-            top = 8.dp,
+            top = MarbleSpace.SM.dp,
             bottom = MarbleTheme.bottomClearance
         ),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)
     ) {
         item(key = "ip-header") {
             MarbleLargeHeader(
@@ -293,11 +299,17 @@ private fun IpPassportHero(
     val exit = report.exit
     val literal = exit?.address.orEmpty()
     val scope = if (literal.isNotBlank()) IpAddressBook.scopeOf(literal) else IpScope.OTHER
-    val tone = when {
-        connecting -> colors.warning
-        connected && report.tunnelActive -> colors.success
-        else -> colors.primary
-    }
+    // MARBLE_ONE_LANGUAGE_V281 — the headline asks the shared verdict for its colour, so a
+    // protected route is the same green here as it is on the pill, the hero and the dock dot.
+    val tone = colors.toneColor(
+        connectPhaseTone(
+            ConnectControl.phaseOf(
+                connected = connected && report.tunnelActive,
+                connecting = connecting,
+                disconnecting = false
+            )
+        )
+    )
     val label = when {
         connecting -> trx("Moving the route")
         connected && report.tunnelActive -> trx("Address the internet sees")
@@ -325,21 +337,21 @@ private fun IpPassportHero(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(36.dp))
+            .clip(RoundedCornerShape(MarbleRadius.HERO.dp))
             .background(colors.surfaceContainerLow)
             .background(
                 Brush.linearGradient(
                     listOf(
-                        tone.copy(alpha = 0.24f),
-                        colors.surfaceContainerLow.copy(alpha = 0.02f),
-                        colors.tertiary.copy(alpha = 0.14f)
+                        tone.copy(alpha = MarbleWash.STRONG),
+                        colors.surfaceContainerLow.copy(alpha = MarbleWash.CLEAR),
+                        colors.tertiary.copy(alpha = MarbleWash.TINT)
                     )
                 )
             )
             .border(
                 width = 1.dp,
-                color = tone.copy(alpha = 0.22f),
-                shape = RoundedCornerShape(36.dp)
+                color = tone.copy(alpha = MarbleWash.STRONG),
+                shape = RoundedCornerShape(MarbleRadius.HERO.dp)
             )
             // MARBLE_SETTINGS_CORNER_V261 (the duplicate-control sweep) — this surface used to be
             // clickable-to-copy *and* carry a Copy button under it: the same verb, twice, one of
@@ -347,7 +359,7 @@ private fun IpPassportHero(
             // copy. A tap on a passport that silently copied an address also contradicted the
             // page's other rule, that a surface which looks like a card is not a button.
             .testTag("ip-exit-hero")
-            .padding(20.dp)
+            .padding(MarbleSpace.XL.dp)
     ) {
         // MARBLE_IP_EXPRESSIVE_V258 — the passport's watermark: a Material 3 Expressive polygon
         // turning slowly behind the facts, tinted by the live state. It is drawn in the draw phase
@@ -355,7 +367,7 @@ private fun IpPassportHero(
         MarbleMorphingMark(
             motif = MarbleExpressiveMotif.CLOVER,
             targetMotif = MarbleExpressiveMotif.FLOWER,
-            color = tone.copy(alpha = 0.10f),
+            color = tone.copy(alpha = MarbleWash.SOFT),
             progress = { if (motion.loops) (stillness - 0.94f) * 2.2f else 0.4f },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -367,11 +379,11 @@ private fun IpPassportHero(
                 }
         )
 
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
             // The passport face: the flag large, the place under it, the state pill beside it.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.LG.dp)
             ) {
                 IpCountryFlagPanel(
                     countryCode = exit?.countryCode.orEmpty(),
@@ -380,11 +392,11 @@ private fun IpPassportHero(
                 )
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                     ) {
                         Text(
                             text = if (place.isBlank()) trx("Not measured") else place,
@@ -458,8 +470,8 @@ private fun IpPassportHero(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(top = MarbleSpace.HAIR.dp),
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
             ) {
                 // MARBLE_SETTINGS_CORNER_V261 — one refresh control per page. This row used to
                 // hold a second "Refresh" beside the Copy verb, and the header's own refresh
@@ -489,7 +501,7 @@ private fun IpPassportHero(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .size(96.dp)
-                    .padding(8.dp)
+                    .padding(MarbleSpace.SM.dp)
             ) {
                 drawCircle(
                     color = tone.copy(alpha = 0.12f * (stillness - 0.9f) * 10f),
@@ -516,12 +528,12 @@ private fun IpCountryFlagPanel(
     val supported = CountryFlagSupported(countryCode)
     Box(
         modifier = modifier
-            .shadow(6.dp, RoundedCornerShape(22.dp))
-            .clip(RoundedCornerShape(22.dp))
+            .shadow(MarbleElevation.SOFT_DP.dp, RoundedCornerShape(MarbleRadius.CARD.dp))
+            .clip(RoundedCornerShape(MarbleRadius.CARD.dp))
             .background(
                 Brush.linearGradient(
                     listOf(
-                        shadowTone.copy(alpha = 0.16f),
+                        shadowTone.copy(alpha = MarbleWash.TINT),
                         colors.surfaceContainerHighest
                     )
                 )
@@ -535,7 +547,7 @@ private fun IpCountryFlagPanel(
         } else {
             MarbleGlyphIcon(
                 glyph = MarbleGlyph.GLOBE,
-                color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                color = colors.onSurfaceVariant.copy(alpha = MarbleVeil.QUIET),
                 modifier = Modifier.size(34.dp)
             )
         }
@@ -609,7 +621,7 @@ private fun IpInternetCard(
 
     if (rows.isEmpty()) return
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
         MarbleSectionHeader(
             title = trx("Where the internet sees you"),
             badge = exit?.countryCode?.takeIf { it.isNotBlank() }?.uppercase().orEmpty(),
@@ -618,13 +630,13 @@ private fun IpInternetCard(
         // MARBLE_IP_TILES_V256 — a two-column grid of key/value tiles. Each row of the grid shares
         // `IntrinsicSize.Min` so a long value (a DNS pair, a time zone) does not leave its
         // neighbour a different height: the grid stays a grid.
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
             rows.chunked(2).forEach { pair ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(IntrinsicSize.Min),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                 ) {
                     pair.forEach { (label, value, visual) ->
                         IpFactTile(
@@ -679,10 +691,10 @@ private fun IpIdentityFactsBadge(
         modifier = Modifier
             .clip(RoundedCornerShape(percent = 50))
             .background(colors.surfaceContainerHighest)
-            .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)
+            .padding(start = MarbleSpace.XS.dp, end = MarbleSpace.MD.dp, top = MarbleSpace.XS.dp, bottom = MarbleSpace.XS.dp)
             .testTag("ip-identity-badge"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
     ) {
         if (countryCode.isNotBlank()) {
             CountryFlagCircle(code = countryCode, size = 22.dp)
@@ -691,7 +703,7 @@ private fun IpIdentityFactsBadge(
                 modifier = Modifier
                     .size(22.dp)
                     .clip(RoundedCornerShape(percent = 50))
-                    .background(tone.copy(alpha = 0.16f)),
+                    .background(tone.copy(alpha = MarbleWash.TINT)),
                 contentAlignment = Alignment.Center
             ) {
                 MarbleGlyphIcon(
@@ -718,8 +730,8 @@ private fun IpIdentityFactsBadge(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(percent = 50))
-                .background(routeTone.copy(alpha = 0.18f))
-                .padding(horizontal = 8.dp, vertical = 2.dp),
+                .background(routeTone.copy(alpha = MarbleWash.TINT))
+                .padding(horizontal = MarbleSpace.SM.dp, vertical = MarbleSpace.HAIR.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -763,15 +775,15 @@ private fun IpFactTile(
 
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(MarbleRadius.TILE.dp))
             .background(colors.surfaceContainerLow)
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(horizontal = MarbleSpace.TILE.dp, vertical = MarbleSpace.MD.dp)
             .testTag("ip-fact-tile"),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
         ) {
             MarbleGlyphIcon(
                 glyph = glyph,
@@ -842,9 +854,9 @@ private fun IpFactRow(
                 haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                 onCopy(value)
             }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = MarbleSpace.LG.dp, vertical = MarbleSpace.MD.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)
     ) {
         MarbleRowIcon(glyph = glyph, tint = tint, size = 36.dp, glyphSize = 18.dp)
         Column(modifier = Modifier.weight(1f)) {
@@ -864,7 +876,7 @@ private fun IpFactRow(
         }
         MarbleGlyphIcon(
             glyph = MarbleGlyph.COPY,
-            color = colors.onSurfaceVariant.copy(alpha = 0.55f),
+            color = colors.onSurfaceVariant.copy(alpha = MarbleVeil.FADED),
             modifier = Modifier.size(15.dp)
         )
     }
@@ -902,15 +914,15 @@ private fun IpPrivacyCard(
         !exit.address.equals(direct.address, ignoreCase = true)
     val tone = if (hidden) colors.success else colors.warning
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
         MarbleSectionHeader(title = trx("What this means"))
         MarbleCard {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = MarbleSpace.LG.dp, vertical = MarbleSpace.TILE.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)
             ) {
                 MarbleRowIcon(
                     glyph = if (hidden) MarbleGlyph.SHIELD else MarbleGlyph.EYE,
@@ -965,35 +977,35 @@ private fun IpPrivacyCard(
 @Composable
 private fun IpSkeletons() {
     val colors = MaterialTheme.colorScheme
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(210.dp)
-                .clip(RoundedCornerShape(32.dp))
+                .clip(RoundedCornerShape(MarbleRadius.GROUP.dp))
                 .background(colors.surfaceContainerLow)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(20.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    .padding(MarbleSpace.XL.dp),
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.LG.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
                         .size(width = 116.dp, height = 78.dp)
-                        .clip(RoundedCornerShape(22.dp))
+                        .clip(RoundedCornerShape(MarbleRadius.TILE.dp))
                         .background(colors.surfaceContainerHighest)
                 )
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                     IpSkeletonLine(widthFraction = 0.7f, height = 16)
                     IpSkeletonLine(widthFraction = 0.4f, height = 12)
                 }
             }
         }
-        MarbleCard(contentPadding = PaddingValues(16.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)) {
                 IpSkeletonLine(widthFraction = 1f, height = 52)
                 IpSkeletonLine(widthFraction = 1f, height = 52)
                 IpSkeletonLine(widthFraction = 1f, height = 52)
@@ -1004,29 +1016,14 @@ private fun IpSkeletons() {
 
 @Composable
 private fun IpSkeletonLine(widthFraction: Float, height: Int) {
-    val colors = MaterialTheme.colorScheme
-    val motion = marbleMotion()
-    val breath by rememberInfiniteTransition(label = "ipSkeleton").animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1_200),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
-        ),
-        label = "ipSkeletonAlpha"
-    )
-    Box(
-        modifier = Modifier
-            .fillMaxWidth(widthFraction)
-            .height(height.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                if (motion.loops) {
-                    colors.onSurface.copy(alpha = breath * 0.16f)
-                } else {
-                    colors.onSurface.copy(alpha = 0.10f)
-                }
-            )
+    // MARBLE_ONE_LANGUAGE_V281 — this placeholder breathed at 1200 ms between 0.35 and 0.70 while
+    // the Servers ping pill breathed at 900 ms between 0.24 and 0.62: two speeds for one meaning,
+    // on two tabs a reader moves between. The shared skeleton owns the rhythm, the corner and the
+    // wash, and it holds still for calm motion and for the platform's own "remove animations".
+    MarbleSkeleton(
+        widthFraction = widthFraction,
+        height = height.dp,
+        label = "ipSkeleton"
     )
 }
 
@@ -1067,7 +1064,7 @@ private fun IpStackStrip(
         modifier = Modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
     ) {
         IpStackTile(
             label = "IPv4",
@@ -1132,7 +1129,7 @@ private fun IpStackTile(
             // MARBLE_READABLE_SURFACES_V263 — a polygon is a badge, never a reading container.
             .clip(MarbleReadingShape)
             .background(colors.surfaceContainerLow)
-            .background(tint.copy(alpha = 0.10f))
+            .background(tint.copy(alpha = MarbleWash.SOFT))
             .then(
                 if (copyable) {
                     Modifier.clickable(role = Role.Button) {
@@ -1144,18 +1141,18 @@ private fun IpStackTile(
                 }
             )
             .testTag("ip-stack-tile")
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(MarbleSpace.MD.dp),
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
         ) {
             Box(
                 modifier = Modifier
                     .size(26.dp)
                     .clip(marbleExpressiveShape(motif))
-                    .background(tint.copy(alpha = 0.18f)),
+                    .background(tint.copy(alpha = MarbleWash.TINT)),
                 contentAlignment = Alignment.Center
             ) {
                 MarbleGlyphIcon(
@@ -1190,7 +1187,7 @@ private fun IpStackTile(
         } else if (copyable && motion.loops) {
             Text(
                 text = trx("Tap to copy"),
-                color = colors.onSurfaceVariant.copy(alpha = 0.8f),
+                color = colors.onSurfaceVariant.copy(alpha = MarbleVeil.NEAR),
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1
             )

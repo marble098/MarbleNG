@@ -58,11 +58,15 @@ import com.marbleng.app.model.HeroMetric
 import com.marbleng.app.model.HeroMetricKind
 import com.marbleng.app.model.HeroTone
 import com.marbleng.app.model.HomeHeroSnapshot
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSpace
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleWash
 import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
 import com.marbleng.app.ui.theme.marbleMotion
-import com.marbleng.app.ui.theme.onSuccessContainer
-import com.marbleng.app.ui.theme.success
-import com.marbleng.app.ui.theme.successContainer
+import com.marbleng.app.ui.theme.onToneContainer
+import com.marbleng.app.ui.theme.toneColor
+import com.marbleng.app.ui.theme.toneContainer
 import com.marbleng.app.ui.theme.warning
 
 /**
@@ -106,28 +110,24 @@ internal fun MarbleHeroPanel(
         resolvedPhase == ConnectPhase.DISCONNECTING
     val working = transitioning || snapshot.working
 
+    // MARBLE_ONE_LANGUAGE_V281 — three tables (stage, stage ink, state light) all answered the
+    // same question, and the middle one answered it differently: an in-flight dial was tertiary
+    // here and warning on the connect pill beside it. One verdict now drives all three, so the hero
+    // and the pill are the same colour for the same state. `working` can still be true while the
+    // phase reads IDLE (a snapshot mid-flight), and that is the one case the phase is corrected for.
+    val heroPhase = if (working && resolvedPhase == ConnectPhase.IDLE) {
+        ConnectPhase.CONNECTING
+    } else {
+        resolvedPhase
+    }
+    val heroVerdict = connectPhaseTone(heroPhase)
     val stageColor by animateColorAsState(
-        targetValue = when {
-            blocked -> colors.errorContainer
-            connected -> colors.successContainer
-            working -> colors.tertiaryContainer
-            else -> colors.primaryContainer
-        },
+        targetValue = colors.toneContainer(heroVerdict),
         animationSpec = marbleDefaultSpatialSpec(),
         label = "heroPanelStage"
     )
-    val onStage = when {
-        blocked -> colors.onErrorContainer
-        connected -> colors.onSuccessContainer
-        working -> colors.onTertiaryContainer
-        else -> colors.onPrimaryContainer
-    }
-    val stateLight = when {
-        blocked -> colors.error
-        connected -> colors.success
-        working -> colors.tertiary
-        else -> colors.primary
-    }
+    val onStage = colors.onToneContainer(heroVerdict)
+    val stateLight = colors.toneColor(heroVerdict)
     val morph by animateFloatAsState(
         targetValue = when {
             connected -> 1f
@@ -186,7 +186,7 @@ internal fun MarbleHeroPanel(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        onStage.copy(alpha = 0.06f),
+                        onStage.copy(alpha = MarbleWash.FAINT),
                         Color.Transparent
                     ),
                     center = Offset(size.width * 0.10f, size.height * 0.94f),
@@ -211,14 +211,14 @@ internal fun MarbleHeroPanel(
         )
 
         Column(
-            modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.padding(start = MarbleSpace.XL.dp, end = MarbleSpace.XL.dp, top = MarbleSpace.LG.dp, bottom = MarbleSpace.LG.dp),
+            verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
         ) {
             // ── Header: morphing phase emblem + overline/context + headline + logs capsule ────
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
             ) {
                 Box(
                     modifier = Modifier.size(50.dp),
@@ -241,7 +241,7 @@ internal fun MarbleHeroPanel(
                         modifier = Modifier
                             .size(44.dp)
                             .clip(emblemShape)
-                            .background(onStage.copy(alpha = 0.14f)),
+                            .background(onStage.copy(alpha = MarbleWash.TINT)),
                         contentAlignment = Alignment.Center
                     ) {
                         if (transitioning) {
@@ -263,11 +263,11 @@ internal fun MarbleHeroPanel(
 
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                    verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
                     ) {
                         Box(
                             modifier = Modifier
@@ -277,7 +277,7 @@ internal fun MarbleHeroPanel(
                         )
                         Text(
                             text = snapshot.overline,
-                            color = onStage.copy(alpha = 0.78f),
+                            color = onStage.copy(alpha = MarbleVeil.QUIET),
                             style = MaterialTheme.typography.labelMedium.copy(
                                 fontWeight = FontWeight.SemiBold
                             ),
@@ -291,12 +291,12 @@ internal fun MarbleHeroPanel(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(percent = 50))
-                                    .background(onStage.copy(alpha = 0.11f))
-                                    .padding(horizontal = 7.dp, vertical = 2.dp)
+                                    .background(onStage.copy(alpha = MarbleWash.SOFT))
+                                    .padding(horizontal = MarbleSpace.SM.dp, vertical = MarbleSpace.HAIR.dp)
                             ) {
                                 Text(
                                     text = contextBadge,
-                                    color = onStage.copy(alpha = 0.86f),
+                                    color = onStage.copy(alpha = MarbleVeil.NEAR),
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         fontWeight = FontWeight.SemiBold
                                     ),
@@ -365,18 +365,21 @@ internal fun HeroMetricGrid(
         modifier = modifier
             .fillMaxWidth()
             .testTag("home-hero-metrics"),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
     ) {
         metrics.chunked(2).forEachIndexed { rowIndex, row ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(IntrinsicSize.Min),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
             ) {
                 row.forEachIndexed { colIndex, metric ->
-                    val outer = 22.dp
-                    val inner = 10.dp
+                    // MARBLE_ONE_LANGUAGE_V281 — the quadrant's one open corner and its three
+                    // anchor corners both come from the shape ladder now (22/10 dp matched no rung),
+                    // so the metric grid reads as the same family as the asymmetric containers.
+                    val outer = MarbleRadius.CARD.dp
+                    val inner = MarbleRadius.SM.dp
                     val cellShape = when {
                         rowIndex == 0 && colIndex == 0 -> RoundedCornerShape(
                             topStart = outer, topEnd = inner, bottomStart = inner, bottomEnd = inner
@@ -419,14 +422,15 @@ private fun HeroMetricCell(
 ) {
     val colors = MaterialTheme.colorScheme
     val tone = metric.tone
-    val accent = when (tone) {
-        HeroTone.GOOD -> colors.success
-        HeroTone.FAIR -> colors.warning
-        HeroTone.POOR -> colors.error
-        HeroTone.WORKING -> onStage
-        HeroTone.LIVE -> onStage
-        HeroTone.PENDING, HeroTone.IDLE -> onStage.copy(alpha = 0.55f)
-    }
+    // MARBLE_ONE_LANGUAGE_V281 — the cell's three verdicts come from the shared tone table; the
+    // three non-verdicts (being measured, live, nothing to measure) stay in the stage's own ink,
+    // quieted when there is no value yet.
+    val accent = heroTone(tone)?.let { colors.toneColor(it) }
+        ?: if (tone == HeroTone.PENDING || tone == HeroTone.IDLE) {
+            onStage.copy(alpha = MarbleVeil.FADED)
+        } else {
+            onStage
+        }
     val motif = when (metric.kind) {
         HeroMetricKind.PING -> MarbleExpressiveMotif.SUNNY
         HeroMetricKind.JITTER -> MarbleExpressiveMotif.FAN
@@ -445,22 +449,22 @@ private fun HeroMetricCell(
     Column(
         modifier = modifier
             .clip(shape)
-            .background(colors.surface.copy(alpha = 0.36f))
-            .background(onStage.copy(alpha = 0.08f))
+            .background(colors.surface.copy(alpha = MarbleVeil.GHOST))
+            .background(onStage.copy(alpha = MarbleWash.FAINT))
             .clickable(role = Role.Button, onClick = onClick)
             .testTag("home-hero-metric-${metric.kind.id}")
-            .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+            .padding(start = MarbleSpace.MD.dp, end = MarbleSpace.MD.dp, top = MarbleSpace.INNER.dp, bottom = MarbleSpace.INNER.dp),
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
         ) {
             Box(
                 modifier = Modifier
                     .size(12.dp)
                     .clip(marbleExpressiveShape(motif))
-                    .background(accent.copy(alpha = 0.24f)),
+                    .background(accent.copy(alpha = MarbleWash.STRONG)),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -472,7 +476,7 @@ private fun HeroMetricCell(
             }
             Text(
                 text = label,
-                color = onStage.copy(alpha = 0.74f),
+                color = onStage.copy(alpha = MarbleVeil.QUIET),
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -491,14 +495,14 @@ private fun HeroMetricCell(
         ) {
             if (metric.isWorking) {
                 MarbleWaveRing(
-                    modifier = Modifier.padding(top = 4.dp),
+                    modifier = Modifier.padding(top = MarbleSpace.XS.dp),
                     size = 20.dp,
                     color = onStage
                 )
             } else {
                 Row(
                     verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
                 ) {
                     Text(
                         text = if (numeric) faDigits(metric.value) else metric.value,
@@ -520,9 +524,9 @@ private fun HeroMetricCell(
                     if (metric.unit.isNotBlank()) {
                         Text(
                             text = metric.unit,
-                            color = onStage.copy(alpha = 0.68f),
+                            color = onStage.copy(alpha = MarbleVeil.QUIET),
                             style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(bottom = 3.dp)
+                            modifier = Modifier.padding(bottom = MarbleSpace.XS.dp)
                         )
                     }
                 }
@@ -542,14 +546,14 @@ private fun HeroRouteStrip(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(colors.surface.copy(alpha = 0.42f))
-            .background(onStage.copy(alpha = 0.08f))
+            .clip(RoundedCornerShape(MarbleRadius.TILE.dp))
+            .background(colors.surface.copy(alpha = MarbleVeil.GHOST))
+            .background(onStage.copy(alpha = MarbleWash.FAINT))
             .clickable(role = Role.Button, onClick = onClick)
             .testTag("home-hero-route")
-            .padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 9.dp),
+            .padding(start = MarbleSpace.INNER.dp, end = MarbleSpace.INNER.dp, top = MarbleSpace.INNER.dp, bottom = MarbleSpace.INNER.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
     ) {
         MarbleServerAvatar(
             profile = null,
@@ -558,7 +562,7 @@ private fun HeroRouteStrip(
         )
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(1.dp)
+            verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)
         ) {
             Text(
                 text = snapshot.routeName,
@@ -569,7 +573,7 @@ private fun HeroRouteStrip(
             )
             Text(
                 text = snapshot.routeDetail,
-                color = onStage.copy(alpha = 0.74f),
+                color = onStage.copy(alpha = MarbleVeil.QUIET),
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -579,10 +583,10 @@ private fun HeroRouteStrip(
             modifier = Modifier
                 .size(30.dp)
                 .clip(RoundedCornerShape(percent = 50))
-                .background(onStage.copy(alpha = 0.12f)),
+                .background(onStage.copy(alpha = MarbleWash.SOFT)),
             contentAlignment = Alignment.Center
         ) {
-            MarbleChevron(size = 14.dp, tint = onStage.copy(alpha = 0.85f))
+            MarbleChevron(size = 14.dp, tint = onStage.copy(alpha = MarbleVeil.NEAR))
         }
     }
 }
@@ -597,23 +601,30 @@ private fun HeroLogsCapsule(
 ) {
     val colors = MaterialTheme.colorScheme
     val label = trx("Logs")
-    val dotColor = when {
-        connected -> colors.success
-        working -> colors.warning
-        else -> onStage.copy(alpha = 0.52f)
+    // MARBLE_ONE_LANGUAGE_V281 — the capsule's dot reads the same verdict as the pill; only
+    // "nothing is happening" keeps the stage's own quieted ink, because that is not a verdict.
+    val dotPhase = when {
+        connected -> ConnectPhase.CONNECTED
+        working -> ConnectPhase.CONNECTING
+        else -> ConnectPhase.IDLE
+    }
+    val dotColor = if (dotPhase == ConnectPhase.IDLE) {
+        onStage.copy(alpha = MarbleVeil.FADED)
+    } else {
+        colors.toneColor(connectPhaseTone(dotPhase))
     }
     Row(
         modifier = Modifier
             .heightIn(min = 38.dp)
             .clip(RoundedCornerShape(percent = 50))
-            .background(colors.surface.copy(alpha = 0.36f))
-            .background(onStage.copy(alpha = 0.10f))
+            .background(colors.surface.copy(alpha = MarbleVeil.GHOST))
+            .background(onStage.copy(alpha = MarbleWash.SOFT))
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label }
             .testTag("home-hero-logs")
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+            .padding(horizontal = MarbleSpace.MD.dp, vertical = MarbleSpace.SM.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
     ) {
         Box(
             modifier = Modifier

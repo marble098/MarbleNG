@@ -35,6 +35,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.HomeSection
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleSpace
+import com.marbleng.app.ui.theme.MarbleWash
+import com.marbleng.app.ui.theme.MarbleRadius
 import com.marbleng.app.ui.theme.marbleMotion
 
 /**
@@ -86,7 +90,7 @@ internal fun MarbleWarmupRow(
         modifier = modifier
             .fillMaxWidth()
             .testTag("home-warmup"),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
     ) {
         MarbleWarmupAction(
             title = trx("Paste a link"),
@@ -142,14 +146,14 @@ private fun MarbleWarmupAction(
                 indication = androidx.compose.foundation.LocalIndication.current,
                 onClick = onClick
             )
-            .padding(horizontal = 12.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(horizontal = MarbleSpace.MD.dp, vertical = MarbleSpace.TILE.dp),
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
     ) {
         Box(
             modifier = Modifier
                 .size(32.dp)
                 .clip(marbleExpressiveShape(motif))
-                .background(tint.copy(alpha = 0.18f)),
+                .background(tint.copy(alpha = MarbleWash.TINT)),
             contentAlignment = Alignment.Center
         ) {
             MarbleGlyphIcon(
@@ -190,7 +194,7 @@ internal fun MarbleHomeSectionPreview(
         modifier = modifier
             .fillMaxWidth()
             .testTag("home-section-preview"),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
     ) {
         order.forEach { section ->
             val visible = !com.marbleng.app.model.HomeStudio.isHidden(
@@ -209,9 +213,9 @@ internal fun MarbleHomeSectionPreview(
                         }
                     )
                     .heightIn(min = 30.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(MarbleRadius.XS.dp))
                     .background(
-                        if (visible) colors.primary.copy(alpha = 0.85f)
+                        if (visible) colors.primary.copy(alpha = MarbleVeil.NEAR)
                         else colors.surfaceContainerHighest
                     )
             )
