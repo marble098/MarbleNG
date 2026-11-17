@@ -186,7 +186,7 @@ class ExpressiveStudioV252Test {
                             onClick = {},
                             tag = "hub-appearance"
                         )
-                        MarbleExpressiveIconButton(
+                        MarbleIconButton(
                             glyph = MarbleGlyph.PLUS,
                             motif = MarbleExpressiveMotif.CLOVER,
                             prominent = true,

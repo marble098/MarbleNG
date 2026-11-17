@@ -29,9 +29,10 @@ import com.marbleng.app.model.ProbeMethod
 import com.marbleng.app.model.autoServerScopeEnum
 import com.marbleng.app.model.autoServerStrategyEnum
 import com.marbleng.app.model.parseHomePingAction
-import kotlin.math.roundToInt
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
+import kotlin.math.roundToInt
 
 @Composable
 fun SettingsPingTestingPage(
@@ -50,7 +51,7 @@ fun SettingsPingTestingPage(
         onBack = onBack
     ) {
         item(key = "probe-methods") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("How a server is measured"))
                 MarbleCard {
                     val details = mapOf(
@@ -81,7 +82,7 @@ fun SettingsPingTestingPage(
         }
 
         item(key = "probe-url-and-budgets") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 MarbleSectionHeader(title = trx("Test endpoint and budget"))
                 MarbleChipStrip {
                     listOf(
@@ -96,7 +97,7 @@ fun SettingsPingTestingPage(
                         )
                     }
                 }
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
                     MarbleTextField(
                         label = trx("Delay Test URL"),
                         value = s.delayTestUrl,
@@ -153,8 +154,8 @@ fun SettingsPingTestingPage(
                 }
 
                 if (s.pingSpeedCustom) {
-                    MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -171,7 +172,8 @@ fun SettingsPingTestingPage(
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                                 )
                             }
-                            Slider(
+                            // MARBLE_ONE_LANGUAGE_V281 — the shared slider.
+                            MarbleSlider(
                                 value = PingSpeed.percent(s.pingSpeedPercent).toFloat(),
                                 onValueChange = { v ->
                                     repo.updateSettings(
@@ -179,12 +181,7 @@ fun SettingsPingTestingPage(
                                         coalesceWrite = true
                                     )
                                 },
-                                valueRange = PingSpeed.MIN_PERCENT.toFloat()..PingSpeed.MAX_PERCENT.toFloat(),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = colors.primary,
-                                    activeTrackColor = colors.primary,
-                                    inactiveTrackColor = colors.outlineVariant
-                                )
+                                valueRange = PingSpeed.MIN_PERCENT.toFloat()..PingSpeed.MAX_PERCENT.toFloat()
                             )
                         }
                     }
@@ -193,7 +190,7 @@ fun SettingsPingTestingPage(
         }
 
         item(key = "home-ping-action") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("What the Home ping button does"))
                 MarbleCard {
                     listOf(
@@ -243,7 +240,7 @@ fun SettingsAutoSelectorPage(
         onBack = onBack
     ) {
         item(key = "auto-toggle-strategy") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("How it picks"))
                 MarbleCard {
                     MarbleSwitchRow(
@@ -271,7 +268,7 @@ fun SettingsAutoSelectorPage(
 
         if (strategy == AutoServerStrategy.CUSTOM) {
             item(key = "auto-custom-weights") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                     MarbleSectionHeader(title = trx("What the pick weighs"))
                     MarbleCard {
                         MarbleNumberStepperRow(
@@ -319,7 +316,7 @@ fun SettingsAutoSelectorPage(
         }
 
         item(key = "auto-triggers") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("When it switches"))
                 MarbleSegmentedControl(
                     options = listOf(
@@ -369,7 +366,7 @@ fun SettingsAutoSelectorPage(
         }
 
         item(key = "auto-preview") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 MarbleSectionHeader(title = trx("What it would pick now"))
                 MarbleCard {
                     MarbleListItem(
@@ -426,7 +423,7 @@ fun SettingsIdentityLocationPage(
         onBack = onBack
     ) {
         item(key = "identity-guard") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 // MARBLE_ONE_RESET_V261 (the duplicate-control sweep) — the heading that named this
                 // card was the card's own first row, word for word: "Identity Guard" above
                 // "Identity Guard" above a switch. A section header earns its line by naming
@@ -456,7 +453,7 @@ fun SettingsIdentityLocationPage(
         }
 
         item(key = "location-intel") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("What the app knows about each server"))
                 MarbleCard {
                     MarbleSwitchRow(

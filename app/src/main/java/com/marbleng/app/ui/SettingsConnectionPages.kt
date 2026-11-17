@@ -20,9 +20,10 @@ import com.marbleng.app.model.SingBoxMuxProtocols
 import com.marbleng.app.model.XrayDomainStrategies
 import com.marbleng.app.model.XrayMuxUdp443Modes
 import com.marbleng.app.model.parsePowerProfile
-import androidx.compose.material3.MaterialTheme
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.success
 import com.marbleng.app.ui.theme.warning
+import androidx.compose.material3.MaterialTheme
 
 @Composable
 fun SettingsConnectionModePage(
@@ -44,7 +45,7 @@ fun SettingsConnectionModePage(
         onBack = onBack
     ) {
         item(key = "conn-mode") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Connection Mode"))
                 MarbleCard {
                     MarbleChoiceRow(
@@ -69,7 +70,7 @@ fun SettingsConnectionModePage(
         }
 
         item(key = "conn-ports") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Local ports and repair"))
                 MarbleCard {
                     MarbleNumberStepperRow(
@@ -123,7 +124,7 @@ fun SettingsCoreEnginePage(
         onBack = onBack
     ) {
         item(key = "core-selector") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Select Core Engine"))
                 MarbleCard {
                     CoreEngine.entries.forEachIndexed { idx, candidate ->
@@ -147,7 +148,7 @@ fun SettingsCoreEnginePage(
         }
 
         item(key = "core-sniff-inbound") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Inbound & Sniffing"))
                 MarbleCard {
                     MarbleSwitchRow(
@@ -209,7 +210,7 @@ fun SettingsCoreEnginePage(
         }
 
         item(key = "core-mux-tcp") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Multiplexing & Transport"))
                 MarbleCard {
                     MarbleSwitchRow(
@@ -297,7 +298,7 @@ fun SettingsCoreEnginePage(
             }
             val currentLevel = if (isXray) s.xrayLogLevel else s.singBoxLogLevel
 
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
                 MarbleSectionHeader(title = trx("Log Level & Extra JSON"))
                 MarbleChipStrip {
                     levels.forEach { lvl ->
@@ -351,7 +352,7 @@ fun SettingsCoreEnginePage(
                     }
                 }
 
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
                     MarbleTextField(
                         label = trx("Extra Core JSON (Advanced)"),
                         value = if (isXray) s.xrayExtraJson else s.singBoxExtraJson,
@@ -389,7 +390,7 @@ fun SettingsTunnelDatapathPage(
         onBack = onBack
     ) {
         item(key = "tunnel-choice") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Which tunnel driver carries the traffic"))
                 MarbleCard {
                     TunnelCore.entries.forEachIndexed { idx, candidate ->
@@ -420,7 +421,7 @@ fun SettingsTunnelDatapathPage(
 
         if (current == TunnelCore.TUN2SOCKS) {
             item(key = "tun2socks-options") {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                     MarbleSectionHeader(title = "tun2socks · " + trx("buffer and timeout"))
                     MarbleCard {
                         MarbleNumberStepperRow(
@@ -520,7 +521,7 @@ fun SettingsPowerProfilePage(
         onBack = onBack
     ) {
         item(key = "power-profiles") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("How much power the app may spend"))
                 MarbleCard {
                     val descriptions = mapOf(
@@ -550,7 +551,7 @@ fun SettingsPowerProfilePage(
         }
 
         item(key = "power-warmup") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Faster first connection"))
                 MarbleCard {
                     MarbleSwitchRow(

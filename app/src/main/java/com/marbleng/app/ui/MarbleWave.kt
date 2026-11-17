@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.marbleng.app.ui.theme.MarbleWash
 import kotlin.math.roundToInt
 
 /**
@@ -253,7 +254,7 @@ internal fun MarbleWaveRail(
     progress: Float,
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
-    trackColor: Color = color.copy(alpha = 0.16f),
+    trackColor: Color = color.copy(alpha = MarbleWash.TINT),
     height: Dp = 4.dp,
     tag: String = ""
 ) {

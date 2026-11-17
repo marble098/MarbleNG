@@ -17,16 +17,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.marbleng.app.core.PingReadout
 import com.marbleng.app.core.ServersQuery
 import com.marbleng.app.model.BenchmarkResult
+import com.marbleng.app.model.ConnectPhase
 import com.marbleng.app.model.DockSlotAccent
 import com.marbleng.app.model.DockSlotIcon
+import com.marbleng.app.model.HeroTone
 import com.marbleng.app.model.ProbeState
 import com.marbleng.app.model.ProxyProfile
-import com.marbleng.app.ui.theme.MarbleRowIconShape
+import com.marbleng.app.model.ServerHealth
 import com.marbleng.app.ui.theme.MarbleSpec
-import com.marbleng.app.ui.theme.success
-import com.marbleng.app.ui.theme.warning
+import com.marbleng.app.ui.theme.MarbleTone
+import com.marbleng.app.ui.theme.MarbleWash
+import com.marbleng.app.ui.theme.toneColor
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -123,34 +127,100 @@ fun relativeTimeLabel(timestampMs: Long, nowMs: Long = System.currentTimeMillis(
 fun protocolShortLabel(profile: ProxyProfile): String =
     ServersQuery.badge(profile).ifBlank { profile.scheme.uppercase(Locale.US).ifBlank { "PROXY" } }
 
-@Composable
-fun protocolRowColor(scheme: String): Color {
-    val colors = MaterialTheme.colorScheme
-    return when (scheme.trim().lowercase(Locale.US)) {
-        "vless" -> colors.primary
-        "vmess" -> colors.secondary
-        "trojan" -> colors.secondary
-        "ss", "shadowsocks" -> colors.tertiary
-        "hy2", "hysteria2", "hysteria" -> colors.warning
-        "wireguard", "wg" -> colors.success
-        "ssh" -> colors.secondary
-        "socks", "socks5", "http", "https" -> colors.tertiary
-        else -> colors.primary
-    }
+// MARBLE_ONE_LANGUAGE_V281 — one tone scale, and the pages only name meanings.
+//
+// These three functions used to be three of the eleven private tables in the UI that each decided
+// which colour role means good, which means warning and which means "nothing measured yet". They
+// disagreed: a dead route was a faded neutral on Servers and a red on the council page, and
+// "untested" was `onSurfaceVariant` here, `outline` in the shell and `primary` in the badge. The
+// tables below now map a domain fact to a [MarbleTone] — a pure function a JVM test can assert — and
+// one resolver in `theme/MarbleTokens.kt` turns every tone in the product into a colour role, so a
+// theme or a palette change moves all of them together and no page can invent its own verdict red.
+
+/** The tone of a server's last known health. Pure: the resolver lives in the token file. */
+fun healthTone(health: ServerHealth): MarbleTone = when (health) {
+    ServerHealth.GOOD -> MarbleTone.GOOD
+    ServerHealth.SLOW -> MarbleTone.FAIR
+    // A dead route in a library nobody has dialled yet is a fact, not an alarm: the calm tone the
+    // Servers page has always used, now named instead of hand-mixed.
+    ServerHealth.DEAD -> MarbleTone.LOST
+    ServerHealth.UNTESTED -> MarbleTone.STRUCTURAL
+}
+
+/** The tone of a ping reading; an unmeasured route inherits the health it already has. */
+fun pingTone(readout: PingReadout, health: ServerHealth): MarbleTone = when (readout) {
+    PingReadout.FAST -> MarbleTone.GOOD
+    PingReadout.OK -> MarbleTone.FAIR
+    PingReadout.SLOW -> MarbleTone.POOR
+    // No reply is not a weak reply: it is the calm "lost" tone, never the loud one.
+    PingReadout.TIMEOUT -> MarbleTone.LOST
+    PingReadout.UNKNOWN -> healthTone(health)
+}
+
+/** The tone of a protocol's identity — a category, not a verdict. */
+fun protocolTone(scheme: String): MarbleTone = when (scheme.trim().lowercase(Locale.US)) {
+    "vless" -> MarbleTone.BRAND
+    "vmess", "trojan", "ssh" -> MarbleTone.SUPPORT
+    "ss", "shadowsocks", "socks", "socks5", "http", "https" -> MarbleTone.ACCENT
+    "hy2", "hysteria2", "hysteria" -> MarbleTone.FAIR
+    "wireguard", "wg" -> MarbleTone.GOOD
+    else -> MarbleTone.BRAND
+}
+
+/** The tone of one stored benchmark: measuring, unmeasured, or a latency verdict. */
+fun pingBadgeTone(result: BenchmarkResult?, probeState: ProbeState): MarbleTone = when {
+    probeState == ProbeState.TESTING || probeState == ProbeState.QUEUED -> MarbleTone.BRAND
+    result == null -> MarbleTone.UNKNOWN
+    result.success <= 0 || result.latencyMs <= 0.0 -> MarbleTone.POOR
+    result.latencyMs < 180.0 -> MarbleTone.GOOD
+    result.latencyMs < 420.0 -> MarbleTone.FAIR
+    else -> MarbleTone.POOR
+}
+
+/**
+ * The tone of the connection itself.
+ *
+ * MARBLE_ONE_LANGUAGE_V281 — "what does the tunnel look like right now" was answered in five places
+ * with five tables: the connect pill, the hero's stage, the hero's state light, the hero's log
+ * capsule and the IP page's headline each mapped connected / working / blocked to a colour, and
+ * they did not agree (the pill said warning while the hero said tertiary for the same in-flight
+ * dial). The state table already lives in [ConnectControl] and is already tested there, so all the
+ * UI keeps is this one step from a phase to a tone; every surface then asks the scheme for the
+ * colour, the container and the ink.
+ */
+fun connectPhaseTone(phase: ConnectPhase): MarbleTone = when (phase) {
+    ConnectPhase.CONNECTED -> MarbleTone.GOOD
+    ConnectPhase.CONNECTING, ConnectPhase.DISCONNECTING -> MarbleTone.FAIR
+    ConnectPhase.BLOCKED -> MarbleTone.POOR
+    ConnectPhase.IDLE -> MarbleTone.BRAND
+}
+
+/**
+ * The tone of a hero metric's verdict, or `null` when the metric is not a verdict at all — a hero
+ * cell that is live, working or still pending speaks in the stage's own ink, not in the status ramp.
+ */
+fun heroTone(tone: HeroTone): MarbleTone? = when (tone) {
+    HeroTone.GOOD -> MarbleTone.GOOD
+    HeroTone.FAIR -> MarbleTone.FAIR
+    HeroTone.POOR -> MarbleTone.POOR
+    HeroTone.WORKING, HeroTone.LIVE, HeroTone.PENDING, HeroTone.IDLE -> null
+}
+
+/** The tone of a dock slot's chosen accent. */
+fun dockSlotTone(accent: DockSlotAccent): MarbleTone = when (accent) {
+    DockSlotAccent.OCEAN -> MarbleTone.BRAND
+    DockSlotAccent.MINT -> MarbleTone.GOOD
+    DockSlotAccent.VIOLET -> MarbleTone.SUPPORT
+    DockSlotAccent.AMBER -> MarbleTone.FAIR
 }
 
 @Composable
-fun pingBadgeColor(result: BenchmarkResult?, probeState: ProbeState): Color {
-    val colors = MaterialTheme.colorScheme
-    return when {
-        probeState == ProbeState.TESTING || probeState == ProbeState.QUEUED -> colors.primary
-        result == null -> colors.onSurfaceVariant
-        result.success <= 0 || result.latencyMs <= 0.0 -> colors.error
-        result.latencyMs < 180.0 -> colors.success
-        result.latencyMs < 420.0 -> colors.warning
-        else -> colors.error
-    }
-}
+fun protocolRowColor(scheme: String): Color =
+    MaterialTheme.colorScheme.toneColor(protocolTone(scheme))
+
+@Composable
+fun pingBadgeColor(result: BenchmarkResult?, probeState: ProbeState): Color =
+    MaterialTheme.colorScheme.toneColor(pingBadgeTone(result, probeState))
 
 @Composable
 fun pingBadgeText(result: BenchmarkResult?, probeState: ProbeState): String {
@@ -172,15 +242,8 @@ internal fun dockSlotMarbleGlyph(icon: DockSlotIcon): MarbleGlyph = when (icon) 
 }
 
 @Composable
-fun dockSlotColor(accent: DockSlotAccent): Color {
-    val colors = MaterialTheme.colorScheme
-    return when (accent) {
-        DockSlotAccent.OCEAN -> colors.primary
-        DockSlotAccent.MINT -> colors.success
-        DockSlotAccent.VIOLET -> colors.secondary
-        DockSlotAccent.AMBER -> colors.warning
-    }
-}
+fun dockSlotColor(accent: DockSlotAccent): Color =
+    MaterialTheme.colorScheme.toneColor(dockSlotTone(accent))
 
 /**
  * Expressive server avatar: a crisp vector country flag framed inside a soft Material 3 Expressive
@@ -214,7 +277,7 @@ fun MarbleServerAvatar(
             modifier = modifier
                 .size(size)
                 .clip(marbleExpressiveShape(motif))
-                .background(tint.copy(alpha = 0.16f)),
+                .background(tint.copy(alpha = MarbleWash.TINT)),
             contentAlignment = Alignment.Center
         ) {
             MarbleGlyphIcon(

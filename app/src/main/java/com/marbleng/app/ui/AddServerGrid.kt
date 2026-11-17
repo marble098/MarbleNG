@@ -28,8 +28,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.AddServerAction
-import com.marbleng.app.model.IntakeKind
 import com.marbleng.app.model.IntakeClassifier
+import com.marbleng.app.model.IntakeKind
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSpace
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleWash
 import com.marbleng.app.ui.theme.warning
 
 /**
@@ -57,12 +61,12 @@ internal fun MarbleAddServerGrid(
     val cells = IntakeClassifier.gridOrder
     Column(
         modifier = modifier.fillMaxWidth().testTag("add-server-grid"),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
     ) {
         cells.chunked(2).forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
             ) {
                 row.forEach { action ->
                     MarbleAddServerCell(
@@ -121,7 +125,10 @@ private fun MarbleAddServerCell(
     // The clickable overload, not a `clickable` on the inner column: a card whose only tap target is
     // its content is a card with dead corners, and `fillMaxSize()` inside a `heightIn` card asks for
     // the whole screen's height — two rows of that push the second row off the window.
-    Card(
+    // MARBLE_ONE_LANGUAGE_V281 — the four intake cells are the kit's card now: one corner (the
+    // control rung, because a cell you tap is a control), one elevation answer and one colour slot.
+    // The detected cell still lights up in the brand container, because that is meaning, not chrome.
+    MarbleCard(
         onClick = {
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
@@ -129,24 +136,22 @@ private fun MarbleAddServerCell(
         modifier = modifier
             .heightIn(min = 112.dp)
             .testTag("add-server-cell-${action.id}"),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (detected) colors.primaryContainer else colors.surfaceContainerHigh,
-            contentColor = if (detected) colors.onPrimaryContainer else colors.onSurface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        shape = RoundedCornerShape(MarbleRadius.CONTROL.dp),
+        containerColor = if (detected) colors.primaryContainer else colors.surfaceContainerHigh,
+        contentColor = if (detected) colors.onPrimaryContainer else colors.onSurface,
+        elevated = false
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(MarbleSpace.TILE.dp),
+            verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
         ) {
             Box(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(marbleExpressiveShape(motif))
-                    .background(tint.copy(alpha = 0.18f)),
+                    .background(tint.copy(alpha = MarbleWash.TINT)),
                 contentAlignment = Alignment.Center
             ) {
                 MarbleGlyphIcon(
@@ -166,7 +171,7 @@ private fun MarbleAddServerCell(
             Text(
                 text = trx(hint),
                 color = if (detected) {
-                    colors.onPrimaryContainer.copy(alpha = 0.78f)
+                    colors.onPrimaryContainer.copy(alpha = MarbleVeil.QUIET)
                 } else {
                     colors.onSurfaceVariant
                 },
@@ -202,10 +207,10 @@ internal fun MarbleClipboardNotePill(
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 onClick()
             }
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = MarbleSpace.TILE.dp, vertical = MarbleSpace.SM.dp)
             .testTag("add-server-clipboard-note"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
     ) {
         MarbleGlyphIcon(
             glyph = MarbleGlyph.SPARK,

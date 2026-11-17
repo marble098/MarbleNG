@@ -4112,7 +4112,9 @@ check(
 
 check(
     "V241 surfaces carry tone, not outlines, and rows are separated by air",
-    "border = borderColor?.let { BorderStroke(1.dp, it) }" in files["marbleComponents"]
+    # MARBLE_ONE_LANGUAGE_V281 — the kit card resolves its border once and hands the same
+    # BorderStroke to both overloads, so the pin reads the resolution, not the argument slot.
+    "borderColor?.let { BorderStroke(1.dp, it) }" in files["marbleComponents"]
     and "BorderStroke(1.dp, borderColor ?: colors.outlineVariant)" not in files["marbleComponents"]
     and "height(MarbleSpec.ROW_GAP_DP.dp)" in files["marbleComponents"]
     and "HorizontalDivider(" not in files["marbleComponents"]
@@ -5285,7 +5287,12 @@ check(
     and "Morph(marbleExpressivePolygon(" in v252_surfaces
     and "fun marbleAsymmetricShape(" in v252_surfaces
     and "fun marbleSelectionMorphShape(" in v252_surfaces
-    and "fun MarbleExpressiveIconButton(" in v252_surfaces
+    # MARBLE_ONE_LANGUAGE_V281 — the second icon button is retired: the kit's MarbleIconButton is
+    # now the expressive one (a polygon at rest, a circle under the thumb), so the surfaces file
+    # keeps the morph the button is built from and no longer declares a competing button.
+    and "fun marbleMorphingShape(" in v252_surfaces
+    and "MarbleExpressiveIconButton(" not in v252_surfaces
+    and "fun MarbleIconButton(" in files["marbleComponents"]
     # MARBLE_EXPRESSIVE_WAVE_V273 — the morphing `LoadingIndicator` is retired from these two
     # surfaces: every loader in the product is the Material 3 Expressive wave now, inscribed in the
     # exact box the spinner used to fill.
@@ -5470,9 +5477,10 @@ check(
     and "fun subscriptionUrl(text: String?): String?" in v256_intake
     and "Subscription detected in clipboard: Tap to import" in v256_intake
     and "internal fun MarbleAddServerGrid(" in v256_grid
-    # `filledCardColors` belongs to the newest card API; this M3 line only has `cardColors`.
-    and "CardDefaults.cardColors(" in v256_grid
-    and "RoundedCornerShape(16.dp)" in v256_grid
+    # MARBLE_ONE_LANGUAGE_V281 — the cells are the kit's card now, at the control corner: one
+    # card component in the product, and a cell you tap is a control.
+    and "MarbleCard(" in v256_grid
+    and "shape = RoundedCornerShape(MarbleRadius.CONTROL.dp)" in v256_grid
     and "MarbleAddServerGrid(" in files["serverForms"]
     and "MarbleClipboardNotePill(" in files["serverForms"]
     and "MarbleSegmentedControl(" not in files["serverForms"]
@@ -5485,7 +5493,8 @@ check(
     "enum class ServerMenuAction" in v256_intake
     and "DELETE(\"delete\", \"Delete\", destructive = true)" in v256_intake
     and "internal fun ServerActionBubble(" in v256_bubble
-    and "RoundedCornerShape(20.dp)" in v256_bubble
+    # MARBLE_ONE_LANGUAGE_V281 — same corner, named from the shape ladder instead of typed.
+    and "RoundedCornerShape(MarbleRadius.TILE.dp)" in v256_bubble
     and "surfaceContainerHigh" in v256_bubble
     and "ServerActionBubble(" in files["serversScreen"]
     and "ServerQuickActionsSheet" not in files["serversScreen"]
@@ -6933,6 +6942,139 @@ check(
     and "V279: `docs/HARMONY_AND_SHADE_V279.md`" in files["readme"]
     and "class ConnectPulseV279Test" in v279_model_test
     and "expandedTunnelOffersThemedActionsOnlyWhenRouteDeckIsAbsent" in v279_notif_test,
+)
+
+# ---------------------------------------------------------------------------------------------
+# MARBLE_ONE_LANGUAGE_V281 — one design language: the scales, the tone table, one component per
+# role, and a gate that runs the conformance tool over this very tree before declaring the pass
+# internally consistent.
+# ---------------------------------------------------------------------------------------------
+v281_tokens = read("app/src/main/java/com/marbleng/app/ui/theme/MarbleTokens.kt")
+v281_surfaces = read("app/src/main/java/com/marbleng/app/ui/MarbleExpressiveSurfaces.kt")
+v281_grid = read("app/src/main/java/com/marbleng/app/ui/AddServerGrid.kt")
+v281_gate = read("tools/design-system-conformance.py")
+v281_doc = read("docs/ONE_LANGUAGE_V281.md")
+v281_test = read("app/src/test/java/com/marbleng/app/ui/OneLanguageV281Test.kt")
+v281_verify = workflow("verify.yml")
+
+check(
+    "V281 every screen is drawn from one scale: shape, space, alpha, elevation",
+    all(
+        f"object {name}" in v281_tokens
+        for name in (
+            "MarbleSpace", "MarbleRadius", "MarbleWash", "MarbleVeil", "MarbleElevation",
+            "MarbleGrid", "MarbleMeasure", "MarbleStatSpec", "MarbleLevelSpec",
+            "MarbleSkeletonSpec",
+        )
+    )
+    and "enum class MarbleSelectionRung" in v281_tokens
+    and "enum class MarbleTone" in v281_tokens
+    and "val SCALE: List<Int>" in v281_tokens
+    and "val LADDER: List<Int>" in v281_tokens
+    and "val SCALE: List<Float>" in v281_tokens
+    # One rounding rule for every scale, and it resolves a tie upwards.
+    and "private fun nearestRung(scale: List<Int>, value: Int)" in v281_tokens
+    and "private fun nearestRung(scale: List<Float>, value: Float)" in v281_tokens
+    and "fun snapUp(value: Int)" in v281_tokens
+    and "const val TOUCH_MIN_DP: Int = 48" in v281_tokens,
+)
+
+check(
+    "V281 one verdict table decides every colour the product prints",
+    all(
+        f"fun {name}(" in v281_tokens
+        for name in (
+            "marbleToneColor", "marbleOnToneColor", "marbleToneContainer",
+            "marbleOnToneContainer", "marbleToneOfScore", "marbleToneOfFraction",
+        )
+    )
+    and "fun ColorScheme.toneColor(" in v281_tokens
+    and "fun ColorScheme.onToneColor(" in v281_tokens
+    and "fun ColorScheme.toneContainer(" in v281_tokens
+    and "fun connectPhaseTone(phase: ConnectPhase)" in files["uiFormatters"]
+    and "fun heroTone(tone: HeroTone)" in files["uiFormatters"]
+    # The pill, the hero stage, the hero state light, the log capsule, the IP headline and the
+    # dock dot read the same table; precedence stays in the model, where V264 already tested it.
+    and all(
+        "connectPhaseTone(" in files[key]
+        for key in ("shellUi", "homeHeroUi", "ipIdentityScreen", "marbleApp")
+    )
+    and "working -> colors.tertiaryContainer" not in files["homeHeroUi"]
+    and "connectPhaseTone(" not in files["models"],
+)
+
+check(
+    "V281 one component per role and every retired duplicate delegates to the kit",
+    all(
+        f"fun {name}(" in files["marbleComponents"]
+        for name in (
+            "MarbleStatTile", "MarbleMetricRow", "MarbleSkeleton", "MarbleLevelBars",
+            "MarbleSlider", "MarbleSwitch", "MarbleAlertDialog", "MarbleCard",
+            "MarbleBottomSheet", "MarbleIconButton",
+        )
+    )
+    # The second icon button is gone; the morph it was built from stays with the polygon family.
+    and "fun MarbleExpressiveIconButton(" not in v281_surfaces
+    and "fun marbleMorphingShape(" in v281_surfaces
+    and "MarbleStatTile(" in files["jitterSettingsPage"]
+    and "MarbleStatTile(" in files["settingsSystem"]
+    and "MarbleStatTile(" in files["serversScreen"]
+    and "MarbleMetricRow(" in files["councilPage"]
+    and "MarbleLevelBars(" in files["serversScreen"]
+    and "MarbleSkeleton(" in files["ipIdentityScreen"]
+    and "MarbleSkeleton(" in files["serversScreen"]
+    and "MarbleAlertDialog(" in files["permissions"]
+    and "MarbleBottomSheet(" in files["shellUi"]
+    and "MarbleCard(" in v281_grid
+    and "MarbleSlider(" in files["settingsAppearance"]
+    and "MarbleSwitch(" in files["settingsAppearance"]
+    # One sweep control, in the sheet that owns filtering, with a header the lexicon translates.
+    and files["serversScreen"].count('trx("Measure every server")') == 1
+    and "Test every server" not in files["serversScreen"]
+    and 'trx("Ping controls")' in files["serversScreen"]
+    and '"Ping controls" to' in read(
+        "app/src/main/java/com/marbleng/app/ui/MarblePersianLexicon.kt"
+    )
+    # The rail and the dock read one identity instead of two copies of the same tables.
+    and files["marbleApp"].count("fun accentFor(tab: MarbleRootTab)") == 1
+    and "rememberMarbleChromeIdentity(" in files["marbleApp"],
+)
+
+# The gate is not a document: it runs here, over this tree, before the pass calls itself consistent.
+_v281_spec = importlib.util.spec_from_file_location(
+    "design_system_conformance", ROOT / "tools" / "design-system-conformance.py"
+)
+v281_conformance = importlib.util.module_from_spec(_v281_spec)
+_v281_spec.loader.exec_module(v281_conformance)
+_v281_violations: list = []
+_v281_ladders = v281_conformance.check_scales(_v281_violations)
+v281_conformance.check_shape(_v281_ladders, _v281_violations)
+v281_conformance.check_space(_v281_ladders, _v281_violations)
+v281_conformance.check_alpha(_v281_ladders, _v281_violations)
+v281_conformance.check_kit_ownership(_v281_violations)
+v281_conformance.check_delegations(_v281_violations)
+v281_conformance.check_kit_is_single(_v281_violations)
+v281_conformance.check_tone_layer(_v281_violations)
+for _v281_item in _v281_violations:
+    print(f"[design-system-conformance] {_v281_item}")
+
+check(
+    "V281 the design-system conformance gate passes on this tree and runs in CI",
+    not _v281_violations
+    and _code_mentions(v281_verify, "python3 tools/design-system-conformance.py")
+    and "def check_kit_ownership(" in v281_gate
+    and "def check_tone_layer(" in v281_gate,
+)
+
+check(
+    "V281 the one-language chapter, README crown and regression test are recorded",
+    "MARBLE_ONE_LANGUAGE_V281" in files["marbleComponents"]
+    and "MARBLE_ONE_LANGUAGE_V281" in v281_doc
+    and "V281: `docs/ONE_LANGUAGE_V281.md`" in files["readme"]
+    and "class OneLanguageV281Test" in v281_test
+    and "everyToneResolvesToExactlyOneColourRole" in v281_test
+    and "theConnectionVerdictIsOneTableEverywhere" in v281_test
+    and "noRawMaterialControlSurvivesOutsideItsOwner" in v281_test,
 )
 
 failed = [name for name, passed in checks if not passed]

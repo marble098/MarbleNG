@@ -586,6 +586,9 @@ jobs:
           set -euo pipefail
           python3 tools/kotlin-structure-check.py
           python3 tools/compose-scope-check.py
+          # MARBLE_ONE_LANGUAGE_V281 — the shape, space, alpha, kit and tone scales are one language
+          # now, and this is the gate that keeps the next screen from inventing a fifth corner.
+          python3 tools/design-system-conformance.py
           python3 - <<'PY'
           from pathlib import Path
 

@@ -37,9 +37,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.model.PlanStatus
 import com.marbleng.app.model.Subscription
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSpace
+import com.marbleng.app.ui.theme.MarbleTone
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleWash
 import com.marbleng.app.ui.theme.marbleDefaultSpatialSpec
 import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.toneColor
 import com.marbleng.app.ui.theme.warning
 
 /**
@@ -103,22 +109,22 @@ internal fun MarblePlanPlate(
         modifier = modifier
             .fillMaxWidth()
             .testTag("server-plan-plate")
-            .clip(RoundedCornerShape(18.dp))
-            .background(colors.surface.copy(alpha = 0.56f))
-            .background(tones.plum.container.copy(alpha = 0.62f))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
+            .clip(RoundedCornerShape(MarbleRadius.TILE.dp))
+            .background(colors.surface.copy(alpha = MarbleVeil.FADED))
+            .background(tones.plum.container.copy(alpha = MarbleVeil.FADED))
+            .padding(horizontal = MarbleSpace.MD.dp, vertical = MarbleSpace.INNER.dp),
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
         ) {
             Box(
                 modifier = Modifier
                     .size(22.dp)
                     .clip(marbleExpressiveShape(MarbleExpressiveMotif.DIAMOND))
-                    .background(accent.copy(alpha = 0.16f)),
+                    .background(accent.copy(alpha = MarbleWash.TINT)),
                 contentAlignment = Alignment.Center
             ) {
                 MarbleGlyphIcon(
@@ -151,7 +157,7 @@ internal fun MarblePlanPlate(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
             ) {
                 Text(
                     text = faDigits(PlanStatus.quotaPairLabel(status.usedBytes, status.totalBytes)),
@@ -163,8 +169,8 @@ internal fun MarblePlanPlate(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(percent = 50))
-                        .background(accent.copy(alpha = 0.10f))
-                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                        .background(accent.copy(alpha = MarbleWash.SOFT))
+                        .padding(horizontal = MarbleSpace.SM.dp, vertical = MarbleSpace.HAIR.dp)
                 ) {
                     Text(
                         text = "${faDigits(PlanStatus.formatBytes(status.remainingBytes))} ${trx("left")}",
@@ -182,13 +188,13 @@ internal fun MarblePlanPlate(
                     .fillMaxWidth()
                     .testTag("server-plan-expiry"),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .size(20.dp)
                         .clip(marbleExpressiveShape(MarbleExpressiveMotif.CLOVER))
-                        .background(accent.copy(alpha = 0.14f)),
+                        .background(accent.copy(alpha = MarbleWash.TINT)),
                     contentAlignment = Alignment.Center
                 ) {
                     MarbleGlyphIcon(
@@ -213,9 +219,9 @@ internal fun MarblePlanPlate(
                 )
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.surface.copy(alpha = 0.56f))
-                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                        .clip(RoundedCornerShape(MarbleRadius.XS.dp))
+                        .background(colors.surface.copy(alpha = MarbleVeil.FADED))
+                        .padding(horizontal = MarbleSpace.SM.dp, vertical = MarbleSpace.HAIR.dp)
                 ) {
                     Text(
                         text = faDigits(PlanStatus.expiryDate(status.expireAtMs, persian = persian)),
@@ -262,13 +268,13 @@ internal fun ServerPlanStrip(
         modifier = modifier
             .fillMaxWidth()
             .testTag("server-plan-strip"),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
     ) {
         if (summary.hasQuota) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
             ) {
                 Text(
                     text = faDigits(summary.usedLabel),
@@ -288,7 +294,7 @@ internal fun ServerPlanStrip(
                 progress = summary.fraction,
                 modifier = Modifier.fillMaxWidth(),
                 color = accent,
-                trackColor = accent.copy(alpha = 0.16f),
+                trackColor = accent.copy(alpha = MarbleWash.TINT),
                 height = 5.dp,
                 tag = "server-plan-strip-rail"
             )
@@ -309,7 +315,7 @@ internal fun ServerPlanStrip(
                 .fillMaxWidth()
                 .testTag("server-plan-strip-expiry"),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
         ) {
             val days = faDigits(trx(summary.daysLabel))
             val text = buildString {
@@ -363,7 +369,7 @@ private fun PlanUsageBar(fraction: Float, tint: Color) {
         progress = fraction.coerceIn(0f, 1f),
         modifier = Modifier.fillMaxWidth(),
         color = tint,
-        trackColor = tint.copy(alpha = 0.14f),
+        trackColor = tint.copy(alpha = MarbleWash.TINT),
         height = 7.dp,
         tag = "server-plan-bar"
     )
@@ -382,9 +388,9 @@ internal fun PlanChip(
             .widthIn(min = 34.dp)
             .heightIn(min = 18.dp)
             .clip(RoundedCornerShape(percent = 50))
-            .background(tint.copy(alpha = 0.16f))
+            .background(tint.copy(alpha = MarbleWash.TINT))
             .then(if (tag.isBlank()) Modifier else Modifier.testTag(tag))
-            .padding(horizontal = 7.dp, vertical = 2.dp),
+            .padding(horizontal = MarbleSpace.SM.dp, vertical = MarbleSpace.HAIR.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -403,16 +409,18 @@ internal fun PlanChip(
  * plenty left should not compete with the active route's green. Warn uses the status amber, danger
  * the status red, and unknown stays quiet — the rule the whole product uses for measurement states.
  */
-@Composable
-internal fun planToneColor(tone: PlanStatus.Tone): Color {
-    val colors = MaterialTheme.colorScheme
-    return when (tone) {
-        PlanStatus.Tone.CALM -> colors.primary
-        PlanStatus.Tone.WARN -> colors.warning
-        PlanStatus.Tone.DANGER -> colors.error
-        PlanStatus.Tone.UNKNOWN -> colors.onSurfaceVariant
-    }
+// MARBLE_ONE_LANGUAGE_V281 — the plan's verdict is named here; the colour it means is decided once,
+// by the resolver every other gauge in the product asks.
+fun planTone(tone: PlanStatus.Tone): MarbleTone = when (tone) {
+    PlanStatus.Tone.CALM -> MarbleTone.BRAND
+    PlanStatus.Tone.WARN -> MarbleTone.FAIR
+    PlanStatus.Tone.DANGER -> MarbleTone.POOR
+    PlanStatus.Tone.UNKNOWN -> MarbleTone.UNKNOWN
 }
+
+@Composable
+internal fun planToneColor(tone: PlanStatus.Tone): Color =
+    MaterialTheme.colorScheme.toneColor(planTone(tone))
 
 /**
  * MARBLE_SERVER_PLAN_CARDS_V260 — the *identity stripe* of a subscription card.
@@ -445,7 +453,7 @@ internal fun MarbleSourceStripe(
             // The wash is the card's own ground tinted by the stripe's tone: a solid 4dp bar beside a
             // card is a bookmark, and four bookmarks in one sheet is louder than the four identical
             // cards it replaced.
-            .background(if (selected) Color.Transparent else tone.copy(alpha = 0.10f))
+            .background(if (selected) Color.Transparent else tone.copy(alpha = MarbleWash.SOFT))
             .semantics { stateDescription = stripeState }
             .testTag("server-source-stripe-$id"),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -456,7 +464,7 @@ internal fun MarbleSourceStripe(
                     .width(4.dp)
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(percent = 50))
-                    .background(tone.copy(alpha = 0.85f))
+                    .background(tone.copy(alpha = MarbleVeil.NEAR))
             )
         }
     }
@@ -472,18 +480,27 @@ internal fun stripeTone(id: String): Int {
 
 internal const val STRIPE_TONES: Int = 6
 
-/** The six tones, in the product's own palette: primary, secondary, tertiary, success, warning, plum. */
+/**
+ * The six stripe tones, in the product's own palette: primary, secondary, tertiary, success, warning
+ * and plum. Five of the six are scheme roles and so come back as a [MarbleTone]; the sixth is the
+ * expressive plum, a palette accent rather than a role, and `null` tells the caller to draw it.
+ */
+fun sourceStripeTone(index: Int): MarbleTone? = when (index.mod(STRIPE_TONES)) {
+    0 -> MarbleTone.BRAND
+    1 -> MarbleTone.SUPPORT
+    2 -> MarbleTone.ACCENT
+    3 -> MarbleTone.GOOD
+    4 -> MarbleTone.FAIR
+    else -> null
+}
+
 @Composable
 internal fun sourceStripeColor(index: Int): Color {
-    val colors = MaterialTheme.colorScheme
-    val tones = marbleExpressiveTones()
-    return when (index.mod(STRIPE_TONES)) {
-        0 -> colors.primary
-        1 -> colors.secondary
-        2 -> colors.tertiary
-        3 -> colors.success
-        4 -> colors.warning
-        else -> tones.lavender.badge
+    val stripe = sourceStripeTone(index)
+    return if (stripe != null) {
+        MaterialTheme.colorScheme.toneColor(stripe)
+    } else {
+        marbleExpressiveTones().lavender.badge
     }
 }
 

@@ -75,6 +75,17 @@ It focuses on real proxy verification, fast one-tap connection, fail-closed rout
 
 ## The expressive shell: one control, one decision
 
+**V281: `docs/ONE_LANGUAGE_V281.md`** — one design language for every screen. A token layer
+(`MarbleSpace`, `MarbleRadius`, `MarbleWash`, `MarbleVeil`, `MarbleElevation`, `MarbleSelectionRung`)
+replaces 15 corner radii, 14 wash strengths, 20 quieted inks, 12 gaps and 4 shadows; one tone table
+(`marbleToneColor` and its ink/container twins) replaces eleven private verdict-colour functions, and
+the connection's colour now comes from the model's `ConnectPhase` in all six places that draw it. One
+component per role in the kit, so fourteen duplicates were merged rather than restyled: five stat
+tiles, two icon buttons, two bottom sheets, two sweep controls, two navigation-chrome accent tables
+and every raw `AlertDialog`/`Slider`/`Switch`/`Card`. No capability was removed — the same tags,
+descriptions and verbs survive. `tools/design-system-conformance.py` now fails CI on a literal that
+bypasses a scale.
+
 **V279: `docs/HARMONY_AND_SHADE_V279.md`** — the Home and Settings glyphs share one row-icon language,
 the selected dock tab fills its own silhouette, and a 28 px live-page blur now moves inside the
 transparent glass lens (paused while the page scrolls and gated on API 31). Connected controls gain

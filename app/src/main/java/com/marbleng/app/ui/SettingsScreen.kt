@@ -60,10 +60,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.marbleng.app.AppRepository
-import com.marbleng.app.core.RoutingOverview
 import com.marbleng.app.BuildConfig
 import com.marbleng.app.core.AutoServerSelector
 import com.marbleng.app.core.CoreEngineInfo
+import com.marbleng.app.core.RoutingOverview
 import com.marbleng.app.core.TunnelCoreInfo
 import com.marbleng.app.core.coreEngine
 import com.marbleng.app.core.tunnelCore
@@ -83,8 +83,11 @@ import com.marbleng.app.model.parseAppLanguage
 import com.marbleng.app.model.parseFlatAccent
 import com.marbleng.app.model.parseMarblePalette
 import com.marbleng.app.model.parsePowerProfile
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleWash
 import com.marbleng.app.ui.theme.marbleDefaultEffectsSpec
 import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.panSpec
@@ -625,13 +628,13 @@ private fun SettingsMenuPage(
             contentPadding = PaddingValues(
                 start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
                 end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-                top = 8.dp,
+                top = MarbleSpace.SM.dp,
                 bottom = MarbleTheme.bottomClearance
             ),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)
         ) {
             item(key = "settings-header") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)) {
                     MarbleLargeHeader(
                         title = strings.settingsTitle,
                         subtitle = trx("Your network, your way"),
@@ -658,7 +661,7 @@ private fun SettingsMenuPage(
                             onClick = { onOpenDestination(SettingsDestination.ABOUT) }
                         )
                     }
-                    MarbleCard(contentPadding = PaddingValues(6.dp)) {
+                    MarbleCard(contentPadding = PaddingValues(MarbleSpace.ROW_GAP.dp)) {
                         MarbleSearchField(
                             value = search,
                             onValueChange = { hubState.search = it },
@@ -687,7 +690,7 @@ private fun SettingsMenuPage(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                     ) {
                         SettingsHubCategory.visible.forEach { entry ->
                             SettingsCategoryChip(
@@ -709,7 +712,7 @@ private fun SettingsMenuPage(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(IntrinsicSize.Min),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
                 ) {
                     row.forEach { spec ->
                         if (spec == null) {
@@ -777,15 +780,15 @@ private fun SettingsCategoryChip(
                 onClick()
             }
             .testTag("settings-category-${category.id}")
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = MarbleSpace.LG.dp, vertical = MarbleSpace.INNER.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
     ) {
         Box(
             modifier = Modifier
                 .size(if (selected) 18.dp else 10.dp)
                 .clip(marbleExpressiveShape(motif))
-                .background(if (selected) colors.primary else colors.onSurfaceVariant.copy(alpha = 0.35f)),
+                .background(if (selected) colors.primary else colors.onSurfaceVariant.copy(alpha = MarbleVeil.GHOST)),
             contentAlignment = Alignment.Center
         ) {
             if (selected) {
@@ -842,19 +845,19 @@ internal fun SettingsSmartPresetsPage(
                     repo.updateSettings(preset.apply(repo.settings))
                     repo.setRuntimeMessage(appliedLabel)
                 },
-                contentPadding = PaddingValues(18.dp)
+                contentPadding = PaddingValues(MarbleSpace.XL.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .size(46.dp)
                             .clip(marbleExpressiveShape(motif))
                             .background(
-                                (if (selected) colors.primary else colors.secondary).copy(alpha = 0.16f)
+                                (if (selected) colors.primary else colors.secondary).copy(alpha = MarbleWash.TINT)
                             ),
                         contentAlignment = Alignment.Center
                     ) {
@@ -867,7 +870,7 @@ internal fun SettingsSmartPresetsPage(
                     }
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                        verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)
                     ) {
                         Text(
                             text = trx(preset.title),

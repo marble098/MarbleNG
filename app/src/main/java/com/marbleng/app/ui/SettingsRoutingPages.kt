@@ -13,7 +13,34 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import com.marbleng.app.AppRepository
+import com.marbleng.app.core.AddressFamilyPolicy
+import com.marbleng.app.core.CensorshipLab
+import com.marbleng.app.core.CensorshipProbe
+import com.marbleng.app.core.CoreEngine
+import com.marbleng.app.core.GeoAssetIndex
+import com.marbleng.app.core.GeoAssetRegistry
 import com.marbleng.app.core.IranAppCatalog
+import com.marbleng.app.core.IranPrecisionPack
+import com.marbleng.app.core.RoutingEngine
+import com.marbleng.app.core.RoutingOverview
+import com.marbleng.app.model.AddressFamilyMode
+import com.marbleng.app.model.ConnectionMode
+import com.marbleng.app.model.FragmentStrategy
+import com.marbleng.app.model.GeoPrecision
+import com.marbleng.app.model.IranModePolicy
+import com.marbleng.app.model.PlainVoice
+import com.marbleng.app.model.RoutingMode
+import com.marbleng.app.model.RoutingOutbound
+import com.marbleng.app.model.RoutingRule
+import com.marbleng.app.model.RoutingRuleKind
+import com.marbleng.app.model.SplitTunnelMode
+import com.marbleng.app.model.parseFragmentStrategy
+import com.marbleng.app.model.parseGeoPrecision
+import com.marbleng.app.ui.theme.MarbleSpace
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.warning
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,35 +62,10 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.marbleng.app.AppRepository
-import com.marbleng.app.core.AddressFamilyPolicy
-import com.marbleng.app.core.CensorshipLab
-import com.marbleng.app.core.CensorshipProbe
-import com.marbleng.app.core.CoreEngine
-import com.marbleng.app.core.GeoAssetIndex
-import com.marbleng.app.core.GeoAssetRegistry
-import com.marbleng.app.core.IranPrecisionPack
-import com.marbleng.app.core.RoutingEngine
-import com.marbleng.app.core.RoutingOverview
-import com.marbleng.app.model.AddressFamilyMode
-import com.marbleng.app.model.ConnectionMode
-import com.marbleng.app.model.FragmentStrategy
-import com.marbleng.app.model.GeoPrecision
-import com.marbleng.app.model.IranModePolicy
-import com.marbleng.app.model.PlainVoice
-import com.marbleng.app.model.RoutingMode
-import com.marbleng.app.model.RoutingOutbound
-import com.marbleng.app.model.RoutingRule
-import com.marbleng.app.model.RoutingRuleKind
-import com.marbleng.app.model.SplitTunnelMode
-import com.marbleng.app.model.parseFragmentStrategy
-import com.marbleng.app.model.parseGeoPrecision
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.marbleng.app.ui.theme.success
-import com.marbleng.app.ui.theme.warning
 
 /**
  * MARBLE_ROUTING_CLARITY_V280 — "what goes direct", rebuilt as two choices, one rule list and one
@@ -130,9 +132,9 @@ fun SettingsRoutingPage(
     ) {
         // ---------------------------------------------------------------- 1. the one decision
         item(key = "routing-policy") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Where your traffic goes"))
-                MarbleCard(borderColor = colors.success.copy(alpha = 0.30f)) {
+                MarbleCard(borderColor = colors.success.copy(alpha = MarbleVeil.GHOST)) {
                     RoutingOverview.Policy.entries.forEachIndexed { index, candidate ->
                         if (index > 0) MarbleDivider()
                         MarbleChoiceRow(
@@ -173,7 +175,7 @@ fun SettingsRoutingPage(
 
         // ------------------------------------------------------- 2. what that decision does now
         item(key = "routing-in-force") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("Running right now"),
                     badge = faDigits("${layers.size}")
@@ -199,7 +201,7 @@ fun SettingsRoutingPage(
 
         // ---------------------------------------------------------------- 3. the two files
         item(key = "routing-lists") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("Country lists"),
                     badge = if (listsReady) trx("Ready") else trx("Needs download"),
@@ -226,8 +228,8 @@ fun SettingsRoutingPage(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(PaddingValues(16.dp)),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                .padding(PaddingValues(MarbleSpace.LG.dp)),
+                            verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
                         ) {
                             Text(
                                 text = trx("The country rules wait for these files. Everything else already works."),
@@ -258,7 +260,7 @@ fun SettingsRoutingPage(
         // ------------------------------------------------------------ 4. the domestic dial
         if (policy == RoutingOverview.Policy.IRAN_DIRECT) {
             item(key = "routing-precision") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                     MarbleSectionHeader(
                         title = trx("How much of Iran stays direct"),
                         badge = faDigits("${domesticEntries(precision)}") + " " + trx("extra names"),
@@ -286,7 +288,7 @@ fun SettingsRoutingPage(
 
         // ---------------------------------------------------------------- 5. my own rules
         item(key = "routing-rules") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(
                     title = trx("My rules"),
                     badge = faDigits("$liveRules") + " / " + faDigits("${rules.size}")
@@ -364,10 +366,10 @@ fun SettingsRoutingPage(
 
         // ---------------------------------------------------------------- 6. prove the route
         item(key = "routing-simulator") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Try a site"))
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                         MarbleTextField(
                             label = trx("Site or address"),
                             value = simHost,
@@ -388,7 +390,7 @@ fun SettingsRoutingPage(
                             val tone = sim.verdict.tone(colors)
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                             ) {
                                 MarbleBadge(text = trx(sim.verdict.label), color = tone)
                                 Text(
@@ -407,7 +409,7 @@ fun SettingsRoutingPage(
                                 val stepTone = step.outbound?.tone(colors) ?: colors.onSurfaceVariant
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                                 ) {
                                     MarbleBadge(
                                         text = when {
@@ -456,7 +458,7 @@ fun SettingsRoutingPage(
 
         // ------------------------------------------------------------------- 7. everything else
         item(key = "routing-advanced") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Advanced"))
                 MarbleCard {
                     MarbleListItem(
@@ -718,7 +720,7 @@ private fun RoutingRuleEditSheet(
                 iconTint = colors.success,
                 onCheckedChange = { draft = draft.copy(enabled = it) }
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleButton(
                     label = trx("Move up"),
                     style = MarbleButtonStyle.SECONDARY,
@@ -754,7 +756,7 @@ private fun RoutingRuleEditSheet(
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
             MarbleButton(
                 label = if (isNew) trx("Add rule") else trx("Save"),
                 enabled = !hasErrors && draft.matcher.isNotBlank(),
@@ -935,7 +937,7 @@ fun SettingsDnsAndFamilyPage(
         onBack = onBack
     ) {
         item(key = "family-policy") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Which address version is used"))
                 MarbleCard {
                     AddressFamilyMode.entries.forEachIndexed { index, mode ->
@@ -988,7 +990,7 @@ fun SettingsDnsAndFamilyPage(
         }
 
         item(key = "dns-resolvers") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 MarbleSectionHeader(title = trx("Encrypted DNS"))
                 MarbleCard {
                     listOf(
@@ -1056,7 +1058,7 @@ fun SettingsDnsAndFamilyPage(
         }
 
         item(key = "dns-switches") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("DNS protection"))
                 MarbleCard {
                     if (s.connectionMode != ConnectionMode.FULL_TUN || !s.dnsHijackEnabled) {
@@ -1150,10 +1152,27 @@ fun SettingsSplitTunnelPage(
         installed.filter { it.packageName in matches }
     }
     if (reviewDomestic) {
-        AlertDialog(
-            onDismissRequest = { reviewDomestic = false },
-            title = { Text(if (persian) "بررسی برنامه‌های پیشنهادی" else "Review suggested apps") },
-            text = {
+        // MARBLE_ONE_LANGUAGE_V281 — the routing page kept its own bare `AlertDialog`: platform
+        // container, platform title voice, platform text buttons, while every other confirmation in
+        // the product is the kit's dialog. Same job, same object now.
+        MarbleAlertDialog(
+            title = if (persian) "بررسی برنامه‌های پیشنهادی" else "Review suggested apps",
+            onDismiss = { reviewDomestic = false },
+            confirmLabel = if (persian) "تأیید خروج از VPN" else "Confirm bypass",
+            confirmEnabled = approvedDomestic.isNotEmpty(),
+            onConfirm = {
+                val latest = repo.settings
+                val existing = if (latest.splitTunnelMode == SplitTunnelMode.BYPASS_SELECTED)
+                    latest.splitTunnelPackages.split(',', '\n', ' ').filter { it.isNotBlank() }.toSet()
+                else emptySet()
+                repo.updateSettings(latest.copy(
+                    splitTunnelMode = SplitTunnelMode.BYPASS_SELECTED,
+                    splitTunnelPackages = (existing + approvedDomestic).sorted().joinToString(",")
+                ))
+                reviewDomestic = false
+            },
+            dismissLabel = if (persian) "انصراف" else "Cancel",
+            body = {
                 Column(Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.55f).dp).verticalScroll(rememberScrollState())) {
                     Text(if (persian)
                         "این بررسی فقط روی گوشی انجام می‌شود و همهٔ برنامه‌های ایرانی را تضمین نمی‌کند. با تأیید، برنامه‌های زیر بدون VPN کار می‌کنند. فهرست قبلی در حالت «فقط انتخاب‌شده‌ها» جایگزین می‌شود. برای اعمال، اتصال را دوباره برقرار کنید."
@@ -1172,25 +1191,7 @@ fun SettingsSplitTunnelPage(
                         "برنامهٔ شناخته‌شده‌ای پیدا نشد؛ می‌توانید دستی انتخاب کنید."
                     else "No known matches; you can select apps manually.")
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val latest = repo.settings
-                    val existing = if (latest.splitTunnelMode == SplitTunnelMode.BYPASS_SELECTED)
-                        latest.splitTunnelPackages.split(',', '\n', ' ').filter { it.isNotBlank() }.toSet()
-                    else emptySet()
-                    repo.updateSettings(latest.copy(
-                        splitTunnelMode = SplitTunnelMode.BYPASS_SELECTED,
-                        splitTunnelPackages = (existing + approvedDomestic).sorted().joinToString(",")
-                    ))
-                    reviewDomestic = false
-                }, enabled = approvedDomestic.isNotEmpty()) {
-                    Text(if (persian) "تأیید خروج از VPN" else "Confirm bypass")
-                }
-            },
-            dismissButton = { TextButton(onClick = { reviewDomestic = false }) {
-                Text(if (persian) "انصراف" else "Cancel")
-            } }
+            }
         )
     }
 
@@ -1276,7 +1277,7 @@ fun SettingsSplitTunnelPage(
             }
         }
         item(key = "split-mode") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Who uses the tunnel"))
                 MarbleCard {
                     SplitTunnelMode.entries.forEachIndexed { index, mode ->
@@ -1300,7 +1301,7 @@ fun SettingsSplitTunnelPage(
 
         if (s.splitTunnelMode != SplitTunnelMode.ALL_APPS) {
             item(key = "split-selected") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                     MarbleSectionHeader(
                         title = trx("Chosen apps"),
                         badge = faDigits("${selectedPackages.size}")
@@ -1381,7 +1382,7 @@ fun SettingsSplitTunnelPage(
             }
 
             item(key = "split-apps") {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
                     MarbleSectionHeader(title = trx("Add an app"))
                     MarbleSearchField(
                         value = query,
@@ -1479,10 +1480,10 @@ fun SettingsCensorshipLabPage(
         onBack = onBack
     ) {
         item(key = "lab-scan") {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 MarbleSectionHeader(title = trx("Check this network"))
-                MarbleCard(contentPadding = PaddingValues(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
                         Text(
                             text = trx("One scan probes the sites that usually break and says which kind of blocking you have."),
                             color = colors.onSurfaceVariant,
@@ -1574,7 +1575,7 @@ fun SettingsCensorshipLabPage(
         }
 
         item(key = "iran-mode-policy") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Iran mode"))
                 MarbleCard {
                     listOf(
@@ -1615,7 +1616,7 @@ fun SettingsCensorshipLabPage(
         }
 
         item(key = "tls-fragmentation") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Handshake splitting"))
                 MarbleCard {
                     FragmentStrategy.entries.forEachIndexed { idx, strategy ->

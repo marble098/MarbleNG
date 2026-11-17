@@ -59,8 +59,11 @@ import com.marbleng.app.AppRepository
 import com.marbleng.app.BuildConfig
 import com.marbleng.app.model.MarblePalette
 import com.marbleng.app.model.parseMarblePalette
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleWash
 import com.marbleng.app.ui.theme.marbleMotion
 import com.marbleng.app.ui.theme.marblePaletteSignature
 import com.marbleng.app.ui.theme.resolveMarbleDarkMode
@@ -120,10 +123,10 @@ fun AboutScreen(
         contentPadding = PaddingValues(
             start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
             end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-            top = 8.dp,
+            top = MarbleSpace.SM.dp,
             bottom = MarbleTheme.bottomClearance
         ),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)
     ) {
         // MARBLE_ABOUT_REVIEW_V260 — the top bar is a back button and the page's name, and nothing
         // else. V258 drew the turning orbit glyph here *and* a 52dp icon block in the hero directly
@@ -134,7 +137,7 @@ fun AboutScreen(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
             ) {
                 MarbleIconButton(
                     glyph = MarbleGlyph.ARROW_BACK,
@@ -179,13 +182,13 @@ fun AboutScreen(
 
         item(key = "about-cores") {
             val cores = aboutCores()
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 cores.chunked(2).forEach { row ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(IntrinsicSize.Min),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
                     ) {
                         row.forEach { core ->
                             AboutCoreTile(
@@ -202,7 +205,7 @@ fun AboutScreen(
         }
 
         item(key = "about-updates") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
                 MarbleSectionHeader(title = trx("Updates & Open Source"))
                 MarbleCard {
                     MarbleSwitchRow(
@@ -263,7 +266,7 @@ fun AboutScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp)
+                    .padding(top = MarbleSpace.ROW_GAP.dp)
             )
         }
     }
@@ -355,11 +358,11 @@ internal fun MarbleAboutOrbitButton(
         MarbleMorphingMark(
             motif = MarbleExpressiveMotif.FLOWER,
             targetMotif = MarbleExpressiveMotif.GEM,
-            color = Color.White.copy(alpha = 0.42f),
+            color = Color.White.copy(alpha = MarbleVeil.GHOST),
             progress = { if (turning) bloom else 0.45f },
             modifier = Modifier
                 .fillMaxSize()
-                .padding(5.dp)
+                .padding(MarbleSpace.ROW_GAP.dp)
                 .graphicsLayer { rotationZ = if (turning) turn else 0f }
         )
         MarbleGlyphIcon(
@@ -423,9 +426,9 @@ private fun AboutHero(
             .background(
                 Brush.linearGradient(
                     listOf(
-                        signature.first().copy(alpha = 0.18f),
+                        signature.first().copy(alpha = MarbleWash.TINT),
                         Color.Transparent,
-                        signature.getOrElse(2) { signature.first() }.copy(alpha = 0.12f)
+                        signature.getOrElse(2) { signature.first() }.copy(alpha = MarbleWash.SOFT)
                     )
                 )
             )
@@ -435,7 +438,7 @@ private fun AboutHero(
             MarbleMorphingMark(
                 motif = MarbleExpressiveMotif.BURST,
                 targetMotif = MarbleExpressiveMotif.FLOWER,
-                color = signature.first().copy(alpha = 0.14f),
+                color = signature.first().copy(alpha = MarbleWash.TINT),
                 progress = { if (motion.loops) breath else 0.5f },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -449,12 +452,12 @@ private fun AboutHero(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(start = MarbleSpace.XL.dp, end = MarbleSpace.XL.dp, top = MarbleSpace.XL.dp, bottom = MarbleSpace.XL.dp),
+                verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.TILE.dp)
                 ) {
                     Box(
                         modifier = Modifier
@@ -472,7 +475,7 @@ private fun AboutHero(
                     }
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                        verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)
                     ) {
                         Text(
                             text = "MarbleNG",
@@ -543,7 +546,7 @@ private fun AboutHero(
         color = colors.onSurfaceVariant,
         style = MaterialTheme.typography.labelSmall,
         maxLines = 1,
-        modifier = Modifier.padding(start = 6.dp, top = 2.dp)
+        modifier = Modifier.padding(start = MarbleSpace.ROW_GAP.dp, top = MarbleSpace.HAIR.dp)
     )
 }
 
@@ -572,14 +575,14 @@ private fun AboutCoreTile(
             // MARBLE_READABLE_SURFACES_V263 — a polygon is a badge, never a reading container.
             .clip(MarbleReadingShape)
             .background(colors.surfaceContainerLow)
-            .background(tint.copy(alpha = 0.08f))
+            .background(tint.copy(alpha = MarbleWash.FAINT))
             .testTag("about-core-${core.id}")
-            .padding(14.dp)
+            .padding(MarbleSpace.TILE.dp)
     ) {
         MarbleMorphingMark(
             motif = core.motif,
             targetMotif = MarbleExpressiveMotif.CIRCLE,
-            color = tint.copy(alpha = 0.10f),
+            color = tint.copy(alpha = MarbleWash.SOFT),
             progress = { if (motion.loops) 0.35f else 0f },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -589,12 +592,12 @@ private fun AboutCoreTile(
                     translationY = 18.dp.toPx()
                 }
         )
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
             Box(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(marbleExpressiveShape(core.motif))
-                    .background(tint.copy(alpha = 0.18f)),
+                    .background(tint.copy(alpha = MarbleWash.TINT)),
                 contentAlignment = Alignment.Center
             ) {
                 MarbleGlyphIcon(

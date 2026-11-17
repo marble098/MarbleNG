@@ -113,14 +113,21 @@ import com.marbleng.app.model.ServerHealth
 import com.marbleng.app.model.ServerMenuAction
 import com.marbleng.app.model.Subscription
 import com.marbleng.app.model.serverHealthOf
+import com.marbleng.app.ui.theme.MarbleElevation
+import com.marbleng.app.ui.theme.MarbleMeasure
+import com.marbleng.app.ui.theme.MarbleRadius
+import com.marbleng.app.ui.theme.MarbleSpace
 import com.marbleng.app.ui.theme.MarbleSpec
 import com.marbleng.app.ui.theme.MarbleTheme
-import com.marbleng.app.ui.theme.successContainer
+import com.marbleng.app.ui.theme.MarbleVeil
+import com.marbleng.app.ui.theme.MarbleWash
 import com.marbleng.app.ui.theme.onSuccessContainer
+import com.marbleng.app.ui.theme.success
+import com.marbleng.app.ui.theme.successContainer
+import com.marbleng.app.ui.theme.toneColor
+import com.marbleng.app.ui.theme.warning
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.selected
-import com.marbleng.app.ui.theme.success
-import com.marbleng.app.ui.theme.warning
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
@@ -399,7 +406,7 @@ fun ServersScreen(
                 contentPadding = PaddingValues(
                     start = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
                     end = MarbleSpec.SCREEN_HORIZONTAL_PADDING_DP.dp,
-                    top = 4.dp,
+                    top = MarbleSpace.XS.dp,
                     // V244 — the extended "Add" FAB is gone: adding is the header's pill and the
                     // empty state's primary action. The list no longer pays the whole
                     // ServersDeck.FAB_CLEARANCE_DP for a button that was never over it.
@@ -407,7 +414,7 @@ fun ServersScreen(
                 ),
                 // One 8dp rhythm for the page: enough separation to distinguish tonal surfaces,
                 // still compact enough that the server list remains the page's main content.
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
             ) {
 
                 item(key = "servers-header") {
@@ -433,7 +440,7 @@ fun ServersScreen(
                         )
                     ) {
                         val sourceScoped = repo.librarySourceFilter != "all"
-                        MarbleExpressiveIconButton(
+                        MarbleIconButton(
                             glyph = MarbleGlyph.LAYERS,
                             motif = if (sourceScoped) {
                                 MarbleExpressiveMotif.DIAMOND
@@ -445,7 +452,7 @@ fun ServersScreen(
                             } else {
                                 colors.surfaceContainerHigh
                             },
-                            contentColor = if (sourceScoped) {
+                            tint = if (sourceScoped) {
                                 colors.onSecondaryContainer
                             } else {
                                 colors.onSurfaceVariant
@@ -453,24 +460,13 @@ fun ServersScreen(
                             contentDescription = trx("Manage sources"),
                             onClick = { librarySheetOpen = true }
                         )
-                        MarbleExpressiveIconButton(
-                            glyph = if (repo.probeActive) MarbleGlyph.STOP else MarbleGlyph.GAUGE,
-                            motif = MarbleExpressiveMotif.CLOVER,
-                            containerColor = if (repo.probeActive) {
-                                colors.error.copy(alpha = 0.14f)
-                            } else {
-                                colors.surfaceContainerHigh
-                            },
-                            contentColor = if (repo.probeActive) colors.error else colors.success,
-                            contentDescription = trx("Test every server"),
-                            onClick = {
-                                if (repo.probeActive || repo.probeCancelling) {
-                                    repo.cancelProbes()
-                                } else {
-                                    repo.testSource(repo.librarySourceFilter)
-                                }
-                            }
-                        )
+                        // MARBLE_ONE_LANGUAGE_V281 — the header carried a second circular control
+                        // that started a library sweep and turned into "stop" while one ran, next to
+                        // the Auto-Select target beside the search field that does the same sweep and
+                        // then connects to the winner. Two tools, one job, one state drawn twice.
+                        // Auto-Select keeps the page; the sweep that only measures moved into Sort &
+                        // Filter, beside the flag scan it resembles. `testSource` still runs, on the
+                        // same source scope, one tap deeper.
                         AddServerPill(onClick = onOpenAddSheet)
                     }
                 }
@@ -494,9 +490,9 @@ fun ServersScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 2.dp, bottom = 4.dp),
+                            .padding(top = MarbleSpace.HAIR.dp, bottom = MarbleSpace.XS.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                     ) {
                         MarbleSearchField(
                             value = searchQuery,
@@ -520,7 +516,7 @@ fun ServersScreen(
                             }
                         )
                         val filtersActive = filterChips.isNotEmpty()
-                        MarbleExpressiveIconButton(
+                        MarbleIconButton(
                             glyph = MarbleGlyph.FILTER,
                             motif = if (filtersActive) {
                                 MarbleExpressiveMotif.SUNNY
@@ -532,7 +528,7 @@ fun ServersScreen(
                             } else {
                                 colors.surfaceContainerHigh
                             },
-                            contentColor = if (filtersActive) {
+                            tint = if (filtersActive) {
                                 colors.onSecondaryContainer
                             } else {
                                 colors.onSurfaceVariant
@@ -585,7 +581,7 @@ fun ServersScreen(
                     item(key = "servers-probe-progress") {
                         val total = repo.probeTotal.coerceAtLeast(1)
                         val done = repo.probeDone.coerceIn(0, total)
-                        MarbleCard(contentPadding = PaddingValues(16.dp)) {
+                        MarbleCard(contentPadding = PaddingValues(MarbleSpace.LG.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -593,7 +589,7 @@ fun ServersScreen(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     MarbleRowIcon(glyph = MarbleGlyph.GAUGE, tint = colors.success)
@@ -653,7 +649,7 @@ fun ServersScreen(
                                 Spacer(Modifier.height(10.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
                                 ) {
                                     MarbleButton(
                                         label = strings.pasteShortcut,
@@ -780,8 +776,8 @@ fun ServersScreen(
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(
-                    start = 16.dp,
-                    end = 16.dp,
+                    start = MarbleSpace.LG.dp,
+                    end = MarbleSpace.LG.dp,
                     bottom = MarbleTheme.bottomClearance + 8.dp
                 )
         ) {
@@ -810,8 +806,8 @@ fun ServersScreen(
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(
-                    start = 16.dp,
-                    end = 16.dp,
+                    start = MarbleSpace.LG.dp,
+                    end = MarbleSpace.LG.dp,
                     bottom = MarbleTheme.bottomClearance + 76.dp
                 )
         )
@@ -1087,7 +1083,7 @@ private fun ActiveServerCard(
             .clickable(role = Role.Button, onClick = onInspect)
     ) {
         MarblePetalMark(
-            color = onStage.copy(alpha = 0.10f),
+            color = onStage.copy(alpha = MarbleWash.SOFT),
             size = 96.dp,
             motif = MarbleExpressiveMotif.FLOWER,
             modifier = Modifier
@@ -1099,9 +1095,9 @@ private fun ActiveServerCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 14.dp, end = 8.dp, top = 11.dp, bottom = 11.dp),
+                .padding(start = MarbleSpace.TILE.dp, end = MarbleSpace.SM.dp, top = MarbleSpace.MD.dp, bottom = MarbleSpace.MD.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
         ) {
             ServerFlagTile(
                 code = country.code.takeIf { country.isKnown },
@@ -1111,11 +1107,11 @@ private fun ActiveServerCard(
             )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
                 ) {
                     MarblePulseDot(color = tone, modifier = Modifier.size(7.dp))
                     Text(
@@ -1129,7 +1125,7 @@ private fun ActiveServerCard(
                             profile = profile,
                             countryName = country.name.takeIf { country.isKnown }.orEmpty()
                         ),
-                        color = onStage.copy(alpha = 0.74f),
+                        color = onStage.copy(alpha = MarbleVeil.QUIET),
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1171,12 +1167,12 @@ private fun SelectionBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(12.dp, RoundedCornerShape(20.dp))
-            .clip(RoundedCornerShape(20.dp))
+            .shadow(MarbleElevation.FLOAT_DP.dp, RoundedCornerShape(MarbleRadius.TILE.dp))
+            .clip(RoundedCornerShape(MarbleRadius.TILE.dp))
             .background(colors.surfaceContainerHigh)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = MarbleSpace.MD.dp, vertical = MarbleSpace.SM.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
     ) {
         Text(
             text = faDigits("$count") + " " + trx("selected"),
@@ -1262,18 +1258,18 @@ internal fun ServerGroupHeader(
             .fillMaxWidth()
             .testTag("server-group-header-${bucket.id}")
             .heightIn(min = 66.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(MarbleRadius.CARD.dp))
             .background(headerGround)
             .clickable(role = Role.Button, onClick = onToggleCollapse)
             .semantics { this.stateDescription = stateLabel }
-            .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+            .padding(start = MarbleSpace.MD.dp, end = MarbleSpace.XS.dp, top = MarbleSpace.INNER.dp, bottom = MarbleSpace.INNER.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
     ) {
         Row(
             modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
         ) {
             if (sub != null) {
                 MarbleSourceStripe(id = bucket.id, selected = false, height = 38.dp)
@@ -1287,7 +1283,7 @@ internal fun ServerGroupHeader(
                     modifier = Modifier
                         .size(28.dp)
                         .clip(marbleExpressiveShape(MarbleExpressiveMotif.ARCH))
-                        .background(colors.tertiary.copy(alpha = 0.14f)),
+                        .background(colors.tertiary.copy(alpha = MarbleWash.TINT)),
                     contentAlignment = Alignment.Center
                 ) {
                     MarbleGlyphIcon(
@@ -1299,11 +1295,11 @@ internal fun ServerGroupHeader(
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
+                verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
                 ) {
                     MarbleGlyphIcon(
                         glyph = if (collapsed) MarbleGlyph.CHEVRON else MarbleGlyph.CHEVRON_DOWN,
@@ -1341,7 +1337,7 @@ internal fun ServerGroupHeader(
                             nowMs = nowMs,
                             persian = Tr.now.language == MarbleLanguage.FA
                         ),
-                        modifier = Modifier.padding(top = 4.dp)
+                        modifier = Modifier.padding(top = MarbleSpace.XS.dp)
                     )
                 }
             }
@@ -1434,9 +1430,9 @@ private fun AddServerPill(onClick: () -> Unit) {
                 haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                 onClick()
             }
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = MarbleSpace.LG.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
     ) {
         MarbleGlyphIcon(
             glyph = MarbleGlyph.PLUS,
@@ -1541,7 +1537,7 @@ private fun FlagCluster(
         ) {
             MarbleGlyphIcon(
                 glyph = MarbleGlyph.GLOBE,
-                color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                color = colors.onSurfaceVariant.copy(alpha = MarbleVeil.QUIET),
                 modifier = Modifier.size(size * 0.72f)
             )
         }
@@ -1592,7 +1588,7 @@ private fun ServerFlagTile(
             .size(width, height)
             .clip(RoundedCornerShape(ServersAtlas.ROW_FLAG_CORNER_DP.dp))
             .background(
-                if (supported) colors.surfaceContainerHighest else tone.copy(alpha = 0.16f)
+                if (supported) colors.surfaceContainerHighest else tone.copy(alpha = MarbleWash.TINT)
             ),
         contentAlignment = Alignment.Center
     ) {
@@ -1706,11 +1702,11 @@ internal fun ServersLibrarySheetContent(
     var newName by rememberSaveable { mutableStateOf("") }
     var newUrl by rememberSaveable { mutableStateOf("") }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)) {
         // Expressive overview summary pills
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
         ) {
             LibrarySummaryPill(
                 label = trx("Subscriptions"),
@@ -1734,7 +1730,7 @@ internal fun ServersLibrarySheetContent(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
         ) {
             MarbleButton(
                 label = trx("Refresh all"),
@@ -1760,11 +1756,11 @@ internal fun ServersLibrarySheetContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(colors.tertiaryContainer.copy(alpha = 0.55f))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .clip(RoundedCornerShape(MarbleRadius.CONTROL.dp))
+                    .background(colors.tertiaryContainer.copy(alpha = MarbleVeil.FADED))
+                    .padding(horizontal = MarbleSpace.MD.dp, vertical = MarbleSpace.SM.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
             ) {
                 MarbleWaveRing(size = 18.dp, color = colors.onTertiaryContainer)
                 Text(
@@ -1786,10 +1782,12 @@ internal fun ServersLibrarySheetContent(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
+                        // MARBLE_ONE_LANGUAGE_V281 — the inline add form's one geometry, shared
+                        // with the subscriptions page's copy of it.
+                        .clip(RoundedCornerShape(MarbleRadius.TILE.dp))
                         .background(colors.surfaceContainerHigh)
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(MarbleSpace.TILE.dp),
+                    verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
                 ) {
                     Text(
                         text = trx("New Subscription"),
@@ -1810,7 +1808,7 @@ internal fun ServersLibrarySheetContent(
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                     ) {
                         MarbleButton(
                             label = trx("Cancel"),
@@ -1841,7 +1839,7 @@ internal fun ServersLibrarySheetContent(
         // disagree about whether "today" has passed, and an alternating tone step so neighbouring
         // subscriptions are visibly different objects.
         val nowMs = remember { System.currentTimeMillis() }
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
             cards.forEachIndexed { index, card ->
                 val sub = card.subscription
                 SourceLibraryCard(
@@ -1863,7 +1861,7 @@ internal fun ServersLibrarySheetContent(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
         ) {
             if (onAddSubscription != null && !showAddForm) {
                 MarbleButton(
@@ -1895,10 +1893,10 @@ private fun LibrarySummaryPill(
     val colors = MaterialTheme.colorScheme
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(tint.copy(alpha = 0.11f))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+            .clip(RoundedCornerShape(MarbleRadius.CONTROL.dp))
+            .background(tint.copy(alpha = MarbleWash.SOFT))
+            .padding(horizontal = MarbleSpace.INNER.dp, vertical = MarbleSpace.SM.dp),
+        verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)
     ) {
         Text(
             text = value,
@@ -1953,7 +1951,7 @@ internal fun SourceLibraryCard(
         selected = selected
     )
     val titleColor = if (selected) colors.onPrimaryContainer else colors.onSurface
-    val metaColor = if (selected) colors.onPrimaryContainer.copy(alpha = 0.78f) else colors.onSurfaceVariant
+    val metaColor = if (selected) colors.onPrimaryContainer.copy(alpha = MarbleVeil.QUIET) else colors.onSurfaceVariant
     val subtitle = libraryCardSubtitle(card, nowMs)
     val plan = planOf(card.subscription, nowMs)
     val cardShape = marbleSelectionMorphShape(selected = selected, idleDp = 22.dp, selectedDp = 28.dp)
@@ -1992,9 +1990,9 @@ internal fun SourceLibraryCard(
                 this.selected = selected
                 contentDescription = cardDescription
             }
-            .padding(start = 10.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+            .padding(start = MarbleSpace.INNER.dp, end = MarbleSpace.XS.dp, top = MarbleSpace.MD.dp, bottom = MarbleSpace.MD.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
     ) {
         // MARBLE_SERVER_PLAN_CARDS_V260 — the identity stripe: a 4dp tone on the reading edge,
         // derived from the subscription's own id, so four libraries are told apart by a colour that
@@ -2004,11 +2002,11 @@ internal fun SourceLibraryCard(
 
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
             ) {
                 Box(
                     modifier = Modifier.size(width = 56.dp, height = 36.dp),
@@ -2040,7 +2038,7 @@ internal fun SourceLibraryCard(
                 }
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
                 ) {
                     Text(
                         text = card.title,
@@ -2196,7 +2194,7 @@ private fun ServerRowItem(
         state = dismissState,
         // V244 — the row is its own rounded slab now, so the destructive reveal is clipped to
         // the same radius instead of showing square corners through it.
-        modifier = Modifier.clip(RoundedCornerShape(20.dp)),
+        modifier = Modifier.clip(RoundedCornerShape(MarbleRadius.TILE.dp)),
         backgroundContent = {
             // V241/V243: the destructive reveal is a neutral tonal step with error ink.
             // MARBLE_CLEAN_ROW_V249: it is a glyph, not a sentence. The word that used to sit here
@@ -2209,7 +2207,7 @@ private fun ServerRowItem(
                         .background(colors.surfaceContainerHighest)
                         .graphicsLayer { alpha = revealAlpha.value }
                         .semantics { contentDescription = revealDescription }
-                        .padding(horizontal = 20.dp),
+                        .padding(horizontal = MarbleSpace.XL.dp),
                     contentAlignment = Alignment.CenterEnd
                 ) {
                     MarbleGlyphIcon(
@@ -2309,7 +2307,7 @@ internal fun ServerRowContent(
     // when it is the route the Home pill will use, and primary-tinted when it is selected.
     val container = when {
         active -> colors.successContainer
-        selected || checked -> colors.secondaryContainer.copy(alpha = 0.38f)
+        selected || checked -> colors.secondaryContainer.copy(alpha = MarbleVeil.GHOST)
         else -> colors.surfaceContainerLow
     }
     val accent = when {
@@ -2352,9 +2350,9 @@ internal fun ServerRowContent(
                     spokenPing
                 ).joinToString(" · ")
             }
-            .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = MarbleSpace.INNER.dp, end = MarbleSpace.XS.dp, top = MarbleSpace.SM.dp, bottom = MarbleSpace.SM.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
     ) {
         if (!selectionMode && (active || selected)) {
             Box(
@@ -2390,12 +2388,12 @@ internal fun ServerRowContent(
 
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            verticalArrangement = Arrangement.spacedBy(MarbleSpace.HAIR.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
             ) {
                 Text(
                     text = title,
@@ -2468,13 +2466,9 @@ private fun ServerPingCell(
         result == null -> PingReadout.UNKNOWN
         else -> pingReadout(result.latencyMs, result.success > 0)
     }
-    val tone = when (readout) {
-        PingReadout.FAST -> colors.success
-        PingReadout.OK -> colors.warning
-        PingReadout.SLOW -> colors.error
-        PingReadout.TIMEOUT -> colors.onSurfaceVariant.copy(alpha = 0.72f)
-        PingReadout.UNKNOWN -> marbleHealthColor(health)
-    }
+    // MARBLE_ONE_LANGUAGE_V281 — the reading names a tone; the token file colours it. A timeout is
+    // the calm "lost" tone every other gauge uses, not a fourth private grey.
+    val tone = colors.toneColor(pingTone(readout, health))
     val text = when {
         measuring -> ""
         result == null -> strings.pingIdleValue
@@ -2496,11 +2490,14 @@ private fun ServerPingCell(
         } else {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(tone.copy(alpha = 0.11f))
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                    .clip(RoundedCornerShape(MarbleRadius.ROW_ICON.dp))
+                    .background(tone.copy(alpha = MarbleWash.SOFT))
+                    .padding(
+                        horizontal = MarbleSpace.ROW_GAP.dp,
+                        vertical = MarbleSpace.XS.dp
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
             ) {
                 PingBars(readout = readout, tone = tone)
                 Text(
@@ -2520,56 +2517,37 @@ private fun ServerPingCell(
 /** Four bars, lit from the bottom. A timeout lights none: no reply is not a weak reply. */
 @Composable
 private fun PingBars(readout: PingReadout, tone: Color) {
-    val colors = MaterialTheme.colorScheme
-    val lit = pingBars(readout)
-    val heights = listOf(4.dp, 7.dp, 10.dp, 13.dp)
-    Row(
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        heights.forEachIndexed { index, barHeight ->
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .height(barHeight)
-                    .clip(CircleShape)
-                    .background(
-                        if (index < lit) tone else colors.onSurfaceVariant.copy(alpha = 0.16f)
-                    )
-            )
-        }
-    }
+    // MARBLE_ONE_LANGUAGE_V281 — the heights were four literals typed here and the idle bars were a
+    // second private grey; both belong to the shared meter now.
+    MarbleLevelBars(level = pingBars(readout), tone = tone)
 }
 
 /** Expressive wave ring + skeleton shimmer while a probe is in flight. */
 @Composable
 private fun PingSkeleton() {
     val colors = MaterialTheme.colorScheme
-    val transition = rememberInfiniteTransition(label = "pingSkeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.24f,
-        targetValue = 0.62f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pingSkeletonAlpha"
-    )
+    // MARBLE_ONE_LANGUAGE_V281 — this pill breathed at 900 ms and the IP page's placeholders at
+    // 1200 ms, so "still working" looked like two products working. It is the kit's skeleton now:
+    // one rhythm, and full strength because 26 dp of it is the whole mark.
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(colors.primary.copy(alpha = 0.10f))
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .clip(RoundedCornerShape(MarbleRadius.ROW_ICON.dp))
+            .background(colors.primary.copy(alpha = MarbleWash.SOFT))
+            .padding(
+                horizontal = MarbleSpace.SM.dp,
+                vertical = MarbleSpace.XS.dp
+            ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
     ) {
-        MarbleWaveRing(size = 14.dp, color = colors.primary)
-        Box(
-            modifier = Modifier
-                .width(26.dp)
-                .height(8.dp)
-                .clip(CircleShape)
-                .background(colors.onSurfaceVariant.copy(alpha = alpha))
+        MarbleWaveRing(size = MarbleMeasure.GLYPH_SM_DP.dp, color = colors.primary)
+        MarbleSkeleton(
+            modifier = Modifier.width(26.dp),
+            height = MarbleSpace.SM.dp,
+            shape = CircleShape,
+            ink = colors.onSurfaceVariant,
+            strength = 1f,
+            label = "pingSkeleton"
         )
     }
 }
@@ -2704,6 +2682,28 @@ private fun ServersFilterSheet(
             )
         }
 
+        // MARBLE_ONE_LANGUAGE_V281 — the plain sweep's home: one row that measures the source the
+        // page is filtered to without connecting to anything, and becomes the stop while it runs.
+        MarbleSectionHeader(title = trx("Ping controls"))
+        MarbleCard {
+            val sweeping = repo.probeActive || repo.probeCancelling
+            MarbleListItem(
+                title = if (sweeping) trx("Stop measuring") else trx("Measure every server"),
+                subtitle = trx("Ping this source"),
+                glyph = if (sweeping) MarbleGlyph.STOP else MarbleGlyph.GAUGE,
+                iconTint = if (sweeping) colors.error else colors.success,
+                showChevron = false,
+                enabled = !repo.busy,
+                onClick = {
+                    if (sweeping) {
+                        repo.cancelProbes()
+                    } else {
+                        repo.testSource(repo.librarySourceFilter)
+                    }
+                }
+            )
+        }
+
         MarbleSectionHeader(title = trx("Server flags"))
         MarbleCard {
             MarbleListItem(
@@ -2768,15 +2768,15 @@ internal fun SubscriptionManageSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
+                .clip(RoundedCornerShape(MarbleRadius.CARD.dp))
                 .background(lerp(colors.surfaceContainerLow, stripeColor, 0.08f))
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(MarbleSpace.TILE.dp),
+            verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.MD.dp)
             ) {
                 MarbleSourceStripe(id = subscription.id, selected = false, height = 46.dp)
                 Box(
@@ -2791,7 +2791,7 @@ internal fun SubscriptionManageSheet(
                                 }
                             )
                         )
-                        .background(stripeColor.copy(alpha = 0.16f)),
+                        .background(stripeColor.copy(alpha = MarbleWash.TINT)),
                     contentAlignment = Alignment.Center
                 ) {
                     if (refreshing) {
@@ -2807,11 +2807,11 @@ internal fun SubscriptionManageSheet(
                 }
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                    verticalArrangement = Arrangement.spacedBy(MarbleSpace.XS.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(MarbleSpace.ROW_GAP.dp)
                     ) {
                         PlanChip(
                             label = trx(if (isRemote) "Remote" else "Local"),
@@ -2844,7 +2844,7 @@ internal fun SubscriptionManageSheet(
             if (plan.hasQuota) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
                 ) {
                     SubscriptionStatCell(
                         label = trx("Upload"),
@@ -2869,10 +2869,10 @@ internal fun SubscriptionManageSheet(
         }
 
         // ── Quick Actions ────────────────────────────────────────────────────────────────────
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
             ) {
                 if (isRemote) {
                     MarbleButton(
@@ -2903,7 +2903,7 @@ internal fun SubscriptionManageSheet(
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(MarbleSpace.SM.dp)
             ) {
                 if (isRemote) {
                     MarbleButton(
@@ -2953,8 +2953,8 @@ internal fun SubscriptionManageSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(colors.warning.copy(alpha = 0.14f))
+                    .clip(RoundedCornerShape(MarbleRadius.CARD.dp))
+                    .background(colors.warning.copy(alpha = MarbleWash.TINT))
             ) {
                 MarbleListItem(
                     title = "${trx("Remove Failed Servers")} (${faDigits("$failedCount")})",
@@ -2970,8 +2970,8 @@ internal fun SubscriptionManageSheet(
         }
 
         // ── Edit Source Details ──────────────────────────────────────────────────────────────
-        MarbleCard(contentPadding = PaddingValues(14.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        MarbleCard(contentPadding = PaddingValues(MarbleSpace.TILE.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MarbleSpace.INNER.dp)) {
                 Text(
                     text = trx("Edit subscription"),
                     color = colors.onSurface,
@@ -3000,8 +3000,8 @@ internal fun SubscriptionManageSheet(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(colors.error.copy(alpha = 0.08f))
+                .clip(RoundedCornerShape(MarbleRadius.CARD.dp))
+                .background(colors.error.copy(alpha = MarbleWash.FAINT))
         ) {
             MarbleListItem(
                 title = trx("Delete Subscription"),
@@ -3021,32 +3021,16 @@ private fun SubscriptionStatCell(
     tint: Color,
     modifier: Modifier = Modifier
 ) {
-    val colors = MaterialTheme.colorScheme
-    Column(
+    // MARBLE_ONE_LANGUAGE_V281 — one of five private drawings of "a label and a value in a tonal
+    // box". The shared tile owns the corner, the wash, the air and the tabular value; this page
+    // keeps the compact density because three of them share a row inside a subscription card.
+    MarbleStatTile(
+        label = label,
+        value = value,
+        tint = tint,
+        compact = true,
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(colors.surface.copy(alpha = 0.54f))
-            .padding(horizontal = 8.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Text(
-            text = label,
-            color = colors.onSurfaceVariant,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = value,
-            color = tint,
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = FontWeight.Bold,
-                fontFeatureSettings = "tnum"
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
+    )
 }
 
 @Composable
@@ -3064,19 +3048,19 @@ internal fun ServerQrShareSheet(
         subtitle = protocolShortLabel(profile),
         onDismiss = onDismiss
     ) {
-        MarbleCard(contentPadding = PaddingValues(24.dp)) {
+        MarbleCard(contentPadding = PaddingValues(MarbleSpace.XXL.dp)) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(MarbleSpace.LG.dp)
             ) {
                 if (qr != null) {
                     Box(
                         modifier = Modifier
                             .size(220.dp)
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(MarbleRadius.CONTROL.dp))
                             .background(Color.White)
-                            .padding(14.dp),
+                            .padding(MarbleSpace.TILE.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Canvas(modifier = Modifier.fillMaxSize()) {

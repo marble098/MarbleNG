@@ -1,19 +1,9 @@
 package com.marbleng.app.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import com.marbleng.app.ui.theme.MarbleCardShape
 import com.marbleng.app.ui.theme.MarbleExpressiveTheme
 import com.marbleng.app.ui.theme.warning
 
@@ -52,66 +42,37 @@ fun ConnectionPermissionDialog(
         val continueLabel = trx("Continue")
         val notNowLabel = trx("Not now")
 
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            containerColor = colors.surfaceContainerLow,
-            shape = MarbleCardShape,
-            title = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    MarbleRowIcon(glyph = glyph, tint = iconTint)
-                    Text(
-                        text = title,
-                        color = colors.onSurface,
-                        // MARBLE_WEIGHT_LADDER_V235 — titleLarge carries HEADLINE (700) itself.
-                        style = MaterialTheme.typography.titleLarge
-                    )
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier.padding(top = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = subtitle,
-                        color = colors.onSurface,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        text = note,
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    if (error.isNotBlank()) {
-                        Text(
-                            text = trx(error),
-                            color = colors.error,
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                MarbleButton(
-                    label = continueLabel,
-                    onClick = onContinue,
-                    style = MarbleButtonStyle.PRIMARY,
-                    colorOverride = iconTint,
-                    compact = true
-                )
-            },
-            dismissButton = {
-                MarbleButton(
-                    label = notNowLabel,
-                    onClick = onDismiss,
-                    style = MarbleButtonStyle.SECONDARY,
-                    compact = true,
-                    modifier = Modifier.fillMaxWidth(0.36f)
+        // MARBLE_ONE_LANGUAGE_V281 — the product's only alert dialog, asked for the two things this
+        // one needs: a row icon in its title and its actions as buttons rather than text. The
+        // container, the corner, the title voice and the body rhythm are the kit's now, so a
+        // permission ask and a delete confirmation are the same object speaking the same way.
+        MarbleAlertDialog(
+            title = title,
+            onDismiss = onDismiss,
+            confirmLabel = continueLabel,
+            onConfirm = onContinue,
+            dismissLabel = notNowLabel,
+            glyph = glyph,
+            accent = iconTint,
+            actionsAsButtons = true
+        ) {
+            Text(
+                text = subtitle,
+                color = colors.onSurface,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = note,
+                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+            if (error.isNotBlank()) {
+                Text(
+                    text = trx(error),
+                    color = colors.error,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
                 )
             }
-        )
+        }
     }
 }
