@@ -703,8 +703,14 @@ jobs:
                   and "fun MarbleTrafficSparkline(" in marble_shell
                   and "class TrafficTimeline(" in shell_model
               ),
+              # MARBLE_ONE_LANGUAGE_V281 — the kit card now takes its geometry as parameters, so
+              # its two branches (tappable and static) share one named hairline instead of each
+              # spelling it out: still a 1dp BorderStroke, still only when a border colour is
+              # passed, still no HorizontalDivider anywhere in the kit.
               "surfaces over outlines": (
-                  "border = borderColor?.let { BorderStroke(1.dp, it) }" in marble_components
+                  "val cardBorder = borderColor?.let { BorderStroke(1.dp, it) }"
+                  in marble_components
+                  and marble_components.count("border = cardBorder") >= 2
                   and "HorizontalDivider(" not in marble_components
               ),
               "calm server health": (
