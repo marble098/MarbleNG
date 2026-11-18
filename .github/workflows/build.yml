@@ -2,6 +2,21 @@
 name: Build signed Android APKs
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/build.yml'
+      - 'app/build.gradle.kts'
+      - 'app/src/main/jni/**'
+      - 'core-lock.json'
+      - 'gradle/**'
+      - 'native/**'
+      - 'scripts/bundle-routing-assets.sh'
+      - 'scripts/inject-*.py'
+      - 'scripts/install-android-sdk.sh'
+      - 'scripts/lib/**'
+      - 'scripts/prepare-native.sh'
+      - 'scripts/reclaim-runner-disk.sh'
+      - 'scripts/resolve-android-platform.py'
   workflow_dispatch:
     inputs:
       version_name:
@@ -14,11 +29,11 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: marbleng-release
-  cancel-in-progress: false
+  group: ${{ github.ref == 'refs/heads/main' && 'marbleng-release' || format('marbleng-apk-verify-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   # Xray's own go.mod decides the actual Go toolchain.
@@ -29,6 +44,8 @@ jobs:
     name: Build signed MarbleNG APKs
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      release_cert_sha256: ${{ steps.install-contract.outputs.release_cert_sha256 }}
 
     steps:
       # ========================================================================
@@ -39,8 +56,10 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate chosen version and check for collisions
+        if: github.event_name == 'workflow_dispatch'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,6 +69,14 @@ jobs:
           set -euo pipefail
           bash scripts/release-version.sh
           printf 'VERSION_NAME=%s\nVERSION_CODE=%s\n' "$VERSION_NAME" "$VERSION_CODE" >> "$GITHUB_ENV"
+
+      - name: Set test APK version
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          printf 'VERSION_NAME=0.0.%s\nVERSION_CODE=%s\n' "$PR_NUMBER" "$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
       - name: Marble system integrity preflight
         shell: bash
@@ -278,7 +305,24 @@ jobs:
       # Restore + validate signing identity
       # ========================================================================
 
+      - name: Generate a temporary verification signer
+        if: github.ref != 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          keytool -genkeypair -noprompt -keystore release.jks -storetype PKCS12 \
+            -alias marbleng-ci -storepass changeit -keypass changeit \
+            -dname 'CN=MarbleNG CI verification only' -keyalg RSA -keysize 2048 -validity 30
+          cat > signing.properties <<'PROPERTIES'
+          storeFile=release.jks
+          storePassword=changeit
+          keyAlias=marbleng-ci
+          keyPassword=changeit
+          PROPERTIES
+
       - name: Restore and validate stable release signer
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         shell: bash
         env:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
@@ -519,6 +563,7 @@ jobs:
       # ========================================================================
 
       - name: Verify the APK install contract
+        id: install-contract
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -700,7 +745,12 @@ jobs:
           done
 
           echo
-          echo "Release signing certificate SHA-256: $release_certificate"
+          echo "APK signing certificate SHA-256: $release_certificate"
+
+          if [[ "$GITHUB_REF" != 'refs/heads/main' ]]; then
+            echo "[OK] APK install contract verified with a temporary signer; published-release upgrade checks run only on main."
+            exit 0
+          fi
 
           # ----------------------------------------------------------------
           # Baseline: the newest published release is what phones carry.
@@ -788,7 +838,7 @@ jobs:
 
           fi
 
-          echo "RELEASE_CERT_SHA256=$release_certificate" >> "$GITHUB_ENV"
+          echo "release_cert_sha256=$release_certificate" >> "$GITHUB_OUTPUT"
 
           echo
           echo "[OK] APK install contract verified on every release APK."
@@ -798,20 +848,131 @@ jobs:
       # ========================================================================
 
       - name: Upload APK artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: MarbleNG-${{ env.VERSION_NAME }}-all-architectures
+          name: ${{ github.ref == 'refs/heads/main' && 'MarbleNG' || 'MarbleNG-verification' }}-${{ env.VERSION_NAME }}-all-architectures
           path: dist/*
           if-no-files-found: error
 
       # V242: keep the R8 dictionary beside the APKs so a field logcat can be retraced
       # without guessing from obfuscated class names. It is a CI artifact, not a release asset.
       - name: Upload R8 mapping
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: MarbleNG-${{ env.VERSION_NAME }}-r8-mapping
+          name: ${{ github.ref == 'refs/heads/main' && 'MarbleNG' || 'MarbleNG-verification' }}-${{ env.VERSION_NAME }}-r8-mapping
           path: app/build/outputs/mapping/release/mapping.txt
           if-no-files-found: error
+
+      # ========================================================================
+      # MARBLE_RUNNER_DISK_HEADROOM_V268 — a dead release build must name its
+      # cause in the run itself.
+      #
+      # Run #377's only surviving evidence was its annotation text: the step log
+      # host was unreachable from every diagnostic environment, and "No space
+      # left on device" was buried in a Gradle work-item line. So the free space
+      # and the largest directories now travel in the run — into the failed
+      # job's summary and into one annotation — on every failure of this job,
+      # whatever its cause.
+      # ========================================================================
+
+      - name: Diagnose a failed release build
+        if: failure()
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          # Annotation commands are single-line: a newline ends the command and
+          # truncates the message, so multi-line bodies are %0A-encoded (and
+          # percent signs escaped first, or %0A would decode as text).
+          annotate_error() {
+            local title="$1"
+            local body="$2"
+
+            body="${body//%/%25}"
+            body="${body//$'\r'/ }"
+            body="${body//$'\n'/%0A}"
+
+            printf '::error title=%s::%s\n' "$title" "$body"
+          }
+
+          free_mib="$(df -Pm -- "$PWD" 2>/dev/null | awk 'NR==2 {print $4}')"
+          report="${RUNNER_TEMP:-/tmp}/marbleng-failure-diagnostics.txt"
+
+          {
+            echo "Free space on the job filesystem: ${free_mib:-unknown} MiB"
+            echo
+            echo "Filesystems:"
+            df -h 2>/dev/null
+            echo
+            echo "Largest directories under the runner home:"
+            du -xk -d 2 "$HOME" 2>/dev/null | sort -rn | head -n 25 |
+              awk '{printf "  %8.1f MiB  %s\n", $1 / 1024, $2}'
+            echo
+            echo "Largest directories in the checkout:"
+            du -xk -d 2 "$PWD" 2>/dev/null | sort -rn | head -n 25 |
+              awk '{printf "  %8.1f MiB  %s\n", $1 / 1024, $2}'
+          } > "$report" 2>&1
+
+          cat "$report"
+
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            {
+              echo "## [FAIL] MarbleNG release build"
+              echo
+              echo "- Free space on the job filesystem: \`${free_mib:-unknown} MiB\`"
+              echo
+              echo '```'
+              cat "$report"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          largest_home() {
+            du -xk -d 1 "$HOME" 2>/dev/null | sort -rn | head -n 8 |
+              awk '{printf "  %8.1f MiB  %s\n", $1 / 1024, $2}'
+          }
+
+          if (( ${free_mib:-0} < 4096 )); then
+            annotate_error "MarbleNG-release-build" "$(
+              printf 'The release build failed with only %s MiB free on %s.\n' \
+                "${free_mib:-0}" "$PWD"
+              printf 'A full filesystem is the known cause of ":app:stripReleaseDebugSymbols ... No space left on device".\n'
+              printf 'Largest directories under the runner home:\n'
+              largest_home
+            )"
+          else
+            annotate_error "MarbleNG-release-build" "$(
+              printf 'The release build failed with %s MiB free on %s, so the disk is probably not the cause.\n' \
+                "${free_mib:-0}" "$PWD"
+              printf 'The "Diagnose a failed release build" step of this job carries df -h and the largest directories.\n'
+            )"
+          fi
+
+  publish:
+    name: Create draft release
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      VERSION_NAME: ${{ inputs.version_name }}
+      VERSION_CODE: ${{ inputs.version_code }}
+      RELEASE_CERT_SHA256: ${{ needs.build.outputs.release_cert_sha256 }}
+
+    steps:
+      - name: Checkout the build commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download verified APK artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: MarbleNG-${{ inputs.version_name }}-all-architectures
+          path: dist
 
       # ========================================================================
       # GitHub Release (SMART, SELF-HEALING PUBLISH)
@@ -999,88 +1160,3 @@ jobs:
           done
 
           echo "Draft release successfully created and assets uploaded. Waiting for your manual approval to publish."
-
-      # ========================================================================
-      # MARBLE_RUNNER_DISK_HEADROOM_V268 — a dead release build must name its
-      # cause in the run itself.
-      #
-      # Run #377's only surviving evidence was its annotation text: the step log
-      # host was unreachable from every diagnostic environment, and "No space
-      # left on device" was buried in a Gradle work-item line. So the free space
-      # and the largest directories now travel in the run — into the failed
-      # job's summary and into one annotation — on every failure of this job,
-      # whatever its cause.
-      # ========================================================================
-
-      - name: Diagnose a failed release build
-        if: failure()
-        shell: bash
-        run: |
-          set -uo pipefail
-
-          # Annotation commands are single-line: a newline ends the command and
-          # truncates the message, so multi-line bodies are %0A-encoded (and
-          # percent signs escaped first, or %0A would decode as text).
-          annotate_error() {
-            local title="$1"
-            local body="$2"
-
-            body="${body//%/%25}"
-            body="${body//$'\r'/ }"
-            body="${body//$'\n'/%0A}"
-
-            printf '::error title=%s::%s\n' "$title" "$body"
-          }
-
-          free_mib="$(df -Pm -- "$PWD" 2>/dev/null | awk 'NR==2 {print $4}')"
-          report="${RUNNER_TEMP:-/tmp}/marbleng-failure-diagnostics.txt"
-
-          {
-            echo "Free space on the job filesystem: ${free_mib:-unknown} MiB"
-            echo
-            echo "Filesystems:"
-            df -h 2>/dev/null
-            echo
-            echo "Largest directories under the runner home:"
-            du -xk -d 2 "$HOME" 2>/dev/null | sort -rn | head -n 25 |
-              awk '{printf "  %8.1f MiB  %s\n", $1 / 1024, $2}'
-            echo
-            echo "Largest directories in the checkout:"
-            du -xk -d 2 "$PWD" 2>/dev/null | sort -rn | head -n 25 |
-              awk '{printf "  %8.1f MiB  %s\n", $1 / 1024, $2}'
-          } > "$report" 2>&1
-
-          cat "$report"
-
-          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-            {
-              echo "## [FAIL] MarbleNG release build"
-              echo
-              echo "- Free space on the job filesystem: \`${free_mib:-unknown} MiB\`"
-              echo
-              echo '```'
-              cat "$report"
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          largest_home() {
-            du -xk -d 1 "$HOME" 2>/dev/null | sort -rn | head -n 8 |
-              awk '{printf "  %8.1f MiB  %s\n", $1 / 1024, $2}'
-          }
-
-          if (( ${free_mib:-0} < 4096 )); then
-            annotate_error "MarbleNG-release-build" "$(
-              printf 'The release build failed with only %s MiB free on %s.\n' \
-                "${free_mib:-0}" "$PWD"
-              printf 'A full filesystem is the known cause of ":app:stripReleaseDebugSymbols ... No space left on device".\n'
-              printf 'Largest directories under the runner home:\n'
-              largest_home
-            )"
-          else
-            annotate_error "MarbleNG-release-build" "$(
-              printf 'The release build failed with %s MiB free on %s, so the disk is probably not the cause.\n' \
-                "${free_mib:-0}" "$PWD"
-              printf 'The "Diagnose a failed release build" step of this job carries df -h and the largest directories.\n'
-            )"
-          fi
