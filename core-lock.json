@@ -8,10 +8,10 @@
   },
   "hev": {
     "repo": "heiher/hev-socks5-tunnel",
-    "tag": "2.20.0",
-    "commit": "75dbc1e9ace6c70d3d1b94df7c283efe1de7effc",
-    "publishedAt": "2026-11-13T13:06:16Z",
-    "prerelease": false
+    "tag": "snapshot",
+    "commit": "e3839498a821b45d2dd19e0603e5894355a32d29",
+    "publishedAt": "2026-11-17T15:09:47Z",
+    "prerelease": true
   },
   "singbox": {
     "repo": "shtorm-7/sing-box-extended",
@@ -34,6 +34,6 @@
     "publishedAt": "2026-07-12T09:48:53Z",
     "prerelease": false
   },
-  "updated": "2026-11-17",
+  "updated": "2026-11-18",
   "rule": "latest-published"
 }
