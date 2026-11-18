@@ -1725,9 +1725,10 @@ or release (including a draft) causes a failure, never an automatic version chan
 deletion. On `main`, success creates a tag at the selected commit and a **draft**
 GitHub Release; review and publish it manually. If publishing fails after tag creation,
 inspect and manually remove the incomplete tag/draft before retrying that same version.
-No release is silently replaced. To verify a PR before merging, run the same workflow on
-its branch: it builds, signs, checks, and uploads the APKs as workflow artifacts, but
-creates no tag or release.
+No release is silently replaced. PRs that touch the native build or its toolchain run the
+same build, packaging and APK checks automatically. You can also dispatch the workflow on
+a branch to test other changes. These runs use a temporary signing key and upload test
+artifacts only; they cannot create a release or update an installed production APK.
 
 ## Android ABIs
 

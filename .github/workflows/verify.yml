@@ -781,10 +781,16 @@ jobs:
                   "version_name:" in build and "version_code:" in build
               ),
               "no tag push": 'git push origin "$tag"' not in build,
-              "only main creates a release": (
-                  "        if: github.ref == 'refs/heads/main'" in build.split(
-                      "- name: Publish GitHub Release", 1
-                  )[1].split("        run:", 1)[0]
+              "only manual main builds can create a release": (
+                  "    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
+                  in build.partition("\n  publish:\n")[2].partition("\n    steps:")[0]
+                  and "- name: Publish GitHub Release" in build.partition("\n  publish:\n")[2]
+                  and "contents: write" not in build.partition("\n  publish:\n")[0]
+              ),
+              "only manual main builds use the stable signer": (
+                  "      - name: Restore and validate stable release signer\n"
+                  "        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'"
+                  in build
               ),
               "no inline notes": (
                   '--notes "## MarbleNG $VERSION_NAME' not in build
