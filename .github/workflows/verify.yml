@@ -38,7 +38,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash -n scripts/*.sh
+          for script in scripts/*.sh scripts/lib/*.sh; do
+            bash -n "$script"
+          done
+
+      - name: Native ELF machine fixtures
+        shell: bash
+        run: bash scripts/test-native-elf.sh
 
       - name: Manual release version fixtures
         shell: bash
@@ -775,6 +781,11 @@ jobs:
                   "version_name:" in build and "version_code:" in build
               ),
               "no tag push": 'git push origin "$tag"' not in build,
+              "only main creates a release": (
+                  "        if: github.ref == 'refs/heads/main'" in build.split(
+                      "- name: Publish GitHub Release", 1
+                  )[1].split("        run:", 1)[0]
+              ),
               "no inline notes": (
                   '--notes "## MarbleNG $VERSION_NAME' not in build
               ),

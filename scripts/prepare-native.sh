@@ -47,6 +47,7 @@ set -euo pipefail
 # ==============================================================================
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/scripts/lib/native-elf.sh"
 
 # ==============================================================================
 # TEMPORARY SESSION ANALYSIS — removed before the pull request.
@@ -90,12 +91,9 @@ export GOTOOLCHAIN=auto
 # dead build says what it was doing, not just that it died.
 MILESTONE=""
 
-# Log file of the native compile that is running (or ran last), written by
-# build_xray()/build_singbox(). A compiler writes its real reason into its
-# output, and failure_diagnostics() replays the tail into the step summary and
-# the run annotation - the step log itself is not always reachable when a
-# release build dies (its log host has been unreachable from every diagnostic
-# environment so far), so the reason has to travel in the annotation.
+# Preserve the reason for explicit failures outside a captured log, and the
+# output from the last logged build step for compiler or validation failures.
+LAST_FAILURE=""
 LAST_BUILD_LOG=""
 
 log() {
@@ -112,6 +110,7 @@ warn() {
 }
 
 die() {
+    LAST_FAILURE="$*"
     printf '\033[1;31m[FAIL]\033[0m %s\n' "$*" >&2
     exit 1
 }
@@ -256,6 +255,8 @@ download_file() {
 
 failure_diagnostics() {
     local status=$?
+    # A problem writing the diagnostics must not change the original status.
+    set +e
 
     if (( status != 0 )); then
         local report
@@ -268,6 +269,10 @@ failure_diagnostics() {
             echo
             echo "Exit code:"
             echo "  $status"
+
+            if [[ -n "$LAST_FAILURE" ]]; then
+                printf '\nReason:\n  %s\n' "$LAST_FAILURE"
+            fi
 
             echo
             echo "Go:"
@@ -320,7 +325,7 @@ failure_diagnostics() {
             free -m 2>/dev/null || true
 
             echo
-            echo "Last native compile log:"
+            echo "Last native step log:"
             echo
             tail_of_log "$LAST_BUILD_LOG" 60
 
@@ -352,19 +357,18 @@ failure_diagnostics() {
                 echo '```'
             } >> "${GITHUB_STEP_SUMMARY}"
 
-            local annotation_title
-            annotation_title="$(printf '%s' "${MILESTONE:-native preparation}" | sed 's/%/%25/g;s/\r/ /g;s/\n/ /g')"
-
-            # The step log is not always reachable (a dead release build has
-            # already lost it twice), so the annotation carries the compiler's
-            # own last words, not just a pointer to the summary.
+            # Include the actual failure even when the step log isn't reachable.
             local annotation_body
             annotation_body="$(
                 printf 'prepare-native.sh failed at "%s" (exit %s)\n' \
                     "${MILESTONE:-native preparation}" "$status"
 
+                if [[ -n "$LAST_FAILURE" ]]; then
+                    printf '\nReason: %s\n' "$LAST_FAILURE"
+                fi
+
                 if [[ -n "$LAST_BUILD_LOG" && -s "$LAST_BUILD_LOG" ]]; then
-                    printf '\nCompiler output (%s):\n' "$(basename "$LAST_BUILD_LOG")"
+                    printf '\nNative step output (%s):\n' "$(basename "$LAST_BUILD_LOG")"
                     tail_of_log "$LAST_BUILD_LOG" 30
                 fi
             )"
@@ -1980,14 +1984,29 @@ ok "sing-box Android package graph resolves for every ABI"
 # build compiles with. The tag-list rationale — and why with_admin_panel is
 # deliberately absent from it — is documented there.
 
-# Verify the binary really is the requested Android architecture.
-singbox_assert_machine() {
-    local file="$1" expected="$2"
+# Validate before copying into jniLibs. Both Go cores use the same ELF and
+# version checks; callers capture this whole stage, not just `go build`.
+stage_go_core() {
+    local abi="$1" output="$2" machine="$3" version="$4"
+    local name="${output##*/}"
+    local installed="$JNILIBS/$abi/$name"
+    local size hash
 
-    "$LLVM_READELF" -h "$file" 2>/dev/null |
-        grep -q "Machine:.*$expected" || {
-            die "sing-box binary is not $expected: $file"
-        }
+    [[ -s "$output" ]] || die "Android build produced no file for $abi: $output"
+    assert_elf_machine "$LLVM_READELF" "$output" "$machine"
+    grep -aFq -- "$version" "$output" || die "Version marker '$version' missing from $output"
+
+    chmod 755 "$output"
+    size="$(wc -c < "$output")"
+    hash="$(sha256sum "$output" | awk '{print $1}')"
+    mkdir -p "$JNILIBS/$abi"
+    cp -f "$output" "$installed"
+    chmod 755 "$installed"
+    [[ -s "$installed" ]] || die "Could not install $name into jniLibs for $abi"
+
+    ok "Installed $name $version -> $abi"
+    echo "     size   : $size bytes"
+    echo "     sha256 : $hash"
 }
 
 build_singbox() {
@@ -1997,7 +2016,10 @@ build_singbox() {
     local machine="$4"
     local goarm="${5:-}"
 
-    MILESTONE="Building sing-box for $abi"
+    log "Building sing-box for $abi"
+    local build_log="$CORE/singbox-build-$abi.log"
+    LAST_BUILD_LOG="$build_log"
+    : > "$build_log"
 
     local out_dir="$SINGBOX_STAGE/$abi"
     local output="$out_dir/libsingbox.so"
@@ -2033,16 +2055,10 @@ build_singbox() {
     (
         cd "$SINGBOX_SRC"
         env GOTOOLCHAIN=auto go version
-    )
+    ) 2>&1 | tee -a "$build_log"
 
     echo "================================================================"
     echo
-
-    # Captured, not just streamed: a compiler error here has to survive the
-    # loss of the step log (see failure_diagnostics()).
-    local build_log="$CORE/singbox-build-$abi.log"
-
-    LAST_BUILD_LOG="$build_log"
 
     if [[ -n "$goarm" ]]; then
 
@@ -2066,7 +2082,7 @@ build_singbox() {
                     -ldflags "-X github.com/sagernet/sing-box/constant.Version=${SINGBOX_BUILD_VERSION} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./cmd/sing-box
-        ) 2>&1 | tee "$build_log"
+        ) 2>&1 | tee -a "$build_log"
 
     else
 
@@ -2089,54 +2105,12 @@ build_singbox() {
                     -ldflags "-X github.com/sagernet/sing-box/constant.Version=${SINGBOX_BUILD_VERSION} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./cmd/sing-box
-        ) 2>&1 | tee "$build_log"
+        ) 2>&1 | tee -a "$build_log"
 
     fi
 
-    [[ -s "$output" ]] || {
-        die "sing-box Android build produced no file for $abi"
-    }
-
-    chmod 755 "$output"
-
-    # A wrongly labelled or unpatched core must fail the build here, not the
-    # user's first connection.
-    singbox_assert_machine "$output" "$machine"
-
-    grep -a -F "$SINGBOX_BUILD_VERSION" "$output" >/dev/null || {
-        die "Patched sing-box version marker missing from the $abi binary"
-    }
-
-    local size
-    local hash
-
-    size="$(
-        wc -c < "$output" |
-        tr -d ' '
-    )"
-
-    hash="$(
-        sha256sum "$output" |
-        awk '{print $1}'
-    )"
-
-    ok "sing-box staged: $abi"
-    echo "     size   : $size bytes"
-    echo "     sha256 : $hash"
-
-    mkdir -p "$JNILIBS/$abi"
-
-    cp -f \
-        "$output" \
-        "$JNILIBS/$abi/libsingbox.so"
-
-    chmod 755 "$JNILIBS/$abi/libsingbox.so"
-
-    [[ -s "$JNILIBS/$abi/libsingbox.so" ]] || {
-        die "Could not install sing-box into jniLibs for $abi"
-    }
-
-    ok "Installed sing-box extended $SINGBOX_BUILD_VERSION -> $abi"
+    log "Validating and staging sing-box for $abi"
+    stage_go_core "$abi" "$output" "$machine" "$SINGBOX_BUILD_VERSION" 2>&1 | tee -a "$build_log"
 }
 
 build_singbox \
@@ -2322,15 +2296,6 @@ tun2socks_resolve_graph "386" "i686-linux-android${ANDROID_NATIVE_API}-clang" ||
 
 ok "tun2socks Android package graph resolves for every ABI"
 
-tun2socks_assert_machine() {
-    local file="$1" expected="$2"
-
-    "$LLVM_READELF" -h "$file" 2>/dev/null |
-        grep -q "Machine:.*$expected" || {
-            die "tun2socks library is not $expected: $file"
-        }
-}
-
 build_tun2socks() {
     local abi="$1"
     local goarch="$2"
@@ -2338,7 +2303,10 @@ build_tun2socks() {
     local machine="$4"
     local goarm="${5:-}"
 
-    MILESTONE="Building tun2socks for $abi"
+    log "Building tun2socks for $abi"
+    local build_log="$CORE/tun2socks-build-$abi.log"
+    LAST_BUILD_LOG="$build_log"
+    : > "$build_log"
 
     local out_dir="$TUN2SOCKS_STAGE/$abi"
     local output="$out_dir/libtun2socks.so"
@@ -2367,9 +2335,6 @@ build_tun2socks() {
     echo "================================================================"
     echo
 
-    local build_log="$CORE/tun2socks-build-$abi.log"
-    LAST_BUILD_LOG="$build_log"
-
     if [[ -n "$goarm" ]]; then
 
         (
@@ -2391,7 +2356,7 @@ build_tun2socks() {
                     -ldflags "-X main.buildVersion=${TUN2SOCKS_TAG} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./cmd/libmarble
-        ) 2>&1 | tee "$build_log"
+        ) 2>&1 | tee -a "$build_log"
 
     else
 
@@ -2413,42 +2378,12 @@ build_tun2socks() {
                     -ldflags "-X main.buildVersion=${TUN2SOCKS_TAG} -s -w -buildid= -checklinkname=0" \
                     -o "$output" \
                     ./cmd/libmarble
-        ) 2>&1 | tee "$build_log"
+        ) 2>&1 | tee -a "$build_log"
 
     fi
 
-    [[ -s "$output" ]] || {
-        tail -n 20 "$build_log" >&2 || true
-        die "tun2socks Android build produced no library for $abi"
-    }
-
-    chmod 755 "$output"
-
-    tun2socks_assert_machine "$output" "$machine"
-
-    grep -a -F "$TUN2SOCKS_TAG" "$output" >/dev/null || {
-        die "tun2socks version marker missing from the $abi library"
-    }
-
-    local size
-    local hash
-
-    size="$(wc -c < "$output" | tr -d ' ')"
-    hash="$(sha256sum "$output" | awk '{print $1}')"
-
-    ok "tun2socks staged: $abi"
-    echo "     size   : $size bytes"
-    echo "     sha256 : $hash"
-
-    mkdir -p "$JNILIBS/$abi"
-    cp -f "$output" "$JNILIBS/$abi/libtun2socks.so"
-    chmod 755 "$JNILIBS/$abi/libtun2socks.so"
-
-    [[ -s "$JNILIBS/$abi/libtun2socks.so" ]] || {
-        die "Could not install tun2socks into jniLibs for $abi"
-    }
-
-    ok "Installed tun2socks $TUN2SOCKS_TAG -> $abi"
+    log "Validating and staging tun2socks for $abi"
+    stage_go_core "$abi" "$output" "$machine" "$TUN2SOCKS_TAG" 2>&1 | tee -a "$build_log"
 }
 
 build_tun2socks \

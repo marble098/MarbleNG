@@ -1710,7 +1710,7 @@ folded into the next release. Add `[skip release]` to a merge commit message to 
 Nothing is published automatically: the result is a draft to review and publish by hand.
 
 A release can still be built by hand: open **Actions → Build signed Android APKs → Run
-workflow**, select the source branch (normally `main`), and enter both:
+workflow**, select `main`, and enter both:
 
 - `version_name`: a numeric semantic version such as `11.5.1` (without `v`). The APK
   versionName is exactly this value and the Git tag is `v11.5.1`.
@@ -1722,10 +1722,12 @@ workflow**, select the source branch (normally `main`), and enter both:
 The workflow checks the most recent published release APK when available and rejects a
 non-increasing versionCode. The same selected values apply to every APK. An existing tag
 or release (including a draft) causes a failure, never an automatic version change or
-deletion. On success the tag points to the selected commit and a **draft** GitHub Release
-is created; review and publish it manually. If publishing fails after tag creation, inspect
-and manually remove the incomplete tag/draft before retrying that same version. No release
-is silently replaced.
+deletion. On `main`, success creates a tag at the selected commit and a **draft**
+GitHub Release; review and publish it manually. If publishing fails after tag creation,
+inspect and manually remove the incomplete tag/draft before retrying that same version.
+No release is silently replaced. To verify a PR before merging, run the same workflow on
+its branch: it builds, signs, checks, and uploads the APKs as workflow artifacts, but
+creates no tag or release.
 
 ## Android ABIs
 
