@@ -2309,7 +2309,7 @@ private val FaLexicon: Map<String, String> = mapOf(
     "Disable even the subtle 2dp card shadow for pure flat iOS geometry" to "حتی سایه ریز ۲dp کارت رو هم بردار تا سطح کاملاً تخت بشه",
     "Disconnect before deleting a subscription source" to "اول قطع کن، بعد منبع اشتراک رو حذف کن",
     "Disconnect before deleting servers" to "اول قطع کن، بعد سرورها رو حذف کن",
-    "Disconnect before downloading routing assets • direct management downloads are blocked while a tunnel is active" to "اول قطع کن، بعد فایل‌های مسیریابی رو بگیر • تا تونل روشنه نمیشه مستقیم دانلود کرد",
+    "Routing assets are managed while disconnected • tap “Force update” to refresh over the active tunnel" to "فایل‌های مسیریابی رو وقتی قطع هستی مدیریت کن • برای به‌روزرسانی از طریق تونل فعال، روی «به‌روزرسانی اجباری» بزن",
     "Disconnect before removing failed servers" to "اول قطع کن، بعد سرورهای ناموفق رو پاک کن",
     "Disconnect before restoring a backup" to "اول قطع کن، بعد پشتیبان رو برگردون",
     "Disconnect before routing verification when remote geo data URLs are configured" to "وقتی لینک‌های جغرافیایی داری، اول قطع کن بعد مسیریابی رو چک کن",
