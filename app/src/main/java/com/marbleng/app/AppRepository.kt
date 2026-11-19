@@ -5633,8 +5633,8 @@ private fun postToMain(block: () -> Unit) {
     }
 
     fun prepareRoutingAssets(force: Boolean = false) {
-        if (state != "DISCONNECTED" && (settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank())) {
-            message = "Disconnect before downloading routing assets • direct management downloads are blocked while a tunnel is active"
+        if (state != "DISCONNECTED" && !force && (settings.geoIpUrl.isNotBlank() || settings.geoSiteUrl.isNotBlank())) {
+            message = "Routing assets are managed while disconnected • tap “Force update” to refresh over the active tunnel"
             return
         }
         task(if (force) "Updating routing assets" else "Preparing routing assets") {
