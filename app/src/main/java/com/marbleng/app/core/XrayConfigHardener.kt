@@ -667,11 +667,7 @@ object XrayConfigHardener {
         // Ads geosite tag: normalizeGeoSiteTag(settings.routeAdsTag) — now RoutingEngine + RoutingDefaults.ADS_TAG
         RoutingEngine.applyUserRules(rules, settings, firstTag)
 
-        // MARBLE_IRAN_WORLD_V281 — the Iranian censorship/poison IPs are blocked whenever the
-        // user asked for Iran/world separation (iranDomesticDirect), not only when the Iran
-        // countermeasure mode is armed. Domestic-direct routing and poison blocking belong
-        // together: traffic to known censorship injection points never enters the tunnel.
-        if (iranActive || settings.iranDomesticDirect) {
+        if (iranActive) {
             addIpRule(rules, IRAN_POISON_BLOCK_IPS, "block")
         }
 

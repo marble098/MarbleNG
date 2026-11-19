@@ -118,30 +118,29 @@ object RoutingOverview {
                 outbound = RoutingOutbound.BLOCK
             )
         }
-        // MARBLE_IRAN_WORLD_V281 — the domestic layer shows whenever iranDomesticDirect is on,
-        // in any routing mode. policyOf() still reports the overall outcome, but the layers
-        // below describe what is actually emitting right now.
-        if (implicit.directSiteTags.isNotEmpty() && geoSiteReady) {
-            out += Layer(
-                title = "Iranian sites",
-                detail = "Direct, from the downloaded site list",
-                outbound = RoutingOutbound.DIRECT
-            )
-        }
-        if (implicit.directIpTags.isNotEmpty() && geoIpReady) {
-            out += Layer(
-                title = "Iranian addresses",
-                detail = "Direct, from the downloaded address list",
-                outbound = RoutingOutbound.DIRECT
-            )
-        }
-        if (settings.iranDomesticDirect && RoutingEngine.precisionActive(settings)) {
-            val precision = parseGeoPrecision(settings.geoPrecision)
-            out += Layer(
-                title = "Domestic brands and .ir",
-                detail = IranPrecisionPack.summary(precision),
-                outbound = RoutingOutbound.DIRECT
-            )
+        if (policy == Policy.IRAN_DIRECT) {
+            if (implicit.directSiteTags.isNotEmpty() && geoSiteReady) {
+                out += Layer(
+                    title = "Iranian sites",
+                    detail = "Direct, from the downloaded site list",
+                    outbound = RoutingOutbound.DIRECT
+                )
+            }
+            if (implicit.directIpTags.isNotEmpty() && geoIpReady) {
+                out += Layer(
+                    title = "Iranian addresses",
+                    detail = "Direct, from the downloaded address list",
+                    outbound = RoutingOutbound.DIRECT
+                )
+            }
+            if (RoutingEngine.precisionActive(settings)) {
+                val precision = parseGeoPrecision(settings.geoPrecision)
+                out += Layer(
+                    title = "Domestic brands and .ir",
+                    detail = IranPrecisionPack.summary(precision),
+                    outbound = RoutingOutbound.DIRECT
+                )
+            }
         }
         return out
     }
