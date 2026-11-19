@@ -108,18 +108,16 @@ object RoutingEngine {
      */
     fun implicitRules(settings: AppSettings): ImplicitRules {
         val ads = settings.routeAdsTag.trim().takeIf { settings.routeBlockAds && it.isNotBlank() }
-        // MARBLE_IRAN_WORLD_V281 — Iran/world separation is driven by iranDomesticDirect on its
-        // own, not only when routingMode is GEO_DIRECT. The country layer (geoip:ir, geosite:ir)
-        // fires whenever the user asked for domestic-direct, in any routing mode. PROXY_ALL means
-        // "everything else tunnels" — Iranian traffic can still leave directly.
-        val directIpTags = if (settings.iranDomesticDirect) splitTags(settings.routeGeoIpTags) else emptyList()
-        val directSiteTags = if (settings.iranDomesticDirect) splitTags(settings.routeGeoSiteTags) else emptyList()
-        val forceBypassPrivate = settings.routeBypassPrivate
         return when (settings.routingMode) {
-            RoutingMode.PROXY_ALL -> ImplicitRules(ads, directIpTags, directSiteTags, forceBypassPrivate)
-            RoutingMode.BYPASS_PRIVATE -> ImplicitRules(ads, directIpTags, directSiteTags, true)
-            RoutingMode.GEO_DIRECT -> ImplicitRules(ads, directIpTags, directSiteTags, true)
-            RoutingMode.CUSTOM -> ImplicitRules(ads, directIpTags, directSiteTags, forceBypassPrivate)
+            RoutingMode.PROXY_ALL -> ImplicitRules(ads, emptyList(), emptyList(), false)
+            RoutingMode.BYPASS_PRIVATE -> ImplicitRules(ads, emptyList(), emptyList(), true)
+            RoutingMode.GEO_DIRECT -> ImplicitRules(
+                ads,
+                if (settings.iranDomesticDirect) splitTags(settings.routeGeoIpTags) else emptyList(),
+                if (settings.iranDomesticDirect) splitTags(settings.routeGeoSiteTags) else emptyList(),
+                true
+            )
+            RoutingMode.CUSTOM -> ImplicitRules(ads, emptyList(), emptyList(), false)
         }
     }
 
@@ -589,7 +587,8 @@ object RoutingEngine {
     const val PRECISION_RULE_CHUNK: Int = 120
 
     fun precisionActive(settings: AppSettings): Boolean =
-        (settings.routingMode == RoutingMode.GEO_DIRECT || settings.iranDomesticDirect) &&
+        settings.routingMode == RoutingMode.GEO_DIRECT &&
+            settings.iranDomesticDirect &&
             parseGeoPrecision(settings.geoPrecision) != GeoPrecision.STANDARD
 
     val PRIVATE_CIDRS = listOf(
@@ -888,8 +887,8 @@ object RoutingEngine {
             if (hit == true) decide(RoutingOutbound.BLOCK, "Matched the ad list")
         }
 
-        // 5. the Iranian country lists — fire whenever iranDomesticDirect is on, in any routing mode
-        if (settings.iranDomesticDirect) {
+        // 5. the Iranian country lists
+        if (policy == RoutingOverview.Policy.IRAN_DIRECT) {
             implicitRules(settings).directIpTags.forEach { tag ->
                 val token = normalizeGeoIp(tag) ?: return@forEach
                 val hit = if (!geoIpReady) {
