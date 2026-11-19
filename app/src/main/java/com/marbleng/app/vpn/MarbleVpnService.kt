@@ -1379,26 +1379,25 @@ class MarbleVpnService : VpnService() {
         }
 
         val packages = settings.splitTunnelPackages
-            .split(',', '\n', '\r', ';')
+            .split(',', '\n', '\r', ';', ' ')
             .map(String::trim)
             .filter { it.isNotBlank() && it != packageName }
             .distinct()
-        if (
-            settings.splitTunnelMode == com.marbleng.app.model.SplitTunnelMode.ONLY_SELECTED &&
-            packages.isEmpty()
-        ) {
-            diag.event("TUN", "split-only-selected-empty", "session" to session)
-            return false
-        }
 
         var policyOk = true
         when (settings.splitTunnelMode) {
             com.marbleng.app.model.SplitTunnelMode.ONLY_SELECTED -> {
+                // MARBLE_SPLIT_TUNNEL_V281 — only-selected with an empty list is valid: no app
+                // uses the tunnel, every app bypasses. The old code refused to connect entirely,
+                // which made the feature look broken. Self is disallowed below so the VPN app
+                // itself never loops through the tunnel. Each addAllowedApplication is attempted
+                // individually; one unavailable package never kills the connection.
+                policyOk = runCatching { builder.addDisallowedApplication(packageName) }
+                    .onFailure { diag.error("TUN", "self-disallow-failed", it, "session" to session) }
+                    .isSuccess
                 packages.forEach { pkg ->
-                    val ok = runCatching { builder.addAllowedApplication(pkg) }
+                    runCatching { builder.addAllowedApplication(pkg) }
                         .onFailure { diag.error("TUN", "split-allow-failed", it, "package" to pkg, "session" to session) }
-                        .isSuccess
-                    policyOk = policyOk && ok
                 }
             }
             com.marbleng.app.model.SplitTunnelMode.BYPASS_SELECTED -> {
