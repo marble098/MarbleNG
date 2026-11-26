@@ -9,8 +9,8 @@
   "hev": {
     "repo": "heiher/hev-socks5-tunnel",
     "tag": "snapshot",
-    "commit": "fc3f90040b8d4b537341c96538669a9b2e35d514",
-    "publishedAt": "2026-11-21T15:52:57Z",
+    "commit": "867e1e59dcf30ed75c0ee840991e441539fafb92",
+    "publishedAt": "2026-11-25T14:48:16Z",
     "prerelease": true
   },
   "singbox": {
@@ -34,6 +34,6 @@
     "publishedAt": "2026-07-12T09:48:53Z",
     "prerelease": false
   },
-  "updated": "2026-11-25",
+  "updated": "2026-11-26",
   "rule": "latest-published"
 }
